@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import clientPromise from '@/lib/mongodb';
 
 export async function GET() {
   try {
+    const session = await getServerSession();
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const client = await clientPromise;
     const db = client.db('repertoire');
-    const songs = await db.collection('songs').find({}).toArray();
+    const songs = await db.collection('songs').find({ 
+      userEmail: session.user.email 
+    }).toArray();
 
     return NextResponse.json(songs);
   } catch (error) {
@@ -18,11 +26,22 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const session = await getServerSession();
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const client = await clientPromise;
     const db = client.db('repertoire');
     const body = await request.json();
 
-    const result = await db.collection('songs').insertOne(body);
+    const songWithUser = {
+      ...body,
+      userEmail: session.user.email,
+      createdAt: new Date()
+    };
+
+    const result = await db.collection('songs').insertOne(songWithUser);
 
     return NextResponse.json({ id: result.insertedId });
   } catch (error) {
