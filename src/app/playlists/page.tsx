@@ -55,6 +55,22 @@ export default function Playlists() {
     }
   };
 
+  const calculateTotalDuration = (songs: Song[]) => {
+    const totalSeconds = songs.reduce((total, song) => {
+      if (!song.duration) return total;
+      const [minutes, seconds] = song.duration.split(':').map(Number);
+      return total + (minutes * 60) + seconds;
+    }, 0);
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+  };
+
   const handlePlaylistClick = (playlist: Playlist) => {
     setSelectedPlaylist(playlist);
     fetchPlaylistSongs(playlist);
@@ -100,7 +116,9 @@ export default function Playlists() {
                     }`}
                   >
                     <h4 className="font-semibold text-white text-lg">{playlist.title}</h4>
-                    <p className="text-gray-400 text-sm">{playlist.songs.length} songs</p>
+                    <p className="text-gray-400 text-sm">
+                      {playlist.songs.length} songs  • {calculateTotalDuration(playlistSongs)}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -110,7 +128,18 @@ export default function Playlists() {
           {/* Songs Column */}
           <div className="bg-gray-900 rounded-lg p-6">
             <h3 className="text-xl font-semibold text-white mb-6">
-              {selectedPlaylist ? selectedPlaylist.title : 'Select a playlist'}
+              {selectedPlaylist ? (
+                <>
+                  {selectedPlaylist.title}
+                  {playlistSongs.length > 0 && (
+                    <span className="text-gray-400 text-sm font-normal ml-2">
+                      • {playlistSongs.length} songs • {calculateTotalDuration(playlistSongs)}
+                    </span>
+                  )}
+                </>
+              ) : (
+                'Select a playlist'
+              )}
             </h3>
 
             {!selectedPlaylist && (
@@ -139,9 +168,11 @@ export default function Playlists() {
                       <h4 className="font-medium text-white truncate">{song.title}</h4>
                       <p className="text-gray-400 text-sm truncate">{song.artist}</p>
                     </div>
-                    <div className="text-gray-400 text-sm bg-gray-800 px-2 py-1 rounded-full">
-                      {song.genre}
-                    </div>
+                    {song.duration && (
+                      <div className="text-gray-400 text-sm">
+                        {song.duration}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

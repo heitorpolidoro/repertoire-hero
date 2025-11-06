@@ -11,9 +11,7 @@ export async function GET() {
 
     const client = await clientPromise;
     const db = client.db('repertoire');
-    const songs = await db.collection('songs').find({ 
-      userEmail: session.user.email 
-    }).toArray();
+    const songs = await db.collection('songs').find().toArray();
 
     return NextResponse.json(songs);
   } catch (error) {
@@ -35,13 +33,12 @@ export async function POST(request: Request) {
     const db = client.db('repertoire');
     const body = await request.json();
 
-    const songWithUser = {
+    const songWithTimestamp = {
       ...body,
-      userEmail: session.user.email,
       createdAt: new Date()
     };
 
-    const result = await db.collection('songs').insertOne(songWithUser);
+    const result = await db.collection('songs').insertOne(songWithTimestamp);
 
     return NextResponse.json({ id: result.insertedId });
   } catch (error) {
