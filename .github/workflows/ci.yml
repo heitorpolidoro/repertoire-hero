@@ -1,0 +1,15 @@
+name: "Node.js CI"
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    uses: heitorpolidoro/.github/.github/workflows/node-ci.yml@master
+    with:
+      node-versions: "['20.x']"
+      sonar-node-version: "20.x"
+    secrets: inherit # pragma: allowlist secret
