@@ -10,6 +10,6 @@ jobs:
   build:
     uses: heitorpolidoro/.github/.github/workflows/node-ci.yml@master
     with:
-      node-versions: "['20.x']"
-      sonar-node-version: "20.x"
+      node-versions: "['24.x']"
+      sonar-node-version: "24.x"
     secrets: inherit # pragma: allowlist secret
