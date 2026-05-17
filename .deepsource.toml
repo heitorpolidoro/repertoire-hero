@@ -6,6 +6,7 @@ enabled = true
   [analyzers.meta]
     environment = ["browser", "node"]
     plugins = ["react"]
+    skip_doc_coverage = ["arrow-function"]
 
 [[analyzers]]
 name = "secrets"
@@ -13,7 +14,7 @@ enabled = true
 
 [[analyzers]]
 name = "test-coverage"
-enabled = false
+enabled = true
 
 [[analyzers]]
 name = "docker"
