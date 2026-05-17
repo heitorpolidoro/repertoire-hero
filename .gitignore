@@ -36,16 +36,7 @@ yarn-error.log*
 # vercel
 .vercel
 
-# supabase
-supabase/.branches
-supabase/.temp
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# IDE / AI tooling
-.idea/
-.claude/
-.gemini/
-.meridian/
+/.idea/

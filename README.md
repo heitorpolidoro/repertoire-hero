@@ -1,75 +1,36 @@
-# Repertoire Hero
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-Repertoire Hero is a web application that helps musicians build and track their practice repertoire. It lets you add songs, set target tempos, log practice sessions, and visualize your progress over time.
+## Getting Started
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router) |
-| Language | TypeScript |
-| Styling | Tailwind CSS v4 |
-| State | Zustand |
-| Database | Supabase (PostgreSQL) |
-| Auth | Supabase Auth |
-| Testing | Vitest |
-
-## Local Setup
+First, run the development server:
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/repertoire_hero.git
-cd repertoire_hero
-
-# 2. Copy environment variables and fill in your values
-cp .env.example .env.local
-
-# 3. Install dependencies
-npm install
-
-# 4. Start the development server
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## Supabase Setup
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-1. Create a new project at [supabase.com](https://supabase.com).
-2. Copy the **Project URL** and **anon public key** from _Project Settings > API_ into your `.env.local`.
-3. Run the database migrations:
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-```bash
-npx supabase db push
-```
+## Learn More
 
-4. Seed the database with sample data:
+To learn more about Next.js, take a look at the following resources:
 
-```bash
-npx supabase db seed
-```
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-> If you prefer to run migrations manually, apply the SQL files in `supabase/migrations/` in chronological order, then run `supabase/seed.sql`.
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Running Tests
+## Deploy on Vercel
 
-```bash
-# Single run (used in CI)
-npm test
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-# Watch mode
-npm run test:watch
-```
-
-## Environment Variables
-
-See `.env.example` for a full list of required variables with descriptions. Add your actual values to `.env.local` (never commit this file).
-
-## Deployment
-
-The project is deployed on Vercel. Every merge to `main` triggers an automatic production deployment. See `.github/workflows/ci.yml` for the CI pipeline and `vercel.json` for the build configuration.
-
-Required secrets in the Vercel dashboard:
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
