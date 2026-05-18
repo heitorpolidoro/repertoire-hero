@@ -80,7 +80,7 @@ function LoginForm() {
               <div className="flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={() => handleFastLogin('sp1@example.com')}
+                  onClick={() => handleFastLogin('com.spotify@exemple.com')}
                   disabled={loading}
                   className="w-full py-2 px-4 bg-green-100 hover:bg-green-200 text-green-800 text-sm font-medium rounded-lg transition-colors border border-green-200"
                 >
@@ -88,7 +88,7 @@ function LoginForm() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleFastLogin('nsp1@example.com')}
+                  onClick={() => handleFastLogin('sem_spotify@exemple.com')}
                   disabled={loading}
                   className="w-full py-2 px-4 bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium rounded-lg transition-colors border border-gray-300"
                 >

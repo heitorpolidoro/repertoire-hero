@@ -7,8 +7,8 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 
 async function seed() {
   const users = [
-    { email: 'sp1@example.com', password: 'password', hasSpotify: true },
-    { email: 'nsp1@example.com', password: 'password', hasSpotify: false }
+    { email: 'com.spotify@exemple.com', password: 'password', hasSpotify: true },
+    { email: 'sem_spotify@exemple.com', password: 'password', hasSpotify: false }
   ]
 
   for (const u of users) {
