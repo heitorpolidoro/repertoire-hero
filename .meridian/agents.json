@@ -1,0 +1,86 @@
+[
+  {
+    "id": "devsecops",
+    "name": "devsecops",
+    "role": "Expert in security, CI/CD, and infrastructure automation.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "engineering-manager",
+    "name": "engineering-manager",
+    "role": "Engineering Manager focused on orchestrating project teams.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "product-manager",
+    "name": "product-manager",
+    "role": "Product Manager focused on requirements and business value.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "quality-assurance",
+    "name": "quality-assurance",
+    "role": "Quality Assurance expert for testing and verification.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "site-reliability-engineer",
+    "name": "site-reliability-engineer",
+    "role": "Site Reliability Engineer focused on availability and performance.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "software-architect",
+    "name": "software-architect",
+    "role": "Expert in designing scalable and secure software architectures.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "software-engineer",
+    "name": "software-engineer",
+    "role": "Senior engineer for implementation and technical execution.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "staff-engineer",
+    "name": "staff-engineer",
+    "role": "Technical leader focused on complex cross-cutting problems.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "react-expert",
+    "name": "react-expert",
+    "role": "Advanced specialist in React and modern frontend development.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "tailwind-expert",
+    "name": "tailwind-expert",
+    "role": "Advanced specialist in Tailwind CSS and modern styling.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "sql-expert",
+    "name": "sql-expert",
+    "role": "Expert in SQL database design and query optimization.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  },
+  {
+    "id": "node-expert",
+    "name": "node-expert",
+    "role": "Advanced specialist in Node.js and TypeScript backend.",
+    "instruction": "Bootstrap loaded from filesystem.",
+    "color": "#00c3ff"
+  }
+]

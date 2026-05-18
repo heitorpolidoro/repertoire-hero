@@ -40,3 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /.idea/
+
+# Supabase Temp
+supabase/.temp/
+
+# AI Assistants Local State
+.claude/worktrees/
+.claude/launch.json
