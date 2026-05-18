@@ -24,6 +24,7 @@ function makeSong(overrides: Partial<UserRepertoire> & {
       album: null,
       standard_key: null,
       cover_url: null,
+      duration_seconds: null,
       links: [],
       created_at: new Date().toISOString(),
     },

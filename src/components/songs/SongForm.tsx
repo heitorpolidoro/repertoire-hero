@@ -23,6 +23,7 @@ interface FormState {
   album: string
   key: string
   cover_url: string
+  youtube_url: string
   duration: string
   status: SongStatus
   tagsInput: string
@@ -31,16 +32,21 @@ interface FormState {
 
 function buildInitialState(song?: UserRepertoire): FormState {
   const dur = song?.song?.duration_seconds
+  const allLinks = song?.song?.links ? [...song.song.links] : []
+  const youtubeLink = allLinks.find((l) => l.label.toLowerCase() === 'youtube')
+  const otherLinks = allLinks.filter((l) => l.label.toLowerCase() !== 'youtube')
+
   return {
     title:     song?.song?.title ?? '',
     artist:    song?.song?.artist ?? '',
     album:     song?.song?.album ?? '',
     key:       song?.personal_key ?? song?.song?.standard_key ?? '',
     cover_url: song?.song?.cover_url ?? '',
+    youtube_url: youtubeLink ? youtubeLink.url : '',
     duration:  dur != null ? String(dur) : '',
     status:    song?.status ?? 'unknown',
     tagsInput: song?.tags.join(', ') ?? '',
-    links:     song?.song?.links ? [...song.song.links] : [],
+    links:     otherLinks,
   }
 }
 
@@ -115,7 +121,10 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
 
     try {
       const tags = parseTags(form.tagsInput)
-      const links = form.links.filter((l) => l.url.trim())
+      let links = form.links.filter((l) => l.url.trim())
+      if (form.youtube_url.trim()) {
+        links = [{ label: 'YouTube', url: form.youtube_url.trim() }, ...links]
+      }
 
       const durSeconds = form.duration.trim() ? parseDuration(form.duration.trim()) : null
 
@@ -258,6 +267,21 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             onChange={(e) => setField('duration', e.target.value)}
             placeholder="ex: 3:45 ou 225"
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-32"
+          />
+        </div>
+
+        {/* YouTube Link */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="sf-youtube" className="text-sm font-medium text-gray-700">
+            YouTube Link
+          </label>
+          <input
+            id="sf-youtube"
+            type="url"
+            value={form.youtube_url}
+            onChange={(e) => setField('youtube_url', e.target.value)}
+            placeholder="https://youtube.com/watch?v=..."
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
 
