@@ -84,7 +84,7 @@ function LoginForm() {
                   disabled={loading}
                   className="w-full py-2 px-4 bg-green-100 hover:bg-green-200 text-green-800 text-sm font-medium rounded-lg transition-colors border border-green-200"
                 >
-                  Login com Spotify
+                  Spotify
                 </button>
                 <button
                   type="button"
@@ -92,7 +92,7 @@ function LoginForm() {
                   disabled={loading}
                   className="w-full py-2 px-4 bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium rounded-lg transition-colors border border-gray-300"
                 >
-                  Login sem Spotify
+                  Normal
                 </button>
               </div>
             </div>
