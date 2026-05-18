@@ -32,22 +32,6 @@ async function seed() {
     } else {
        console.log('User created:', u.email, userId)
     }
-
-    if (u.hasSpotify && userId) {
-      const { error: spotifyError } = await supabase.from('spotify_tokens').upsert({
-        user_id: userId,
-        access_token: 'dummy-access-token',
-        refresh_token: 'dummy-refresh-token',
-        expires_at: new Date(Date.now() + 3600000).toISOString(),
-        spotify_user_id: 'dummy-spotify-id'
-      }, { onConflict: 'user_id' })
-      
-      if (spotifyError) {
-         console.error('Error creating spotify token:', spotifyError.message)
-      } else {
-         console.log('Spotify token added for:', u.email)
-      }
-    }
   }
 }
 
