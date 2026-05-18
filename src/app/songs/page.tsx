@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Sidebar from "@/components/Sidebar";
-import AuthGuard from "@/components/AuthGuard";
 import { Song } from "@/types";
 
 export default function Songs() {
@@ -72,10 +71,9 @@ export default function Songs() {
   };
 
   return (
-    <AuthGuard>
-      <div className="flex min-h-screen bg-black">
-        <Sidebar activeItem="Songs" />
-        <main className="flex-1 p-8">
+    <div className="flex min-h-screen bg-black">
+      <Sidebar activeItem="Songs" />
+      <main className="flex-1 p-8">
           <h2 className="text-3xl font-bold text-white mb-8">Songs</h2>
           <div className="bg-gray-900 rounded-lg p-6">
             <div className="mb-6">
@@ -143,6 +141,5 @@ export default function Songs() {
           </div>
         </main>
       </div>
-    </AuthGuard>
   );
 }

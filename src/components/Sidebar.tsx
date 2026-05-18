@@ -1,13 +1,24 @@
 'use client';
 
-import { signOut, useSession } from 'next-auth/react';
+import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { User } from '@supabase/supabase-js';
 
 interface SidebarProps {
   activeItem: string;
 }
 
 export default function Sidebar({ activeItem }: SidebarProps) {
-  const { data: session } = useSession();
+  const [user, setUser] = useState<User | null>(null);
+  const router = useRouter();
+  const supabase = createClient();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+  }, [supabase.auth]);
   
   const menuItems = [
     { href: "/", label: "Dashboard" },
@@ -16,26 +27,30 @@ export default function Sidebar({ activeItem }: SidebarProps) {
     { href: "/settings", label: "Settings" },
   ];
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  };
+
   return (
     <aside className="w-64 bg-black border-r border-gray-800 flex flex-col">
       <div className="p-6">
         <h1 className="text-2xl font-bold text-white">🎵 Repertoire Hero</h1>
       </div>
       
-      {session && (
+      {user && (
         <div className="px-6 pb-4">
           <div className="flex items-center gap-3">
-            <img 
-              src={session.user?.image || ''} 
-              alt="Profile" 
-              className="w-10 h-10 rounded-full"
-            />
+            <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-white font-bold">
+              {user.email?.charAt(0).toUpperCase()}
+            </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">
-                {session.user?.name}
+                {user.user_metadata?.full_name || user.email?.split('@')[0]}
               </p>
               <p className="text-gray-400 text-xs truncate">
-                {session.user?.email}
+                {user.email}
               </p>
             </div>
           </div>
@@ -58,10 +73,10 @@ export default function Sidebar({ activeItem }: SidebarProps) {
         ))}
       </nav>
 
-      {session && (
+      {user && (
         <div className="p-6 border-t border-gray-800">
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={handleSignOut}
             className="w-full text-left text-gray-400 hover:text-white text-sm"
           >
             Sign out
