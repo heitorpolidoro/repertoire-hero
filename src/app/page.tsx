@@ -344,119 +344,110 @@ export default function HomePage() {
           </ul>
         )}
 
-        {/* Search results: catalog first, then Spotify */}
+        {/* Separator + addable results */}
         {showSearchResults && (
-          <section aria-label="Search results" className="mt-6 flex flex-col gap-6">
+          <section aria-label="Add to your repertoire" className="mt-4">
 
-            {/* Catalog results */}
-            {visibleCatalogResults.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  In catalog
-                </h2>
-                <ul className="flex flex-col gap-2">
-                  {visibleCatalogResults.map((song) => (
-                    <li
-                      key={song.id}
-                      className="flex items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 shadow-sm"
-                    >
-                      {song.cover_url ? (
-                        <Image
-                          src={song.cover_url}
-                          alt={`${song.title} cover`}
-                          width={40}
-                          height={40}
-                          className="h-10 w-10 rounded object-cover shrink-0"
-                          unoptimized
-                        />
-                      ) : (
-                        <div className="h-10 w-10 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{song.title}</p>
-                        <p className="text-xs text-gray-500 truncate">{song.artist}</p>
-                        {song.album && (
-                          <p className="text-xs text-gray-400 italic truncate">{song.album}</p>
-                        )}
-                      </div>
-                      <div className="shrink-0 flex flex-col items-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void handleAddFromCatalog(song)}
-                          disabled={addingCatalogId === song.id}
-                          aria-label={`Add ${song.title} by ${song.artist} to repertoire`}
-                          className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {addingCatalogId === song.id ? 'Adding...' : 'Add'}
-                        </button>
-                        {catalogRowErrors[song.id] && (
-                          <p className="text-xs text-red-500 text-right max-w-[120px]">
-                            {catalogRowErrors[song.id]}
-                          </p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {/* Divider */}
+            <div className="flex items-center gap-3 mb-3">
+              <hr className="flex-1 border-gray-200" />
+              <span className="text-xs font-medium text-gray-400">Add to your repertoire</span>
+              <hr className="flex-1 border-gray-200" />
+            </div>
 
-            {/* Spotify results */}
-            {(spotifyLoading || visibleSpotifyResults.length > 0) && (
-              <div>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Spotify
-                </h2>
-                {spotifyLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-gray-400" aria-live="polite" aria-busy="true">
-                    <svg className="animate-spin h-4 w-4 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                    Searching...
+            {/* Flat list: catalog first, then Spotify */}
+            <ul className="flex flex-col gap-2" aria-live="polite">
+
+              {visibleCatalogResults.map((song) => (
+                <li
+                  key={song.id}
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
+                >
+                  {song.cover_url ? (
+                    <Image
+                      src={song.cover_url}
+                      alt={`${song.title} cover`}
+                      width={40}
+                      height={40}
+                      className="h-10 w-10 rounded object-cover shrink-0"
+                      unoptimized
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded bg-gray-100 shrink-0" aria-hidden="true" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{song.title}</p>
+                    <p className="text-xs text-gray-500 truncate">{song.artist}</p>
+                    {song.album && (
+                      <p className="text-xs text-gray-400 italic truncate">{song.album}</p>
+                    )}
                   </div>
-                ) : (
-                  <ul className="flex flex-col gap-2" aria-live="polite">
-                    {visibleSpotifyResults.map((track) => (
-                      <li
-                        key={track.id}
-                        className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
-                      >
-                        {track.albumArt ? (
-                          <Image src={track.albumArt} alt={`${track.title} album art`} width={40} height={40} className="h-10 w-10 rounded object-cover shrink-0" unoptimized />
-                        ) : (
-                          <div className="h-10 w-10 rounded bg-gray-100 shrink-0" aria-hidden="true" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{track.title}</p>
-                          <p className="text-xs text-gray-500 truncate">{track.artist}</p>
-                          {track.album && (
-                            <p className="text-xs text-gray-400 italic truncate">{track.album}</p>
-                          )}
-                        </div>
-                        <div className="shrink-0 flex flex-col items-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void handleAddFromSpotify(track)}
-                            disabled={addingId === track.id}
-                            aria-label={`Add ${track.title} by ${track.artist} to repertoire`}
-                            className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            {addingId === track.id ? 'Adding...' : 'Add'}
-                          </button>
-                          {spotifyRowErrors[track.id] && (
-                            <p className="text-xs text-red-500 text-right max-w-[120px]">
-                              {spotifyRowErrors[track.id]}
-                            </p>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+                  <div className="shrink-0 flex flex-col items-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleAddFromCatalog(song)}
+                      disabled={addingCatalogId === song.id}
+                      aria-label={`Add ${song.title} by ${song.artist} to repertoire`}
+                      className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {addingCatalogId === song.id ? 'Adding...' : 'Add'}
+                    </button>
+                    {catalogRowErrors[song.id] && (
+                      <p className="text-xs text-red-500 text-right max-w-[120px]">
+                        {catalogRowErrors[song.id]}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              ))}
 
+              {spotifyLoading ? (
+                <li className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400" aria-busy="true">
+                  <svg className="animate-spin h-4 w-4 text-emerald-500 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Searching Spotify...
+                </li>
+              ) : (
+                visibleSpotifyResults.map((track) => (
+                  <li
+                    key={track.id}
+                    className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
+                  >
+                    {track.albumArt ? (
+                      <Image src={track.albumArt} alt={`${track.title} album art`} width={40} height={40} className="h-10 w-10 rounded object-cover shrink-0" unoptimized />
+                    ) : (
+                      <div className="h-10 w-10 rounded bg-gray-100 shrink-0" aria-hidden="true" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{track.title}</p>
+                      <p className="text-xs text-gray-500 truncate">{track.artist}</p>
+                      {track.album && (
+                        <p className="text-xs text-gray-400 italic truncate">{track.album}</p>
+                      )}
+                    </div>
+                    <div className="shrink-0 flex flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleAddFromSpotify(track)}
+                        disabled={addingId === track.id}
+                        aria-label={`Add ${track.title} by ${track.artist} to repertoire`}
+                        className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {addingId === track.id ? 'Adding...' : 'Add'}
+                      </button>
+                      {spotifyRowErrors[track.id] && (
+                        <p className="text-xs text-red-500 text-right max-w-[120px]">
+                          {spotifyRowErrors[track.id]}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                ))
+              )}
+
+            </ul>
           </section>
         )}
       </section>
