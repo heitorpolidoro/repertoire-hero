@@ -6,5 +6,6 @@
     "env": {
       "NODE_VERSION": "22"
     }
-  }
+  },
+  "ignoreCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then git describe --exact-match --tags HEAD 2>/dev/null | grep -qE '^v[0-9]' || exit 0; fi; exit 1"
 }

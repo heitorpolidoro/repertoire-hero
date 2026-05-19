@@ -1,0 +1,25 @@
+name: "PR Label Check"
+
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize]
+    branches: [main, master]
+
+jobs:
+  check-label:
+    name: Require release label
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for required label
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          required=("major" "minor" "bugfix" "skip-release")
+          for label in "${required[@]}"; do
+            if echo "$LABELS" | grep -q "\"$label\""; then
+              echo "✅ Found required label: $label"
+              exit 0
+            fi
+          done
+          echo "❌ PR must have exactly one of: major, minor, bugfix, skip-release"
+          exit 1

@@ -67,6 +67,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </ul>
 
         <div className="px-3 py-4 border-t border-gray-700">
+          <p className="px-3 pb-3 text-xs text-gray-500">
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+          </p>
           <button
             type="button"
             onClick={handleSignOut}
