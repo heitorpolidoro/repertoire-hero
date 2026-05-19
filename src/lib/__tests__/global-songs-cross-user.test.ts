@@ -17,9 +17,9 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:5
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
-// Seed users created by supabase/seed.sql
-const USER_A = { email: 'com.spotify@exemple.com', password: 'password' }
-const USER_B = { email: 'sem_spotify@exemple.com', password: 'password' }
+// Seed users created by scripts/seed-dev-users.sh
+const USER_A = { email: 'user-a@example.com', password: 'password' }
+const USER_B = { email: 'user-b@example.com', password: 'password' }
 
 const TEST_SONG = {
   title: `__test_cross_user_${Date.now()}`,
