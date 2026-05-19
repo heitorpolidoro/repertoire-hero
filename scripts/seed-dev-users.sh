@@ -47,9 +47,8 @@ create_user() {
 echo "🌱 Seeding dev users into local Supabase..."
 echo ""
 
-create_user "heitor.polidoro@gmail.com" "Heitor"
-create_user "normal@example.com"        "Normal"
-create_user "normal2@example.com"       "Normal2"
+create_user "user-a@example.com" "User A"
+create_user "user-b@example.com" "User B"
 
 echo ""
 echo "Done. Password for all users: password"
