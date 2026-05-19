@@ -241,8 +241,8 @@ export async function createAndAddSong(data: {
 }): Promise<UserRepertoire> {
   const supabase = createClient()
 
-  // Resolve the current user so we can set owner_id, satisfying the RLS
-  // INSERT policy that requires owner_id = auth.uid().
+  // Resolve the current user so we can set contributor_id, satisfying the RLS
+  // INSERT policy that requires contributor_id = auth.uid().
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     logger.error('Cannot create a song: user is not authenticated')
@@ -276,7 +276,7 @@ export async function createAndAddSong(data: {
     const { data: globalSong, error: songError } = await supabase
       .from('global_songs')
       .insert({
-        owner_id: user.id,
+        contributor_id: user.id,
         title: data.title,
         artist: data.artist,
         album: albumValue || null,

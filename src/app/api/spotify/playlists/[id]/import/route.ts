@@ -105,7 +105,7 @@ async function findOrCreateGlobalSong(
   const { data: created, error: createError } = await supabase
     .from('global_songs')
     .insert({
-      owner_id: userId,
+      contributor_id: userId,
       title: track.title,
       artist: track.artist,
       album: albumValue || null,
