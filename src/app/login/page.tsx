@@ -2,8 +2,14 @@
 
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+
+interface DevProfile {
+  id: string
+  email: string
+  full_name: string | null
+}
 
 function LoginForm() {
   const router = useRouter()
@@ -14,6 +20,25 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [devProfiles, setDevProfiles] = useState<DevProfile[]>([])
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return
+    // Fetch real names from DB (requires SUPABASE_SERVICE_ROLE_KEY).
+    // Falls back to seed users if the key is absent or the request fails.
+    fetch('/api/dev/profiles')
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: DevProfile[]) => {
+        if (Array.isArray(data) && data.length > 0) setDevProfiles(data)
+      })
+      .catch(() => {
+        // No service role key or local Supabase not running — use seed list
+        setDevProfiles([
+          { id: 'seed-1', email: 'com.spotify@exemple.com', full_name: 'Com Spotify' },
+          { id: 'seed-2', email: 'sem_spotify@exemple.com', full_name: 'Sem Spotify' },
+        ])
+      })
+  }, [])
 
   const signUpHref = redirect !== '/' ? `/signup?redirect=${encodeURIComponent(redirect)}` : '/signup'
 
@@ -74,26 +99,21 @@ function LoginForm() {
         >
           <h2 className="text-lg font-semibold text-gray-900">Sign In</h2>
 
-          {process.env.NODE_ENV === 'development' && (
-            <div className="space-y-3 mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-              <p className="text-xs font-semibold text-indigo-800 uppercase tracking-wider text-center">Dev Fast Login</p>
+          {process.env.NODE_ENV === 'development' && devProfiles.length > 0 && (
+            <div className="space-y-3 mb-6 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+              <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider text-center">Dev Fast Login</p>
               <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleFastLogin('com.spotify@exemple.com')}
-                  disabled={loading}
-                  className="w-full py-2 px-4 bg-green-100 hover:bg-green-200 text-green-800 text-sm font-medium rounded-lg transition-colors border border-green-200"
-                >
-                  Spotify
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleFastLogin('sem_spotify@exemple.com')}
-                  disabled={loading}
-                  className="w-full py-2 px-4 bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium rounded-lg transition-colors border border-gray-300"
-                >
-                  Normal
-                </button>
+                {devProfiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() => handleFastLogin(profile.email)}
+                    disabled={loading}
+                    className="w-full py-2 px-4 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-sm font-medium rounded-lg transition-colors border border-emerald-200"
+                  >
+                    {profile.full_name ?? profile.email.split('@')[0]}
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -110,7 +130,7 @@ function LoginForm() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 placeholder="you@example.com"
               />
             </div>
@@ -126,7 +146,7 @@ function LoginForm() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 placeholder="••••••••"
               />
             </div>
@@ -141,7 +161,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
@@ -150,7 +170,7 @@ function LoginForm() {
             Don't have an account?{' '}
             <Link
               href={signUpHref}
-              className="font-medium text-indigo-600 hover:text-indigo-500"
+              className="font-medium text-emerald-600 hover:text-emerald-500"
             >
               Sign up
             </Link>
