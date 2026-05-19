@@ -6,17 +6,16 @@
 -- Usage:
 --   supabase db seed
 --
---   Or directly against a running local instance:
---   psql "$(supabase status --output env | grep DB_URL | cut -d= -f2)" \
---       -f supabase/seed.sql
---
 -- Notes:
---   - This file only populates global_songs. Auth users and user_repertoire
---     rows are created at runtime via the application or a separate fixture.
+--   - This file only populates global_songs. Auth users must be created via
+--     the GoTrue admin API — run: npm run dev:seed-users
 --   - Running this file multiple times is safe: the ON CONFLICT clause
 --     skips rows whose (title, artist) pair already exists.
 --   - The `links` column stores a JSON array of {label, url} objects.
---     Add real URLs before using in production.
+-- =============================================================================
+
+-- =============================================================================
+-- Catalogue songs
 -- =============================================================================
 
 INSERT INTO global_songs (title, artist, standard_key, links)

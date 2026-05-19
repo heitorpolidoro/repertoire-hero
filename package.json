@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "node seed.js",
+    "dev:seed-users": "bash scripts/seed-dev-users.sh",
     "test": "vitest"
   },
   "dependencies": {
