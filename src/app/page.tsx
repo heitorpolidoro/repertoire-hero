@@ -1,13 +1,63 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import type { SongStatus, UserRepertoire } from '@/types/database'
 import { useRepertoireStore } from '@/store/repertoireStore'
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from '@/lib/statusConfig'
-import { createAndAddSong } from '@/lib/songs'
+import { createAndAddSong, addSongToRepertoire, searchGlobalSongs } from '@/lib/songs'
 import { searchSpotify, type SpotifyTrack } from '@/lib/spotify'
+import type { GlobalSong } from '@/types/database'
 import SongForm from '@/components/songs/SongForm'
+
+// ---------------------------------------------------------------------------
+// SongResultItem — shared row for catalog and Spotify search results
+// ---------------------------------------------------------------------------
+interface SongResultItemProps {
+  coverUrl: string | null | undefined
+  title: string
+  artist: string
+  album?: string | null
+  adding: boolean
+  error?: string
+  onAdd: () => void
+}
+
+function SongResultItem({ coverUrl, title, artist, album, adding, error, onAdd }: SongResultItemProps) {
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm">
+      {coverUrl ? (
+        <Image
+          src={coverUrl}
+          alt={`${title} cover`}
+          width={40}
+          height={40}
+          className="h-10 w-10 rounded object-cover shrink-0"
+          unoptimized
+        />
+      ) : (
+        <div className="h-10 w-10 rounded bg-gray-100 shrink-0" aria-hidden="true" />
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-900 truncate">{title}</p>
+        <p className="text-xs text-gray-500 truncate">{artist}</p>
+        {album && <p className="text-xs text-gray-400 italic truncate">{album}</p>}
+      </div>
+      <div className="shrink-0 flex flex-col items-end gap-1">
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={adding}
+          aria-label={`Add ${title} by ${artist} to repertoire`}
+          className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {adding ? 'Adding...' : 'Add'}
+        </button>
+        {error && <p className="text-xs text-red-500 text-right max-w-[120px]">{error}</p>}
+      </div>
+    </li>
+  )
+}
 
 type ModalState =
   | { open: false }
@@ -38,31 +88,52 @@ export default function HomePage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [spotifyRowErrors, setSpotifyRowErrors] = useState<Record<string, string>>({})
 
+  // Catalog search state
+  const [catalogResults, setCatalogResults] = useState<GlobalSong[]>([])
+  const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null)
+  const [catalogRowErrors, setCatalogRowErrors] = useState<Record<string, string>>({})
+
   // Spotify state
   const [spotifyResults, setSpotifyResults] = useState<SpotifyTrack[]>([])
   const [spotifyLoading, setSpotifyLoading] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks the most-recently-fired query so stale responses are discarded
+  const latestQuery = useRef('')
 
   useEffect(() => {
     loadSongs()
   }, [loadSongs])
 
-  // Debounced Spotify search — runs SPOTIFY_DEBOUNCE_MS after the user stops typing.
-  // All setState calls are placed inside the async timer callback to satisfy the
-  // react-hooks/set-state-in-effect rule (no synchronous setState in effect body).
-  const runSpotifySearch = useCallback(async (query: string) => {
+  // Debounced search — catalog + Spotify in parallel
+  const runSearch = useCallback(async (query: string) => {
+    latestQuery.current = query
+
     if (query.trim().length < 2) {
+      setCatalogResults([])
       setSpotifyResults([])
       setSpotifyLoading(false)
       return
     }
 
+    // Clear stale row-level errors from previous searches
+    setCatalogRowErrors({})
+    setSpotifyRowErrors({})
     setSpotifyLoading(true)
-    const results = await searchSpotify(query)
-    setSpotifyResults(results)
-    setSpotifyLoading(false)
-  }, [])
+
+    try {
+      const [catalog, spotify] = await Promise.all([
+        searchGlobalSongs(query).catch(() => [] as GlobalSong[]),
+        searchSpotify(query).catch(() => [] as SpotifyTrack[]),
+      ])
+      // Discard if a newer query already fired
+      if (latestQuery.current !== query) return
+      setCatalogResults(catalog)
+      setSpotifyResults(spotify)
+    } finally {
+      if (latestQuery.current === query) setSpotifyLoading(false)
+    }
+  }, [searchGlobalSongs, searchSpotify])
 
   useEffect(() => {
     if (debounceTimer.current) {
@@ -70,7 +141,7 @@ export default function HomePage() {
     }
 
     debounceTimer.current = setTimeout(() => {
-      void runSpotifySearch(searchQuery)
+      void runSearch(searchQuery)
     }, SPOTIFY_DEBOUNCE_MS)
 
     return () => {
@@ -78,18 +149,43 @@ export default function HomePage() {
         clearTimeout(debounceTimer.current)
       }
     }
-  }, [searchQuery, runSpotifySearch])
+  }, [searchQuery, runSearch])
 
   const songs = filteredSongs()
 
-  // Hide Spotify results for tracks already in the repertoire (title + artist match)
-  const visibleSpotifyResults = spotifyResults.filter(
-    (track) =>
-      !allSongs.some(
-        (entry) =>
-          entry.song?.title.toLowerCase() === track.title.toLowerCase() &&
-          entry.song?.artist.toLowerCase() === track.artist.toLowerCase()
-      )
+  // Build a Set of "title|artist" keys for the user's repertoire — O(n) once per render
+  const repertoireKeys = useMemo(
+    () =>
+      new Set(
+        allSongs
+          .filter((e) => e.song)
+          .map((e) => `${e.song!.title.toLowerCase()}|${e.song!.artist.toLowerCase()}`)
+      ),
+    [allSongs]
+  )
+
+  // Catalog results: not already in user's repertoire — O(m) lookups
+  const visibleCatalogResults = useMemo(
+    () =>
+      catalogResults.filter(
+        (s) => !repertoireKeys.has(`${s.title.toLowerCase()}|${s.artist.toLowerCase()}`)
+      ),
+    [catalogResults, repertoireKeys]
+  )
+
+  // Spotify results: not in repertoire AND not already shown from catalog — O(m+k) lookups
+  const catalogKeys = useMemo(
+    () => new Set(visibleCatalogResults.map((s) => `${s.title.toLowerCase()}|${s.artist.toLowerCase()}`)),
+    [visibleCatalogResults]
+  )
+
+  const visibleSpotifyResults = useMemo(
+    () =>
+      spotifyResults.filter((t) => {
+        const key = `${t.title.toLowerCase()}|${t.artist.toLowerCase()}`
+        return !repertoireKeys.has(key) && !catalogKeys.has(key)
+      }),
+    [spotifyResults, repertoireKeys, catalogKeys]
   )
 
   const openAdd = () => setModal({ open: true })
@@ -97,13 +193,23 @@ export default function HomePage() {
   const closeModal = () => setModal({ open: false })
   const handleSuccess = () => setModal({ open: false })
 
+  const handleAddFromCatalog = async (song: GlobalSong) => {
+    setAddingCatalogId(song.id)
+    setCatalogRowErrors(({ [song.id]: _, ...rest }) => rest)
+    try {
+      await addSongToRepertoire(song.id)
+      await loadSongs()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred.'
+      setCatalogRowErrors((prev) => ({ ...prev, [song.id]: message }))
+    } finally {
+      setAddingCatalogId(null)
+    }
+  }
+
   const handleAddFromSpotify = async (track: SpotifyTrack) => {
     setAddingId(track.id)
-    setSpotifyRowErrors((prev) => {
-      const next = { ...prev }
-      delete next[track.id]
-      return next
-    })
+    setSpotifyRowErrors(({ [track.id]: _, ...rest }) => rest)
     try {
       await createAndAddSong({
         title: track.title,
@@ -125,8 +231,9 @@ export default function HomePage() {
     }
   }
 
-  const showSpotifySection =
-    searchQuery.trim().length >= 2 && (spotifyLoading || visibleSpotifyResults.length > 0)
+  const showSearchResults =
+    searchQuery.trim().length >= 2 &&
+    (spotifyLoading || visibleCatalogResults.length > 0 || visibleSpotifyResults.length > 0)
 
   return (
     <div className="flex flex-col h-full">
@@ -305,94 +412,57 @@ export default function HomePage() {
           </ul>
         )}
 
-        {/* From Spotify section */}
-        {showSpotifySection && (
-          <section aria-label="From Spotify" className="mt-6">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              From Spotify
-            </h2>
+        {/* Separator + addable results */}
+        {showSearchResults && (
+          <section aria-label="Add to your repertoire" className="mt-4">
 
-            {spotifyLoading ? (
-              <div
-                className="flex items-center gap-2 text-sm text-gray-400"
-                aria-live="polite"
-                aria-busy="true"
-              >
-                {/* Spinner */}
-                <svg
-                  className="animate-spin h-4 w-4 text-emerald-500"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8H4z"
-                  />
-                </svg>
-                Searching Spotify...
-              </div>
-            ) : (
-              <ul className="flex flex-col gap-2" aria-live="polite">
-                {visibleSpotifyResults.map((track) => (
-                  <li
+            {/* Divider */}
+            <div className="flex items-center gap-3 mb-3">
+              <hr className="flex-1 border-gray-200" />
+              <span className="text-xs font-medium text-gray-400">Add to your repertoire</span>
+              <hr className="flex-1 border-gray-200" />
+            </div>
+
+            {/* Flat list: catalog first, then Spotify */}
+            <ul className="flex flex-col gap-2" aria-live="polite">
+
+              {visibleCatalogResults.map((song) => (
+                <SongResultItem
+                  key={song.id}
+                  coverUrl={song.cover_url}
+                  title={song.title}
+                  artist={song.artist}
+                  album={song.album}
+                  adding={addingCatalogId === song.id}
+                  error={catalogRowErrors[song.id]}
+                  onAdd={() => void handleAddFromCatalog(song)}
+                />
+              ))}
+
+              {spotifyLoading ? (
+                <li className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400" aria-busy="true">
+                  <svg className="animate-spin h-4 w-4 text-emerald-500 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Searching Spotify...
+                </li>
+              ) : (
+                visibleSpotifyResults.map((track) => (
+                  <SongResultItem
                     key={track.id}
-                    className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
-                  >
-                    {/* Album art thumbnail */}
-                    {track.albumArt ? (
-                      <Image
-                        src={track.albumArt}
-                        alt={`${track.title} album art`}
-                        width={40}
-                        height={40}
-                        className="h-10 w-10 rounded object-cover shrink-0"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded bg-gray-100 shrink-0" aria-hidden="true" />
-                    )}
+                    coverUrl={track.albumArt}
+                    title={track.title}
+                    artist={track.artist}
+                    album={track.album}
+                    adding={addingId === track.id}
+                    error={spotifyRowErrors[track.id]}
+                    onAdd={() => void handleAddFromSpotify(track)}
+                  />
+                ))
+              )}
 
-                    {/* Track info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{track.title}</p>
-                      <p className="text-xs text-gray-500 truncate">{track.artist}</p>
-                      {track.album && (
-                        <p className="text-xs text-gray-400 italic truncate">{track.album}</p>
-                      )}
-                    </div>
-
-                    {/* Add button + inline error */}
-                    <div className="shrink-0 flex flex-col items-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() => void handleAddFromSpotify(track)}
-                        disabled={addingId === track.id}
-                        aria-label={`Add ${track.title} by ${track.artist} to repertoire`}
-                        className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {addingId === track.id ? 'Adding...' : 'Add'}
-                      </button>
-                      {spotifyRowErrors[track.id] && (
-                        <p className="text-xs text-red-500 text-right max-w-[120px]">
-                          {spotifyRowErrors[track.id]}
-                        </p>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            </ul>
           </section>
         )}
       </section>

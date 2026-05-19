@@ -12,4 +12,5 @@ jobs:
     with:
       node-versions: "['24.x']"
       sonar-node-version: "24.x"
+      database: supabase
     secrets: inherit # pragma: allowlist secret
