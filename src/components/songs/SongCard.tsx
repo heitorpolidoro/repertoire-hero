@@ -34,7 +34,7 @@ export default function SongCard({ song, onEdit }: SongCardProps) {
         <div className="flex-1 min-w-0">
           <Link
             href={`/songs/${song.id}/fast-view`}
-            className="block font-semibold text-gray-900 hover:text-indigo-600 transition-colors truncate"
+            className="block font-semibold text-gray-900 hover:text-emerald-600 transition-colors truncate"
           >
             {title}
           </Link>
@@ -74,7 +74,7 @@ export default function SongCard({ song, onEdit }: SongCardProps) {
         <button
           type="button"
           onClick={() => onEdit(song)}
-          className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+          className="text-xs font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
         >
           Edit
         </button>

@@ -41,7 +41,7 @@ function timeAgo(isoString: string): string {
 function Spinner() {
   return (
     <svg
-      className="animate-spin h-4 w-4 text-indigo-500"
+      className="animate-spin h-4 w-4 text-emerald-500"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -97,14 +97,14 @@ function TagEditor({ tags, onChange }: TagEditorProps) {
       {tags.map((tag) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200"
         >
           {tag}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
             aria-label={`Remove tag ${tag}`}
-            className="text-indigo-400 hover:text-indigo-700 focus:outline-none leading-none"
+            className="text-emerald-400 hover:text-emerald-700 focus:outline-none leading-none"
           >
             &times;
           </button>
@@ -479,7 +479,7 @@ export default function PlaylistDetailPage() {
           <Link
             href="/playlists"
             aria-label="Back to playlists"
-            className="p-1.5 rounded text-gray-400 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 shrink-0"
+            className="p-1.5 rounded text-gray-400 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 shrink-0"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
@@ -510,10 +510,10 @@ export default function PlaylistDetailPage() {
                   if (e.key === 'Escape') setEditing(false)
                 }}
                 autoFocus
-                className="flex-1 rounded border border-indigo-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 aria-label="Playlist name"
               />
-              <button type="button" onClick={() => void handleRename()} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 focus:outline-none focus:underline">Save</button>
+              <button type="button" onClick={() => void handleRename()} className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline">Save</button>
               <button type="button" onClick={() => setEditing(false)} className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline">Cancel</button>
             </div>
           ) : (
@@ -527,7 +527,7 @@ export default function PlaylistDetailPage() {
                 type="button"
                 onClick={() => { setEditName(playlist.name); setEditing(true) }}
                 aria-label="Rename playlist"
-                className="p-1.5 rounded text-gray-400 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="p-1.5 rounded text-gray-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                   <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -612,8 +612,8 @@ export default function PlaylistDetailPage() {
               onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
               className={`px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${
                 activeTagFilter === tag
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-indigo-700 border-indigo-200 hover:border-indigo-400'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400'
               }`}
             >
               {tag}
@@ -667,7 +667,7 @@ export default function PlaylistDetailPage() {
                           unoptimized
                         />
                       ) : (
-                        <div className="h-10 w-10 rounded bg-indigo-100 shrink-0" aria-hidden="true" />
+                        <div className="h-10 w-10 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{ps.song?.title ?? '—'}</p>
@@ -708,14 +708,14 @@ export default function PlaylistDetailPage() {
                       {tags.map((tag) => (
                         <span
                           key={tag}
-                          className="group flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200"
+                          className="group flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
                         >
                           {tag}
                           <button
                             type="button"
                             onClick={() => void handleRemoveSongTag(ps.song_id, tag)}
                             aria-label={`Remove tag ${tag}`}
-                            className="opacity-0 group-hover:opacity-100 text-indigo-400 hover:text-indigo-700 transition-opacity leading-none"
+                            className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
                           >×</button>
                         </span>
                       ))}
@@ -734,14 +734,14 @@ export default function PlaylistDetailPage() {
                             else { setAddingTagForSong(null); setNewTagInput('') }
                           }}
                           placeholder="new tag"
-                          className="px-2 py-0.5 rounded-full text-xs border border-indigo-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-24"
+                          className="px-2 py-0.5 rounded-full text-xs border border-emerald-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24"
                         />
                       ) : (
                         <button
                           type="button"
                           onClick={() => { setAddingTagForSong(ps.song_id); setNewTagInput('') }}
                           aria-label="Add tag"
-                          className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-indigo-300 hover:text-indigo-600 transition-colors"
+                          className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
                         >
                           + tag
                         </button>
@@ -774,7 +774,7 @@ export default function PlaylistDetailPage() {
               onChange={(e) => setPickerSearch(e.target.value)}
               placeholder="Search songs..."
               autoFocus
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <ul className="max-h-48 overflow-y-auto flex flex-col gap-1">
               {pickerSongs.length === 0 ? (
@@ -797,7 +797,7 @@ export default function PlaylistDetailPage() {
                           unoptimized
                         />
                       ) : (
-                        <div className="h-8 w-8 rounded bg-indigo-100 shrink-0" aria-hidden="true" />
+                        <div className="h-8 w-8 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-gray-900 truncate">{r.song?.title ?? '—'}</p>
@@ -809,7 +809,7 @@ export default function PlaylistDetailPage() {
                       <button
                         type="button"
                         onClick={() => void handleAddSong(r.song_id)}
-                        className="shrink-0 text-xs text-indigo-600 font-medium hover:text-indigo-800 focus:outline-none focus:underline"
+                        className="shrink-0 text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline"
                       >
                         Add
                       </button>
@@ -823,7 +823,7 @@ export default function PlaylistDetailPage() {
           <button
             type="button"
             onClick={() => setShowPicker(true)}
-            className="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-indigo-300 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+            className="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-emerald-300 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
           >
             + Add songs
           </button>

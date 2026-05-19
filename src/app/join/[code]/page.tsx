@@ -24,7 +24,7 @@ export default async function JoinBandPage({ params }: Props) {
           </p>
           <Link
             href="/"
-            className="inline-block text-sm font-medium text-indigo-600 hover:text-indigo-500"
+            className="inline-block text-sm font-medium text-emerald-600 hover:text-emerald-500"
           >
             Go home
           </Link>
@@ -66,7 +66,7 @@ export default async function JoinBandPage({ params }: Props) {
                 className="w-14 h-14 rounded-xl object-cover shrink-0"
               />
             ) : (
-              <div className="w-14 h-14 rounded-xl bg-indigo-100 flex items-center justify-center text-3xl shrink-0">
+              <div className="w-14 h-14 rounded-xl bg-emerald-100 flex items-center justify-center text-3xl shrink-0">
                 🎸
               </div>
             )}
@@ -89,7 +89,7 @@ export default async function JoinBandPage({ params }: Props) {
           <div className="space-y-3">
             <Link
               href={`/login?redirect=${encodeURIComponent(joinPath)}`}
-              className="block w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
+              className="block w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
             >
               Sign in to join
             </Link>

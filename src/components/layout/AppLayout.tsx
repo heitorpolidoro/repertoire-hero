@@ -55,7 +55,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 aria-current={isActive(item.href) ? 'page' : undefined}
                 className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive(item.href)
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-emerald-600 text-white'
                     : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                 }`}
               >
@@ -96,7 +96,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 aria-current={isActive(item.href) ? 'page' : undefined}
                 className={`flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
                   isActive(item.href)
-                    ? 'text-indigo-400'
+                    ? 'text-emerald-400'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >

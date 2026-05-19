@@ -19,7 +19,7 @@ import type { Playlist, SpotifyPlaylist } from '@/types/database'
 function Spinner({ label = 'Loading' }: { label?: string }) {
   return (
     <svg
-      className="animate-spin h-4 w-4 text-indigo-500"
+      className="animate-spin h-4 w-4 text-emerald-500"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -90,7 +90,7 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
             type="button"
             onClick={onClose}
             aria-label="Close modal"
-            className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded"
+            className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -105,7 +105,7 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
           {spotifyPlaylists.map((sp) => (
             <li key={sp.id}>
               {pendingImport?.playlist.id === sp.id ? (
-                <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 flex flex-col gap-3">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3">
                   <p className="text-sm font-medium text-gray-800">Import &ldquo;{sp.name}&rdquo;?</p>
                   <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                     <input
@@ -116,7 +116,7 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
                           prev ? { ...prev, syncWithSpotify: e.target.checked } : prev
                         )
                       }
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
                     />
                     Keep synced with Spotify
                   </label>
@@ -126,14 +126,14 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
                       type="button"
                       onClick={() => void handleConfirmImport()}
                       disabled={importingId === sp.id}
-                      className="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       {importingId === sp.id ? 'Importing...' : 'Import'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setPendingImport(null)}
-                      className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                      className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
                     >
                       Cancel
                     </button>
@@ -151,7 +151,7 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
                       unoptimized
                     />
                   ) : (
-                    <div className="h-10 w-10 rounded bg-indigo-100 shrink-0 flex items-center justify-center text-lg" aria-hidden="true">
+                    <div className="h-10 w-10 rounded bg-emerald-100 shrink-0 flex items-center justify-center text-lg" aria-hidden="true">
                       🎵
                     </div>
                   )}
@@ -162,7 +162,7 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
                   <button
                     type="button"
                     onClick={() => setPendingImport({ playlist: sp, syncWithSpotify: false })}
-                    className="shrink-0 px-3 py-1 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                    className="shrink-0 px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
                   >
                     Import
                   </button>
@@ -215,7 +215,7 @@ function PlaylistCard({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
 
   return (
     <li
-      className="rounded-lg border border-gray-100 bg-white shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all"
+      className="rounded-lg border border-gray-100 bg-white shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-emerald-200 hover:shadow-md transition-all"
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('button, input')) return
         onClick()
@@ -236,7 +236,7 @@ function PlaylistCard({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
           unoptimized
         />
       ) : (
-        <div className="h-12 w-12 rounded bg-indigo-100 shrink-0 flex items-center justify-center text-xl" aria-hidden="true">
+        <div className="h-12 w-12 rounded bg-emerald-100 shrink-0 flex items-center justify-center text-xl" aria-hidden="true">
           🎵
         </div>
       )}
@@ -254,9 +254,9 @@ function PlaylistCard({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
                 if (e.key === 'Escape') setEditing(false)
               }}
               autoFocus
-              className="flex-1 rounded border border-indigo-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
-            <button type="button" onClick={handleRenameSubmit} className="text-xs text-indigo-600 font-medium hover:text-indigo-800">Save</button>
+            <button type="button" onClick={handleRenameSubmit} className="text-xs text-emerald-600 font-medium hover:text-emerald-800">Save</button>
             <button type="button" onClick={() => setEditing(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
           </div>
         ) : (
@@ -287,7 +287,7 @@ function PlaylistCard({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
             type="button"
             onClick={(e) => { e.stopPropagation(); setEditName(playlist.name); setEditing(true) }}
             aria-label={`Rename ${playlist.name}`}
-            className="p-1.5 rounded text-gray-400 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="p-1.5 rounded text-gray-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -469,7 +469,7 @@ export default function PlaylistsPage() {
 
         {/* Create form */}
         {showCreateForm && (
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
             <label htmlFor="new-playlist-name" className="sr-only">Playlist name</label>
             <input
               id="new-playlist-name"
@@ -482,21 +482,21 @@ export default function PlaylistsPage() {
               }}
               placeholder="Playlist name"
               autoFocus
-              className="flex-1 rounded-md border border-indigo-300 px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="flex-1 rounded-md border border-emerald-300 px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => void handleCreatePlaylist()}
                 disabled={isCreating || !newPlaylistName.trim()}
-                className="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isCreating ? 'Creating...' : 'Create'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowCreateForm(false)}
-                className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
               >
                 Cancel
               </button>
@@ -544,7 +544,7 @@ export default function PlaylistsPage() {
             <button
               type="button"
               onClick={() => setShowImportModal(true)}
-              className="shrink-0 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-sm text-gray-700 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+              className="shrink-0 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-sm text-gray-700 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
             >
               Import a Spotify playlist
             </button>
@@ -569,7 +569,7 @@ export default function PlaylistsPage() {
                 <button
                   type="button"
                   onClick={() => { setShowCreateForm(true); setNewPlaylistName('') }}
-                  className="shrink-0 px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                  className="shrink-0 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
                 >
                   + New Playlist
                 </button>
@@ -601,7 +601,7 @@ export default function PlaylistsPage() {
                   <div className="flex items-center gap-2 mb-2">
                     <Link
                       href={`/bands/${group.bandId}`}
-                      className="flex items-center gap-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 focus:outline-none focus:underline"
+                      className="flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-900 focus:outline-none focus:underline"
                     >
                       🎸 {group.bandName}
                     </Link>

@@ -206,7 +206,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.title}
             onChange={(e) => setField('title', e.target.value)}
             placeholder="Song name"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
@@ -221,7 +221,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.artist}
             onChange={(e) => setField('artist', e.target.value)}
             placeholder="Artist name"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
@@ -236,7 +236,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.album}
             onChange={(e) => setField('album', e.target.value)}
             placeholder="Album name"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
@@ -251,7 +251,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.key}
             onChange={(e) => setField('key', e.target.value)}
             placeholder="ex: Am, G, C#"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-32"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-32"
           />
         </div>
 
@@ -266,7 +266,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.duration}
             onChange={(e) => setField('duration', e.target.value)}
             placeholder="ex: 3:45 ou 225"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-32"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-32"
           />
         </div>
 
@@ -281,7 +281,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.youtube_url}
             onChange={(e) => setField('youtube_url', e.target.value)}
             placeholder="https://youtube.com/watch?v=..."
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
@@ -296,7 +296,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.cover_url}
             onChange={(e) => setField('cover_url', e.target.value)}
             placeholder="https://..."
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           {form.cover_url.trim() && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -350,7 +350,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
             value={form.tagsInput}
             onChange={(e) => setField('tagsInput', e.target.value)}
             placeholder="bossa nova, 80s, samba (comma-separated)"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           {form.tagsInput && (
             <ul className="flex flex-wrap gap-1.5 mt-1" aria-label="Tag preview">
@@ -378,7 +378,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
                   onChange={(e) => updateLink(idx, 'label', e.target.value)}
                   placeholder="Label (e.g. YouTube, Chords)"
                   aria-label={`Label for link ${idx + 1}`}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <input
                   type="url"
@@ -386,7 +386,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
                   onChange={(e) => updateLink(idx, 'url', e.target.value)}
                   placeholder="https://"
                   aria-label={`URL for link ${idx + 1}`}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
               <button
@@ -402,7 +402,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
           <button
             type="button"
             onClick={addLink}
-            className="self-start text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+            className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
           >
             + Add link
           </button>
@@ -426,7 +426,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
           <button
             type="submit"
             disabled={submitting}
-            className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? 'Saving...' : isEditMode ? 'Save' : 'Add'}
           </button>

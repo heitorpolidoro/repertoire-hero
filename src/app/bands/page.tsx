@@ -42,7 +42,7 @@ export default function BandsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Bands</h1>
           <button
             onClick={() => setShowCreate(!showCreate)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
           >
             + New Band
           </button>
@@ -64,7 +64,7 @@ export default function BandsPage() {
                 onChange={(e) => setNewName(e.target.value)}
                 required
                 placeholder="The Rolling Stones"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div className="space-y-1">
@@ -76,7 +76,7 @@ export default function BandsPage() {
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
                 placeholder="A brief description"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             {error && (
@@ -86,7 +86,7 @@ export default function BandsPage() {
               <button
                 type="submit"
                 disabled={creating}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
                 {creating ? 'Creating...' : 'Create Band'}
               </button>
@@ -115,7 +115,7 @@ export default function BandsPage() {
               <li key={band.id}>
                 <button
                   onClick={() => router.push(`/bands/${band.id}`)}
-                  className="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-200 px-5 py-4 hover:border-indigo-300 hover:shadow-md transition-all"
+                  className="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-200 px-5 py-4 hover:border-emerald-300 hover:shadow-md transition-all"
                 >
                   <div className="flex items-center gap-4">
                     {band.cover_url ? (
@@ -125,7 +125,7 @@ export default function BandsPage() {
                         className="w-12 h-12 rounded-xl object-cover shrink-0"
                       />
                     ) : (
-                      <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-2xl shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl shrink-0">
                         🎸
                       </div>
                     )}

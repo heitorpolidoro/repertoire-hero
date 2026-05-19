@@ -172,7 +172,7 @@ export default function BandDetailPage() {
                 className="w-16 h-16 rounded-2xl object-cover shrink-0"
               />
             ) : (
-              <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center text-3xl shrink-0">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center text-3xl shrink-0">
                 🎸
               </div>
             )}
@@ -218,7 +218,7 @@ export default function BandDetailPage() {
             />
             <button
               onClick={handleCopyInvite}
-              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
+              className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>
@@ -236,7 +236,7 @@ export default function BandDetailPage() {
           <ul className="space-y-2">
             {members.map((member) => (
               <li key={member.id} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-semibold text-indigo-700 shrink-0">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-semibold text-emerald-700 shrink-0">
                   {(member.profile?.full_name ?? member.profile?.email ?? '?')[0].toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -288,7 +288,7 @@ export default function BandDetailPage() {
             <h2 className="font-semibold text-gray-900">Playlists</h2>
             <button
               onClick={() => setShowNewPlaylist(!showNewPlaylist)}
-              className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+              className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
             >
               + New playlist
             </button>
@@ -302,12 +302,12 @@ export default function BandDetailPage() {
                 onChange={(e) => setNewPlaylistName(e.target.value)}
                 placeholder="Playlist name"
                 required
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
               <button
                 type="submit"
                 disabled={creatingPlaylist}
-                className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
                 {creatingPlaylist ? '...' : 'Create'}
               </button>
@@ -380,7 +380,7 @@ export default function BandDetailPage() {
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div className="space-y-1">
@@ -389,14 +389,14 @@ export default function BandDetailPage() {
                 type="text"
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>

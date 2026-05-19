@@ -53,7 +53,7 @@ export default function FastViewPage() {
         <button
           type="button"
           onClick={() => router.back()}
-          className="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+          className="text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
         >
           &larr; Back
         </button>
@@ -73,7 +73,7 @@ export default function FastViewPage() {
       <button
         type="button"
         onClick={() => router.back()}
-        className="self-start text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+        className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
         aria-label="Back"
       >
         &larr; Back
@@ -113,7 +113,7 @@ export default function FastViewPage() {
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-between w-full px-5 py-4 rounded-xl bg-white border border-gray-200 shadow-sm text-indigo-600 font-medium hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+                  className="flex items-center justify-between w-full px-5 py-4 rounded-xl bg-white border border-gray-200 shadow-sm text-emerald-600 font-medium hover:bg-emerald-50 hover:border-emerald-200 transition-colors"
                 >
                   <span>{link.label || link.url}</span>
                   <span aria-hidden="true" className="text-lg">&#8599;</span>

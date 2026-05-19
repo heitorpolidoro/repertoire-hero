@@ -119,7 +119,7 @@ export default function ProfilePage() {
                   unoptimized
                 />
               ) : (
-                <div className="h-[72px] w-[72px] rounded-full bg-indigo-100 flex items-center justify-center text-2xl font-semibold text-indigo-400 border border-indigo-200 select-none">
+                <div className="h-[72px] w-[72px] rounded-full bg-emerald-100 flex items-center justify-center text-2xl font-semibold text-emerald-400 border border-emerald-200 select-none">
                   {fullName.trim() ? fullName.trim()[0].toUpperCase() : '?'}
                 </div>
               )}
@@ -132,7 +132,7 @@ export default function ProfilePage() {
                 value={avatarUrl}
                 onChange={(e) => setAvatarUrl(e.target.value)}
                 placeholder="https://..."
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
           </div>
@@ -147,7 +147,7 @@ export default function ProfilePage() {
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             placeholder="Your name"
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </section>
 
@@ -175,7 +175,7 @@ export default function ProfilePage() {
           type="button"
           onClick={() => void handleSaveProfile()}
           disabled={saving}
-          className="self-start px-5 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="self-start px-5 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? 'Saving...' : 'Save profile'}
         </button>
@@ -191,7 +191,7 @@ export default function ProfilePage() {
               type="email"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
-              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <button
               type="button"
