@@ -26,6 +26,7 @@ export default function HomePage() {
     searchQuery,
     selectedStatus,
     filteredSongs,
+    songs: allSongs,
     loadSongs,
     setSearchQuery,
     setSelectedStatus,
@@ -81,6 +82,16 @@ export default function HomePage() {
 
   const songs = filteredSongs()
 
+  // Hide Spotify results for tracks already in the repertoire (title + artist match)
+  const visibleSpotifyResults = spotifyResults.filter(
+    (track) =>
+      !allSongs.some(
+        (entry) =>
+          entry.song?.title.toLowerCase() === track.title.toLowerCase() &&
+          entry.song?.artist.toLowerCase() === track.artist.toLowerCase()
+      )
+  )
+
   const openAdd = () => setModal({ open: true })
   const openEdit = (song: UserRepertoire) => setModal({ open: true, song })
   const closeModal = () => setModal({ open: false })
@@ -115,7 +126,7 @@ export default function HomePage() {
   }
 
   const showSpotifySection =
-    searchQuery.trim().length >= 2 && (spotifyLoading || spotifyResults.length > 0)
+    searchQuery.trim().length >= 2 && (spotifyLoading || visibleSpotifyResults.length > 0)
 
   return (
     <div className="flex flex-col h-full">
@@ -137,7 +148,7 @@ export default function HomePage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Title or artist..."
-            className="w-full rounded-lg border border-gray-200 pl-3 pr-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-200 pl-3 pr-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
@@ -160,7 +171,7 @@ export default function HomePage() {
                   isActive
                     ? cfg
                       ? `${cfg.bgColor} ${cfg.textColor} border-current`
-                      : 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-emerald-600 text-white border-emerald-600'
                     : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
                 }`}
               >
@@ -245,7 +256,7 @@ export default function HomePage() {
                     type="button"
                     onClick={() => openEdit(song)}
                     aria-label={`Edit ${song.song?.title ?? 'song'}`}
-                    className="shrink-0 text-indigo-600 hover:text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded"
+                    className="shrink-0 text-emerald-600 hover:text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                       <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -309,7 +320,7 @@ export default function HomePage() {
               >
                 {/* Spinner */}
                 <svg
-                  className="animate-spin h-4 w-4 text-indigo-500"
+                  className="animate-spin h-4 w-4 text-emerald-500"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -333,7 +344,7 @@ export default function HomePage() {
               </div>
             ) : (
               <ul className="flex flex-col gap-2" aria-live="polite">
-                {spotifyResults.map((track) => (
+                {visibleSpotifyResults.map((track) => (
                   <li
                     key={track.id}
                     className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
@@ -368,7 +379,7 @@ export default function HomePage() {
                         onClick={() => void handleAddFromSpotify(track)}
                         disabled={addingId === track.id}
                         aria-label={`Add ${track.title} by ${track.artist} to repertoire`}
-                        className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         {addingId === track.id ? 'Adding...' : 'Add'}
                       </button>
@@ -391,7 +402,7 @@ export default function HomePage() {
         type="button"
         onClick={openAdd}
         aria-label="Add song"
-        className="fixed bottom-20 right-5 md:bottom-6 md:right-6 z-20 w-14 h-14 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-colors flex items-center justify-center text-2xl leading-none"
+        className="fixed bottom-20 right-5 md:bottom-6 md:right-6 z-20 w-14 h-14 rounded-full bg-emerald-600 text-white shadow-lg hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300 transition-colors flex items-center justify-center text-2xl leading-none"
       >
         +
       </button>
