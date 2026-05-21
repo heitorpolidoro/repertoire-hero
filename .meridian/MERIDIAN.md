@@ -6,19 +6,19 @@
 
 **Core Tech Stack**
 
-| Layer | Technology | Version |
-|---|---|---|
-| Framework | Next.js (App Router) | 16.2.6 |
-| Language | TypeScript | ^5 |
-| UI | React | 19.2.0 |
-| Styling | Tailwind CSS | ^4 |
-| State | Zustand | ^5 |
-| Database | Supabase (PostgreSQL + Auth + RLS) | `@supabase/ssr` ^0.10.3 |
-| Secondary DB | MongoDB (legacy types, see `src/lib/mongodb.ts`) | ^6 |
-| Observability | Sentry (`@sentry/nextjs`) | ^10 |
-| React Compiler | babel-plugin-react-compiler | 1.0.0 |
-| Testing | Vitest | ^4 |
-| Node.js (CI) | 24.x | — |
+| Layer          | Technology                                       | Version                 |
+| -------------- | ------------------------------------------------ | ----------------------- |
+| Framework      | Next.js (App Router)                             | 16.2.6                  |
+| Language       | TypeScript                                       | ^5                      |
+| UI             | React                                            | 19.2.0                  |
+| Styling        | Tailwind CSS                                     | ^4                      |
+| State          | Zustand                                          | ^5                      |
+| Database       | Supabase (PostgreSQL + Auth + RLS)               | `@supabase/ssr` ^0.10.3 |
+| Secondary DB   | MongoDB (legacy types, see `src/lib/mongodb.ts`) | ^6                      |
+| Observability  | Sentry (`@sentry/nextjs`)                        | ^10                     |
+| React Compiler | babel-plugin-react-compiler                      | 1.0.0                   |
+| Testing        | Vitest                                           | ^4                      |
+| Node.js (CI)   | 24.x                                             | —                       |
 
 **Key integrations**: Spotify OAuth (playlist import/sync), Supabase Auth (email/password), Vercel (deployment).
 
@@ -184,11 +184,11 @@ repertoire_hero/
 
 The project uses three GitHub Actions workflows:
 
-| Workflow | Trigger | Purpose |
-|---|---|---|
-| `ci.yml` | Push/PR to `main`/`master` | Lint, test (Node 24.x), SonarCloud analysis. Uses shared reusable workflow from `heitorpolidoro/.github`. |
-| `pr-label-check.yml` | PR opened/labeled/updated | Enforces that every PR targeting `main`/`master` carries exactly one of: `major`, `minor`, `bugfix`, `skip-release`. **PRs will fail CI without this label.** |
-| `release.yml` | PR merged to `main`/`master` | Bumps `package.json` version (`npm version major|minor|patch`), commits with `[skip ci]`, creates a Git tag and GitHub Release. Skipped when `skip-release` label is present. |
+| Workflow             | Trigger                      | Purpose                                                                                                                                                       |
+| -------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`             | Push/PR to `main`/`master`   | Lint, test (Node 24.x), SonarCloud analysis. Uses shared reusable workflow from `heitorpolidoro/.github`.                                                     |
+| `pr-label-check.yml` | PR opened/labeled/updated    | Enforces that every PR targeting `main`/`master` carries exactly one of: `major`, `minor`, `bugfix`, `skip-release`. **PRs will fail CI without this label.** |
+| `release.yml`        | PR merged to `main`/`master` | Bumps `package.json` version (`npm version major                                                                                                              | minor | patch`), commits with `[skip ci]`, creates a Git tag and GitHub Release. Skipped when `skip-release` label is present. |
 
 **Version bump logic**: `major` label → major bump; `minor` label → minor bump; `bugfix` or unlabeled → patch bump.
 
@@ -229,7 +229,9 @@ The `.meridian/meridian-agent` script acts as a transparent proxy for `git` and 
 ```
 
 ### 🚀 Auto-Merge
+
 To enable automatic merging for Pull Requests that pass all status checks, run:
+
 ```bash
 gh pr merge --auto --squash --delete-branch
 ```
