@@ -386,7 +386,7 @@ export default function PlaylistDetailPage() {
   useEffect(() => {
     if (pickerDebounce.current) clearTimeout(pickerDebounce.current);
     pickerDebounce.current = setTimeout(() => {
-      void runPickerSearch(pickerQuery);
+      runPickerSearch(pickerQuery).catch(console.error);
     }, 500);
     return () => {
       if (pickerDebounce.current) clearTimeout(pickerDebounce.current);
@@ -733,7 +733,7 @@ export default function PlaylistDetailPage() {
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleRename();
+                  if (e.key === "Enter") handleRename().catch(console.error);
                   if (e.key === "Escape") setEditing(false);
                 }}
                 className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -742,7 +742,7 @@ export default function PlaylistDetailPage() {
               <button
                 type="button"
                 onClick={() => {
-                  void handleRename();
+                  handleRename().catch(console.error);
                 }}
                 className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline"
               >
@@ -818,7 +818,7 @@ export default function PlaylistDetailPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      void handleDelete();
+                      handleDelete().catch(console.error);
                     }}
                     className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline"
                   >
@@ -875,7 +875,7 @@ export default function PlaylistDetailPage() {
             <button
               type="button"
               onClick={() => {
-                void handleSync();
+                handleSync().catch(console.error);
               }}
               disabled={syncing}
               aria-label="Sync with Spotify"
@@ -901,11 +901,11 @@ export default function PlaylistDetailPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    void handleTagsChange(
+                    handleTagsChange(
                       (playlist.tags ?? []).filter(
                         (existingTag) => existingTag !== tag,
                       ),
-                    );
+                    ).catch(console.error);
                   }}
                   aria-label={`Remove tag ${tag}`}
                   className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
@@ -922,7 +922,7 @@ export default function PlaylistDetailPage() {
                 onChange={(e) => setNewPlaylistTagInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter")
-                    void handleAddPlaylistTag(newPlaylistTagInput);
+                    handleAddPlaylistTag(newPlaylistTagInput).catch(console.error);
                   if (e.key === "Escape") {
                     setAddingPlaylistTag(false);
                     setNewPlaylistTagInput("");
@@ -930,7 +930,7 @@ export default function PlaylistDetailPage() {
                 }}
                 onBlur={() => {
                   if (newPlaylistTagInput.trim())
-                    void handleAddPlaylistTag(newPlaylistTagInput);
+                    handleAddPlaylistTag(newPlaylistTagInput).catch(console.error);
                   else {
                     setAddingPlaylistTag(false);
                     setNewPlaylistTagInput("");
@@ -1071,7 +1071,7 @@ export default function PlaylistDetailPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          void handleStatusCycle(ps.song_id);
+                          handleStatusCycle(ps.song_id).catch(console.error);
                         }}
                         aria-label={`Status: ${cfg.label}. Click to advance.`}
                         className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
@@ -1082,7 +1082,7 @@ export default function PlaylistDetailPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          void handleRemoveSong(ps.song_id);
+                          handleRemoveSong(ps.song_id).catch(console.error);
                         }}
                         aria-label={`Remove ${ps.song?.title ?? "song"} from playlist`}
                         className="shrink-0 p-1 rounded text-gray-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors"
@@ -1114,7 +1114,7 @@ export default function PlaylistDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              void handleRemoveSongTag(ps.song_id, tag);
+                              handleRemoveSongTag(ps.song_id, tag).catch(console.error);
                             }}
                             aria-label={`Remove tag ${tag}`}
                             className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
@@ -1131,7 +1131,7 @@ export default function PlaylistDetailPage() {
                           onChange={(e) => setNewTagInput(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter")
-                              void handleAddSongTag(ps.song_id, newTagInput);
+                              handleAddSongTag(ps.song_id, newTagInput).catch(console.error);
                             if (e.key === "Escape") {
                               setAddingTagForSong(null);
                               setNewTagInput("");
@@ -1139,7 +1139,7 @@ export default function PlaylistDetailPage() {
                           }}
                           onBlur={() => {
                             if (newTagInput.trim())
-                              void handleAddSongTag(ps.song_id, newTagInput);
+                              handleAddSongTag(ps.song_id, newTagInput).catch(console.error);
                             else {
                               setAddingTagForSong(null);
                               setNewTagInput("");
@@ -1212,7 +1212,7 @@ export default function PlaylistDetailPage() {
                     adding={pickerAddingId === song.id}
                     error={pickerRowErrors[song.id]}
                     onAdd={() => {
-                      void handlePickerAddCatalog(song);
+                      handlePickerAddCatalog(song).catch(console.error);
                     }}
                   />
                 ))}
@@ -1226,7 +1226,7 @@ export default function PlaylistDetailPage() {
                     adding={pickerAddingId === track.id}
                     error={pickerRowErrors[track.id]}
                     onAdd={() => {
-                      void handlePickerAddSpotify(track);
+                      handlePickerAddSpotify(track).catch(console.error);
                     }}
                   />
                 ))}
