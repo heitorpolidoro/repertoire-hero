@@ -922,7 +922,9 @@ export default function PlaylistDetailPage() {
                 onChange={(e) => setNewPlaylistTagInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter")
-                    handleAddPlaylistTag(newPlaylistTagInput).catch(console.error);
+                    handleAddPlaylistTag(newPlaylistTagInput).catch(
+                      console.error,
+                    );
                   if (e.key === "Escape") {
                     setAddingPlaylistTag(false);
                     setNewPlaylistTagInput("");
@@ -930,7 +932,9 @@ export default function PlaylistDetailPage() {
                 }}
                 onBlur={() => {
                   if (newPlaylistTagInput.trim())
-                    handleAddPlaylistTag(newPlaylistTagInput).catch(console.error);
+                    handleAddPlaylistTag(newPlaylistTagInput).catch(
+                      console.error,
+                    );
                   else {
                     setAddingPlaylistTag(false);
                     setNewPlaylistTagInput("");
@@ -1114,7 +1118,9 @@ export default function PlaylistDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              handleRemoveSongTag(ps.song_id, tag).catch(console.error);
+                              handleRemoveSongTag(ps.song_id, tag).catch(
+                                console.error,
+                              );
                             }}
                             aria-label={`Remove tag ${tag}`}
                             className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
@@ -1131,7 +1137,9 @@ export default function PlaylistDetailPage() {
                           onChange={(e) => setNewTagInput(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter")
-                              handleAddSongTag(ps.song_id, newTagInput).catch(console.error);
+                              handleAddSongTag(ps.song_id, newTagInput).catch(
+                                console.error,
+                              );
                             if (e.key === "Escape") {
                               setAddingTagForSong(null);
                               setNewTagInput("");
@@ -1139,7 +1147,9 @@ export default function PlaylistDetailPage() {
                           }}
                           onBlur={() => {
                             if (newTagInput.trim())
-                              handleAddSongTag(ps.song_id, newTagInput).catch(console.error);
+                              handleAddSongTag(ps.song_id, newTagInput).catch(
+                                console.error,
+                              );
                             else {
                               setAddingTagForSong(null);
                               setNewTagInput("");
