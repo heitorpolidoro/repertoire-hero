@@ -403,7 +403,7 @@ export default function PlaylistDetailPage() {
     for (const ps of songs) {
       for (const tag of repertoireMap.get(ps.song_id)?.tags ?? []) set.add(tag);
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
+    return [...set].sort((tagA, tagB) => tagA.localeCompare(tagB));
   }, [songs, repertoireMap]);
 
   const filteredSongs = useMemo(
@@ -733,10 +733,10 @@ export default function PlaylistDetailPage() {
                 ref={editInputRef}
                 type="text"
                 value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRename().catch(console.error);
-                  if (e.key === "Escape") setEditing(false);
+                onChange={(ev) => setEditName(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter") handleRename().catch(console.error);
+                  if (ev.key === "Escape") setEditing(false);
                 }}
                 className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 aria-label="Playlist name"
@@ -770,7 +770,7 @@ export default function PlaylistDetailPage() {
               {/* Add songs */}
               <button
                 type="button"
-                onClick={() => setShowSearch((v) => !v)}
+                onClick={() => setShowSearch((prev) => !prev)}
                 aria-label="Add songs"
                 aria-pressed={showSearch}
                 className={`p-1.5 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors ${
@@ -921,13 +921,13 @@ export default function PlaylistDetailPage() {
                 ref={playlistTagInputRef}
                 type="text"
                 value={newPlaylistTagInput}
-                onChange={(e) => setNewPlaylistTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter")
+                onChange={(ev) => setNewPlaylistTagInput(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter")
                     handleAddPlaylistTag(newPlaylistTagInput).catch(
                       console.error,
                     );
-                  if (e.key === "Escape") {
+                  if (ev.key === "Escape") {
                     setAddingPlaylistTag(false);
                     setNewPlaylistTagInput("");
                   }
@@ -1027,7 +1027,7 @@ export default function PlaylistDetailPage() {
         ) : (
           <ul className="flex flex-col gap-2">
             {[...filteredSongs]
-              .sort((a, b) => a.position - b.position)
+              .sort((songA, songB) => songA.position - songB.position)
               .map((ps) => {
                 const entry = repertoireMap.get(ps.song_id);
                 const status = entry?.status ?? "unknown";
@@ -1136,13 +1136,13 @@ export default function PlaylistDetailPage() {
                           ref={songTagInputRef}
                           type="text"
                           value={newTagInput}
-                          onChange={(e) => setNewTagInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter")
+                          onChange={(ev) => setNewTagInput(ev.target.value)}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter")
                               handleAddSongTag(ps.song_id, newTagInput).catch(
                                 console.error,
                               );
-                            if (e.key === "Escape") {
+                            if (ev.key === "Escape") {
                               setAddingTagForSong(null);
                               setNewTagInput("");
                             }
@@ -1188,7 +1188,7 @@ export default function PlaylistDetailPage() {
             ref={searchInputRef}
             type="search"
             value={pickerQuery}
-            onChange={(e) => setPickerQuery(e.target.value)}
+            onChange={(ev) => setPickerQuery(ev.target.value)}
             placeholder="Search catalog and Spotify…"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
