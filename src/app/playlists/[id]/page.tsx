@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getPlaylistWithSongs,
   updatePlaylist,
@@ -11,10 +11,17 @@ import {
   addSongToPlaylist,
   removeSongFromPlaylist,
 } from '@/lib/playlists'
-import { getUserRepertoire, updateSongStatus, updateSongTags } from '@/lib/songs'
+import {
+  updateSongStatus,
+  updateSongTags,
+  searchGlobalSongs,
+  addSongToRepertoire,
+  createAndAddSong,
+} from '@/lib/songs'
+import { searchSpotify, type SpotifyTrack } from '@/lib/spotify'
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from '@/lib/statusConfig'
 import { createClient } from '@/lib/supabase/client'
-import type { Playlist, PlaylistSong, SongStatus, UserRepertoire } from '@/types/database'
+import type { GlobalSong, Playlist, PlaylistSong, SongStatus, UserRepertoire } from '@/types/database'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,74 +61,51 @@ function Spinner() {
 }
 
 // ---------------------------------------------------------------------------
-// Tag editor
+// Song result row — used in the add-song search panel
 // ---------------------------------------------------------------------------
 
-interface TagEditorProps {
-  tags: string[]
-  onChange: (tags: string[]) => void
+interface PickerRowProps {
+  coverUrl?: string | null
+  title: string
+  artist: string
+  album?: string | null
+  adding: boolean
+  error?: string
+  onAdd: () => void
 }
 
-function TagEditor({ tags, onChange }: TagEditorProps) {
-  const [inputValue, setInputValue] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const addTag = (raw: string) => {
-    const tag = raw.trim().replace(/,+$/, '').trim()
-    if (!tag || tags.includes(tag)) {
-      setInputValue('')
-      return
-    }
-    onChange([...tags, tag])
-    setInputValue('')
-  }
-
-  const removeTag = (tag: string) => {
-    onChange(tags.filter((t) => t !== tag))
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault()
-      addTag(inputValue)
-    } else if (e.key === 'Backspace' && inputValue === '' && tags.length > 0) {
-      removeTag(tags[tags.length - 1])
-    }
-  }
-
+function PickerRow({ coverUrl, title, artist, album, adding, error, onAdd }: PickerRowProps) {
   return (
-    <div
-      className="flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white cursor-text min-h-[2.5rem]"
-      onClick={() => inputRef.current?.focus()}
-    >
-      {tags.map((tag) => (
-        <span
-          key={tag}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200"
+    <li className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
+      {coverUrl ? (
+        <Image
+          src={coverUrl}
+          alt=""
+          width={32}
+          height={32}
+          className="h-8 w-8 rounded object-cover shrink-0"
+          unoptimized
+        />
+      ) : (
+        <div className="h-8 w-8 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-900 truncate">{title}</p>
+        <p className="text-xs text-gray-500 truncate">{artist}</p>
+        {album && <p className="text-xs text-gray-400 italic truncate">{album}</p>}
+      </div>
+      <div className="shrink-0 flex flex-col items-end gap-0.5">
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={adding}
+          className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {tag}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
-            aria-label={`Remove tag ${tag}`}
-            className="text-emerald-400 hover:text-emerald-700 focus:outline-none leading-none"
-          >
-            &times;
-          </button>
-        </span>
-      ))}
-      <input
-        ref={inputRef}
-        type="text"
-        value={inputValue}
-        onChange={(e) => setInputValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={() => { if (inputValue.trim()) addTag(inputValue) }}
-        placeholder={tags.length === 0 ? 'Add tags…' : ''}
-        className="flex-1 min-w-[8rem] text-xs text-gray-700 placeholder-gray-400 focus:outline-none bg-transparent"
-        aria-label="Add a tag"
-      />
-    </div>
+          {adding ? 'Adding…' : 'Add'}
+        </button>
+        {error && <p className="text-xs text-red-500 text-right max-w-[120px]">{error}</p>}
+      </div>
+    </li>
   )
 }
 
@@ -244,49 +228,79 @@ export default function PlaylistDetailPage() {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
-  const [repertoire, setRepertoire] = useState<UserRepertoire[]>([])
-  const [pickerSearch, setPickerSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null)
   const [addingTagForSong, setAddingTagForSong] = useState<string | null>(null)
   const [newTagInput, setNewTagInput] = useState('')
+  const [addingPlaylistTag, setAddingPlaylistTag] = useState(false)
+  const [newPlaylistTagInput, setNewPlaylistTagInput] = useState('')
 
-  const refreshPlaylist = async () => {
-    const [data, rep, { data: { user } }] = await Promise.all([
+  // Add-song search panel
+  const [showSearch, setShowSearch] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState('')
+  const [pickerCatalogResults, setPickerCatalogResults] = useState<GlobalSong[]>([])
+  const [pickerSpotifyResults, setPickerSpotifyResults] = useState<SpotifyTrack[]>([])
+  const [pickerLoading, setPickerLoading] = useState(false)
+  const [pickerAddingId, setPickerAddingId] = useState<string | null>(null)
+  const [pickerRowErrors, setPickerRowErrors] = useState<Record<string, string>>({})
+  const pickerDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pickerLatestQuery = useRef('')
+
+  const refreshPlaylist = useCallback(async () => {
+    const { data: { user } } = await createClient().auth.getUser()
+    const [data, rep] = await Promise.all([
       getPlaylistWithSongs(playlistId),
-      getUserRepertoire(),
-      createClient().auth.getUser(),
+      // Fetch repertoire to populate repertoireMap for status/tag display
+      createClient()
+        .from('user_repertoire')
+        .select('*, song:global_songs(*)')
+        .then(({ data }) => (data ?? []) as UserRepertoire[]),
     ])
     if (!data) { router.replace('/playlists'); return }
     setPlaylist(data)
     setSongs(data.songs ?? [])
-    setRepertoireMap(new Map(rep.map((r) => [r.song_id, r])))
-    setRepertoire(rep)
+    setRepertoireMap(new Map(rep.map((r: UserRepertoire) => [r.song_id, r])))
     setCurrentUserId(user?.id ?? null)
-  }
+  }, [playlistId, router])
 
   useEffect(() => {
     setLoading(true)
     refreshPlaylist()
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load playlist'))
       .finally(() => setLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playlistId])
+  }, [refreshPlaylist])
 
-  // Open picker — reload repertoire if not loaded yet
+  // Debounced picker search: catalog + Spotify in parallel
+  const runPickerSearch = useCallback(async (query: string) => {
+    pickerLatestQuery.current = query
+    if (query.trim().length < 2) {
+      setPickerCatalogResults([])
+      setPickerSpotifyResults([])
+      setPickerLoading(false)
+      return
+    }
+    setPickerLoading(true)
+    try {
+      const [catalog, spotify] = await Promise.all([
+        searchGlobalSongs(query).catch(() => [] as GlobalSong[]),
+        searchSpotify(query).catch(() => [] as SpotifyTrack[]),
+      ])
+      if (pickerLatestQuery.current !== query) return
+      setPickerCatalogResults(catalog)
+      setPickerSpotifyResults(spotify)
+    } finally {
+      if (pickerLatestQuery.current === query) setPickerLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (!showPicker || repertoire.length > 0) return
-    getUserRepertoire()
-      .then((rep) => {
-        setRepertoire(rep)
-        setRepertoireMap(new Map(rep.map((r) => [r.song_id, r])))
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load repertoire'))
-  }, [showPicker, repertoire.length])
+    if (pickerDebounce.current) clearTimeout(pickerDebounce.current)
+    pickerDebounce.current = setTimeout(() => void runPickerSearch(pickerQuery), 500)
+    return () => { if (pickerDebounce.current) clearTimeout(pickerDebounce.current) }
+  }, [pickerQuery, runPickerSearch])
 
-  const currentSongIds = new Set(songs.map((s) => s.song_id))
+  const currentSongIds = useMemo(() => new Set(songs.map((s) => s.song_id)), [songs])
 
   const allTags = useMemo(() => {
     const set = new Set<string>()
@@ -303,14 +317,24 @@ export default function PlaylistDetailPage() {
     [songs, repertoireMap, activeTagFilter]
   )
 
-  const pickerSongs = repertoire.filter((r) => {
-    if (currentSongIds.has(r.song_id)) return false
-    if (!pickerSearch.trim()) return true
-    const q = pickerSearch.toLowerCase()
-    return r.song?.title.toLowerCase().includes(q) || r.song?.artist.toLowerCase().includes(q)
-  })
+  // Picker results: hide songs already in the playlist; deduplicate Spotify vs catalog
+  const pickerVisibleCatalog = useMemo(
+    () => pickerCatalogResults.filter((s) => !currentSongIds.has(s.id)),
+    [pickerCatalogResults, currentSongIds]
+  )
+  const pickerCatalogKeys = useMemo(
+    () => new Set(pickerVisibleCatalog.map((s) => `${s.title.toLowerCase()}|${s.artist.toLowerCase()}`)),
+    [pickerVisibleCatalog]
+  )
+  const pickerVisibleSpotify = useMemo(
+    () => pickerSpotifyResults.filter((t) => {
+      const key = `${t.title.toLowerCase()}|${t.artist.toLowerCase()}`
+      return !pickerCatalogKeys.has(key)
+    }),
+    [pickerSpotifyResults, pickerCatalogKeys]
+  )
 
-  const autoPushIfNeeded = async () => {
+  const autoPushIfNeeded = useCallback(async () => {
     if (!playlist?.sync_with_spotify || !playlist?.spotify_playlist_id) return
     const res = await fetch(`/api/spotify/playlists/${playlistId}/sync`, {
       method: 'POST',
@@ -321,17 +345,66 @@ export default function PlaylistDetailPage() {
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       throw new Error(body.error ?? 'Auto-sync to Spotify failed')
     }
+  }, [playlist?.sync_with_spotify, playlist?.spotify_playlist_id, playlistId])
+
+  // Low-level: add an already-in-repertoire song to the playlist and refresh state
+  const addSongIdToPlaylist = useCallback(async (songId: string) => {
+    await addSongToPlaylist(playlistId, songId)
+    const updated = await getPlaylistWithSongs(playlistId)
+    setSongs(updated?.songs ?? [])
+    await autoPushIfNeeded()
+  }, [playlistId, autoPushIfNeeded])
+
+  // Add a catalog song: ensure it's in the repertoire, then add to playlist
+  const handlePickerAddCatalog = async (song: GlobalSong) => {
+    setPickerAddingId(song.id)
+    setPickerRowErrors((prev) => { const next = { ...prev }; delete next[song.id]; return next })
+    try {
+      if (!repertoireMap.has(song.id)) {
+        await addSongToRepertoire(song.id)
+      }
+      await addSongIdToPlaylist(song.id)
+    } catch (err) {
+      setPickerRowErrors((prev) => ({ ...prev, [song.id]: err instanceof Error ? err.message : 'Failed to add' }))
+    } finally {
+      setPickerAddingId(null)
+    }
   }
 
-  const handleAddSong = async (songId: string) => {
-    setError(null)
+  // Add a Spotify track: create global song + add to repertoire, then add to playlist
+  const handlePickerAddSpotify = async (track: SpotifyTrack) => {
+    setPickerAddingId(track.id)
+    setPickerRowErrors((prev) => { const next = { ...prev }; delete next[track.id]; return next })
     try {
-      await addSongToPlaylist(playlistId, songId)
-      const updated = await getPlaylistWithSongs(playlistId)
-      setSongs(updated?.songs ?? [])
-      await autoPushIfNeeded()
+      let songId: string
+      try {
+        const entry = await createAndAddSong({
+          title: track.title,
+          artist: track.artist,
+          album: track.album ?? undefined,
+          cover_url: track.albumArt ?? undefined,
+          links: [{ label: 'Spotify', url: track.spotifyUrl }],
+        })
+        songId = entry.song_id
+      } catch (err) {
+        // Song already in repertoire — find its id from the current map
+        if (err instanceof Error && err.message.includes('already in your repertoire')) {
+          const existing = [...repertoireMap.values()].find(
+            (r) =>
+              r.song?.title.toLowerCase() === track.title.toLowerCase() &&
+              r.song?.artist.toLowerCase() === track.artist.toLowerCase()
+          )
+          if (!existing) throw err
+          songId = existing.song_id
+        } else {
+          throw err
+        }
+      }
+      await addSongIdToPlaylist(songId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add song')
+      setPickerRowErrors((prev) => ({ ...prev, [track.id]: err instanceof Error ? err.message : 'Failed to add' }))
+    } finally {
+      setPickerAddingId(null)
     }
   }
 
@@ -410,6 +483,16 @@ export default function PlaylistDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update tags')
     }
+  }
+
+  const handleAddPlaylistTag = async (raw: string) => {
+    const tag = raw.trim().toLowerCase().replace(/,+$/, '').trim()
+    setAddingPlaylistTag(false)
+    setNewPlaylistTagInput('')
+    if (!tag) return
+    const current = playlist?.tags ?? []
+    if (current.includes(tag)) return
+    await handleTagsChange([...current, tag])
   }
 
   const handleAddSongTag = async (songId: string, tag: string) => {
@@ -523,6 +606,21 @@ export default function PlaylistDetailPage() {
           {/* Actions */}
           {!editing && (
             <div className="flex items-center gap-0.5 shrink-0">
+              {/* Add songs */}
+              <button
+                type="button"
+                onClick={() => setShowSearch((v) => !v)}
+                aria-label="Add songs"
+                aria-pressed={showSearch}
+                className={`p-1.5 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors ${
+                  showSearch ? 'text-emerald-600 bg-emerald-50' : 'text-gray-400 hover:text-emerald-600'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+
               <button
                 type="button"
                 onClick={() => { setEditName(playlist.name); setEditing(true) }}
@@ -580,14 +678,52 @@ export default function PlaylistDetailPage() {
         )}
       </header>
 
-      {/* Tag editor */}
+      {/* Playlist tags */}
       {playlist && (playlist.band_id !== null || playlist.user_id === currentUserId) && (
-        <div className="px-4 py-2 md:px-6 border-b border-gray-100 bg-white">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Tags</p>
-          <TagEditor
-            tags={playlist.tags ?? []}
-            onChange={(tags) => void handleTagsChange(tags)}
-          />
+        <div className="px-4 py-2 md:px-6 border-b border-gray-100 bg-white flex flex-wrap items-center gap-1.5">
+          {(playlist.tags ?? []).map((tag) => (
+            <span
+              key={tag}
+              className="group flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => void handleTagsChange((playlist.tags ?? []).filter((t) => t !== tag))}
+                aria-label={`Remove tag ${tag}`}
+                className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {addingPlaylistTag ? (
+            <input
+              autoFocus
+              type="text"
+              value={newPlaylistTagInput}
+              onChange={(e) => setNewPlaylistTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleAddPlaylistTag(newPlaylistTagInput)
+                if (e.key === 'Escape') { setAddingPlaylistTag(false); setNewPlaylistTagInput('') }
+              }}
+              onBlur={() => {
+                if (newPlaylistTagInput.trim()) void handleAddPlaylistTag(newPlaylistTagInput)
+                else { setAddingPlaylistTag(false); setNewPlaylistTagInput('') }
+              }}
+              placeholder="new tag"
+              className="px-2 py-0.5 rounded-full text-xs border border-emerald-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setAddingPlaylistTag(true); setNewPlaylistTagInput('') }}
+              aria-label="Add tag to playlist"
+              className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
+            >
+              + tag
+            </button>
+          )}
         </div>
       )}
 
@@ -635,7 +771,7 @@ export default function PlaylistDetailPage() {
       <section className="flex-1 overflow-y-auto px-4 py-3 md:px-6 min-h-0" aria-label="Songs in this playlist">
         {songs.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-12">
-            No songs yet. Add some from your repertoire below.
+            No songs yet. Use the + button in the header to search and add songs.
           </p>
         ) : filteredSongs.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-12">
@@ -754,81 +890,57 @@ export default function PlaylistDetailPage() {
         )}
       </section>
 
-      {/* Add songs */}
-      <div className="border-t border-gray-100 px-4 py-3 md:px-6 shrink-0">
-        {showPicker ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-700">Add from repertoire</h2>
-              <button
-                type="button"
-                onClick={() => { setShowPicker(false); setPickerSearch('') }}
-                className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
-              >
-                Done
-              </button>
-            </div>
-            <input
-              type="search"
-              value={pickerSearch}
-              onChange={(e) => setPickerSearch(e.target.value)}
-              placeholder="Search songs..."
-              autoFocus
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <ul className="max-h-48 overflow-y-auto flex flex-col gap-1">
-              {pickerSongs.length === 0 ? (
-                <li className="text-xs text-gray-400 text-center py-3">
-                  {pickerSearch ? 'No matches' : 'All your songs are already in this playlist'}
-                </li>
-              ) : (
-                pickerSongs.map((r) => {
-                  const status = repertoireMap.get(r.song_id)?.status ?? 'unknown'
-                  const cfg = STATUS_CONFIG[status]
-                  return (
-                    <li key={r.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
-                      {r.song?.cover_url ? (
-                        <Image
-                          src={r.song.cover_url}
-                          alt=""
-                          width={32}
-                          height={32}
-                          className="h-8 w-8 rounded object-cover shrink-0"
-                          unoptimized
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900 truncate">{r.song?.title ?? '—'}</p>
-                        <p className="text-xs text-gray-500 truncate">{r.song?.artist ?? '—'}</p>
-                      </div>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}>
-                        {cfg.label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void handleAddSong(r.song_id)}
-                        className="shrink-0 text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline"
-                      >
-                        Add
-                      </button>
-                    </li>
-                  )
-                })
-              )}
-            </ul>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowPicker(true)}
-            className="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-emerald-300 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
-          >
-            + Add songs
-          </button>
-        )}
-      </div>
+      {/* Add-song search panel (toggled by the + button in the header) */}
+      {showSearch && (
+        <div className="border-t border-gray-100 px-4 py-3 md:px-6 shrink-0 flex flex-col gap-2">
+          <input
+            type="search"
+            value={pickerQuery}
+            onChange={(e) => setPickerQuery(e.target.value)}
+            placeholder="Search catalog and Spotify…"
+            autoFocus
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <ul className="max-h-60 overflow-y-auto flex flex-col gap-0.5" aria-live="polite">
+            {pickerQuery.trim().length < 2 ? (
+              <li className="text-xs text-gray-400 text-center py-3">Type to search…</li>
+            ) : pickerLoading ? (
+              <li className="flex items-center gap-2 px-2 py-2 text-sm text-gray-400" aria-busy="true">
+                <Spinner /> Searching…
+              </li>
+            ) : pickerVisibleCatalog.length === 0 && pickerVisibleSpotify.length === 0 ? (
+              <li className="text-xs text-gray-400 text-center py-3">No results</li>
+            ) : (
+              <>
+                {pickerVisibleCatalog.map((song) => (
+                  <PickerRow
+                    key={song.id}
+                    coverUrl={song.cover_url}
+                    title={song.title}
+                    artist={song.artist}
+                    album={song.album}
+                    adding={pickerAddingId === song.id}
+                    error={pickerRowErrors[song.id]}
+                    onAdd={() => void handlePickerAddCatalog(song)}
+                  />
+                ))}
+                {pickerVisibleSpotify.map((track) => (
+                  <PickerRow
+                    key={track.id}
+                    coverUrl={track.albumArt}
+                    title={track.title}
+                    artist={track.artist}
+                    album={track.album}
+                    adding={pickerAddingId === track.id}
+                    error={pickerRowErrors[track.id]}
+                    onAdd={() => void handlePickerAddSpotify(track)}
+                  />
+                ))}
+              </>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
