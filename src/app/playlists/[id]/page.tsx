@@ -403,7 +403,7 @@ export default function PlaylistDetailPage() {
     for (const ps of songs) {
       for (const tag of repertoireMap.get(ps.song_id)?.tags ?? []) set.add(tag);
     }
-    return [...set].sort();
+    return [...set].sort((a, b) => a.localeCompare(b));
   }, [songs, repertoireMap]);
 
   const filteredSongs = useMemo(
@@ -615,7 +615,9 @@ export default function PlaylistDetailPage() {
   };
 
   const handleAddPlaylistTag = async (raw: string) => {
-    const tag = raw.trim().toLowerCase().replace(/,+$/, "").trim();
+    let tagValue = raw.trim().toLowerCase();
+    while (tagValue.endsWith(",")) tagValue = tagValue.slice(0, -1);
+    const tag = tagValue.trim();
     setAddingPlaylistTag(false);
     setNewPlaylistTagInput("");
     if (!tag) return;
