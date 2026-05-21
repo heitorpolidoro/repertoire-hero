@@ -1,129 +1,142 @@
-'use client'
+"use client";
 
-import Image from 'next/image'
-import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import Image from "next/image";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getPlaylistWithSongs,
   updatePlaylist,
   deletePlaylist,
   addSongToPlaylist,
   removeSongFromPlaylist,
-} from '@/lib/playlists'
-import { getUserRepertoire, updateSongStatus, updateSongTags } from '@/lib/songs'
-import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from '@/lib/statusConfig'
-import { createClient } from '@/lib/supabase/client'
-import type { Playlist, PlaylistSong, SongStatus, UserRepertoire } from '@/types/database'
+} from "@/lib/playlists";
+import {
+  updateSongStatus,
+  updateSongTags,
+  searchGlobalSongs,
+  addSongToRepertoire,
+  createAndAddSong,
+} from "@/lib/songs";
+import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
+import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
+import { createClient } from "@/lib/supabase/client";
+import type {
+  GlobalSong,
+  Playlist,
+  PlaylistSong,
+  SongStatus,
+  UserRepertoire,
+} from "@/types/database";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
-}
+const formatDuration = (seconds: number): string => {
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hours > 0)
+    return `${hours}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+};
 
-function timeAgo(isoString: string): string {
-  const diffMs = Date.now() - new Date(isoString).getTime()
-  const diffMins = Math.floor(diffMs / 60_000)
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  const diffHrs = Math.floor(diffMins / 60)
-  if (diffHrs < 24) return `${diffHrs}h ago`
-  return `${Math.floor(diffHrs / 24)}d ago`
-}
+const timeAgo = (isoString: string): string => {
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  return `${Math.floor(diffHrs / 24)}d ago`;
+};
 
-function Spinner() {
-  return (
-    <svg
-      className="animate-spin h-4 w-4 text-emerald-500"
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-    </svg>
-  )
-}
+const Spinner = () => (
+  <svg
+    className="animate-spin h-4 w-4 text-emerald-500"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <circle
+      className="opacity-25"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+    />
+    <path
+      className="opacity-75"
+      fill="currentColor"
+      d="M4 12a8 8 0 018-8v8H4z"
+    />
+  </svg>
+);
 
 // ---------------------------------------------------------------------------
-// Tag editor
+// Song result row — used in the add-song search panel
 // ---------------------------------------------------------------------------
 
-interface TagEditorProps {
-  tags: string[]
-  onChange: (tags: string[]) => void
+interface PickerRowProps {
+  coverUrl?: string | null;
+  title: string;
+  artist: string;
+  album?: string | null;
+  adding: boolean;
+  error?: string;
+  onAdd: () => void;
 }
 
-function TagEditor({ tags, onChange }: TagEditorProps) {
-  const [inputValue, setInputValue] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const addTag = (raw: string) => {
-    const tag = raw.trim().replace(/,+$/, '').trim()
-    if (!tag || tags.includes(tag)) {
-      setInputValue('')
-      return
-    }
-    onChange([...tags, tag])
-    setInputValue('')
-  }
-
-  const removeTag = (tag: string) => {
-    onChange(tags.filter((t) => t !== tag))
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault()
-      addTag(inputValue)
-    } else if (e.key === 'Backspace' && inputValue === '' && tags.length > 0) {
-      removeTag(tags[tags.length - 1])
-    }
-  }
-
-  return (
-    <div
-      className="flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white cursor-text min-h-[2.5rem]"
-      onClick={() => inputRef.current?.focus()}
-    >
-      {tags.map((tag) => (
-        <span
-          key={tag}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200"
-        >
-          {tag}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
-            aria-label={`Remove tag ${tag}`}
-            className="text-emerald-400 hover:text-emerald-700 focus:outline-none leading-none"
-          >
-            &times;
-          </button>
-        </span>
-      ))}
-      <input
-        ref={inputRef}
-        type="text"
-        value={inputValue}
-        onChange={(e) => setInputValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={() => { if (inputValue.trim()) addTag(inputValue) }}
-        placeholder={tags.length === 0 ? 'Add tags…' : ''}
-        className="flex-1 min-w-[8rem] text-xs text-gray-700 placeholder-gray-400 focus:outline-none bg-transparent"
-        aria-label="Add a tag"
+const PickerRow = ({
+  coverUrl,
+  title,
+  artist,
+  album,
+  adding,
+  error,
+  onAdd,
+}: PickerRowProps) => (
+  <li className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
+    {coverUrl ? (
+      <Image
+        src={coverUrl}
+        alt=""
+        width={32}
+        height={32}
+        className="h-8 w-8 rounded object-cover shrink-0"
+        unoptimized
       />
+    ) : (
+      <div
+        className="h-8 w-8 rounded bg-emerald-100 shrink-0"
+        aria-hidden="true"
+      />
+    )}
+    <div className="flex-1 min-w-0">
+      <p className="text-sm text-gray-900 truncate">{title}</p>
+      <p className="text-xs text-gray-500 truncate">{artist}</p>
+      {album && (
+        <p className="text-xs text-gray-400 italic truncate">{album}</p>
+      )}
     </div>
-  )
-}
+    <div className="shrink-0 flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={adding}
+        className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {adding ? "Adding…" : "Add"}
+      </button>
+      {error && (
+        <p className="text-xs text-red-500 text-right max-w-[120px]">{error}</p>
+      )}
+    </div>
+  </li>
+);
 
 // ---------------------------------------------------------------------------
 // Playlist mastery summary
@@ -135,50 +148,59 @@ const STATUS_SCORES: Record<SongStatus, number> = {
   practicing: 2,
   polishing: 3,
   mastered: 4,
-}
+};
 
 // Solid bar colors that match STATUS_CONFIG (Tailwind bg classes won't work inside
 // inline-style width, so we use raw hex values for the stacked bar segments).
 const STATUS_BAR_COLORS: Record<SongStatus, string> = {
-  unknown:    '#d1d5db', // gray-300
-  learning:   '#93c5fd', // blue-300
-  practicing: '#fde047', // yellow-300
-  polishing:  '#fdba74', // orange-300
-  mastered:   '#86efac', // green-300
-}
+  unknown: "#d1d5db", // gray-300
+  learning: "#93c5fd", // blue-300
+  practicing: "#fde047", // yellow-300
+  polishing: "#fdba74", // orange-300
+  mastered: "#86efac", // green-300
+};
 
 interface PlaylistSummaryProps {
-  songs: PlaylistSong[]
-  repertoireMap: Map<string, UserRepertoire>
+  songs: PlaylistSong[];
+  repertoireMap: Map<string, UserRepertoire>;
 }
 
-function PlaylistSummary({ songs, repertoireMap }: PlaylistSummaryProps) {
+const PlaylistSummary = ({ songs, repertoireMap }: PlaylistSummaryProps) => {
   const { counts, totalSeconds } = useMemo(() => {
-    const c: Record<SongStatus, number> = {
-      unknown: 0, learning: 0, practicing: 0, polishing: 0, mastered: 0,
-    }
-    let secs = 0
+    const statusCounts: Record<SongStatus, number> = {
+      unknown: 0,
+      learning: 0,
+      practicing: 0,
+      polishing: 0,
+      mastered: 0,
+    };
+    let totalSecs = 0;
     for (const ps of songs) {
-      const s = repertoireMap.get(ps.song_id)?.status ?? 'unknown'
-      c[s]++
-      secs += ps.song?.duration_seconds ?? 0
+      const songStatus = repertoireMap.get(ps.song_id)?.status ?? "unknown";
+      statusCounts[songStatus]++;
+      totalSecs += ps.song?.duration_seconds ?? 0;
     }
-    return { counts: c, totalSeconds: secs }
-  }, [songs, repertoireMap])
+    return { counts: statusCounts, totalSeconds: totalSecs };
+  }, [songs, repertoireMap]);
 
-  const total = songs.length
-  if (total === 0) return null
+  const total = songs.length;
+  if (total === 0) return null;
 
   const score = Math.round(
-    (STATUS_ORDER.reduce((sum, s) => sum + STATUS_SCORES[s] * counts[s], 0) / (total * 4)) * 100
-  )
+    (STATUS_ORDER.reduce((sum, st) => sum + STATUS_SCORES[st] * counts[st], 0) /
+      (total * 4)) *
+      100,
+  );
 
   // Nearest status label for the score
-  const scoreStatus = STATUS_ORDER[Math.min(
-    Math.floor((score / 100) * (STATUS_ORDER.length - 1) + 0.5),
-    STATUS_ORDER.length - 1
-  )]
-  const cfg = STATUS_CONFIG[scoreStatus]
+  const scoreStatus =
+    STATUS_ORDER[
+      Math.min(
+        Math.floor((score / 100) * (STATUS_ORDER.length - 1) + 0.5),
+        STATUS_ORDER.length - 1,
+      )
+    ];
+  const cfg = STATUS_CONFIG[scoreStatus];
 
   return (
     <div className="px-4 py-3 md:px-6 border-b border-gray-100 bg-gray-50">
@@ -187,277 +209,473 @@ function PlaylistSummary({ songs, repertoireMap }: PlaylistSummaryProps) {
         <span className="text-xs font-medium text-gray-500">
           Playlist level
           {totalSeconds > 0 && (
-            <span className="ml-2 text-gray-400 font-normal">{formatDuration(totalSeconds)}</span>
+            <span className="ml-2 text-gray-400 font-normal">
+              {formatDuration(totalSeconds)}
+            </span>
           )}
         </span>
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border border-current ${cfg.bgColor} ${cfg.textColor}`}>
+        <span
+          className={`text-xs font-semibold px-2 py-0.5 rounded-full border border-current ${cfg.bgColor} ${cfg.textColor}`}
+        >
           {cfg.label} &middot; {score}%
         </span>
       </div>
 
       {/* Stacked distribution bar */}
-      <div className="flex h-2 rounded-full overflow-hidden gap-px" aria-label="Status distribution">
-        {STATUS_ORDER.map((s) => {
-          const pct = (counts[s] / total) * 100
-          if (pct === 0) return null
+      <div
+        className="flex h-2 rounded-full overflow-hidden gap-px"
+        aria-label="Status distribution"
+      >
+        {STATUS_ORDER.map((statusKey) => {
+          const pct = (counts[statusKey] / total) * 100;
+          if (pct === 0) return null;
           return (
             <div
-              key={s}
-              style={{ width: `${pct}%`, backgroundColor: STATUS_BAR_COLORS[s] }}
-              title={`${STATUS_CONFIG[s].label}: ${counts[s]}`}
+              key={statusKey}
+              style={{
+                width: `${pct}%`,
+                backgroundColor: STATUS_BAR_COLORS[statusKey],
+              }}
+              title={`${STATUS_CONFIG[statusKey].label}: ${counts[statusKey]}`}
             />
-          )
+          );
         })}
       </div>
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-        {STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
-          <span key={s} className="flex items-center gap-1 text-xs text-gray-500">
+        {STATUS_ORDER.filter((statusKey) => counts[statusKey] > 0).map(
+          (statusKey) => (
             <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: STATUS_BAR_COLORS[s] }}
-              aria-hidden="true"
-            />
-            {STATUS_CONFIG[s].label} ({counts[s]})
-          </span>
-        ))}
+              key={statusKey}
+              className="flex items-center gap-1 text-xs text-gray-500"
+            >
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: STATUS_BAR_COLORS[statusKey] }}
+                aria-hidden="true"
+              />
+              {STATUS_CONFIG[statusKey].label} ({counts[statusKey]})
+            </span>
+          ),
+        )}
       </div>
     </div>
-  )
-}
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function PlaylistDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const playlistId = params.id as string
+  const params = useParams();
+  const router = useRouter();
+  const playlistId = params.id as string;
 
-  const [playlist, setPlaylist] = useState<Playlist | null>(null)
-  const [songs, setSongs] = useState<PlaylistSong[]>([])
-  const [repertoireMap, setRepertoireMap] = useState<Map<string, UserRepertoire>>(new Map())
-  const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
-  const [repertoire, setRepertoire] = useState<UserRepertoire[]>([])
-  const [pickerSearch, setPickerSearch] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null)
-  const [addingTagForSong, setAddingTagForSong] = useState<string | null>(null)
-  const [newTagInput, setNewTagInput] = useState('')
+  const [playlist, setPlaylist] = useState<Playlist | null>(null);
+  const [songs, setSongs] = useState<PlaylistSong[]>([]);
+  const [repertoireMap, setRepertoireMap] = useState<
+    Map<string, UserRepertoire>
+  >(new Map());
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [addingTagForSong, setAddingTagForSong] = useState<string | null>(null);
+  const [newTagInput, setNewTagInput] = useState("");
+  const [addingPlaylistTag, setAddingPlaylistTag] = useState(false);
+  const [newPlaylistTagInput, setNewPlaylistTagInput] = useState("");
 
-  const refreshPlaylist = async () => {
-    const [data, rep, { data: { user } }] = await Promise.all([
+  // Add-song search panel
+  const [showSearch, setShowSearch] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const [pickerCatalogResults, setPickerCatalogResults] = useState<
+    GlobalSong[]
+  >([]);
+  const [pickerSpotifyResults, setPickerSpotifyResults] = useState<
+    SpotifyTrack[]
+  >([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerAddingId, setPickerAddingId] = useState<string | null>(null);
+  const [pickerRowErrors, setPickerRowErrors] = useState<
+    Record<string, string>
+  >({});
+  const pickerDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickerLatestQuery = useRef("");
+
+  // Focus refs — used instead of autoFocus to preserve accessibility
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const playlistTagInputRef = useRef<HTMLInputElement>(null);
+  const songTagInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) editInputRef.current?.focus();
+  }, [editing]);
+  useEffect(() => {
+    if (addingPlaylistTag) playlistTagInputRef.current?.focus();
+  }, [addingPlaylistTag]);
+  useEffect(() => {
+    if (addingTagForSong) songTagInputRef.current?.focus();
+  }, [addingTagForSong]);
+  useEffect(() => {
+    if (showSearch) searchInputRef.current?.focus();
+  }, [showSearch]);
+
+  const refreshPlaylist = useCallback(async () => {
+    const {
+      data: { user },
+    } = await createClient().auth.getUser();
+    const [data, rep] = await Promise.all([
       getPlaylistWithSongs(playlistId),
-      getUserRepertoire(),
-      createClient().auth.getUser(),
-    ])
-    if (!data) { router.replace('/playlists'); return }
-    setPlaylist(data)
-    setSongs(data.songs ?? [])
-    setRepertoireMap(new Map(rep.map((r) => [r.song_id, r])))
-    setRepertoire(rep)
-    setCurrentUserId(user?.id ?? null)
-  }
+      // Fetch repertoire to populate repertoireMap for status/tag display
+      createClient()
+        .from("user_repertoire")
+        .select("*, song:global_songs(*)")
+        .then(({ data }) => (data ?? []) as UserRepertoire[]),
+    ]);
+    if (!data) {
+      router.replace("/playlists");
+      return;
+    }
+    setPlaylist(data);
+    setSongs(data.songs ?? []);
+    setRepertoireMap(new Map(rep.map((r: UserRepertoire) => [r.song_id, r])));
+    setCurrentUserId(user?.id ?? null);
+  }, [playlistId, router]);
 
   useEffect(() => {
-    setLoading(true)
+    setLoading(true);
     refreshPlaylist()
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load playlist'))
-      .finally(() => setLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playlistId])
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "Failed to load playlist",
+        ),
+      )
+      .finally(() => setLoading(false));
+  }, [refreshPlaylist]);
 
-  // Open picker — reload repertoire if not loaded yet
+  // Debounced picker search: catalog + Spotify in parallel
+  const runPickerSearch = useCallback(async (query: string) => {
+    pickerLatestQuery.current = query;
+    if (query.trim().length < 2) {
+      setPickerCatalogResults([]);
+      setPickerSpotifyResults([]);
+      setPickerLoading(false);
+      return;
+    }
+    setPickerLoading(true);
+    try {
+      const [catalog, spotify] = await Promise.all([
+        searchGlobalSongs(query).catch(() => [] as GlobalSong[]),
+        searchSpotify(query).catch(() => [] as SpotifyTrack[]),
+      ]);
+      if (pickerLatestQuery.current !== query) return;
+      setPickerCatalogResults(catalog);
+      setPickerSpotifyResults(spotify);
+    } finally {
+      if (pickerLatestQuery.current === query) setPickerLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!showPicker || repertoire.length > 0) return
-    getUserRepertoire()
-      .then((rep) => {
-        setRepertoire(rep)
-        setRepertoireMap(new Map(rep.map((r) => [r.song_id, r])))
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load repertoire'))
-  }, [showPicker, repertoire.length])
+    if (pickerDebounce.current) clearTimeout(pickerDebounce.current);
+    pickerDebounce.current = setTimeout(() => {
+      runPickerSearch(pickerQuery).catch(console.error);
+    }, 500);
+    return () => {
+      if (pickerDebounce.current) clearTimeout(pickerDebounce.current);
+    };
+  }, [pickerQuery, runPickerSearch]);
 
-  const currentSongIds = new Set(songs.map((s) => s.song_id))
+  const currentSongIds = useMemo(
+    () => new Set(songs.map((ps) => ps.song_id)),
+    [songs],
+  );
 
   const allTags = useMemo(() => {
-    const set = new Set<string>()
+    const set = new Set<string>();
     for (const ps of songs) {
-      for (const tag of (repertoireMap.get(ps.song_id)?.tags ?? [])) set.add(tag)
+      for (const tag of repertoireMap.get(ps.song_id)?.tags ?? []) set.add(tag);
     }
-    return [...set].sort()
-  }, [songs, repertoireMap])
+    return [...set].sort((tagA, tagB) => tagA.localeCompare(tagB));
+  }, [songs, repertoireMap]);
 
-  const filteredSongs = useMemo(() =>
-    activeTagFilter
-      ? songs.filter((ps) => repertoireMap.get(ps.song_id)?.tags.includes(activeTagFilter))
-      : songs,
-    [songs, repertoireMap, activeTagFilter]
-  )
+  const filteredSongs = useMemo(
+    () =>
+      activeTagFilter
+        ? songs.filter((ps) =>
+            repertoireMap.get(ps.song_id)?.tags.includes(activeTagFilter),
+          )
+        : songs,
+    [songs, repertoireMap, activeTagFilter],
+  );
 
-  const pickerSongs = repertoire.filter((r) => {
-    if (currentSongIds.has(r.song_id)) return false
-    if (!pickerSearch.trim()) return true
-    const q = pickerSearch.toLowerCase()
-    return r.song?.title.toLowerCase().includes(q) || r.song?.artist.toLowerCase().includes(q)
-  })
+  // Picker results: hide songs already in the playlist; deduplicate Spotify vs catalog
+  const pickerVisibleCatalog = useMemo(
+    () => pickerCatalogResults.filter((song) => !currentSongIds.has(song.id)),
+    [pickerCatalogResults, currentSongIds],
+  );
+  const pickerCatalogKeys = useMemo(
+    () =>
+      new Set(
+        pickerVisibleCatalog.map(
+          (song) => `${song.title.toLowerCase()}|${song.artist.toLowerCase()}`,
+        ),
+      ),
+    [pickerVisibleCatalog],
+  );
+  const pickerVisibleSpotify = useMemo(
+    () =>
+      pickerSpotifyResults.filter((track) => {
+        const key = `${track.title.toLowerCase()}|${track.artist.toLowerCase()}`;
+        return !pickerCatalogKeys.has(key);
+      }),
+    [pickerSpotifyResults, pickerCatalogKeys],
+  );
 
-  const autoPushIfNeeded = async () => {
-    if (!playlist?.sync_with_spotify || !playlist?.spotify_playlist_id) return
+  const autoPushIfNeeded = useCallback(async () => {
+    if (!playlist?.sync_with_spotify || !playlist?.spotify_playlist_id) return;
     const res = await fetch(`/api/spotify/playlists/${playlistId}/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ direction: 'push' }),
-    })
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction: "push" }),
+    });
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string }
-      throw new Error(body.error ?? 'Auto-sync to Spotify failed')
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? "Auto-sync to Spotify failed");
     }
-  }
+  }, [playlist?.sync_with_spotify, playlist?.spotify_playlist_id, playlistId]);
 
-  const handleAddSong = async (songId: string) => {
-    setError(null)
+  // Low-level: add an already-in-repertoire song to the playlist and refresh state
+  const addSongIdToPlaylist = useCallback(
+    async (songId: string) => {
+      await addSongToPlaylist(playlistId, songId);
+      const updated = await getPlaylistWithSongs(playlistId);
+      setSongs(updated?.songs ?? []);
+      await autoPushIfNeeded();
+    },
+    [playlistId, autoPushIfNeeded],
+  );
+
+  // Add a catalog song: ensure it's in the repertoire, then add to playlist
+  const handlePickerAddCatalog = async (song: GlobalSong) => {
+    setPickerAddingId(song.id);
+    setPickerRowErrors((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).filter(([key]) => key !== song.id),
+      ),
+    );
     try {
-      await addSongToPlaylist(playlistId, songId)
-      const updated = await getPlaylistWithSongs(playlistId)
-      setSongs(updated?.songs ?? [])
-      await autoPushIfNeeded()
+      if (!repertoireMap.has(song.id)) {
+        await addSongToRepertoire(song.id);
+      }
+      await addSongIdToPlaylist(song.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add song')
+      setPickerRowErrors((prev) => ({
+        ...prev,
+        [song.id]: err instanceof Error ? err.message : "Failed to add",
+      }));
+    } finally {
+      setPickerAddingId(null);
     }
-  }
+  };
+
+  // Add a Spotify track: create global song + add to repertoire, then add to playlist
+  const handlePickerAddSpotify = async (track: SpotifyTrack) => {
+    setPickerAddingId(track.id);
+    setPickerRowErrors((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).filter(([key]) => key !== track.id),
+      ),
+    );
+    try {
+      const resolveTrackId = async (): Promise<string> => {
+        try {
+          const entry = await createAndAddSong({
+            title: track.title,
+            artist: track.artist,
+            album: track.album ?? undefined,
+            cover_url: track.albumArt ?? undefined,
+            links: [{ label: "Spotify", url: track.spotifyUrl }],
+          });
+          return entry.song_id;
+        } catch (err) {
+          // Song already in repertoire — find its id from the current map
+          if (
+            err instanceof Error &&
+            err.message.includes("already in your repertoire")
+          ) {
+            const existing = [...repertoireMap.values()].find(
+              (rep) =>
+                rep.song?.title.toLowerCase() === track.title.toLowerCase() &&
+                rep.song?.artist.toLowerCase() === track.artist.toLowerCase(),
+            );
+            if (!existing) throw err;
+            return existing.song_id;
+          }
+          throw err;
+        }
+      };
+      const songId = await resolveTrackId();
+      await addSongIdToPlaylist(songId);
+    } catch (err) {
+      setPickerRowErrors((prev) => ({
+        ...prev,
+        [track.id]: err instanceof Error ? err.message : "Failed to add",
+      }));
+    } finally {
+      setPickerAddingId(null);
+    }
+  };
 
   const handleRemoveSong = async (songId: string) => {
-    setError(null)
+    setError(null);
     try {
-      await removeSongFromPlaylist(playlistId, songId)
-      setSongs((prev) => prev.filter((s) => s.song_id !== songId))
-      await autoPushIfNeeded()
+      await removeSongFromPlaylist(playlistId, songId);
+      setSongs((prev) => prev.filter((ps) => ps.song_id !== songId));
+      await autoPushIfNeeded();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove song')
+      setError(err instanceof Error ? err.message : "Failed to remove song");
     }
-  }
+  };
 
   const handleStatusCycle = async (songId: string) => {
-    const entry = repertoireMap.get(songId)
-    if (!entry) return
-    const next = nextStatus(entry.status)
+    const entry = repertoireMap.get(songId);
+    if (!entry) return;
+    const newStatus = nextStatus(entry.status);
     // Optimistic update
     setRepertoireMap((prev) => {
-      const next_map = new Map(prev)
-      next_map.set(songId, { ...entry, status: next })
-      return next_map
-    })
+      const updated = new Map(prev);
+      updated.set(songId, { ...entry, status: newStatus });
+      return updated;
+    });
     try {
-      await updateSongStatus(entry.id, next)
+      await updateSongStatus(entry.id, newStatus);
     } catch (err) {
       // Revert on failure
       setRepertoireMap((prev) => {
-        const reverted = new Map(prev)
-        reverted.set(songId, entry)
-        return reverted
-      })
-      setError(err instanceof Error ? err.message : 'Failed to update status')
+        const reverted = new Map(prev);
+        reverted.set(songId, entry);
+        return reverted;
+      });
+      setError(err instanceof Error ? err.message : "Failed to update status");
     }
-  }
+  };
 
   const handleSync = async () => {
-    setSyncing(true)
-    setError(null)
+    setSyncing(true);
+    setError(null);
     try {
       const res = await fetch(`/api/spotify/playlists/${playlistId}/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ direction: 'pull' }),
-      })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ direction: "pull" }),
+      });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(body.error ?? 'Sync failed')
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Sync failed");
       }
-      await refreshPlaylist()
+      await refreshPlaylist();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sync failed')
+      setError(err instanceof Error ? err.message : "Sync failed");
     } finally {
-      setSyncing(false)
+      setSyncing(false);
     }
-  }
+  };
 
   const handleRename = async () => {
-    const trimmed = editName.trim()
-    if (!trimmed) { setEditing(false); return }
-    setError(null)
-    try {
-      await updatePlaylist(playlistId, { name: trimmed })
-      setPlaylist((prev) => prev ? { ...prev, name: trimmed } : prev)
-      setEditing(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to rename')
+    const trimmed = editName.trim();
+    if (!trimmed) {
+      setEditing(false);
+      return;
     }
-  }
+    setError(null);
+    try {
+      await updatePlaylist(playlistId, { name: trimmed });
+      setPlaylist((prev) => (prev ? { ...prev, name: trimmed } : prev));
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rename");
+    }
+  };
 
   const handleTagsChange = async (tags: string[]) => {
-    setPlaylist((prev) => prev ? { ...prev, tags } : prev)
+    setPlaylist((prev) => (prev ? { ...prev, tags } : prev));
     try {
-      await updatePlaylist(playlistId, { tags })
+      await updatePlaylist(playlistId, { tags });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update tags')
+      setError(err instanceof Error ? err.message : "Failed to update tags");
     }
-  }
+  };
+
+  const handleAddPlaylistTag = async (raw: string) => {
+    let tagValue = raw.trim().toLowerCase();
+    while (tagValue.endsWith(",")) tagValue = tagValue.slice(0, -1);
+    const tag = tagValue.trim();
+    setAddingPlaylistTag(false);
+    setNewPlaylistTagInput("");
+    if (!tag) return;
+    const current = playlist?.tags ?? [];
+    if (current.includes(tag)) return;
+    await handleTagsChange([...current, tag]);
+  };
 
   const handleAddSongTag = async (songId: string, tag: string) => {
-    const trimmed = tag.trim().toLowerCase()
-    if (!trimmed) return
-    const entry = repertoireMap.get(songId)
-    if (!entry) return
-    if (entry.tags.includes(trimmed)) { setAddingTagForSong(null); setNewTagInput(''); return }
-    const newTags = [...entry.tags, trimmed]
-    setRepertoireMap((prev) => {
-      const next = new Map(prev)
-      next.set(songId, { ...entry, tags: newTags })
-      return next
-    })
-    setAddingTagForSong(null)
-    setNewTagInput('')
-    try {
-      await updateSongTags(entry.id, newTags)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add tag')
+    const trimmed = tag.trim().toLowerCase();
+    if (!trimmed) return;
+    const entry = repertoireMap.get(songId);
+    if (!entry) return;
+    if (entry.tags.includes(trimmed)) {
+      setAddingTagForSong(null);
+      setNewTagInput("");
+      return;
     }
-  }
+    const newTags = [...entry.tags, trimmed];
+    setRepertoireMap((prev) => {
+      const next = new Map(prev);
+      next.set(songId, { ...entry, tags: newTags });
+      return next;
+    });
+    setAddingTagForSong(null);
+    setNewTagInput("");
+    try {
+      await updateSongTags(entry.id, newTags);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add tag");
+    }
+  };
 
   const handleRemoveSongTag = async (songId: string, tag: string) => {
-    const entry = repertoireMap.get(songId)
-    if (!entry) return
-    const newTags = entry.tags.filter((t) => t !== tag)
+    const entry = repertoireMap.get(songId);
+    if (!entry) return;
+    const newTags = entry.tags.filter((existingTag) => existingTag !== tag);
     setRepertoireMap((prev) => {
-      const next = new Map(prev)
-      next.set(songId, { ...entry, tags: newTags })
-      return next
-    })
+      const updated = new Map(prev);
+      updated.set(songId, { ...entry, tags: newTags });
+      return updated;
+    });
     try {
-      await updateSongTags(entry.id, newTags)
+      await updateSongTags(entry.id, newTags);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove tag')
+      setError(err instanceof Error ? err.message : "Failed to remove tag");
     }
-  }
+  };
 
   const handleDelete = async () => {
-    setError(null)
+    setError(null);
     try {
-      await deletePlaylist(playlistId)
-      router.replace('/playlists')
+      await deletePlaylist(playlistId);
+      router.replace("/playlists");
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete')
+      setError(err instanceof Error ? err.message : "Failed to delete");
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -465,10 +683,10 @@ export default function PlaylistDetailPage() {
         <Spinner />
         Loading...
       </div>
-    )
+    );
   }
 
-  if (!playlist) return null
+  if (!playlist) return null;
 
   return (
     <div className="flex flex-col h-full">
@@ -481,8 +699,18 @@ export default function PlaylistDetailPage() {
             aria-label="Back to playlists"
             className="p-1.5 rounded text-gray-400 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 shrink-0"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </Link>
 
@@ -502,34 +730,86 @@ export default function PlaylistDetailPage() {
           {editing ? (
             <div className="flex-1 flex items-center gap-2">
               <input
+                ref={editInputRef}
                 type="text"
                 value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleRename()
-                  if (e.key === 'Escape') setEditing(false)
+                onChange={(ev) => setEditName(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter") handleRename().catch(console.error);
+                  if (ev.key === "Escape") setEditing(false);
                 }}
-                autoFocus
                 className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 aria-label="Playlist name"
               />
-              <button type="button" onClick={() => void handleRename()} className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline">Save</button>
-              <button type="button" onClick={() => setEditing(false)} className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline">Cancel</button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleRename().catch(console.error);
+                }}
+                className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+              >
+                Cancel
+              </button>
             </div>
           ) : (
-            <h1 className="flex-1 text-lg font-bold text-gray-900 truncate">{playlist.name}</h1>
+            <h1 className="flex-1 text-lg font-bold text-gray-900 truncate">
+              {playlist.name}
+            </h1>
           )}
 
           {/* Actions */}
           {!editing && (
             <div className="flex items-center gap-0.5 shrink-0">
+              {/* Add songs */}
               <button
                 type="button"
-                onClick={() => { setEditName(playlist.name); setEditing(true) }}
+                onClick={() => setShowSearch((prev) => !prev)}
+                aria-label="Add songs"
+                aria-pressed={showSearch}
+                className={`p-1.5 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors ${
+                  showSearch
+                    ? "text-emerald-600 bg-emerald-50"
+                    : "text-gray-400 hover:text-emerald-600"
+                }`}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditName(playlist.name);
+                  setEditing(true);
+                }}
                 aria-label="Rename playlist"
                 className="p-1.5 rounded text-gray-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
                   <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                 </svg>
               </button>
@@ -537,8 +817,22 @@ export default function PlaylistDetailPage() {
               {confirmDelete ? (
                 <span className="flex items-center gap-1 text-xs px-1">
                   <span className="text-gray-600">Sure?</span>
-                  <button type="button" onClick={() => void handleDelete()} className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline">Yes</button>
-                  <button type="button" onClick={() => setConfirmDelete(false)} className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline">No</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDelete().catch(console.error);
+                    }}
+                    className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+                  >
+                    No
+                  </button>
                 </span>
               ) : (
                 <button
@@ -547,8 +841,18 @@ export default function PlaylistDetailPage() {
                   aria-label="Delete playlist"
                   className="p-1.5 rounded text-gray-400 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-400"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </button>
               )}
@@ -561,14 +865,20 @@ export default function PlaylistDetailPage() {
           <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
             <span className="text-xs text-green-700 flex items-center gap-1.5">
               <span aria-hidden="true">🔄</span>
-              {playlist.sync_with_spotify ? 'Auto-sync on' : 'Synced with Spotify'}
+              {playlist.sync_with_spotify
+                ? "Auto-sync on"
+                : "Synced with Spotify"}
               {playlist.last_synced_at && (
-                <span className="text-green-600">&middot; {timeAgo(playlist.last_synced_at)}</span>
+                <span className="text-green-600">
+                  &middot; {timeAgo(playlist.last_synced_at)}
+                </span>
               )}
             </span>
             <button
               type="button"
-              onClick={() => void handleSync()}
+              onClick={() => {
+                handleSync().catch(console.error);
+              }}
               disabled={syncing}
               aria-label="Sync with Spotify"
               className="flex items-center gap-1.5 text-xs text-green-700 border border-green-300 rounded-md px-2.5 py-1 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -580,16 +890,76 @@ export default function PlaylistDetailPage() {
         )}
       </header>
 
-      {/* Tag editor */}
-      {playlist && (playlist.band_id !== null || playlist.user_id === currentUserId) && (
-        <div className="px-4 py-2 md:px-6 border-b border-gray-100 bg-white">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Tags</p>
-          <TagEditor
-            tags={playlist.tags ?? []}
-            onChange={(tags) => void handleTagsChange(tags)}
-          />
-        </div>
-      )}
+      {/* Playlist tags */}
+      {playlist &&
+        (playlist.band_id !== null || playlist.user_id === currentUserId) && (
+          <div className="px-4 py-2 md:px-6 border-b border-gray-100 bg-white flex flex-wrap items-center gap-1.5">
+            {(playlist.tags ?? []).map((tag) => (
+              <span
+                key={tag}
+                className="group flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+              >
+                {tag}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleTagsChange(
+                      (playlist.tags ?? []).filter(
+                        (existingTag) => existingTag !== tag,
+                      ),
+                    ).catch(console.error);
+                  }}
+                  aria-label={`Remove tag ${tag}`}
+                  className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {addingPlaylistTag ? (
+              <input
+                ref={playlistTagInputRef}
+                type="text"
+                value={newPlaylistTagInput}
+                onChange={(ev) => setNewPlaylistTagInput(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter")
+                    handleAddPlaylistTag(newPlaylistTagInput).catch(
+                      console.error,
+                    );
+                  if (ev.key === "Escape") {
+                    setAddingPlaylistTag(false);
+                    setNewPlaylistTagInput("");
+                  }
+                }}
+                onBlur={() => {
+                  if (newPlaylistTagInput.trim())
+                    handleAddPlaylistTag(newPlaylistTagInput).catch(
+                      console.error,
+                    );
+                  else {
+                    setAddingPlaylistTag(false);
+                    setNewPlaylistTagInput("");
+                  }
+                }}
+                placeholder="new tag"
+                className="px-2 py-0.5 rounded-full text-xs border border-emerald-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingPlaylistTag(true);
+                  setNewPlaylistTagInput("");
+                }}
+                aria-label="Add tag to playlist"
+                className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
+              >
+                + tag
+              </button>
+            )}
+          </div>
+        )}
 
       {/* Playlist level summary */}
       <PlaylistSummary songs={songs} repertoireMap={repertoireMap} />
@@ -598,7 +968,13 @@ export default function PlaylistDetailPage() {
       {error && (
         <div className="shrink-0 flex items-center justify-between px-4 py-2 bg-red-50 border-b border-red-100">
           <p className="text-xs text-red-600">{error}</p>
-          <button type="button" onClick={() => setError(null)} className="text-xs text-red-400 hover:text-red-600 ml-3 focus:outline-none">✕</button>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-xs text-red-400 hover:text-red-600 ml-3 focus:outline-none"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -609,11 +985,13 @@ export default function PlaylistDetailPage() {
             <button
               key={tag}
               type="button"
-              onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
+              onClick={() =>
+                setActiveTagFilter(activeTagFilter === tag ? null : tag)
+              }
               className={`px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${
                 activeTagFilter === tag
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400'
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400"
               }`}
             >
               {tag}
@@ -632,25 +1010,30 @@ export default function PlaylistDetailPage() {
       )}
 
       {/* Song list */}
-      <section className="flex-1 overflow-y-auto px-4 py-3 md:px-6 min-h-0" aria-label="Songs in this playlist">
+      <section
+        className="flex-1 overflow-y-auto px-4 py-3 md:px-6 min-h-0"
+        aria-label="Songs in this playlist"
+      >
         {songs.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-12">
-            No songs yet. Add some from your repertoire below.
+            No songs yet. Use the + button in the header to search and add
+            songs.
           </p>
         ) : filteredSongs.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-12">
-            No songs tagged <span className="font-medium">#{activeTagFilter}</span>.
+            No songs tagged{" "}
+            <span className="font-medium">#{activeTagFilter}</span>.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
             {[...filteredSongs]
-              .sort((a, b) => a.position - b.position)
+              .sort((songA, songB) => songA.position - songB.position)
               .map((ps) => {
-                const entry = repertoireMap.get(ps.song_id)
-                const status = entry?.status ?? 'unknown'
-                const tags = entry?.tags ?? []
-                const cfg = STATUS_CONFIG[status]
-                const isAddingTag = addingTagForSong === ps.song_id
+                const entry = repertoireMap.get(ps.song_id);
+                const status = entry?.status ?? "unknown";
+                const tags = entry?.tags ?? [];
+                const cfg = STATUS_CONFIG[status];
+                const isAddingTag = addingTagForSong === ps.song_id;
                 return (
                   <li
                     key={ps.id}
@@ -667,13 +1050,22 @@ export default function PlaylistDetailPage() {
                           unoptimized
                         />
                       ) : (
-                        <div className="h-10 w-10 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
+                        <div
+                          className="h-10 w-10 rounded bg-emerald-100 shrink-0"
+                          aria-hidden="true"
+                        />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{ps.song?.title ?? '—'}</p>
-                        <p className="text-xs text-gray-500 truncate">{ps.song?.artist ?? '—'}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {ps.song?.title ?? "—"}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {ps.song?.artist ?? "—"}
+                        </p>
                         {ps.song?.album && (
-                          <p className="text-xs text-gray-400 italic truncate">{ps.song.album}</p>
+                          <p className="text-xs text-gray-400 italic truncate">
+                            {ps.song.album}
+                          </p>
                         )}
                       </div>
                       {ps.song?.duration_seconds != null && (
@@ -684,7 +1076,9 @@ export default function PlaylistDetailPage() {
                       {/* Status badge */}
                       <button
                         type="button"
-                        onClick={() => void handleStatusCycle(ps.song_id)}
+                        onClick={() => {
+                          handleStatusCycle(ps.song_id).catch(console.error);
+                        }}
                         aria-label={`Status: ${cfg.label}. Click to advance.`}
                         className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
                       >
@@ -693,12 +1087,24 @@ export default function PlaylistDetailPage() {
                       {/* Remove */}
                       <button
                         type="button"
-                        onClick={() => void handleRemoveSong(ps.song_id)}
-                        aria-label={`Remove ${ps.song?.title ?? 'song'} from playlist`}
+                        onClick={() => {
+                          handleRemoveSong(ps.song_id).catch(console.error);
+                        }}
+                        aria-label={`Remove ${ps.song?.title ?? "song"} from playlist`}
                         className="shrink-0 p-1 rounded text-gray-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                            clipRule="evenodd"
+                          />
                         </svg>
                       </button>
                     </div>
@@ -713,25 +1119,43 @@ export default function PlaylistDetailPage() {
                           {tag}
                           <button
                             type="button"
-                            onClick={() => void handleRemoveSongTag(ps.song_id, tag)}
+                            onClick={() => {
+                              handleRemoveSongTag(ps.song_id, tag).catch(
+                                console.error,
+                              );
+                            }}
                             aria-label={`Remove tag ${tag}`}
                             className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
-                          >×</button>
+                          >
+                            ×
+                          </button>
                         </span>
                       ))}
                       {isAddingTag ? (
                         <input
-                          autoFocus
+                          ref={songTagInputRef}
                           type="text"
                           value={newTagInput}
-                          onChange={(e) => setNewTagInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') void handleAddSongTag(ps.song_id, newTagInput)
-                            if (e.key === 'Escape') { setAddingTagForSong(null); setNewTagInput('') }
+                          onChange={(ev) => setNewTagInput(ev.target.value)}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter")
+                              handleAddSongTag(ps.song_id, newTagInput).catch(
+                                console.error,
+                              );
+                            if (ev.key === "Escape") {
+                              setAddingTagForSong(null);
+                              setNewTagInput("");
+                            }
                           }}
                           onBlur={() => {
-                            if (newTagInput.trim()) void handleAddSongTag(ps.song_id, newTagInput)
-                            else { setAddingTagForSong(null); setNewTagInput('') }
+                            if (newTagInput.trim())
+                              handleAddSongTag(ps.song_id, newTagInput).catch(
+                                console.error,
+                              );
+                            else {
+                              setAddingTagForSong(null);
+                              setNewTagInput("");
+                            }
                           }}
                           placeholder="new tag"
                           className="px-2 py-0.5 rounded-full text-xs border border-emerald-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24"
@@ -739,7 +1163,10 @@ export default function PlaylistDetailPage() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => { setAddingTagForSong(ps.song_id); setNewTagInput('') }}
+                          onClick={() => {
+                            setAddingTagForSong(ps.song_id);
+                            setNewTagInput("");
+                          }}
                           aria-label="Add tag"
                           className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
                         >
@@ -748,87 +1175,78 @@ export default function PlaylistDetailPage() {
                       )}
                     </div>
                   </li>
-                )
+                );
               })}
           </ul>
         )}
       </section>
 
-      {/* Add songs */}
-      <div className="border-t border-gray-100 px-4 py-3 md:px-6 shrink-0">
-        {showPicker ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-700">Add from repertoire</h2>
-              <button
-                type="button"
-                onClick={() => { setShowPicker(false); setPickerSearch('') }}
-                className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
-              >
-                Done
-              </button>
-            </div>
-            <input
-              type="search"
-              value={pickerSearch}
-              onChange={(e) => setPickerSearch(e.target.value)}
-              placeholder="Search songs..."
-              autoFocus
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <ul className="max-h-48 overflow-y-auto flex flex-col gap-1">
-              {pickerSongs.length === 0 ? (
-                <li className="text-xs text-gray-400 text-center py-3">
-                  {pickerSearch ? 'No matches' : 'All your songs are already in this playlist'}
-                </li>
-              ) : (
-                pickerSongs.map((r) => {
-                  const status = repertoireMap.get(r.song_id)?.status ?? 'unknown'
-                  const cfg = STATUS_CONFIG[status]
-                  return (
-                    <li key={r.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
-                      {r.song?.cover_url ? (
-                        <Image
-                          src={r.song.cover_url}
-                          alt=""
-                          width={32}
-                          height={32}
-                          className="h-8 w-8 rounded object-cover shrink-0"
-                          unoptimized
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded bg-emerald-100 shrink-0" aria-hidden="true" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900 truncate">{r.song?.title ?? '—'}</p>
-                        <p className="text-xs text-gray-500 truncate">{r.song?.artist ?? '—'}</p>
-                      </div>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}>
-                        {cfg.label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void handleAddSong(r.song_id)}
-                        className="shrink-0 text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline"
-                      >
-                        Add
-                      </button>
-                    </li>
-                  )
-                })
-              )}
-            </ul>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowPicker(true)}
-            className="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-emerald-300 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+      {/* Add-song search panel (toggled by the + button in the header) */}
+      {showSearch && (
+        <div className="border-t border-gray-100 px-4 py-3 md:px-6 shrink-0 flex flex-col gap-2">
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={pickerQuery}
+            onChange={(ev) => setPickerQuery(ev.target.value)}
+            placeholder="Search catalog and Spotify…"
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <ul
+            className="max-h-60 overflow-y-auto flex flex-col gap-0.5"
+            aria-live="polite"
           >
-            + Add songs
-          </button>
-        )}
-      </div>
+            {pickerQuery.trim().length < 2 ? (
+              <li className="text-xs text-gray-400 text-center py-3">
+                Type to search…
+              </li>
+            ) : pickerLoading ? (
+              <li
+                className="flex items-center gap-2 px-2 py-2 text-sm text-gray-400"
+                aria-busy="true"
+              >
+                <Spinner /> Searching…
+              </li>
+            ) : pickerVisibleCatalog.length === 0 &&
+              pickerVisibleSpotify.length === 0 ? (
+              <li className="text-xs text-gray-400 text-center py-3">
+                No results
+              </li>
+            ) : (
+              <>
+                {pickerVisibleCatalog.map((song) => (
+                  <PickerRow
+                    key={song.id}
+                    coverUrl={song.cover_url}
+                    title={song.title}
+                    artist={song.artist}
+                    album={song.album}
+                    adding={pickerAddingId === song.id}
+                    error={pickerRowErrors[song.id]}
+                    onAdd={() => {
+                      handlePickerAddCatalog(song).catch(console.error);
+                    }}
+                  />
+                ))}
+                {pickerVisibleSpotify.map((track) => (
+                  <PickerRow
+                    key={track.id}
+                    coverUrl={track.albumArt}
+                    title={track.title}
+                    artist={track.artist}
+                    album={track.album}
+                    adding={pickerAddingId === track.id}
+                    error={pickerRowErrors[track.id]}
+                    onAdd={() => {
+                      handlePickerAddSpotify(track).catch(console.error);
+                    }}
+                  />
+                ))}
+              </>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
-  )
+  );
 }
