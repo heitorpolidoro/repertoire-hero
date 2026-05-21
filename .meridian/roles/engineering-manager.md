@@ -24,3 +24,6 @@
 ## 📄 Output Standard
 - Orchestration logs and status updates in the Meridian UI.
 - Coordinated task assignments for specialized agents.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

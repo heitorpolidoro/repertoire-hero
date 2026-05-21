@@ -17,3 +17,6 @@
 ## 📄 Output Standard
 - Deliverable: Functional code with tests.
 - Requirement: All linter and type-checker warnings must be resolved.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

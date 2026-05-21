@@ -18,3 +18,6 @@
 
 ## 📄 Output Standard
 - Clean, performant, and idiomatic Go code.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

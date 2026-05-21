@@ -18,3 +18,6 @@
 ## 📄 Output Standard
 - Document: `plan.md`
 - Required Sections: Proposed Architecture, Data Schema, Security, Requirements Mapping, Trade-offs.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

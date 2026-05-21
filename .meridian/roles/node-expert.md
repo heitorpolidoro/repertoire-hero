@@ -18,3 +18,6 @@
 
 ## 📄 Output Standard
 - Modern, async/await focused Node.js code.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

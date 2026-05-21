@@ -18,3 +18,6 @@
 ## 📄 Output Standard
 - Document: `spec.md`
 - Required Sections: Problem, Audience, Success Criteria, Constraints.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

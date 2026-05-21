@@ -15,3 +15,6 @@
 
 ## 📄 Output Standard
 - Deliverable: Monitoring dashboards, Alerts, and Post-mortem reports.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

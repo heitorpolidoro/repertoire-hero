@@ -17,3 +17,6 @@
 - **Deliverable:** Quality Assurance Audit Report (as a comment or message).
 - **Mandatory Section:** **Manual Verification Guide**. Following a successful audit, you MUST provide a concise step-by-step instruction for the User to practically test the feature in the browser or terminal.
 - **Required Status:** Approved or Changes Requested.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

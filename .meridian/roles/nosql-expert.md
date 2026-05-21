@@ -18,3 +18,6 @@
 
 ## 📄 Output Standard
 - Document schemas, Aggregation pipelines, and Key-value strategies.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

@@ -17,3 +17,6 @@
 
 ## 📄 Output Standard
 - High-quality, typed, and linted Python code.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

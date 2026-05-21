@@ -17,3 +17,6 @@
 ## 📄 Output Standard
 - Document: `tasks.md` (Checklist format).
 - Requirement: Each task must have a clear "Definition of Done".
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

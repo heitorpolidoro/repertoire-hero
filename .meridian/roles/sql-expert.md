@@ -23,3 +23,6 @@
 
 ## 📄 Output Standard
 - Clean SQL DDL/DML, optimized Migrations, and ER Diagrams (Mermaid).
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

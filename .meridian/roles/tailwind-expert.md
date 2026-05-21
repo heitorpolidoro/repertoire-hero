@@ -18,3 +18,6 @@
 
 ## 📄 Output Standard
 - Visually consistent, responsive, and lightweight CSS/Tailwind implementations.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

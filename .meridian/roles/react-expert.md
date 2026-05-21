@@ -18,3 +18,6 @@
 
 ## 📄 Output Standard
 - Type-safe, componentized, and performant React code.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

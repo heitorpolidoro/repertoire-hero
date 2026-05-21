@@ -15,3 +15,6 @@
 
 ## 📄 Output Standard
 - Deliverable: Pipeline configuration and Security Audit results.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*

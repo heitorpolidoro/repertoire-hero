@@ -18,3 +18,6 @@
 
 ## 📄 Output Standard
 - Performant, real-time enabled Phoenix applications using idiomatic LiveView patterns.
+
+## 🛡️ Proactive Code Quality
+*(Add specific DeepSource/SonarCloud rules learned during the project here to avoid repeating mistakes)*
