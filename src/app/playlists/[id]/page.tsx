@@ -132,9 +132,7 @@ const PickerRow = ({
         {adding ? "Adding…" : "Add"}
       </button>
       {error && (
-        <p className="text-xs text-red-500 text-right max-w-[120px]">
-          {error}
-        </p>
+        <p className="text-xs text-red-500 text-right max-w-[120px]">{error}</p>
       )}
     </div>
   </li>
@@ -189,10 +187,7 @@ const PlaylistSummary = ({ songs, repertoireMap }: PlaylistSummaryProps) => {
   if (total === 0) return null;
 
   const score = Math.round(
-    (STATUS_ORDER.reduce(
-      (sum, st) => sum + STATUS_SCORES[st] * counts[st],
-      0,
-    ) /
+    (STATUS_ORDER.reduce((sum, st) => sum + STATUS_SCORES[st] * counts[st], 0) /
       (total * 4)) *
       100,
   );
@@ -430,8 +425,7 @@ export default function PlaylistDetailPage() {
     () =>
       new Set(
         pickerVisibleCatalog.map(
-          (song) =>
-            `${song.title.toLowerCase()}|${song.artist.toLowerCase()}`,
+          (song) => `${song.title.toLowerCase()}|${song.artist.toLowerCase()}`,
         ),
       ),
     [pickerVisibleCatalog],
@@ -473,7 +467,9 @@ export default function PlaylistDetailPage() {
   const handlePickerAddCatalog = async (song: GlobalSong) => {
     setPickerAddingId(song.id);
     setPickerRowErrors((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([key]) => key !== song.id)),
+      Object.fromEntries(
+        Object.entries(prev).filter(([key]) => key !== song.id),
+      ),
     );
     try {
       if (!repertoireMap.has(song.id)) {
