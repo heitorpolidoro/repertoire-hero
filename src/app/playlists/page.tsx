@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   getUserPlaylists,
@@ -16,7 +16,7 @@ import type { Playlist, SpotifyPlaylist } from '@/types/database'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function Spinner({ label = 'Loading' }: { label?: string }) {
+const Spinner = ({ label = 'Loading' }: { label?: string }) => {
   return (
     <svg
       className="animate-spin h-4 w-4 text-emerald-500"
@@ -47,7 +47,7 @@ interface PendingImport {
   syncWithSpotify: boolean
 }
 
-function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps) {
+const ImportModal = ({ spotifyPlaylists, onClose, onImported }: ImportModalProps) => {
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null)
   const [importingId, setImportingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -79,8 +79,8 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
       role="dialog"
       aria-modal="true"
       aria-label="Import Spotify playlist"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+      onClick={(ev) => {
+        if (ev.target === ev.currentTarget) onClose()
       }}
     >
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
@@ -124,7 +124,7 @@ function ImportModal({ spotifyPlaylists, onClose, onImported }: ImportModalProps
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleConfirmImport()}
+                      onClick={() => handleConfirmImport().catch(console.error)}
                       disabled={importingId === sp.id}
                       className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
@@ -187,10 +187,15 @@ interface PlaylistCardProps {
   onClick: () => void
 }
 
-function PlaylistCard({ playlist, onDelete, onRename, onClick }: PlaylistCardProps) {
+const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardProps) => {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(playlist.name)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing) renameInputRef.current?.focus()
+  }, [editing])
 
   const handleRenameSubmit = () => {
     const trimmed = editName.trim()
@@ -216,13 +221,13 @@ function PlaylistCard({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
   return (
     <li
       className="rounded-lg border border-gray-100 bg-white shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-emerald-200 hover:shadow-md transition-all"
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest('button, input')) return
+      onClick={(ev) => {
+        if ((ev.target as HTMLElement).closest('button, input')) return
         onClick()
       }}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick() }}
+      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') onClick() }}
       aria-label={`Open ${playlist.name}`}
     >
       {/* Cover */}
