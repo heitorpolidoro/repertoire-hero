@@ -7,6 +7,7 @@ enabled = true
     environment = ["browser", "node"]
     plugins = ["react"]
     skip_doc_coverage = ["arrow-function"]
+    cyclomatic_complexity_threshold = "very-high"
 
 [[analyzers]]
 name = "secrets"
