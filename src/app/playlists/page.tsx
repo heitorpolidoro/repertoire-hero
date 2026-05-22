@@ -111,9 +111,9 @@ const ImportModal = ({ spotifyPlaylists, onClose, onImported }: ImportModalProps
                     <input
                       type="checkbox"
                       checked={pendingImport.syncWithSpotify}
-                      onChange={(e) =>
+                      onChange={(ev) =>
                         setPendingImport((prev) =>
-                          prev ? { ...prev, syncWithSpotify: e.target.checked } : prev
+                          prev ? { ...prev, syncWithSpotify: ev.target.checked } : prev
                         )
                       }
                       className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
@@ -209,12 +209,12 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
     : 0
   const totalDuration = totalSeconds > 0
     ? (() => {
-        const h = Math.floor(totalSeconds / 3600)
-        const m = Math.floor((totalSeconds % 3600) / 60)
-        const s = totalSeconds % 60
-        return h > 0
-          ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-          : `${m}:${String(s).padStart(2, '0')}`
+        const hours = Math.floor(totalSeconds / 3600)
+        const mins = Math.floor((totalSeconds % 3600) / 60)
+        const secs = totalSeconds % 60
+        return hours > 0
+          ? `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+          : `${mins}:${String(secs).padStart(2, '0')}`
       })()
     : null
 
@@ -249,16 +249,16 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
       {/* Name + meta */}
       <div className="flex-1 min-w-0">
         {editing ? (
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-2" onClick={(ev) => ev.stopPropagation()}>
             <input
+              ref={renameInputRef}
               type="text"
               value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRenameSubmit()
-                if (e.key === 'Escape') setEditing(false)
+              onChange={(ev) => setEditName(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Enter') handleRenameSubmit()
+                if (ev.key === 'Escape') setEditing(false)
               }}
-              autoFocus
               className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <button type="button" onClick={handleRenameSubmit} className="text-xs text-emerald-600 font-medium hover:text-emerald-800">Save</button>
@@ -290,7 +290,7 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
         <div className="shrink-0 flex items-center gap-0.5">
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); setEditName(playlist.name); setEditing(true) }}
+            onClick={(ev) => { ev.stopPropagation(); setEditName(playlist.name); setEditing(true) }}
             aria-label={`Rename ${playlist.name}`}
             className="p-1.5 rounded text-gray-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
@@ -300,7 +300,7 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
           </button>
 
           {confirmDelete ? (
-            <span className="flex items-center gap-1 text-xs px-1" onClick={(e) => e.stopPropagation()}>
+            <span className="flex items-center gap-1 text-xs px-1" onClick={(ev) => ev.stopPropagation()}>
               <span className="text-gray-600">Sure?</span>
               <button type="button" onClick={() => { onDelete(playlist.id); setConfirmDelete(false) }} className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline">Yes</button>
               <button type="button" onClick={() => setConfirmDelete(false)} className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline">No</button>
@@ -308,7 +308,7 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
           ) : (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
+              onClick={(ev) => { ev.stopPropagation(); setConfirmDelete(true) }}
               aria-label={`Delete ${playlist.name}`}
               className="p-1.5 rounded text-gray-400 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-400"
             >
@@ -327,7 +327,7 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
 // Page
 // ---------------------------------------------------------------------------
 
-export default function PlaylistsPage() {
+const PlaylistsPage = () => {
   const router = useRouter()
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null)
@@ -337,6 +337,11 @@ export default function PlaylistsPage() {
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
+  const createInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (showCreateForm) createInputRef.current?.focus()
+  }, [showCreateForm])
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -363,8 +368,8 @@ export default function PlaylistsPage() {
   }, [])
 
   useEffect(() => {
-    void loadPlaylists()
-    void loadSpotifyStatus()
+    loadPlaylists().catch(console.error)
+    loadSpotifyStatus().catch(console.error)
   }, [loadPlaylists, loadSpotifyStatus])
 
   const handleDisconnectSpotify = async () => {
@@ -380,14 +385,14 @@ export default function PlaylistsPage() {
   const handleDelete = async (id: string) => {
     try {
       await deletePlaylist(id)
-      setPlaylists((prev) => prev.filter((p) => p.id !== id))
+      setPlaylists((prev) => prev.filter((pl) => pl.id !== id))
     } catch (err) {
       setPageError(err instanceof Error ? err.message : 'Failed to delete playlist')
     }
   }
 
   const handleRename = async (id: string, name: string) => {
-    setPlaylists((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)))
+    setPlaylists((prev) => prev.map((pl) => (pl.id === id ? { ...pl, name } : pl)))
     try {
       await updatePlaylist(id, { name })
     } catch (err) {
@@ -425,17 +430,17 @@ export default function PlaylistsPage() {
   }
 
   const groupedPlaylists = useMemo<PlaylistGroup[]>(() => {
-    const personal = playlists.filter((p) => p.band_id === null)
+    const personal = playlists.filter((pl) => pl.band_id === null)
     const bandMap = new Map<string, { name: string; playlists: Playlist[] }>()
-    for (const p of playlists) {
-      if (p.band_id === null) continue
-      const existing = bandMap.get(p.band_id)
+    for (const pl of playlists) {
+      if (pl.band_id === null) continue
+      const existing = bandMap.get(pl.band_id)
       if (existing) {
-        existing.playlists.push(p)
+        existing.playlists.push(pl)
       } else {
-        bandMap.set(p.band_id, {
-          name: p.band?.name ?? p.band_id,
-          playlists: [p],
+        bandMap.set(pl.band_id, {
+          name: pl.band?.name ?? pl.band_id,
+          playlists: [pl],
         })
       }
     }
@@ -477,22 +482,22 @@ export default function PlaylistsPage() {
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
             <label htmlFor="new-playlist-name" className="sr-only">Playlist name</label>
             <input
+              ref={createInputRef}
               id="new-playlist-name"
               type="text"
               value={newPlaylistName}
-              onChange={(e) => setNewPlaylistName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleCreatePlaylist()
-                if (e.key === 'Escape') setShowCreateForm(false)
+              onChange={(ev) => setNewPlaylistName(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Enter') handleCreatePlaylist().catch(console.error)
+                if (ev.key === 'Escape') setShowCreateForm(false)
               }}
               placeholder="Playlist name"
-              autoFocus
               className="flex-1 rounded-md border border-emerald-300 px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void handleCreatePlaylist()}
+                onClick={() => handleCreatePlaylist().catch(console.error)}
                 disabled={isCreating || !newPlaylistName.trim()}
                 className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
@@ -540,7 +545,7 @@ export default function PlaylistsPage() {
               </span>
               <button
                 type="button"
-                onClick={() => void handleDisconnectSpotify()}
+                onClick={() => handleDisconnectSpotify().catch(console.error)}
                 className="text-xs text-gray-400 hover:text-gray-600 focus:outline-none focus:underline"
               >
                 Disconnect
@@ -617,8 +622,8 @@ export default function PlaylistsPage() {
                         key={playlist.id}
                         playlist={playlist}
                         onClick={() => router.push(`/playlists/${playlist.id}`)}
-                        onDelete={(id) => void handleDelete(id)}
-                        onRename={(id, name) => void handleRename(id, name)}
+                        onDelete={(id) => handleDelete(id).catch(console.error)}
+                        onRename={(id, name) => handleRename(id, name).catch(console.error)}
                       />
                     ))}
                   </ul>
@@ -633,9 +638,11 @@ export default function PlaylistsPage() {
         <ImportModal
           spotifyPlaylists={spotifyPlaylists}
           onClose={() => setShowImportModal(false)}
-          onImported={() => void handleImported()}
+          onImported={() => handleImported().catch(console.error)}
         />
       )}
     </div>
   )
 }
+
+export default PlaylistsPage
