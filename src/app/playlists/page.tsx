@@ -16,25 +16,37 @@ import type { Playlist, SpotifyPlaylist } from '@/types/database'
 // Helpers
 // ---------------------------------------------------------------------------
 
-const Spinner = ({ label = 'Loading' }: { label?: string }) => {
-  return (
-    <svg
-      className="animate-spin h-4 w-4 text-emerald-500"
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      aria-label={label}
-    >
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-    </svg>
-  )
+const Spinner = ({ label = 'Loading' }: { label?: string }) => (
+  <svg
+    className="animate-spin h-4 w-4 text-emerald-500"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    aria-label={label}
+  >
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+  </svg>
+)
+
+const formatDuration = (totalSeconds: number): string => {
+  const hours = Math.floor(totalSeconds / 3600)
+  const mins = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
+  return hours > 0
+    ? `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${mins}:${String(secs).padStart(2, '0')}`
 }
 
 // ---------------------------------------------------------------------------
 // Import modal
 // ---------------------------------------------------------------------------
+
+interface PendingImport {
+  playlist: SpotifyPlaylist
+  syncWithSpotify: boolean
+}
 
 interface ImportModalProps {
   spotifyPlaylists: SpotifyPlaylist[]
@@ -42,9 +54,108 @@ interface ImportModalProps {
   onImported: () => void
 }
 
-interface PendingImport {
-  playlist: SpotifyPlaylist
-  syncWithSpotify: boolean
+const ModalCloseButton = ({ onClose }: { onClose: () => void }) => (
+  <button
+    type="button"
+    onClick={onClose}
+    aria-label="Close modal"
+    className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded"
+  >
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+    </svg>
+  </button>
+)
+
+interface SpotifyImportListItemProps {
+  sp: SpotifyPlaylist
+  pendingImport: PendingImport | null
+  importingId: string | null
+  error: string | null
+  onSelect: () => void
+  onConfirm: () => void
+  onCancel: () => void
+  onSyncToggle: (checked: boolean) => void
+}
+
+const SpotifyImportListItem = ({
+  sp,
+  pendingImport,
+  importingId,
+  error,
+  onSelect,
+  onConfirm,
+  onCancel,
+  onSyncToggle,
+}: SpotifyImportListItemProps) => {
+  const isPending = pendingImport?.playlist.id === sp.id
+  if (isPending) {
+    return (
+      <li>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3">
+          <p className="text-sm font-medium text-gray-800">Import &ldquo;{sp.name}&rdquo;?</p>
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={pendingImport?.syncWithSpotify ?? false}
+              onChange={(ev) => onSyncToggle(ev.target.checked)}
+              className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Keep synced with Spotify
+          </label>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={importingId === sp.id}
+              className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {importingId === sp.id ? 'Importing...' : 'Import'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </li>
+    )
+  }
+  return (
+    <li>
+      <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm">
+        {sp.cover_url ? (
+          <Image
+            src={sp.cover_url}
+            alt={`${sp.name} cover`}
+            width={40}
+            height={40}
+            className="h-10 w-10 rounded object-cover shrink-0"
+            unoptimized
+          />
+        ) : (
+          <div className="h-10 w-10 rounded bg-emerald-100 shrink-0 flex items-center justify-center text-lg" aria-hidden="true">
+            🎵
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">{sp.name}</p>
+          <p className="text-xs text-gray-500">{sp.total_tracks} tracks</p>
+        </div>
+        <button
+          type="button"
+          onClick={onSelect}
+          className="shrink-0 px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+        >
+          Import
+        </button>
+      </div>
+    </li>
+  )
 }
 
 const ImportModal = ({ spotifyPlaylists, onClose, onImported }: ImportModalProps) => {
@@ -86,89 +197,26 @@ const ImportModal = ({ spotifyPlaylists, onClose, onImported }: ImportModalProps
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">Import a Spotify playlist</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close modal"
-            className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
+          <ModalCloseButton onClose={onClose} />
         </div>
-
         <ul className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-2" role="list">
           {spotifyPlaylists.length === 0 && (
             <li className="text-sm text-gray-400 text-center py-6">No Spotify playlists found.</li>
           )}
           {spotifyPlaylists.map((sp) => (
-            <li key={sp.id}>
-              {pendingImport?.playlist.id === sp.id ? (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3">
-                  <p className="text-sm font-medium text-gray-800">Import &ldquo;{sp.name}&rdquo;?</p>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pendingImport.syncWithSpotify}
-                      onChange={(ev) =>
-                        setPendingImport((prev) =>
-                          prev ? { ...prev, syncWithSpotify: ev.target.checked } : prev
-                        )
-                      }
-                      className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    Keep synced with Spotify
-                  </label>
-                  {error && <p className="text-xs text-red-500">{error}</p>}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleConfirmImport().catch(console.error)}
-                      disabled={importingId === sp.id}
-                      className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {importingId === sp.id ? 'Importing...' : 'Import'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingImport(null)}
-                      className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm">
-                  {sp.cover_url ? (
-                    <Image
-                      src={sp.cover_url}
-                      alt={`${sp.name} cover`}
-                      width={40}
-                      height={40}
-                      className="h-10 w-10 rounded object-cover shrink-0"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded bg-emerald-100 shrink-0 flex items-center justify-center text-lg" aria-hidden="true">
-                      🎵
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{sp.name}</p>
-                    <p className="text-xs text-gray-500">{sp.total_tracks} tracks</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setPendingImport({ playlist: sp, syncWithSpotify: false })}
-                    className="shrink-0 px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
-                  >
-                    Import
-                  </button>
-                </div>
-              )}
-            </li>
+            <SpotifyImportListItem
+              key={sp.id}
+              sp={sp}
+              pendingImport={pendingImport}
+              importingId={importingId}
+              error={error}
+              onSelect={() => setPendingImport({ playlist: sp, syncWithSpotify: false })}
+              onConfirm={() => handleConfirmImport().catch(console.error)}
+              onCancel={() => setPendingImport(null)}
+              onSyncToggle={(checked) =>
+                setPendingImport((prev) => (prev ? { ...prev, syncWithSpotify: checked } : prev))
+              }
+            />
           ))}
         </ul>
       </div>
@@ -179,6 +227,32 @@ const ImportModal = ({ spotifyPlaylists, onClose, onImported }: ImportModalProps
 // ---------------------------------------------------------------------------
 // Playlist card
 // ---------------------------------------------------------------------------
+
+interface PlaylistNameEditorProps {
+  editName: string
+  inputRef: { current: HTMLInputElement | null }
+  onChange: (val: string) => void
+  onSubmit: () => void
+  onCancel: () => void
+}
+
+const PlaylistNameEditor = ({ editName, inputRef, onChange, onSubmit, onCancel }: PlaylistNameEditorProps) => (
+  <div className="flex items-center gap-2" onClick={(ev) => ev.stopPropagation()}>
+    <input
+      ref={inputRef}
+      type="text"
+      value={editName}
+      onChange={(ev) => onChange(ev.target.value)}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter') onSubmit()
+        if (ev.key === 'Escape') onCancel()
+      }}
+      className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+    />
+    <button type="button" onClick={onSubmit} className="text-xs text-emerald-600 font-medium hover:text-emerald-800">Save</button>
+    <button type="button" onClick={onCancel} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+  </div>
+)
 
 interface PlaylistCardProps {
   playlist: Playlist
@@ -205,18 +279,13 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
 
   const songCount = Array.isArray(playlist.songs) ? playlist.songs.length : null
   const totalSeconds = Array.isArray(playlist.songs)
-    ? playlist.songs.reduce((sum: number, ps: { song?: { duration_seconds?: number | null } }) => sum + (ps.song?.duration_seconds ?? 0), 0)
+    ? playlist.songs.reduce(
+        (sum: number, ps: { song?: { duration_seconds?: number | null } }) =>
+          sum + (ps.song?.duration_seconds ?? 0),
+        0,
+      )
     : 0
-  const totalDuration = totalSeconds > 0
-    ? (() => {
-        const hours = Math.floor(totalSeconds / 3600)
-        const mins = Math.floor((totalSeconds % 3600) / 60)
-        const secs = totalSeconds % 60
-        return hours > 0
-          ? `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-          : `${mins}:${String(secs).padStart(2, '0')}`
-      })()
-    : null
+  const totalDuration = totalSeconds > 0 ? formatDuration(totalSeconds) : null
 
   return (
     <li
@@ -227,7 +296,9 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
       }}
       role="button"
       tabIndex={0}
-      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') onClick() }}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') onClick()
+      }}
       aria-label={`Open ${playlist.name}`}
     >
       {/* Cover */}
@@ -249,27 +320,21 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
       {/* Name + meta */}
       <div className="flex-1 min-w-0">
         {editing ? (
-          <div className="flex items-center gap-2" onClick={(ev) => ev.stopPropagation()}>
-            <input
-              ref={renameInputRef}
-              type="text"
-              value={editName}
-              onChange={(ev) => setEditName(ev.target.value)}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Enter') handleRenameSubmit()
-                if (ev.key === 'Escape') setEditing(false)
-              }}
-              className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <button type="button" onClick={handleRenameSubmit} className="text-xs text-emerald-600 font-medium hover:text-emerald-800">Save</button>
-            <button type="button" onClick={() => setEditing(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
-          </div>
+          <PlaylistNameEditor
+            editName={editName}
+            inputRef={renameInputRef}
+            onChange={setEditName}
+            onSubmit={handleRenameSubmit}
+            onCancel={() => setEditing(false)}
+          />
         ) : (
           <>
             <p className="text-sm font-semibold text-gray-900 truncate">{playlist.name}</p>
             <div className="flex items-center gap-2 mt-0.5">
               {songCount !== null && (
-                <span className="text-xs text-gray-400">{songCount} {songCount === 1 ? 'song' : 'songs'}</span>
+                <span className="text-xs text-gray-400">
+                  {songCount} {songCount === 1 ? 'song' : 'songs'}
+                </span>
               )}
               {totalDuration && (
                 <span className="text-xs text-gray-400 tabular-nums">{totalDuration}</span>
@@ -290,7 +355,11 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
         <div className="shrink-0 flex items-center gap-0.5">
           <button
             type="button"
-            onClick={(ev) => { ev.stopPropagation(); setEditName(playlist.name); setEditing(true) }}
+            onClick={(ev) => {
+              ev.stopPropagation()
+              setEditName(playlist.name)
+              setEditing(true)
+            }}
             aria-label={`Rename ${playlist.name}`}
             className="p-1.5 rounded text-gray-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
@@ -302,8 +371,20 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
           {confirmDelete ? (
             <span className="flex items-center gap-1 text-xs px-1" onClick={(ev) => ev.stopPropagation()}>
               <span className="text-gray-600">Sure?</span>
-              <button type="button" onClick={() => { onDelete(playlist.id); setConfirmDelete(false) }} className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline">Yes</button>
-              <button type="button" onClick={() => setConfirmDelete(false)} className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline">No</button>
+              <button
+                type="button"
+                onClick={() => { onDelete(playlist.id); setConfirmDelete(false) }}
+                className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline"
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+              >
+                No
+              </button>
             </span>
           ) : (
             <button
@@ -320,6 +401,155 @@ const PlaylistCard = ({ playlist, onDelete, onRename, onClick }: PlaylistCardPro
         </div>
       )}
     </li>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Playlist grouping
+// ---------------------------------------------------------------------------
+
+interface PlaylistGroup {
+  type: 'personal' | 'band'
+  bandId?: string
+  bandName?: string
+  playlists: Playlist[]
+}
+
+const buildPlaylistGroups = (playlists: Playlist[]): PlaylistGroup[] => {
+  const personal = playlists.filter((pl) => pl.band_id === null)
+  const bandMap = new Map<string, { name: string; playlists: Playlist[] }>()
+  for (const pl of playlists) {
+    if (pl.band_id === null) continue
+    const existing = bandMap.get(pl.band_id)
+    if (existing) {
+      existing.playlists.push(pl)
+    } else {
+      bandMap.set(pl.band_id, { name: pl.band?.name ?? pl.band_id, playlists: [pl] })
+    }
+  }
+  const bandGroups: PlaylistGroup[] = [...bandMap.entries()]
+    .sort(([, infoA], [, infoB]) => infoA.name.localeCompare(infoB.name))
+    .map(([bandId, { name, playlists: bandPlaylists }]) => ({
+      type: 'band' as const,
+      bandId,
+      bandName: name,
+      playlists: bandPlaylists,
+    }))
+  const groups: PlaylistGroup[] = []
+  if (personal.length > 0) groups.push({ type: 'personal', playlists: personal })
+  groups.push(...bandGroups)
+  return groups
+}
+
+// ---------------------------------------------------------------------------
+// Page sub-components
+// ---------------------------------------------------------------------------
+
+interface CreatePlaylistFormProps {
+  newPlaylistName: string
+  isCreating: boolean
+  inputRef: { current: HTMLInputElement | null }
+  onChange: (val: string) => void
+  onCreate: () => void
+  onCancel: () => void
+}
+
+const CreatePlaylistForm = ({
+  newPlaylistName,
+  isCreating,
+  inputRef,
+  onChange,
+  onCreate,
+  onCancel,
+}: CreatePlaylistFormProps) => (
+  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+    <label htmlFor="new-playlist-name" className="sr-only">Playlist name</label>
+    <input
+      ref={inputRef}
+      id="new-playlist-name"
+      type="text"
+      value={newPlaylistName}
+      onChange={(ev) => onChange(ev.target.value)}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter') onCreate()
+        if (ev.key === 'Escape') onCancel()
+      }}
+      placeholder="Playlist name"
+      className="flex-1 rounded-md border border-emerald-300 px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+    />
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={onCreate}
+        disabled={isCreating || !newPlaylistName.trim()}
+        className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {isCreating ? 'Creating...' : 'Create'}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+)
+
+interface SpotifyStatusSectionProps {
+  connected: boolean | null
+  onDisconnect: () => void
+  onImport: () => void
+}
+
+const SpotifyStatusSection = ({ connected, onDisconnect, onImport }: SpotifyStatusSectionProps) => {
+  if (connected === null) {
+    return (
+      <div className="rounded-lg border border-gray-100 bg-white shadow-sm px-4 py-3 flex items-center gap-2 text-sm text-gray-400" aria-live="polite" aria-busy="true">
+        <Spinner />
+        Checking Spotify connection...
+      </div>
+    )
+  }
+  if (!connected) {
+    return (
+      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" role="region" aria-label="Spotify connection">
+        <div>
+          <p className="text-sm font-semibold text-gray-800"><span aria-hidden="true">🎵</span> Connect your Spotify account</p>
+          <p className="text-xs text-gray-500 mt-0.5">Import playlists and keep them in sync.</p>
+        </div>
+        <a
+          href="/api/auth/spotify/authorize"
+          className="shrink-0 inline-flex items-center justify-center px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors"
+        >
+          Connect Spotify
+        </a>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" role="region" aria-label="Spotify connection">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-medium border border-green-200">
+          <span aria-hidden="true">✓</span> Connected to Spotify
+        </span>
+        <button
+          type="button"
+          onClick={onDisconnect}
+          className="text-xs text-gray-400 hover:text-gray-600 focus:outline-none focus:underline"
+        >
+          Disconnect
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={onImport}
+        className="shrink-0 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-sm text-gray-700 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+      >
+        Import a Spotify playlist
+      </button>
+    </div>
   )
 }
 
@@ -422,43 +652,9 @@ const PlaylistsPage = () => {
     await loadPlaylists()
   }
 
-  interface PlaylistGroup {
-    type: 'personal' | 'band'
-    bandId?: string
-    bandName?: string
-    playlists: Playlist[]
-  }
-
-  const groupedPlaylists = useMemo<PlaylistGroup[]>(() => {
-    const personal = playlists.filter((pl) => pl.band_id === null)
-    const bandMap = new Map<string, { name: string; playlists: Playlist[] }>()
-    for (const pl of playlists) {
-      if (pl.band_id === null) continue
-      const existing = bandMap.get(pl.band_id)
-      if (existing) {
-        existing.playlists.push(pl)
-      } else {
-        bandMap.set(pl.band_id, {
-          name: pl.band?.name ?? pl.band_id,
-          playlists: [pl],
-        })
-      }
-    }
-    const bandGroups: PlaylistGroup[] = [...bandMap.entries()]
-      .sort(([, a], [, b]) => a.name.localeCompare(b.name))
-      .map(([bandId, { name, playlists: bPlaylists }]) => ({
-        type: 'band' as const,
-        bandId,
-        bandName: name,
-        playlists: bPlaylists,
-      }))
-    const groups: PlaylistGroup[] = []
-    if (personal.length > 0) {
-      groups.push({ type: 'personal', playlists: personal })
-    }
-    groups.push(...bandGroups)
-    return groups
-  }, [playlists])
+  const groupedPlaylists = useMemo(() => buildPlaylistGroups(playlists), [playlists])
+  const personalGroup = groupedPlaylists.find((g) => g.type === 'personal')
+  const bandGroups = groupedPlaylists.filter((g) => g.type === 'band')
 
   return (
     <div className="flex flex-col h-full">
@@ -479,87 +675,22 @@ const PlaylistsPage = () => {
 
         {/* Create form */}
         {showCreateForm && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label htmlFor="new-playlist-name" className="sr-only">Playlist name</label>
-            <input
-              ref={createInputRef}
-              id="new-playlist-name"
-              type="text"
-              value={newPlaylistName}
-              onChange={(ev) => setNewPlaylistName(ev.target.value)}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Enter') handleCreatePlaylist().catch(console.error)
-                if (ev.key === 'Escape') setShowCreateForm(false)
-              }}
-              placeholder="Playlist name"
-              className="flex-1 rounded-md border border-emerald-300 px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => handleCreatePlaylist().catch(console.error)}
-                disabled={isCreating || !newPlaylistName.trim()}
-                className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {isCreating ? 'Creating...' : 'Create'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateForm(false)}
-                className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+          <CreatePlaylistForm
+            newPlaylistName={newPlaylistName}
+            isCreating={isCreating}
+            inputRef={createInputRef}
+            onChange={setNewPlaylistName}
+            onCreate={() => handleCreatePlaylist().catch(console.error)}
+            onCancel={() => setShowCreateForm(false)}
+          />
         )}
 
         {/* Spotify connection */}
-        {spotifyConnected === null && (
-          <div className="rounded-lg border border-gray-100 bg-white shadow-sm px-4 py-3 flex items-center gap-2 text-sm text-gray-400" aria-live="polite" aria-busy="true">
-            <Spinner />
-            Checking Spotify connection...
-          </div>
-        )}
-
-        {spotifyConnected === false && (
-          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" role="region" aria-label="Spotify connection">
-            <div>
-              <p className="text-sm font-semibold text-gray-800"><span aria-hidden="true">🎵</span> Connect your Spotify account</p>
-              <p className="text-xs text-gray-500 mt-0.5">Import playlists and keep them in sync.</p>
-            </div>
-            <a
-              href="/api/auth/spotify/authorize"
-              className="shrink-0 inline-flex items-center justify-center px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors"
-            >
-              Connect Spotify
-            </a>
-          </div>
-        )}
-
-        {spotifyConnected === true && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" role="region" aria-label="Spotify connection">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-800 text-xs font-medium border border-green-200">
-                <span aria-hidden="true">✓</span> Connected to Spotify
-              </span>
-              <button
-                type="button"
-                onClick={() => handleDisconnectSpotify().catch(console.error)}
-                className="text-xs text-gray-400 hover:text-gray-600 focus:outline-none focus:underline"
-              >
-                Disconnect
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowImportModal(true)}
-              className="shrink-0 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-sm text-gray-700 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
-            >
-              Import a Spotify playlist
-            </button>
-          </div>
-        )}
+        <SpotifyStatusSection
+          connected={spotifyConnected}
+          onDisconnect={() => handleDisconnectSpotify().catch(console.error)}
+          onImport={() => setShowImportModal(true)}
+        />
 
         {/* Playlist list grouped by band */}
         {playlists.length === 0 && spotifyConnected !== null ? (
@@ -572,7 +703,7 @@ const PlaylistsPage = () => {
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            {/* Personal section — always render "My playlists" header with New Playlist button */}
+            {/* Personal section */}
             <section aria-label="My playlists">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">My playlists</p>
@@ -584,51 +715,49 @@ const PlaylistsPage = () => {
                   + New Playlist
                 </button>
               </div>
-              {groupedPlaylists.find((g) => g.type === 'personal') ? (
+              {personalGroup ? (
                 <ul className="flex flex-col gap-3" role="list">
-                  {(groupedPlaylists.find((g) => g.type === 'personal')?.playlists ?? []).map((playlist) => (
+                  {personalGroup.playlists.map((playlist) => (
                     <PlaylistCard
                       key={playlist.id}
                       playlist={playlist}
                       onClick={() => router.push(`/playlists/${playlist.id}`)}
-                      onDelete={(id) => void handleDelete(id)}
-                      onRename={(id, name) => void handleRename(id, name)}
+                      onDelete={(id) => handleDelete(id).catch(console.error)}
+                      onRename={(id, name) => handleRename(id, name).catch(console.error)}
                     />
                   ))}
                 </ul>
               ) : (
-                playlists.length === 0 ? null : (
+                playlists.length > 0 && (
                   <p className="text-sm text-gray-400 text-center py-4">No personal playlists yet.</p>
                 )
               )}
             </section>
 
             {/* Band sections */}
-            {groupedPlaylists
-              .filter((g) => g.type === 'band')
-              .map((group) => (
-                <section key={group.bandId} aria-label={`Band: ${group.bandName}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Link
-                      href={`/bands/${group.bandId}`}
-                      className="flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-900 focus:outline-none focus:underline"
-                    >
-                      🎸 {group.bandName}
-                    </Link>
-                  </div>
-                  <ul className="flex flex-col gap-3" role="list">
-                    {group.playlists.map((playlist) => (
-                      <PlaylistCard
-                        key={playlist.id}
-                        playlist={playlist}
-                        onClick={() => router.push(`/playlists/${playlist.id}`)}
-                        onDelete={(id) => handleDelete(id).catch(console.error)}
-                        onRename={(id, name) => handleRename(id, name).catch(console.error)}
-                      />
-                    ))}
-                  </ul>
-                </section>
-              ))}
+            {bandGroups.map((group) => (
+              <section key={group.bandId} aria-label={`Band: ${group.bandName}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Link
+                    href={`/bands/${group.bandId}`}
+                    className="flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-900 focus:outline-none focus:underline"
+                  >
+                    🎸 {group.bandName}
+                  </Link>
+                </div>
+                <ul className="flex flex-col gap-3" role="list">
+                  {group.playlists.map((playlist) => (
+                    <PlaylistCard
+                      key={playlist.id}
+                      playlist={playlist}
+                      onClick={() => router.push(`/playlists/${playlist.id}`)}
+                      onDelete={(id) => handleDelete(id).catch(console.error)}
+                      onRename={(id, name) => handleRename(id, name).catch(console.error)}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))}
           </div>
         )}
       </section>
