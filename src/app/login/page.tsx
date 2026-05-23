@@ -27,7 +27,7 @@ function LoginForm() {
     // Fetch real names from DB (requires SUPABASE_SERVICE_ROLE_KEY).
     // Falls back to seed users if the key is absent or the request fails.
     fetch('/api/dev/profiles')
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Dev profiles fetch failed'))))
       .then((data: DevProfile[]) => {
         if (Array.isArray(data) && data.length > 0) setDevProfiles(data)
       })
@@ -167,7 +167,7 @@ function LoginForm() {
           </button>
 
           <p className="text-center text-sm text-gray-500">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link
               href={signUpHref}
               className="font-medium text-emerald-600 hover:text-emerald-500"

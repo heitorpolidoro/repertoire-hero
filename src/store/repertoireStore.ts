@@ -91,27 +91,18 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
       const song = entry.song
 
       // Filter by search query against title and artist
-      if (searchQuery.trim()) {
+      const matchesSearch = !searchQuery.trim() || (() => {
         const lower = searchQuery.toLowerCase()
-        const matchesTitle = song?.title.toLowerCase().includes(lower) ?? false
-        const matchesArtist = song?.artist.toLowerCase().includes(lower) ?? false
-        if (!matchesTitle && !matchesArtist) return false
-      }
+        return (song?.title.toLowerCase().includes(lower) || song?.artist.toLowerCase().includes(lower)) ?? false
+      })()
 
       // Filter by selected status
-      if (selectedStatus !== null && entry.status !== selectedStatus) {
-        return false
-      }
+      const matchesStatus = selectedStatus === null || entry.status === selectedStatus
 
       // Filter by selected tags — entry must include ALL selected tags
-      if (
-        selectedTags.length > 0 &&
-        !selectedTags.every((tag) => entry.tags.includes(tag))
-      ) {
-        return false
-      }
+      const matchesTags = selectedTags.length === 0 || selectedTags.every((tag) => entry.tags.includes(tag))
 
-      return true
+      return matchesSearch && matchesStatus && matchesTags
     })
   },
 }))

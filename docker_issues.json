@@ -1,0 +1,17 @@
+[
+  {
+    "rule": "DOK-DL3018",
+    "severity": "major",
+    "description": "Pin versions in apk add. Instead of `apk add <package>` use `apk add <package>=<version>` to avoid unexpected package upgrades between builds."
+  },
+  {
+    "rule": "DOK-W1001",
+    "severity": "minor",
+    "description": "Multiple consecutive RUN instructions. Each RUN creates a new image layer. Consolidate into a single RUN using && to reduce image size and layer count."
+  },
+  {
+    "rule": "SH-2012",
+    "severity": "critical",
+    "description": "Consider using `find` instead of `ls` to better handle non-alphanumeric filenames in shell scripts."
+  }
+]

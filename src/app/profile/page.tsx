@@ -7,7 +7,7 @@ import { InstrumentPicker } from '@/components/profile/InstrumentPicker'
 import type { Profile } from '@/types/database'
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const [_profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [emailSaving, setEmailSaving] = useState(false)
@@ -66,7 +66,7 @@ export default function ProfilePage() {
     setSuccess(null)
     try {
       await updateEmail(newEmail.trim())
-      setSuccess('Confirmation email sent to ' + newEmail.trim() + '. Check your inbox to complete the change.')
+      setSuccess(`Confirmation email sent to ${newEmail.trim()}. Check your inbox to complete the change.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update email')
     } finally {
@@ -159,7 +159,7 @@ export default function ProfilePage() {
               {instruments.length === 0
                 ? 'Select one or more. The first becomes your primary.'
                 : primaryInstrument
-                  ? 'Primary: ' + primaryInstrument + ' - Click star on any selected to change it'
+                  ? `Primary: ${primaryInstrument} - Click star on any selected to change it`
                   : 'Click the star to set your primary instrument'}
             </p>
           </div>
@@ -173,7 +173,7 @@ export default function ProfilePage() {
         {/* Save */}
         <button
           type="button"
-          onClick={() => void handleSaveProfile()}
+          onClick={() => { handleSaveProfile(); }}
           disabled={saving}
           className="self-start px-5 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
@@ -195,7 +195,7 @@ export default function ProfilePage() {
             />
             <button
               type="button"
-              onClick={() => void handleUpdateEmail()}
+              onClick={() => { handleUpdateEmail(); }}
               disabled={emailSaving || !newEmail.trim() || newEmail === email}
               className="shrink-0 px-4 py-2 rounded-md bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >

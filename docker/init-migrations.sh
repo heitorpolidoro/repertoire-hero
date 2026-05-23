@@ -4,7 +4,7 @@
 set -e
 
 echo "==> Applying migrations..."
-for f in $(ls /docker-entrypoint-initdb.d/migrations/*.sql | sort); do
+for f in $(find /docker-entrypoint-initdb.d/migrations/ -maxdepth 1 -name "*.sql" | sort); do
   echo "    -> $(basename "$f")"
   psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f "$f"
 done

@@ -19,7 +19,7 @@ export default function ConditionalLayout({ children }: ConditionalLayoutProps) 
     pathname.startsWith('/signup') ||
     pathname.startsWith('/join/')
   ) {
-    return <>{children}</>;
+    return children;
   }
 
   return <AppLayout>{children}</AppLayout>;

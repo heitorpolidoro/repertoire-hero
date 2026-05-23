@@ -69,9 +69,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const { searchParams } = request.nextUrl
-  const q = searchParams.get('q')?.trim() ?? ''
+  const query = searchParams.get('q')?.trim() ?? ''
 
-  if (!q) {
+  if (!query) {
     return NextResponse.json(
       { error: 'Missing required query parameter: q', code: 400 },
       { status: 400 }
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const accessToken = await getAccessToken()
 
     const searchUrl = new URL('https://api.spotify.com/v1/search')
-    searchUrl.searchParams.set('q', q)
+    searchUrl.searchParams.set('q', query)
     searchUrl.searchParams.set('type', 'track')
     searchUrl.searchParams.set('limit', '8')
 

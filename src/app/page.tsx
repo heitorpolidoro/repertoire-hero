@@ -141,7 +141,7 @@ export default function HomePage() {
     }
 
     debounceTimer.current = setTimeout(() => {
-      void runSearch(searchQuery)
+      runSearch(searchQuery)
     }, SPOTIFY_DEBOUNCE_MS)
 
     return () => {
@@ -351,7 +351,7 @@ export default function HomePage() {
                   {/* Status badge — cycles to next status on click */}
                   <button
                     type="button"
-                    onClick={() => void updateStatus(song.id, nextStatus(song.status))}
+                    onClick={() => { updateStatus(song.id, nextStatus(song.status)); }}
                     aria-label={`Status: ${cfg.label}. Click to advance.`}
                     className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
                   >
@@ -377,7 +377,7 @@ export default function HomePage() {
                       <button
                         type="button"
                         onClick={() => {
-                          void removeSong(song.id)
+                          removeSong(song.id)
                           setConfirmDeleteId(null)
                         }}
                         aria-label={`Confirm delete ${song.song?.title ?? 'song'}`}
@@ -435,7 +435,7 @@ export default function HomePage() {
                   album={song.album}
                   adding={addingCatalogId === song.id}
                   error={catalogRowErrors[song.id]}
-                  onAdd={() => void handleAddFromCatalog(song)}
+                  onAdd={() => { handleAddFromCatalog(song); }}
                 />
               ))}
 
@@ -457,7 +457,7 @@ export default function HomePage() {
                     album={track.album}
                     adding={addingId === track.id}
                     error={spotifyRowErrors[track.id]}
-                    onAdd={() => void handleAddFromSpotify(track)}
+                    onAdd={() => { handleAddFromSpotify(track); }}
                   />
                 ))
               )}

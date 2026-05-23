@@ -1,0 +1,102 @@
+[
+  {
+    "rule": "JS-R1005",
+    "severity": "minor",
+    "description": "Function has too high cyclomatic complexity. Keep functions small and focused — extract branches into helper functions or sub-components to stay below the complexity threshold."
+  },
+  {
+    "rule": "JS-C1002",
+    "severity": "minor",
+    "description": "Variable or parameter name is too short (less than 2 characters). Single-letter names like e, v, p, s, h, m, q are not allowed. Use descriptive names instead."
+  },
+  {
+    "rule": "JS-W1041",
+    "severity": "major",
+    "description": "Found complex boolean return. Instead of `if (condition) { return true } return false`, simplify to `return Boolean(condition)` or `return condition`."
+  },
+  {
+    "rule": "JS-0098",
+    "severity": "minor",
+    "description": "The void operator is not allowed. To fire-and-forget a promise, use `.catch(console.error)` or standard block statements `{ fn() }` instead of `void fn()`."
+  },
+  {
+    "rule": "JS-0052",
+    "severity": "minor",
+    "description": "Detected the use of `alert`, `confirm` and `prompt`. Browser built-in dialogs are obtrusive; use custom UI modal components instead."
+  },
+  {
+    "rule": "JS-W1015",
+    "severity": "minor",
+    "description": "Avoid using the `<img>` tag. Use the built-in `<Image>` component from Next.js to leverage automatic optimization, lazy loading, and sizing features."
+  },
+  {
+    "rule": "JS-0246",
+    "severity": "minor",
+    "description": "Require template literals instead of string concatenation to improve code readability."
+  },
+  {
+    "rule": "JS-0339",
+    "severity": "major",
+    "description": "Found non-null assertions (!). Avoid using the non-null assertion operator, use optional chaining (?.) or defensive fallback values instead to prevent runtime crashes."
+  },
+  {
+    "rule": "JS-0833",
+    "severity": "minor",
+    "description": "Syntax error. Ensure codebase files are compliant with standard JavaScript syntax without parser conflicts."
+  },
+  {
+    "rule": "JS-0424",
+    "severity": "major",
+    "description": "Found unnecessary fragments. Redundant React fragments containing only one child or empty fragments should be removed."
+  },
+  {
+    "rule": "JS-0114",
+    "severity": "major",
+    "description": "Error objects should be used as Promise rejection reasons to preserve stack traces."
+  },
+  {
+    "rule": "JS-0454",
+    "severity": "major",
+    "description": "Found invalid characters in markup. Escape literal JSX characters like >, }, ', \", etc. using their HTML entity equivalent or wrapping them in string subexpressions."
+  },
+  {
+    "rule": "JS-0002",
+    "severity": "major",
+    "description": "Avoid using `console` in code that runs on browser. Remove console.log calls or wrap them with standard loggers."
+  },
+  {
+    "rule": "JS-0067",
+    "severity": "minor",
+    "description": "Prefer not to declare variables in global scope. Top-level variables should be properly scoped as module-level variables."
+  },
+  {
+    "rule": "JS-E1009",
+    "severity": "major",
+    "description": "Found mutable exports. Use `const` instead of `let` or `var` for exported values to prevent external mutations."
+  },
+  {
+    "rule": "JS-0356",
+    "severity": "major",
+    "description": "Found unused variables in TypeScript code. Remove unused variables or import references to clean up code."
+  },
+  {
+    "rule": "JS-0415",
+    "severity": "minor",
+    "description": "Validation of JSX maximum depth. JSX tree is too deeply nested. Extract inner sections into sub-components to reduce nesting depth below 4."
+  },
+  {
+    "rule": "JS-0437",
+    "severity": "major",
+    "description": "Avoid using an element's index as the `key` prop in React lists. Use stable, unique identifiers instead."
+  },
+  {
+    "rule": "JS-0323",
+    "severity": "critical",
+    "description": "Detected usage of the `any` type. Use `unknown` or specify explicit TypeScript types to ensure type safety."
+  },
+  {
+    "rule": "JS-R1004",
+    "severity": "minor",
+    "description": "Useless template literal found. Replace simple backtick strings with standard quotes if they do not contain interpolation or multi-line text."
+  }
+]

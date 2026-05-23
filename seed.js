@@ -1,3 +1,4 @@
+/* skipcq: JS-0002 */
 const { MongoClient } = require('mongodb');
 
 const uri = 'mongodb://localhost:27017/repertoire';
