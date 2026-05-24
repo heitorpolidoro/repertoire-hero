@@ -27,7 +27,7 @@ interface FormState {
   duration: string
   status: SongStatus
   tagsInput: string
-  links: SongLink[]
+  links: Array<SongLink & { id?: string }>
 }
 
 function buildInitialState(song?: UserRepertoire): FormState {
@@ -46,7 +46,7 @@ function buildInitialState(song?: UserRepertoire): FormState {
     duration:  dur != null ? String(dur) : '',
     status:    song?.status ?? 'unknown',
     tagsInput: song?.tags.join(', ') ?? '',
-    links:     otherLinks,
+    links:     otherLinks.map((l) => ({ ...l, id: l.url || Math.random().toString(36).substring(2, 9) })),
   }
 }
 
@@ -75,7 +75,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   }
 
   const addLink = () => {
-    setField('links', [...form.links, { label: '', url: '' }])
+    setField('links', [...form.links, { label: '', url: '', id: Math.random().toString(36).substring(2, 9) }])
   }
 
   const updateLink = (index: number, field: keyof SongLink, value: string) => {
@@ -102,12 +102,6 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
     return isNaN(n) ? null : n
   }
 
-  const parseTags = (raw: string): string[] =>
-    raw
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean)
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError(null)
@@ -121,7 +115,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
 
     try {
       const tags = parseTags(form.tagsInput)
-      let links = form.links.filter((l) => l.url.trim())
+      let links = form.links.map(({ label, url }) => ({ label, url })).filter((l) => l.url.trim())
       if (form.youtube_url.trim()) {
         links = [{ label: 'YouTube', url: form.youtube_url.trim() }, ...links]
       }
@@ -370,7 +364,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
         <fieldset className="flex flex-col gap-3">
           <legend className="text-sm font-medium text-gray-700">Links</legend>
           {form.links.map((link, idx) => (
-            <div key={idx} className="flex gap-2 items-start">
+            <div key={link.id || idx} className="flex gap-2 items-start">
               <div className="flex flex-col gap-1 flex-1">
                 <input
                   type="text"
@@ -437,7 +431,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
 }
 
 // Helper re-exported so the dialog can call parseTags without duplication
-function parseTags(raw: string): string[] {
+export function parseTags(raw: string): string[] {
   return raw
     .split(',')
     .map((t) => t.trim())

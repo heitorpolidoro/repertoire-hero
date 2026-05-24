@@ -59,6 +59,7 @@ export default function BandDetailPage() {
     setLoading(false)
   }, [bandId, router])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
 
   const currentMember = band?.members?.find((m) => m.user_id === currentUserId)
