@@ -98,5 +98,10 @@
     "rule": "JS-R1004",
     "severity": "minor",
     "description": "Useless template literal found. Replace simple backtick strings with standard quotes if they do not contain interpolation or multi-line text."
+  },
+  {
+    "rule": "JS-D1001",
+    "severity": "minor",
+    "description": "Documentation comments not found for functions and classes. Add JSDoc comments to document inputs, outputs, and purpose of public functions and classes."
   }
 ]
