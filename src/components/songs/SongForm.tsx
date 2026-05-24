@@ -46,7 +46,7 @@ function buildInitialState(song?: UserRepertoire): FormState {
     duration:  dur != null ? String(dur) : '',
     status:    song?.status ?? 'unknown',
     tagsInput: song?.tags.join(', ') ?? '',
-    links:     otherLinks.map((l) => ({ ...l, id: l.url || Math.random().toString(36).substring(2, 9) })),
+    links:     otherLinks.map((l) => ({ ...l, id: l.url || self.crypto.randomUUID() })),
   }
 }
 
@@ -75,7 +75,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   }
 
   const addLink = () => {
-    setField('links', [...form.links, { label: '', url: '', id: Math.random().toString(36).substring(2, 9) }])
+    setField('links', [...form.links, { label: '', url: '', id: self.crypto.randomUUID() }])
   }
 
   const updateLink = (index: number, field: keyof SongLink, value: string) => {
