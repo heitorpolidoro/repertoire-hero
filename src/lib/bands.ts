@@ -86,7 +86,7 @@ export async function updateBand(
   }
 }
 
-export async function deleteBand(bandId: string): Promise<void> {
+export const deleteBand = async (bandId: string): Promise<void> => {
   const supabase = createClient();
 
   const { error } = await supabase.from("bands").delete().eq("id", bandId);
@@ -95,7 +95,7 @@ export async function deleteBand(bandId: string): Promise<void> {
     logger.error("Failed to delete band", new Error(error.message));
     throw new Error(`Failed to delete band: ${error.message}`);
   }
-}
+};
 
 export async function leaveBand(bandId: string, userId: string): Promise<void> {
   const supabase = createClient();
@@ -143,10 +143,10 @@ export async function getBandPlaylists(bandId: string): Promise<Playlist[]> {
   return (data ?? []) as unknown as Playlist[];
 }
 
-export async function createBandPlaylist(
+export const createBandPlaylist = async (
   bandId: string,
   name: string,
-): Promise<string> {
+): Promise<string> => {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -161,11 +161,11 @@ export async function createBandPlaylist(
   }
 
   return data.id as string;
-}
+};
 
-export async function joinBandByInviteClient(
+export const joinBandByInviteClient = async (
   inviteCode: string,
-): Promise<string | null> {
+): Promise<string | null> => {
   const supabase = createClient();
 
   const { data, error } = await supabase.rpc("join_band_by_invite", {
@@ -178,7 +178,7 @@ export async function joinBandByInviteClient(
   }
 
   return data as string | null;
-}
+};
 
 export function getBandMembers(band: Band): BandMember[] {
   return (band.members ?? []) as BandMember[];
