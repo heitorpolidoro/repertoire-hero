@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 import { logger } from "@/lib/logger";
 import type { Band, BandMember, Playlist } from "@/types/database";
 
-export async function getBands(): Promise<Band[]> {
+export const getBands = async (): Promise<Band[]> => {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -16,9 +16,11 @@ export async function getBands(): Promise<Band[]> {
   }
 
   return (data ?? []) as Band[];
-}
+};
 
-export async function getBandWithMembers(bandId: string): Promise<Band | null> {
+export const getBandWithMembers = async (
+  bandId: string,
+): Promise<Band | null> => {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -42,13 +44,13 @@ export async function getBandWithMembers(bandId: string): Promise<Band | null> {
   }
 
   return data as unknown as Band;
-}
+};
 
-export async function createBand(
+export const createBand = async (
   name: string,
   description?: string | null,
   coverUrl?: string | null,
-): Promise<string> {
+): Promise<string> => {
   const supabase = createClient();
 
   const { data, error } = await supabase.rpc("create_band", {
@@ -63,16 +65,16 @@ export async function createBand(
   }
 
   return data as string;
-}
+};
 
-export async function updateBand(
+export const updateBand = async (
   bandId: string,
   data: {
     name?: string;
     description?: string | null;
     cover_url?: string | null;
   },
-): Promise<void> {
+): Promise<void> => {
   const supabase = createClient();
 
   const { error } = await supabase
@@ -84,7 +86,7 @@ export async function updateBand(
     logger.error("Failed to update band", new Error(error.message));
     throw new Error(`Failed to update band: ${error.message}`);
   }
-}
+};
 
 export const deleteBand = async (bandId: string): Promise<void> => {
   const supabase = createClient();
@@ -97,7 +99,10 @@ export const deleteBand = async (bandId: string): Promise<void> => {
   }
 };
 
-export async function leaveBand(bandId: string, userId: string): Promise<void> {
+export const leaveBand = async (
+  bandId: string,
+  userId: string,
+): Promise<void> => {
   const supabase = createClient();
 
   const { error } = await supabase
@@ -110,9 +115,9 @@ export async function leaveBand(bandId: string, userId: string): Promise<void> {
     logger.error("Failed to leave band", new Error(error.message));
     throw new Error(`Failed to leave band: ${error.message}`);
   }
-}
+};
 
-export async function removeBandMember(memberId: string): Promise<void> {
+export const removeBandMember = async (memberId: string): Promise<void> => {
   const supabase = createClient();
 
   const { error } = await supabase
@@ -124,9 +129,9 @@ export async function removeBandMember(memberId: string): Promise<void> {
     logger.error("Failed to remove band member", new Error(error.message));
     throw new Error(`Failed to remove band member: ${error.message}`);
   }
-}
+};
 
-export async function getBandPlaylists(bandId: string): Promise<Playlist[]> {
+export const getBandPlaylists = async (bandId: string): Promise<Playlist[]> => {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -141,7 +146,7 @@ export async function getBandPlaylists(bandId: string): Promise<Playlist[]> {
   }
 
   return (data ?? []) as unknown as Playlist[];
-}
+};
 
 export const createBandPlaylist = async (
   bandId: string,
@@ -180,6 +185,6 @@ export const joinBandByInviteClient = async (
   return data as string | null;
 };
 
-export function getBandMembers(band: Band): BandMember[] {
+export const getBandMembers = (band: Band): BandMember[] => {
   return (band.members ?? []) as BandMember[];
-}
+};
