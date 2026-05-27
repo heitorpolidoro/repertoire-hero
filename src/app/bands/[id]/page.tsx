@@ -162,7 +162,9 @@ export default function BandDetailPage() {
       );
       router.push(`/playlists/${playlistId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create playlist");
+      setError(
+        err instanceof Error ? err.message : "Failed to create playlist",
+      );
       setCreatingPlaylist(false);
     }
   }
