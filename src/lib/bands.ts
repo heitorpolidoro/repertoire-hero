@@ -1,3 +1,4 @@
+// Library for managing bands, band members, and band playlists in Repertoire Hero
 import { createClient } from "@/lib/supabase/client";
 import { logger } from "@/lib/logger";
 import type { Band, BandMember, Playlist } from "@/types/database";
