@@ -1,7 +1,8 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   getBandWithMembers,
   updateBand,
@@ -10,134 +11,161 @@ import {
   removeBandMember,
   getBandPlaylists,
   createBandPlaylist,
-} from '@/lib/bands'
-import { createClient } from '@/lib/supabase/client'
-import { INSTRUMENT_ICONS } from '@/components/profile/InstrumentPicker'
-import type { Band, BandMember, Playlist } from '@/types/database'
+} from "@/lib/bands";
+import { createClient } from "@/lib/supabase/client";
+import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
+import type { Band, BandMember, Playlist } from "@/types/database";
 
 export default function BandDetailPage() {
-  const { id: bandId } = useParams<{ id: string }>()
-  const router = useRouter()
+  const { id: bandId } = useParams<{ id: string }>();
+  const router = useRouter();
 
-  const [band, setBand] = useState<Band | null>(null)
-  const [playlists, setPlaylists] = useState<Playlist[]>([])
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [band, setBand] = useState<Band | null>(null);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Edit band modal state
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState('')
-  const [editDesc, setEditDesc] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // New playlist state
-  const [showNewPlaylist, setShowNewPlaylist] = useState(false)
-  const [newPlaylistName, setNewPlaylistName] = useState('')
-  const [creatingPlaylist, setCreatingPlaylist] = useState(false)
+  const [showNewPlaylist, setShowNewPlaylist] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
 
   // Invite link copy state
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    setCurrentUserId(user?.id ?? null)
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    setCurrentUserId(user?.id ?? null);
 
     const [bandData, playlistData] = await Promise.all([
       getBandWithMembers(bandId),
       getBandPlaylists(bandId),
-    ])
+    ]);
 
     if (!bandData) {
-      router.replace('/bands')
-      return
+      router.replace("/bands");
+      return;
     }
 
-    setBand(bandData)
-    setPlaylists(playlistData)
-    setLoading(false)
-  }, [bandId, router])
+    setBand(bandData);
+    setPlaylists(playlistData);
+    setLoading(false);
+  }, [bandId, router]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
 
-  const currentMember = band?.members?.find((m) => m.user_id === currentUserId)
-  const isAdmin = currentMember?.role === 'admin'
-  const inviteUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/join/${band?.invite_code ?? ''}`
-    : ''
+  const currentMember = band?.members?.find((m) => m.user_id === currentUserId);
+  const isAdmin = currentMember?.role === "admin";
+  const inviteUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/join/${band?.invite_code ?? ""}`
+      : "";
 
   async function handleCopyInvite() {
-    await navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    await navigator.clipboard.writeText(inviteUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   function openEdit() {
-    setEditName(band?.name ?? '')
-    setEditDesc(band?.description ?? '')
-    setEditing(true)
+    setEditName(band?.name ?? "");
+    setEditDesc(band?.description ?? "");
+    setEditing(true);
   }
 
   async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editName.trim()) return
-    setSaving(true)
+    e.preventDefault();
+    if (!editName.trim()) return;
+    setSaving(true);
     try {
-      await updateBand(bandId, { name: editName.trim(), description: editDesc.trim() || null })
-      setBand((prev) => prev ? { ...prev, name: editName.trim(), description: editDesc.trim() || null } : prev)
-      setEditing(false)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
+      await updateBand(bandId, {
+        name: editName.trim(),
+        description: editDesc.trim() || null,
+      });
+      setBand((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: editName.trim(),
+              description: editDesc.trim() || null,
+            }
+          : prev,
+      );
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   async function handleDelete() {
-    if (!confirm(`Delete "${band?.name}"? This cannot be undone.`)) return
+    if (!confirm(`Delete "${band?.name}"? This cannot be undone.`)) return;
     try {
-      await deleteBand(bandId)
-      router.replace('/bands')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete band')
+      await deleteBand(bandId);
+      router.replace("/bands");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete band");
     }
   }
 
   async function handleLeave() {
-    if (!currentUserId) return
-    if (!confirm('Leave this band?')) return
+    if (!currentUserId) return;
+    if (!confirm("Leave this band?")) return;
     try {
-      await leaveBand(bandId, currentUserId)
-      router.replace('/bands')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to leave band')
+      await leaveBand(bandId, currentUserId);
+      router.replace("/bands");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to leave band");
     }
   }
 
   async function handleRemoveMember(member: BandMember) {
-    if (!confirm(`Remove ${member.profile?.full_name ?? 'this member'}?`)) return
+    if (!confirm(`Remove ${member.profile?.full_name ?? "this member"}?`))
+      return;
     try {
-      await removeBandMember(member.id)
+      await removeBandMember(member.id);
       setBand((prev) =>
-        prev ? { ...prev, members: prev.members?.filter((m) => m.id !== member.id) } : prev
-      )
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to remove member')
+        prev
+          ? {
+              ...prev,
+              members: prev.members?.filter((m) => m.id !== member.id),
+            }
+          : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove member");
     }
   }
 
   async function handleCreatePlaylist(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newPlaylistName.trim() || !currentUserId) return
-    setCreatingPlaylist(true)
+    e.preventDefault();
+    if (!newPlaylistName.trim() || !currentUserId) return;
+    setCreatingPlaylist(true);
     try {
-      const playlistId = await createBandPlaylist(bandId, newPlaylistName.trim(), currentUserId)
-      router.push(`/playlists/${playlistId}`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create playlist')
-      setCreatingPlaylist(false)
+      const playlistId = await createBandPlaylist(
+        bandId,
+        newPlaylistName.trim(),
+      );
+      router.push(`/playlists/${playlistId}`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to create playlist",
+      );
+      setCreatingPlaylist(false);
     }
   }
 
@@ -146,16 +174,16 @@ export default function BandDetailPage() {
       <div className="max-w-3xl mx-auto px-4 py-8">
         <p className="text-sm text-gray-500">Loading...</p>
       </div>
-    )
+    );
   }
 
-  if (!band) return null
+  if (!band) return null;
 
-  const members = band.members ?? []
+  const members = band.members ?? [];
 
   return (
     <>
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         {/* Header */}
         <div>
           <button
@@ -167,10 +195,13 @@ export default function BandDetailPage() {
 
           <div className="flex items-start gap-4">
             {band.cover_url ? (
-              <img
+              <Image
                 src={band.cover_url}
                 alt={band.name}
+                width={64}
+                height={64}
                 className="w-16 h-16 rounded-2xl object-cover shrink-0"
+                unoptimized
               />
             ) : (
               <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center text-3xl shrink-0">
@@ -180,7 +211,9 @@ export default function BandDetailPage() {
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-bold text-gray-900">{band.name}</h1>
               {band.description && (
-                <p className="text-sm text-gray-500 mt-0.5">{band.description}</p>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {band.description}
+                </p>
               )}
             </div>
             {isAdmin && (
@@ -205,7 +238,9 @@ export default function BandDetailPage() {
         </div>
 
         {error && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{error}</p>
+          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">
+            {error}
+          </p>
         )}
 
         {/* Invite link */}
@@ -221,7 +256,7 @@ export default function BandDetailPage() {
               onClick={handleCopyInvite}
               className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
             >
-              {copied ? 'Copied!' : 'Copy'}
+              {copied ? "Copied!" : "Copy"}
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-2">
@@ -232,33 +267,45 @@ export default function BandDetailPage() {
         {/* Members */}
         <section className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
           <h2 className="font-semibold text-gray-900 mb-3">
-            Members <span className="text-gray-400 font-normal text-sm">({members.length})</span>
+            Members{" "}
+            <span className="text-gray-400 font-normal text-sm">
+              ({members.length})
+            </span>
           </h2>
           <ul className="space-y-2">
             {members.map((member) => (
               <li key={member.id} className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-semibold text-emerald-700 shrink-0">
-                  {(member.profile?.full_name ?? member.profile?.email ?? '?')[0].toUpperCase()}
+                  {(member.profile?.full_name ??
+                    member.profile?.email ??
+                    "?")[0].toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">
-                    {member.profile?.full_name ?? member.profile?.email ?? 'Unknown'}
+                    {member.profile?.full_name ??
+                      member.profile?.email ??
+                      "Unknown"}
                     {member.user_id === currentUserId && (
                       <span className="ml-1 text-xs text-gray-400">(you)</span>
                     )}
                   </p>
                   {member.profile?.primary_instrument && (
                     <p className="text-xs text-gray-500 truncate">
-                      <span aria-hidden="true">{INSTRUMENT_ICONS[member.profile.primary_instrument] ?? '🎵'}</span>
-                      {' '}{member.profile.primary_instrument}
+                      <span aria-hidden="true">
+                        {INSTRUMENT_ICONS[member.profile.primary_instrument] ??
+                          "🎵"}
+                      </span>{" "}
+                      {member.profile.primary_instrument}
                     </p>
                   )}
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  member.role === 'admin'
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-gray-100 text-gray-600'
-                }`}>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    member.role === "admin"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-gray-100 text-gray-600"
+                  }`}
+                >
                   {member.role}
                 </span>
                 {isAdmin && member.user_id !== currentUserId && (
@@ -310,7 +357,7 @@ export default function BandDetailPage() {
                 disabled={creatingPlaylist}
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
-                {creatingPlaylist ? '...' : 'Create'}
+                {creatingPlaylist ? "..." : "Create"}
               </button>
               <button
                 type="button"
@@ -338,13 +385,24 @@ export default function BandDetailPage() {
                     </span>
                     <span className="text-xs text-gray-400 tabular-nums">
                       {(() => {
-                        const songs = (playlist as unknown as { songs?: Array<{ song?: { duration_seconds?: number | null } }> }).songs ?? []
-                        const count = songs.length
-                        const secs = songs.reduce((sum, ps) => sum + (ps.song?.duration_seconds ?? 0), 0)
-                        const dur = secs > 0
-                          ? ` · ${Math.floor(secs / 3600) > 0 ? `${Math.floor(secs / 3600)}:${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`}`
-                          : ''
-                        return `${count} ${count === 1 ? 'song' : 'songs'}${dur}`
+                        const songs =
+                          (
+                            playlist as unknown as {
+                              songs?: Array<{
+                                song?: { duration_seconds?: number | null };
+                              }>;
+                            }
+                          ).songs ?? [];
+                        const count = songs.length;
+                        const secs = songs.reduce(
+                          (sum, ps) => sum + (ps.song?.duration_seconds ?? 0),
+                          0,
+                        );
+                        const dur =
+                          secs > 0
+                            ? ` · ${Math.floor(secs / 3600) > 0 ? `${Math.floor(secs / 3600)}:${String(Math.floor((secs % 3600) / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`}`
+                            : "";
+                        return `${count} ${count === 1 ? "song" : "songs"}${dur}`;
                       })()}
                     </span>
                     <span className="text-gray-400">›</span>
@@ -375,7 +433,9 @@ export default function BandDetailPage() {
           >
             <h2 className="text-lg font-semibold text-gray-900">Edit Band</h2>
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Name</label>
+              <label className="block text-sm font-medium text-gray-700">
+                Name
+              </label>
               <input
                 type="text"
                 value={editName}
@@ -385,7 +445,9 @@ export default function BandDetailPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Description</label>
+              <label className="block text-sm font-medium text-gray-700">
+                Description
+              </label>
               <input
                 type="text"
                 value={editDesc}
@@ -399,7 +461,7 @@ export default function BandDetailPage() {
                 disabled={saving}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? "Saving..." : "Save"}
               </button>
               <button
                 type="button"
@@ -413,5 +475,5 @@ export default function BandDetailPage() {
         </div>
       )}
     </>
-  )
+  );
 }
