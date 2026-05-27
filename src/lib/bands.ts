@@ -140,14 +140,13 @@ export async function getBandPlaylists(bandId: string): Promise<Playlist[]> {
 
 export async function createBandPlaylist(
   bandId: string,
-  name: string,
-  userId: string
+  name: string
 ): Promise<string> {
   const supabase = createClient()
 
   const { data, error } = await supabase
     .from('playlists')
-    .insert({ name, band_id: bandId, user_id: userId, sync_with_spotify: false })
+    .insert({ name, band_id: bandId, sync_with_spotify: false })
     .select('id')
     .single()
 

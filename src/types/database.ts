@@ -49,7 +49,7 @@ export interface SpotifyToken {
 
 export interface Playlist {
   id: string
-  user_id: string
+  user_id: string | null
   band_id: string | null
   name: string
   description: string | null

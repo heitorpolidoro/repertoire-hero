@@ -133,7 +133,7 @@ export default function BandDetailPage() {
     if (!newPlaylistName.trim() || !currentUserId) return
     setCreatingPlaylist(true)
     try {
-      const playlistId = await createBandPlaylist(bandId, newPlaylistName.trim(), currentUserId)
+      const playlistId = await createBandPlaylist(bandId, newPlaylistName.trim())
       router.push(`/playlists/${playlistId}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create playlist')

@@ -123,7 +123,7 @@ describe.skipIf(skip)('bands integration tests', () => {
   })
 
   it('should allow User B to create a band playlist and fetch band playlists', async () => {
-    playlistId = await createBandPlaylist(bandId, 'Rock Anthems', userBId)
+    playlistId = await createBandPlaylist(bandId, 'Rock Anthems')
     expect(playlistId).toBeDefined()
 
     const playlists = await getBandPlaylists(bandId)

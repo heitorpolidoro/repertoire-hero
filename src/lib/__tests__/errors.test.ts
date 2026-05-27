@@ -254,7 +254,7 @@ describe('Supabase Error Handling', () => {
     })
 
     it('createBandPlaylist throws on DB error', async () => {
-      await expect(createBandPlaylist('1', 'Test', '2')).rejects.toThrow('Failed to create band playlist: Mocked Database Error')
+      await expect(createBandPlaylist('1', 'Test')).rejects.toThrow('Failed to create band playlist: Mocked Database Error')
     })
 
     it('joinBandByInviteClient throws on DB error', async () => {
