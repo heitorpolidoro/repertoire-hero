@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   getBandWithMembers,
   updateBand,
@@ -61,8 +62,8 @@ export default function BandDetailPage() {
     setLoading(false);
   }, [bandId, router]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
@@ -104,8 +105,8 @@ export default function BandDetailPage() {
           : prev,
       );
       setEditing(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -116,8 +117,8 @@ export default function BandDetailPage() {
     try {
       await deleteBand(bandId);
       router.replace("/bands");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete band");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete band");
     }
   }
 
@@ -127,8 +128,8 @@ export default function BandDetailPage() {
     try {
       await leaveBand(bandId, currentUserId);
       router.replace("/bands");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to leave band");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to leave band");
     }
   }
 
@@ -145,8 +146,8 @@ export default function BandDetailPage() {
             }
           : prev,
       );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to remove member");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove member");
     }
   }
 
@@ -160,8 +161,8 @@ export default function BandDetailPage() {
         newPlaylistName.trim(),
       );
       router.push(`/playlists/${playlistId}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create playlist");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create playlist");
       setCreatingPlaylist(false);
     }
   }
@@ -192,10 +193,13 @@ export default function BandDetailPage() {
 
           <div className="flex items-start gap-4">
             {band.cover_url ? (
-              <img
+              <Image
                 src={band.cover_url}
                 alt={band.name}
+                width={64}
+                height={64}
                 className="w-16 h-16 rounded-2xl object-cover shrink-0"
+                unoptimized
               />
             ) : (
               <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center text-3xl shrink-0">
