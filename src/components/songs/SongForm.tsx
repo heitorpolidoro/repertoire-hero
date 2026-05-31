@@ -116,11 +116,7 @@ const buildInitialState = (song?: UserRepertoire): FormState => {
     },
   };
 
-  const key = !song
-    ? "NO_SONG"
-    : !song.song
-    ? "NO_INNER"
-    : "FULL";
+  const key = !song ? "NO_SONG" : !song.song ? "NO_INNER" : "FULL";
 
   return stateMap[key]();
 };
