@@ -10,9 +10,9 @@
  *     so engineers get immediate feedback during local work.
  */
 
-import * as Sentry from '@sentry/nextjs'
+import * as Sentry from "@sentry/nextjs";
 
-const isDev = process.env.NODE_ENV === 'development'
+const isDev = process.env.NODE_ENV === "development";
 
 export const logger = {
   /**
@@ -21,15 +21,14 @@ export const logger = {
    */
   info(message: string, context?: Record<string, unknown>): void {
     if (isDev) {
-       
-      console.info('[info]', message, context ?? '')
+      console.info("[info]", message, context ?? "");
     }
 
     Sentry.addBreadcrumb({
-      level: 'info',
+      level: "info",
       message,
       data: context,
-    })
+    });
   },
 
   /**
@@ -39,15 +38,14 @@ export const logger = {
    */
   warn(message: string, context?: Record<string, unknown>): void {
     if (isDev) {
-       
-      console.warn('[warn]', message, context ?? '')
+      console.warn("[warn]", message, context ?? "");
     }
 
     Sentry.addBreadcrumb({
-      level: 'warning',
+      level: "warning",
       message,
       data: context,
-    })
+    });
   },
 
   /**
@@ -63,22 +61,21 @@ export const logger = {
   error(
     message: string,
     error?: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
   ): void {
     if (isDev) {
-       
-      console.error('[error]', message, error ?? '', context ?? '')
+      console.error("[error]", message, error ?? "", context ?? "");
     }
 
     if (error instanceof Error) {
       Sentry.captureException(error, {
         extra: { message, ...context },
-      })
+      });
     } else {
       Sentry.captureMessage(message, {
-        level: 'error',
+        level: "error",
         extra: { error, ...context },
-      })
+      });
     }
   },
-}
+};
