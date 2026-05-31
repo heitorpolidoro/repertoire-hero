@@ -117,7 +117,7 @@ export default function BandsPage() {
         </div>
       ) : (
         <ul className="space-y-3">
-          function BandImage({ band }: { band: Band }) {
+          const BandImage = ({ band }: { band: Band }) => {
             return band.cover_url ? (
               <Image
                 src={band.cover_url}
@@ -132,9 +132,9 @@ export default function BandsPage() {
                 🎸
               </div>
             );
-          }
+          };
 
-          function BandInfo({ band }: { band: Band }) {
+          const BandInfo = ({ band }: { band: Band }) => {
             return (
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-gray-900 truncate">

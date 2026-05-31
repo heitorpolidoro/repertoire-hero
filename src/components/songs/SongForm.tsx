@@ -102,6 +102,11 @@ const buildInitialState = (song?: UserRepertoire): FormState => {
       tagsInput: song?.tags ? song.tags.join(", ") : "",
       links: [],
     }),
+    NO_INNER: () => ({
+      status: song?.status ?? "unknown",
+      tagsInput: song?.tags ? song.tags.join(", ") : "",
+      links: [],
+    }),
     FULL: () => {
       const inner = song!.song!;
       const { youtubeUrl, otherLinks } = extractYoutubeAndOtherLinks(
@@ -118,18 +123,6 @@ const buildInitialState = (song?: UserRepertoire): FormState => {
     : "FULL";
 
   return stateMap[key]();
-};
-      status: song.status ?? "unknown",
-      tagsInput: song.tags ? song.tags.join(", ") : "",
-      links: [],
-    };
-  }
-
-  const { youtubeUrl, otherLinks } = extractYoutubeAndOtherLinks(
-    inner.links ?? [],
-  );
-
-  return mapFormFields(song, inner, youtubeUrl, otherLinks);
 };
 
 export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {

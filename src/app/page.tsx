@@ -35,7 +35,7 @@ function SongResultItem({
   adding,
   error,
   onAdd,
-}: SongResultItemProps) {
+}: SongResultItemProps) => {
   return (
     <li className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm">
       {coverUrl ? (
