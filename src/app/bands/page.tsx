@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { getBands, createBand } from '@/lib/bands'
 import type { Band } from '@/types/database'
 
@@ -119,10 +120,13 @@ export default function BandsPage() {
                 >
                   <div className="flex items-center gap-4">
                     {band.cover_url ? (
-                      <img
+                      <Image
                         src={band.cover_url}
                         alt={band.name}
+                        width={48}
+                        height={48}
                         className="w-12 h-12 rounded-xl object-cover shrink-0"
+                        unoptimized
                       />
                     ) : (
                       <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl shrink-0">

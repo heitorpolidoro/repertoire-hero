@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/server'
 import { getBandByInviteCodeServer, joinBandByInviteServer } from '@/lib/bands.server'
 
@@ -60,10 +61,13 @@ export default async function JoinBandPage({ params }: Props) {
         <div className="bg-white rounded-2xl shadow-md px-6 py-6 space-y-5">
           <div className="flex items-center gap-4">
             {bandInfo.cover_url ? (
-              <img
+              <Image
                 src={bandInfo.cover_url}
                 alt={bandInfo.name}
+                width={56}
+                height={56}
                 className="w-14 h-14 rounded-xl object-cover shrink-0"
+                unoptimized
               />
             ) : (
               <div className="w-14 h-14 rounded-xl bg-emerald-100 flex items-center justify-center text-3xl shrink-0">
