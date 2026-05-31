@@ -133,7 +133,7 @@ export default function HomePage() {
     } finally {
       if (latestQuery.current === query) setSpotifyLoading(false)
     }
-  }, [searchGlobalSongs, searchSpotify])
+  }, [])
 
   useEffect(() => {
     if (debounceTimer.current) {
@@ -195,6 +195,7 @@ export default function HomePage() {
 
   const handleAddFromCatalog = async (song: GlobalSong) => {
     setAddingCatalogId(song.id)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setCatalogRowErrors(({ [song.id]: _, ...rest }) => rest)
     try {
       await addSongToRepertoire(song.id)
@@ -209,6 +210,7 @@ export default function HomePage() {
 
   const handleAddFromSpotify = async (track: SpotifyTrack) => {
     setAddingId(track.id)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setSpotifyRowErrors(({ [track.id]: _, ...rest }) => rest)
     try {
       await createAndAddSong({

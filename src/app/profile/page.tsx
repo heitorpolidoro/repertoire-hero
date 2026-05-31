@@ -7,6 +7,7 @@ import { InstrumentPicker } from '@/components/profile/InstrumentPicker'
 import type { Profile } from '@/types/database'
 
 export default function ProfilePage() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

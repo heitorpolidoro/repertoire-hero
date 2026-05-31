@@ -30,25 +30,54 @@ interface FormState {
   links: Array<SongLink & { id?: string }>
 }
 
-function buildInitialState(song?: UserRepertoire): FormState {
-  const dur = song?.song?.duration_seconds
-  const allLinks = song?.song?.links ? [...song.song.links] : []
-  const youtubeLink = allLinks.find((l) => l.label.toLowerCase() === 'youtube')
-  const otherLinks = allLinks.filter((l) => l.label.toLowerCase() !== 'youtube')
+// Helper re-exported so the dialog can call parseTags without duplication
+export const parseTags = (raw: string): string[] => {
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+}
+
+const buildInitialState = (song?: UserRepertoire): FormState => {
+  if (!song || !song.song) {
+    return {
+      title: "",
+      artist: "",
+      album: "",
+      key: song?.personal_key ?? "",
+      cover_url: "",
+      youtube_url: "",
+      duration: "",
+      status: song?.status ?? "unknown",
+      tagsInput: song?.tags ? song.tags.join(", ") : "",
+      links: [],
+    };
+  }
+
+  const inner = song.song;
+  const allLinks = inner.links ? [...inner.links] : [];
+  const youtubeLink = allLinks.find((l) => l.label.toLowerCase() === "youtube");
+  const otherLinks = allLinks.filter(
+    (l) => l.label.toLowerCase() !== "youtube",
+  );
 
   return {
-    title:     song?.song?.title ?? '',
-    artist:    song?.song?.artist ?? '',
-    album:     song?.song?.album ?? '',
-    key:       song?.personal_key ?? song?.song?.standard_key ?? '',
-    cover_url: song?.song?.cover_url ?? '',
-    youtube_url: youtubeLink ? youtubeLink.url : '',
-    duration:  dur != null ? String(dur) : '',
-    status:    song?.status ?? 'unknown',
-    tagsInput: song?.tags.join(', ') ?? '',
-    links:     otherLinks.map((l) => ({ ...l, id: l.url || self.crypto.randomUUID() })),
-  }
-}
+    title: inner.title,
+    artist: inner.artist,
+    album: inner.album ?? "",
+    key: song.personal_key ?? inner.standard_key ?? "",
+    cover_url: inner.cover_url ?? "",
+    youtube_url: youtubeLink ? youtubeLink.url : "",
+    duration:
+      inner.duration_seconds != null ? String(inner.duration_seconds) : "",
+    status: song.status ?? "unknown",
+    tagsInput: song.tags ? song.tags.join(", ") : "",
+    links: otherLinks.map((l) => ({
+      ...l,
+      id: l.url || self.crypto.randomUUID(),
+    })),
+  };
+};
 
 export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   const isEditMode = Boolean(song)
@@ -165,7 +194,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   }
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+     
     <dialog
       ref={dialogRef}
       onClick={handleBackdropClick}
@@ -430,10 +459,4 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   )
 }
 
-// Helper re-exported so the dialog can call parseTags without duplication
-export function parseTags(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-}
+

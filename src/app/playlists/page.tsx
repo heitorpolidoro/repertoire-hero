@@ -600,7 +600,7 @@ const PlaylistsPage = () => {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPlaylists().catch(console.error)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     loadSpotifyStatus().catch(console.error)
   }, [loadPlaylists, loadSpotifyStatus])
 

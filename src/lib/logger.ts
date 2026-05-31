@@ -21,7 +21,7 @@ export const logger = {
    */
   info(message: string, context?: Record<string, unknown>): void {
     if (isDev) {
-      // eslint-disable-next-line no-console
+       
       console.info('[info]', message, context ?? '')
     }
 
@@ -39,7 +39,7 @@ export const logger = {
    */
   warn(message: string, context?: Record<string, unknown>): void {
     if (isDev) {
-      // eslint-disable-next-line no-console
+       
       console.warn('[warn]', message, context ?? '')
     }
 
@@ -66,7 +66,7 @@ export const logger = {
     context?: Record<string, unknown>
   ): void {
     if (isDev) {
-      // eslint-disable-next-line no-console
+       
       console.error('[error]', message, error ?? '', context ?? '')
     }
 
