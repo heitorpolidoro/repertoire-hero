@@ -77,8 +77,8 @@ const mapFormFields = (
 };
 
 const buildInitialState = (song?: UserRepertoire): FormState => {
-  if (!song) {
-    return {
+  const stateMap: Record<string, () => FormState> = {
+    NO_SONG: () => ({
       title: "",
       artist: "",
       album: "",
@@ -89,19 +89,36 @@ const buildInitialState = (song?: UserRepertoire): FormState => {
       status: "unknown",
       tagsInput: "",
       links: [],
-    };
-  }
-
-  const inner = song.song;
-  if (!inner) {
-    return {
+    }),
+    NO_INNER: () => ({
       title: "",
       artist: "",
       album: "",
-      key: song.personal_key ?? "",
+      key: song?.personal_key ?? "",
       cover_url: "",
       youtube_url: "",
       duration: "",
+      status: song?.status ?? "unknown",
+      tagsInput: song?.tags ? song.tags.join(", ") : "",
+      links: [],
+    }),
+    FULL: () => {
+      const inner = song!.song!;
+      const { youtubeUrl, otherLinks } = extractYoutubeAndOtherLinks(
+        song!.song_links,
+      );
+      return mapFormFields(song!, inner, youtubeUrl, otherLinks);
+    },
+  };
+
+  const key = !song
+    ? "NO_SONG"
+    : !song.song
+    ? "NO_INNER"
+    : "FULL";
+
+  return stateMap[key]();
+};
       status: song.status ?? "unknown",
       tagsInput: song.tags ? song.tags.join(", ") : "",
       links: [],

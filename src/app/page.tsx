@@ -52,7 +52,7 @@ function SongResultItem({
           className="h-10 w-10 rounded bg-gray-100 shrink-0"
           aria-hidden="true"
         />
-      )}
+      )
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{title}</p>
         <p className="text-xs text-gray-500 truncate">{artist}</p>
@@ -187,7 +187,7 @@ export default function HomePage() {
           .filter((e) => e.song)
           .map(
             (e) =>
-              `${e.song!.title.toLowerCase()}|${e.song!.artist.toLowerCase()}`,
+              e.song ? `${e.song.title.toLowerCase()}|${e.song.artist.toLowerCase()}` : '',
           ),
       ),
     [allSongs],

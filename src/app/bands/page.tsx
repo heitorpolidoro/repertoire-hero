@@ -117,42 +117,59 @@ export default function BandsPage() {
         </div>
       ) : (
         <ul className="space-y-3">
-          {bands.map((band) => (
-            <li key={band.id}>
-              <button
-                onClick={() => router.push(`/bands/${band.id}`)}
-                className="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-200 px-5 py-4 hover:border-emerald-300 hover:shadow-md transition-all"
-              >
-                <div className="flex items-center gap-4">
-                  {band.cover_url ? (
-                    <Image
-                      src={band.cover_url}
-                      alt={band.name}
-                      width={48}
-                      height={48}
-                      className="w-12 h-12 rounded-xl object-cover shrink-0"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl shrink-0">
-                      🎸
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-gray-900 truncate">
-                      {band.name}
-                    </p>
-                    {band.description && (
-                      <p className="text-sm text-gray-500 truncate">
-                        {band.description}
-                      </p>
-                    )}
+          function BandImage({ band }: { band: Band }) {
+            return band.cover_url ? (
+              <Image
+                src={band.cover_url}
+                alt={band.name}
+                width={48}
+                height={48}
+                className="w-12 h-12 rounded-xl object-cover shrink-0"
+                unoptimized
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl shrink-0">
+                🎸
+              </div>
+            );
+          }
+
+          function BandInfo({ band }: { band: Band }) {
+            return (
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-gray-900 truncate">
+                  {band.name}
+                </p>
+                {band.description && (
+                  <p className="text-sm text-gray-500 truncate">
+                    {band.description}
+                  </p>
+                )}
+              </div>
+            );
+          }
+
+          function BandListItem({ band }: { band: Band }) {
+            const router = useRouter();
+            return (
+              <li key={band.id}>
+                <button
+                  onClick={() => router.push(`/bands/${band.id}`)}
+                  className="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-200 px-5 py-4 hover:border-emerald-300 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <BandImage band={band} />
+                    <BandInfo band={band} />
+                    <span className="text-gray-400 text-lg">›</span>
                   </div>
-                  <span className="text-gray-400 text-lg">›</span>
-                </div>
-              </button>
-            </li>
-          ))}
+                </button>
+              </li>
+            );
+          }
+
+                    {bands.map((band) => (
+                      <BandListItem key={band.id} band={band} />
+                    ))}
         </ul>
       )}
     </div>
