@@ -1,13 +1,13 @@
 import { createClient } from '@/lib/supabase/client'
 import { logger } from '@/lib/logger'
-import type { GlobalSong, SongLink, SongStatus, UserRepertoire } from '@/types/database'
+import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
 
 // Fetch all songs in the user's repertoire, joining global song details
-export async function getUserRepertoire(): Promise<UserRepertoire[]> {
+export async function getRepertoire(): Promise<Repertoire[]> {
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .select('*, song:global_songs(*)')
     .order('id', { ascending: false })
 
@@ -16,18 +16,18 @@ export async function getUserRepertoire(): Promise<UserRepertoire[]> {
     throw new Error(`Failed to fetch user repertoire: ${error.message}`)
   }
 
-  return data as UserRepertoire[]
+  return data as Repertoire[]
 }
 
 // Add a song to the user's repertoire
-export async function addSongToRepertoire(songId: string): Promise<UserRepertoire> {
+export async function addSongToRepertoire(songId: string): Promise<Repertoire> {
   const supabase = createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Cannot add song: user is not authenticated')
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .insert({ song_id: songId, user_id: user.id, status: 'unknown' as SongStatus })
     .select('*, song:global_songs(*)')
     .single()
@@ -37,7 +37,7 @@ export async function addSongToRepertoire(songId: string): Promise<UserRepertoir
     throw new Error(`Failed to add song to repertoire: ${error.message}`)
   }
 
-  return data as UserRepertoire
+  return data as Repertoire
 }
 
 // Update the status of a song in the user's repertoire
@@ -48,7 +48,7 @@ export async function updateSongStatus(
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .update({ status })
     .eq('id', repertoireId)
     .select('id')
@@ -71,7 +71,7 @@ export async function updateSongTags(
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .update({ tags })
     .eq('id', repertoireId)
     .select('id')
@@ -94,7 +94,7 @@ export async function updatePersonalKey(
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .update({ personal_key: personalKey })
     .eq('id', repertoireId)
     .select('id')
@@ -114,7 +114,7 @@ export async function removeSongFromRepertoire(repertoireId: string): Promise<vo
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .delete()
     .eq('id', repertoireId)
     .select('id')
@@ -155,11 +155,11 @@ export async function searchGlobalSongs(query: string): Promise<GlobalSong[]> {
 }
 
 // Fetch a single repertoire entry by its id (joining global song data)
-export async function getSongEntry(repertoireId: string): Promise<UserRepertoire | null> {
+export async function getSongEntry(repertoireId: string): Promise<Repertoire | null> {
   const supabase = createClient()
 
   const { data, error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .select('*, song:global_songs(*)')
     .eq('id', repertoireId)
     .single()
@@ -170,12 +170,12 @@ export async function getSongEntry(repertoireId: string): Promise<UserRepertoire
     throw new Error(`Failed to fetch song entry: ${error.message}`)
   }
 
-  return data as UserRepertoire
+  return data as Repertoire
 }
 
 // Update a repertoire entry and the underlying global song in one operation
 export async function updateSong(
-  entry: UserRepertoire,
+  entry: Repertoire,
   data: {
     title: string
     artist: string
@@ -211,7 +211,7 @@ export async function updateSong(
 
   // Update repertoire fields
   const { error: repertoireError } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .update({
       status: data.status,
       tags: data.tags,
@@ -238,7 +238,7 @@ export async function createAndAddSong(data: {
   cover_url?: string
   duration_seconds?: number
   links?: SongLink[]
-}): Promise<UserRepertoire> {
+}): Promise<Repertoire> {
   const supabase = createClient()
 
   // Resolve the current user so we can set contributor_id, satisfying the RLS
@@ -298,7 +298,7 @@ export async function createAndAddSong(data: {
 
   // --- Step 2: guard against duplicate repertoire entries ---
   const { data: existingEntry, error: entryLookupError } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .select('id')
     .eq('user_id', user.id)
     .eq('song_id', songId)
@@ -315,7 +315,7 @@ export async function createAndAddSong(data: {
 
   // --- Step 3: add to the user's repertoire ---
   const { data: repertoireEntry, error: repertoireError } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .insert({ song_id: songId, user_id: user.id, status: 'unknown' as SongStatus })
     .select('*, song:global_songs(*)')
     .single()
@@ -327,5 +327,5 @@ export async function createAndAddSong(data: {
     )
   }
 
-  return repertoireEntry as UserRepertoire
+  return repertoireEntry as Repertoire
 }

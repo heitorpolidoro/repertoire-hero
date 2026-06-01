@@ -126,7 +126,7 @@ async function findOrCreateGlobalSong(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function ensureInRepertoire(supabase: any, songId: string, userId: string): Promise<void> {
   const { data: existing } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .select('id')
     .eq('user_id', userId)
     .eq('song_id', songId)
@@ -135,7 +135,7 @@ async function ensureInRepertoire(supabase: any, songId: string, userId: string)
   if (existing) return
 
   const { error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .insert({ song_id: songId, user_id: userId, status: 'unknown' })
 
   if (error && error.code !== '23505') {
@@ -151,7 +151,7 @@ async function ensureInRepertoire(supabase: any, songId: string, userId: string)
 // Flow:
 //  1. Fetch all Spotify tracks
 //  2. Find-or-create each in global_songs
-//  3. Find-or-create each in user_repertoire
+//  3. Find-or-create each in repertoire
 //  4. Create a local playlist with spotify_playlist_id set
 //  5. Add all songs to playlist_songs
 //  6. Optionally mark sync_with_spotify and last_synced_at

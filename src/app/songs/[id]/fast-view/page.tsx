@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import type { UserRepertoire } from '@/types/database'
+import type { Repertoire } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntry } from '@/lib/songs'
 
@@ -10,7 +10,7 @@ export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
 
-  const [entry, setEntry] = useState<UserRepertoire | null>(null)
+  const [entry, setEntry] = useState<Repertoire | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 

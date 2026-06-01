@@ -1,15 +1,15 @@
-import type { UserRepertoire, SongStatus } from '@/types/database'
+import type { Repertoire, SongStatus } from '@/types/database'
 
 /**
  * Pure function that filters a song list by search query, status, and tags.
  * Extracted here so it can be tested independently from the Zustand store.
  */
 export function filterSongs(
-  songs: UserRepertoire[],
+  songs: Repertoire[],
   query: string,
   status: SongStatus | null,
   tags: string[],
-): UserRepertoire[] {
+): Repertoire[] {
   const normalizedQuery = query.trim().toLowerCase()
 
   return songs.filter((entry) => {

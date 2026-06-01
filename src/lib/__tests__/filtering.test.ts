@@ -1,17 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import type { UserRepertoire } from '@/types/database'
+import type { Repertoire } from '@/types/database'
 import { filterSongs } from '../filterSongs'
 
 // ---- fixtures ----
 
-function makeSong(overrides: Partial<UserRepertoire> & {
+function makeSong(overrides: Partial<Repertoire> & {
   title?: string
   artist?: string
-}): UserRepertoire {
+}): Repertoire {
   const { title = 'Default Title', artist = 'Default Artist', ...rest } = overrides
   return {
     id: rest.id ?? crypto.randomUUID(),
     user_id: 'user-1',
+    band_id: null,
     song_id: rest.song_id ?? crypto.randomUUID(),
     personal_key: null,
     status: rest.status ?? 'unknown',
@@ -180,9 +181,10 @@ describe('filterSongs — edge cases', () => {
   })
 
   it('handles songs with no song metadata gracefully', () => {
-    const bare: UserRepertoire = {
+    const bare: Repertoire = {
       id: 'bare-1',
       user_id: 'user-1',
+      band_id: null,
       song_id: 'song-1',
       personal_key: null,
       status: 'unknown',

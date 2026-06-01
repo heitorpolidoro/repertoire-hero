@@ -2,13 +2,13 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import type { UserRepertoire } from '@/types/database'
+import type { Repertoire } from '@/types/database'
 import { STATUS_CONFIG, nextStatus } from '@/lib/statusConfig'
 import { useRepertoireStore } from '@/store/repertoireStore'
 
 interface SongCardProps {
-  song: UserRepertoire
-  onEdit: (song: UserRepertoire) => void
+  song: Repertoire
+  onEdit: (song: Repertoire) => void
 }
 
 export default function SongCard({ song, onEdit }: SongCardProps) {

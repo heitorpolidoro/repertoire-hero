@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { vi } from 'vitest'
 import { createClient as createOriginalClient } from '@supabase/supabase-js'
 import {
-  getUserRepertoire,
+  getRepertoire,
   addSongToRepertoire,
   updateSongStatus,
   updateSongTags,
@@ -77,7 +77,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
 
     if (userId) {
       // 1. Delete repertoire entries for our test user
-      await admin.from('user_repertoire').delete().eq('user_id', userId)
+      await admin.from('repertoire').delete().eq('user_id', userId)
 
       // 2. Delete global songs contributed by this user or created during the tests
       if (createdGlobalSongIds.size > 0) {
@@ -150,8 +150,8 @@ describe.skipIf(skip)('songs service integration tests', () => {
     await expect(createAndAddSong(songData)).rejects.toThrow('Song already in your repertoire')
   })
 
-  it('getUserRepertoire retrieves the user repertoire with song details', async () => {
-    const repertoire = await getUserRepertoire()
+  it('getRepertoire retrieves the user repertoire with song details', async () => {
+    const repertoire = await getRepertoire()
     expect(repertoire).toBeInstanceOf(Array)
     // There should be at least the entry from the previous test (Song C)
     const hasSongC = repertoire.some(entry => entry.song?.title === `Song C_${suffix}`)

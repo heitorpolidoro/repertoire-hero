@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Image from "next/image";
-import type { SongStatus, UserRepertoire } from "@/types/database";
+import type { SongStatus, Repertoire } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import {
@@ -80,7 +80,7 @@ const SongResultItem = ({
   );
 }
 
-type ModalState = { open: false } | { open: true; song?: UserRepertoire };
+type ModalState = { open: false } | { open: true; song?: Repertoire };
 
 const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
   { value: null, label: "All" },
@@ -226,7 +226,7 @@ export default function HomePage() {
   );
 
   const openAdd = () => setModal({ open: true });
-  const openEdit = (song: UserRepertoire) => setModal({ open: true, song });
+  const openEdit = (song: Repertoire) => setModal({ open: true, song });
   const closeModal = () => setModal({ open: false });
   const handleSuccess = () => setModal({ open: false });
 

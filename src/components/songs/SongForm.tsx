@@ -5,7 +5,7 @@ import type {
   GlobalSong,
   SongLink,
   SongStatus,
-  UserRepertoire,
+  Repertoire,
 } from "@/types/database";
 import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
 import {
@@ -17,7 +17,7 @@ import {
 import { useRepertoireStore } from "@/store/repertoireStore";
 
 interface SongFormProps {
-  song?: UserRepertoire;
+  song?: Repertoire;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -61,7 +61,7 @@ const extractYoutubeAndOtherLinks = (
 };
 
 const mapFormFields = (
-  song: UserRepertoire,
+  song: Repertoire,
   inner: GlobalSong,
   youtubeUrl: string,
   otherLinks: Array<SongLink & { id: string }>,
@@ -81,7 +81,7 @@ const mapFormFields = (
   };
 };
 
-const buildInitialState = (song?: UserRepertoire): FormState => {
+const buildInitialState = (song?: Repertoire): FormState => {
   const stateMap: Record<string, () => FormState> = {
     NO_SONG: () => ({
       title: "",
