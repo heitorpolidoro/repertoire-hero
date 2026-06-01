@@ -22,9 +22,10 @@ export interface GlobalSong {
   created_at: string;
 }
 
-export interface UserRepertoire {
+export interface Repertoire {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  band_id: string | null;
   song_id: string;
   personal_key: string | null;
   status: SongStatus;
