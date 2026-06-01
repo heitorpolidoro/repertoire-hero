@@ -1,13 +1,13 @@
 import { create } from 'zustand'
 import {
-  getUserRepertoire,
+  getRepertoire,
   removeSongFromRepertoire,
   updateSongStatus,
 } from '@/lib/songs'
-import type { SongStatus, UserRepertoire } from '@/types/database'
+import type { Repertoire, SongStatus } from '@/types/database'
 
 interface RepertoireState {
-  songs: UserRepertoire[]
+  songs: Repertoire[]
   isLoading: boolean
   searchQuery: string
   selectedStatus: SongStatus | null
@@ -22,7 +22,7 @@ interface RepertoireState {
   toggleTag: (tag: string) => void
 
   // Derived
-  filteredSongs: () => UserRepertoire[]
+  filteredSongs: () => Repertoire[]
 }
 
 export const useRepertoireStore = create<RepertoireState>((set, get) => ({
@@ -35,7 +35,7 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
   loadSongs: async () => {
     set({ isLoading: true })
     try {
-      const songs = await getUserRepertoire()
+      const songs = await getRepertoire()
       set({ songs })
     } finally {
       set({ isLoading: false })
