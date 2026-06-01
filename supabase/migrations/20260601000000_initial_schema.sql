@@ -126,6 +126,9 @@ CREATE POLICY "global_songs: contributor can update own rows"
     USING (contributor_id = auth.uid())
     WITH CHECK (contributor_id = auth.uid());
 
+-- DELETE is intentionally not exposed to regular users to prevent catalogue
+-- pollution. Use the Supabase service-role key for admin deletions.
+
 -- ---------------------------------------------------------------------------
 -- Table: spotify_tokens
 -- ---------------------------------------------------------------------------
@@ -358,9 +361,7 @@ DROP POLICY IF EXISTS "repertoire: users can update own rows" ON repertoire;
 CREATE POLICY "repertoire: users can update own rows" ON repertoire FOR UPDATE
     USING (
         (user_id = auth.uid() AND band_id IS NULL) OR
-        (band_id IS NOT NULL AND band_id IN (
-            SELECT band_id FROM band_members WHERE user_id = auth.uid() AND role = 'admin'
-        ))
+        (band_id IS NOT NULL AND band_id = ANY(get_my_band_ids()))
     );
 
 DROP POLICY IF EXISTS "repertoire: users can delete own rows" ON repertoire;
@@ -377,7 +378,7 @@ CREATE POLICY "repertoire: users can delete own rows" ON repertoire FOR DELETE
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS playlists (
     id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id             uuid        REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id             uuid        REFERENCES profiles(id)   ON DELETE CASCADE,
     band_id             uuid        REFERENCES bands(id)      ON DELETE CASCADE,
     name                text        NOT NULL,
     description         text,
@@ -403,18 +404,14 @@ DROP POLICY IF EXISTS "playlists: users can select own rows" ON playlists;
 CREATE POLICY "playlists: users can select own rows" ON playlists FOR SELECT
     USING (
         (user_id = auth.uid() AND band_id IS NULL) OR
-        (band_id IS NOT NULL AND band_id IN (
-            SELECT bm.band_id FROM band_members bm WHERE bm.user_id = auth.uid()
-        ))
+        (band_id IS NOT NULL AND band_id = ANY(get_my_band_ids()))
     );
 
 DROP POLICY IF EXISTS "playlists: users can insert own rows" ON playlists;
 CREATE POLICY "playlists: users can insert own rows" ON playlists FOR INSERT
     WITH CHECK (
         (user_id = auth.uid() AND band_id IS NULL) OR
-        (user_id IS NULL AND band_id IS NOT NULL AND band_id IN (
-            SELECT bm.band_id FROM band_members bm WHERE bm.user_id = auth.uid()
-        ))
+        (user_id IS NULL AND band_id IS NOT NULL AND band_id = ANY(get_my_band_ids()))
     );
 
 DROP POLICY IF EXISTS "playlists: users can update own rows" ON playlists;
@@ -455,9 +452,7 @@ CREATE POLICY "playlist_songs: users can select own rows" ON playlist_songs FOR 
     USING (EXISTS (
         SELECT 1 FROM playlists p WHERE p.id = playlist_id AND (
             (p.user_id = auth.uid() AND p.band_id IS NULL) OR
-            (p.band_id IS NOT NULL AND p.band_id IN (
-                SELECT bm.band_id FROM band_members bm WHERE bm.user_id = auth.uid()
-            ))
+            (p.band_id IS NOT NULL AND p.band_id = ANY(get_my_band_ids()))
         )
     ));
 
@@ -466,9 +461,7 @@ CREATE POLICY "playlist_songs: users can insert own rows" ON playlist_songs FOR 
     WITH CHECK (EXISTS (
         SELECT 1 FROM playlists p WHERE p.id = playlist_id AND (
             (p.user_id = auth.uid() AND p.band_id IS NULL) OR
-            (p.band_id IS NOT NULL AND p.band_id IN (
-                SELECT bm.band_id FROM band_members bm WHERE bm.user_id = auth.uid()
-            ))
+            (p.band_id IS NOT NULL AND p.band_id = ANY(get_my_band_ids()))
         )
     ));
 
@@ -477,8 +470,6 @@ CREATE POLICY "playlist_songs: users can delete own rows" ON playlist_songs FOR 
     USING (EXISTS (
         SELECT 1 FROM playlists p WHERE p.id = playlist_id AND (
             (p.user_id = auth.uid() AND p.band_id IS NULL) OR
-            (p.band_id IS NOT NULL AND p.band_id IN (
-                SELECT bm.band_id FROM band_members bm WHERE bm.user_id = auth.uid()
-            ))
+            (p.band_id IS NOT NULL AND p.band_id = ANY(get_my_band_ids()))
         )
     ));
