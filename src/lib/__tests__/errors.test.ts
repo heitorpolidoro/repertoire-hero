@@ -9,7 +9,7 @@ import {
   getPlaylistWithSongs,
 } from "../playlists";
 import {
-  getUserRepertoire,
+  getRepertoire,
   addSongToRepertoire,
   updateSongStatus,
   updateSongTags,
@@ -85,7 +85,7 @@ const createChainableMock = () => {
       if (currentTable === "global_songs") {
         return Promise.resolve({ data: { id: "global-song-id" }, error: null });
       }
-      if (currentTable === "user_repertoire") {
+      if (currentTable === "repertoire") {
         if (failRepertoireInsert) {
           return Promise.resolve({ data: null, error: mockError });
         }
@@ -107,7 +107,7 @@ const createChainableMock = () => {
         }
         return Promise.resolve({ data: null, error: null });
       }
-      if (currentTable === "user_repertoire") {
+      if (currentTable === "repertoire") {
         if (failRepertoireCheck) {
           return Promise.resolve({ data: null, error: mockError });
         }
@@ -182,8 +182,8 @@ describe("Supabase Error Handling", () => {
   });
 
   describe("songs.ts errors", () => {
-    it("getUserRepertoire throws on DB error", async () => {
-      await expect(getUserRepertoire()).rejects.toThrow(
+    it("getRepertoire throws on DB error", async () => {
+      await expect(getRepertoire()).rejects.toThrow(
         "Failed to fetch user repertoire: Mocked Database Error",
       );
     });
@@ -231,7 +231,9 @@ describe("Supabase Error Handling", () => {
     });
 
     it("updateSong throws on DB error", async () => {
-      await expect(updateSong("1", {})).rejects.toThrow(
+      const mockEntry = { id: "1", user_id: null, band_id: null, song_id: "song-1", personal_key: null, status: "unknown" as const, tags: [], last_practiced: null };
+      const mockData = { title: "Test", artist: "Artist", key: null, status: "unknown" as const, tags: [], links: [] };
+      await expect(updateSong(mockEntry, mockData)).rejects.toThrow(
         "Failed to update global song: Mocked Database Error",
       );
     });

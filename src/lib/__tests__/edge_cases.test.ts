@@ -66,7 +66,7 @@ const createChainableMock = () => {
       if (currentTable === 'global_songs') {
         return Promise.resolve({ data: null, error: null }) // no existing song
       }
-      if (currentTable === 'user_repertoire') {
+      if (currentTable === 'repertoire') {
         return Promise.resolve({ data: null, error: null }) // no existing entry
       }
       return Promise.resolve({ data: null, error: null })
@@ -74,7 +74,7 @@ const createChainableMock = () => {
     then: (resolve: any) => {
       if (currentTable === 'global_songs') {
         resolve({ data: mockData, error: null, count: null })
-      } else if (currentTable === 'user_repertoire' && failRepertoireUpdate) {
+      } else if (currentTable === 'repertoire' && failRepertoireUpdate) {
         resolve({ data: null, error: mockError, count: null })
       } else {
         resolve({ data: mockData, error: mockSelectError, count: null })
@@ -168,7 +168,7 @@ describe('Supabase Edge Cases', () => {
       await expect(removeSongFromRepertoire('1')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
-    it('updateSong throws if user_repertoire update fails but global_songs update succeeds', async () => {
+    it('updateSong throws if repertoire update fails but global_songs update succeeds', async () => {
       mockData = []
       failRepertoireUpdate = true
 
