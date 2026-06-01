@@ -42,6 +42,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
   // Track IDs for clean up
   const createdPlaylists: string[] = []
   const createdSongs: string[] = []
+  const createdBands: string[] = []
 
   beforeAll(async () => {
     // Create User A
@@ -69,6 +70,23 @@ describe.skipIf(skip)('playlists integration tests', () => {
       await admin.from('playlist_songs').delete().in('playlist_id', createdPlaylists)
       // 2. Delete playlists
       await admin.from('playlists').delete().in('id', createdPlaylists)
+    }
+
+    // Delete band memberships and bands
+    if (createdBands.length > 0) {
+      await admin.from('band_members').delete().in('band_id', createdBands)
+      await admin.from('bands').delete().in('id', createdBands)
+    }
+
+    // Delete repertoires created for users or bands
+    if (userAId) {
+      await admin.from('repertoire').delete().eq('user_id', userAId)
+    }
+    if (userBId) {
+      await admin.from('repertoire').delete().eq('user_id', userBId)
+    }
+    if (createdBands.length > 0) {
+      await admin.from('repertoire').delete().in('band_id', createdBands)
     }
 
     // 3. Delete global songs
@@ -239,5 +257,105 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(checkPlaylistA).not.toBeNull()
     expect(checkPlaylistA!.name).toBe(`User A Playlist ${suffix}`)
     expect(checkPlaylistA!.name).not.toBe('Hacked name')
+  })
+
+  it('should autogest repertoire and propagate to members when adding song to a band playlist (UC3.2)', async () => {
+    // 1. Create a band using admin client to set it up easily
+    const { data: band, error: bandError } = await admin
+      .from('bands')
+      .insert({
+        name: `Band Playlists ${suffix}`,
+        description: 'Test band for playlists autogestion',
+        created_by: userAId,
+      })
+      .select('id')
+      .single()
+
+    if (bandError) throw bandError
+    const bandId = band!.id
+    createdBands.push(bandId)
+
+    // 2. Add User A (admin) and User B (member) to the band members list
+    const { error: membersError } = await admin.from('band_members').insert([
+      { band_id: bandId, user_id: userAId, role: 'admin' },
+      { band_id: bandId, user_id: userBId, role: 'member' }
+    ])
+    if (membersError) throw membersError
+
+    // 3. Create a band playlist using admin
+    const { data: playlist, error: playlistError } = await admin
+      .from('playlists')
+      .insert({
+        band_id: bandId,
+        name: `Band Setlist ${suffix}`,
+      })
+      .select('id')
+      .single()
+
+    if (playlistError) throw playlistError
+    const playlistId = playlist!.id
+    createdPlaylists.push(playlistId)
+
+    // 4. Create a global song
+    const songTitle = `Autogest Song ${suffix}`
+    const { data: song, error: songError } = await admin
+      .from('global_songs')
+      .insert({
+        title: songTitle,
+        artist: 'Band Autogest Artist',
+      })
+      .select('id')
+      .single()
+
+    if (songError) throw songError
+    const songId = song!.id
+    createdSongs.push(songId)
+
+    // 5. Sign in as User A (who is a member of the band) and add the song to the band playlist
+    const { error: signInError } = await mockTestClient.auth.signInWithPassword(USER_A)
+    expect(signInError).toBeNull()
+
+    await addSongToPlaylist(playlistId, songId)
+
+    // 6. Verify that:
+    // A. The song was added to the band repertoire
+    const { data: bandRep, error: bandRepErr } = await admin
+      .from('repertoire')
+      .select('id')
+      .eq('band_id', bandId)
+      .eq('song_id', songId)
+      .single()
+
+    expect(bandRepErr).toBeNull()
+    expect(bandRep).not.toBeNull()
+
+    // B. The song was automatically propagated to User A's personal repertoire
+    const { data: userARep, error: userARepErr } = await admin
+      .from('repertoire')
+      .select('id')
+      .eq('user_id', userAId)
+      .eq('song_id', songId)
+      .single()
+
+    expect(userARepErr).toBeNull()
+    expect(userARep).not.toBeNull()
+
+    // C. The song was NOT automatically propagated to User B's personal repertoire (correct for client-side RLS)
+    const { data: userBRep, error: userBRepErr } = await admin
+      .from('repertoire')
+      .select('id')
+      .eq('user_id', userBId)
+      .eq('song_id', songId)
+      .maybeSingle()
+
+    expect(userBRepErr).toBeNull()
+    expect(userBRep).toBeNull()
+
+    // D. The song is in the playlist songs list
+    const playlistWithSongs = await getPlaylistWithSongs(playlistId)
+    expect(playlistWithSongs).not.toBeNull()
+    expect(playlistWithSongs!.songs).toBeDefined()
+    expect(playlistWithSongs!.songs!.length).toBe(1)
+    expect(playlistWithSongs!.songs![0].song_id).toBe(songId)
   })
 })

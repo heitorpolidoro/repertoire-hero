@@ -41,12 +41,14 @@ let failLookup = true;
 let failRepertoireCheck = true;
 let failRepertoireInsert = true;
 let failCountCheck = true;
+let failPlaylistLookup = true;
 
 beforeEach(() => {
   failLookup = true;
   failRepertoireCheck = true;
   failRepertoireInsert = true;
   failCountCheck = true;
+  failPlaylistLookup = true;
 });
 
 // Chainable mock builder that resolves as a promise with the mock error
@@ -91,6 +93,12 @@ const createChainableMock = () => {
         }
         return Promise.resolve({ data: { id: "repertoire-id" }, error: null });
       }
+      if (currentTable === "playlists") {
+        if (failPlaylistLookup) {
+          return Promise.resolve({ data: null, error: mockError });
+        }
+        return Promise.resolve({ data: { user_id: "mock-user-id", band_id: null }, error: null });
+      }
       return Promise.resolve({ data: null, error: mockError });
     },
     insert: () => mock,
@@ -116,7 +124,11 @@ const createChainableMock = () => {
       return Promise.resolve({ data: null, error: mockError });
     },
     then: (resolve: any) => {
-      resolve({ data: null, error: mockError, count: null });
+      if (currentTable === "repertoire" && !failRepertoireInsert) {
+        resolve({ data: [{ id: "repertoire-id" }], error: null, count: null });
+      } else {
+        resolve({ data: null, error: mockError, count: null });
+      }
     },
   };
   return mock;
@@ -155,12 +167,18 @@ describe("Supabase Error Handling", () => {
     });
 
     it("addSongToPlaylist throws on DB error", async () => {
+      failPlaylistLookup = false;
+      failRepertoireCheck = false;
+      failRepertoireInsert = false;
       await expect(addSongToPlaylist("1", "2")).rejects.toThrow(
         "Failed to count playlist songs: Mocked Database Error",
       );
     });
 
     it("addSongToPlaylist throws on DB error during insert", async () => {
+      failPlaylistLookup = false;
+      failRepertoireCheck = false;
+      failRepertoireInsert = false;
       failCountCheck = false;
       // The select query count will succeed (mocked above) but the subsequent insert will fail through the default fallback
       await expect(addSongToPlaylist("1", "2")).rejects.toThrow(

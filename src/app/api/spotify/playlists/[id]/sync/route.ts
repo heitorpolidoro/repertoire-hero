@@ -73,26 +73,22 @@ async function fetchAllSpotifyTracks(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function findOrCreateGlobalSong(supabase: any, track: RawTrack, userId: string): Promise<string> {
+async function findOrCreateGlobalSong(supabase: any, track: RawTrack): Promise<string> {
   const albumValue = track.album?.trim() ?? ''
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let lookupQuery: any = supabase.from('global_songs').select('id, duration_seconds').ilike('title', track.title)
+  let lookupQuery: any = supabase.from('global_songs').select('id').ilike('title', track.title)
   if (albumValue) lookupQuery = lookupQuery.ilike('album', albumValue)
 
   const { data: existing, error: lookupError } = await lookupQuery.maybeSingle()
   if (lookupError) throw new Error(`Song lookup failed: ${lookupError.message}`)
   if (existing) {
-    if (existing.duration_seconds == null && track.durationSeconds != null) {
-      await supabase.from('global_songs').update({ duration_seconds: track.durationSeconds }).eq('id', existing.id)
-    }
     return existing.id as string
   }
 
   const { data: created, error: createError } = await supabase
     .from('global_songs')
     .insert({
-      contributor_id: userId,
       title: track.title,
       artist: track.artist,
       album: albumValue || null,
@@ -108,22 +104,75 @@ async function findOrCreateGlobalSong(supabase: any, track: RawTrack, userId: st
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function ensureInRepertoire(supabase: any, songId: string, userId: string): Promise<void> {
-  const { data: existing } = await supabase
-    .from('repertoire')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('song_id', songId)
-    .maybeSingle()
+async function ensureInRepertoire(supabase: any, songId: string, owner: { userId?: string; bandId?: string }): Promise<void> {
+  if (owner.bandId) {
+    // 1. Ensure in Band Repertoire
+    const { data: existingBandRep } = await supabase
+      .from('repertoire')
+      .select('id')
+      .eq('band_id', owner.bandId)
+      .eq('song_id', songId)
+      .maybeSingle()
 
-  if (existing) return
+    if (!existingBandRep) {
+      const { error: bandError } = await supabase
+        .from('repertoire')
+        .insert({ song_id: songId, band_id: owner.bandId, status: 'unknown' })
 
-  const { error } = await supabase
-    .from('repertoire')
-    .insert({ song_id: songId, user_id: userId, status: 'unknown' })
+      if (bandError && bandError.code !== '23505') {
+        throw new Error(`Failed to add song to band repertoire: ${bandError.message}`)
+      }
+    }
 
-  if (error && error.code !== '23505') {
-    throw new Error(`Failed to add song to repertoire: ${error.message}`)
+    // 2. Fetch all members of the band
+    const { data: members, error: membersError } = await supabase
+      .from('band_members')
+      .select('user_id')
+      .eq('band_id', owner.bandId)
+
+    if (membersError) {
+      throw new Error(`Failed to fetch band members: ${membersError.message}`)
+    }
+
+    // 3. Ensure for each member of the band
+    if (members) {
+      for (const member of members) {
+        const { data: existingMemberRep } = await supabase
+          .from('repertoire')
+          .select('id')
+          .eq('user_id', member.user_id)
+          .eq('song_id', songId)
+          .maybeSingle()
+
+        if (!existingMemberRep) {
+          const { error: memberError } = await supabase
+            .from('repertoire')
+            .insert({ song_id: songId, user_id: member.user_id, status: 'unknown' })
+
+          if (memberError && memberError.code !== '23505') {
+            throw new Error(`Failed to add song to member repertoire: ${memberError.message}`)
+          }
+        }
+      }
+    }
+  } else if (owner.userId) {
+    // Personal Repertoire
+    const { data: existingUserRep } = await supabase
+      .from('repertoire')
+      .select('id')
+      .eq('user_id', owner.userId)
+      .eq('song_id', songId)
+      .maybeSingle()
+
+    if (existingUserRep) return
+
+    const { error } = await supabase
+      .from('repertoire')
+      .insert({ song_id: songId, user_id: owner.userId, status: 'unknown' })
+
+    if (error && error.code !== '23505') {
+      throw new Error(`Failed to add song to personal repertoire: ${error.message}`)
+    }
   }
 }
 
@@ -198,9 +247,13 @@ export async function POST(
 
       // Resolve (or create) a local song id for every Spotify track.
       const spotifySongIds = new Set<string>()
+      const owner = playlist.band_id
+        ? { bandId: playlist.band_id as string }
+        : { userId: user.id }
+
       for (const track of spotifyTracks) {
-        const songId = await findOrCreateGlobalSong(supabase, track, user.id)
-        await ensureInRepertoire(supabase, songId, user.id)
+        const songId = await findOrCreateGlobalSong(supabase, track)
+        await ensureInRepertoire(supabase, songId, owner)
         spotifySongIds.add(songId)
       }
 
