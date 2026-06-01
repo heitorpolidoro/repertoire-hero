@@ -27,7 +27,7 @@ interface SongResultItemProps {
   onAdd: () => void;
 }
 
-function SongResultItem({
+const SongResultItem = ({
   coverUrl,
   title,
   artist,
@@ -52,7 +52,7 @@ function SongResultItem({
           className="h-10 w-10 rounded bg-gray-100 shrink-0"
           aria-hidden="true"
         />
-      )
+      )}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{title}</p>
         <p className="text-xs text-gray-500 truncate">{artist}</p>

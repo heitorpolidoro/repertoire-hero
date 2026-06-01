@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { SongLink, SongStatus, UserRepertoire } from "@/types/database";
+import type {
+  GlobalSong,
+  SongLink,
+  SongStatus,
+  UserRepertoire,
+} from "@/types/database";
 import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
 import {
   createAndAddSong,
@@ -50,7 +55,7 @@ const extractYoutubeAndOtherLinks = (
     youtubeUrl: youtubeLink?.url ?? "",
     otherLinks: filteredLinks.map((l) => ({
       ...l,
-      id: l.url || self.crypto.randomUUID(),
+      id: l.url || crypto.randomUUID(),
     })),
   };
 };
@@ -102,15 +107,10 @@ const buildInitialState = (song?: UserRepertoire): FormState => {
       tagsInput: song?.tags ? song.tags.join(", ") : "",
       links: [],
     }),
-    NO_INNER: () => ({
-      status: song?.status ?? "unknown",
-      tagsInput: song?.tags ? song.tags.join(", ") : "",
-      links: [],
-    }),
     FULL: () => {
       const inner = song!.song!;
       const { youtubeUrl, otherLinks } = extractYoutubeAndOtherLinks(
-        song!.song_links,
+        song!.song!.links,
       );
       return mapFormFields(song!, inner, youtubeUrl, otherLinks);
     },
@@ -148,7 +148,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   const addLink = () => {
     setField("links", [
       ...form.links,
-      { label: "", url: "", id: self.crypto.randomUUID() },
+      { label: "", url: "", id: crypto.randomUUID() },
     ]);
   };
 
