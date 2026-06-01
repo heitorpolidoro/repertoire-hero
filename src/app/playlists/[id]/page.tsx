@@ -26,7 +26,7 @@ import type {
   Playlist,
   PlaylistSong,
   SongStatus,
-  UserRepertoire,
+  Repertoire,
 } from "@/types/database";
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ const STATUS_BAR_COLORS: Record<SongStatus, string> = {
 
 interface PlaylistSummaryProps {
   songs: PlaylistSong[];
-  repertoireMap: Map<string, UserRepertoire>;
+  repertoireMap: Map<string, Repertoire>;
 }
 
 const PlaylistSummary = ({ songs, repertoireMap }: PlaylistSummaryProps) => {
@@ -276,7 +276,7 @@ export default function PlaylistDetailPage() {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [songs, setSongs] = useState<PlaylistSong[]>([]);
   const [repertoireMap, setRepertoireMap] = useState<
-    Map<string, UserRepertoire>
+    Map<string, Repertoire>
   >(new Map());
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -335,9 +335,9 @@ export default function PlaylistDetailPage() {
       getPlaylistWithSongs(playlistId),
       // Fetch repertoire to populate repertoireMap for status/tag display
       createClient()
-        .from("user_repertoire")
+        .from("repertoire")
         .select("*, song:global_songs(*)")
-        .then(({ data }) => (data ?? []) as UserRepertoire[]),
+        .then(({ data }) => (data ?? []) as Repertoire[]),
     ]);
     if (!data) {
       router.replace("/playlists");
@@ -345,7 +345,7 @@ export default function PlaylistDetailPage() {
     }
     setPlaylist(data);
     setSongs(data.songs ?? []);
-    setRepertoireMap(new Map(rep.map((r: UserRepertoire) => [r.song_id, r])));
+    setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
     setCurrentUserId(user?.id ?? null);
   }, [playlistId, router]);
 

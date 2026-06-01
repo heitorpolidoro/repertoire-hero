@@ -110,7 +110,7 @@ async function findOrCreateGlobalSong(supabase: any, track: RawTrack, userId: st
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function ensureInRepertoire(supabase: any, songId: string, userId: string): Promise<void> {
   const { data: existing } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .select('id')
     .eq('user_id', userId)
     .eq('song_id', songId)
@@ -119,7 +119,7 @@ async function ensureInRepertoire(supabase: any, songId: string, userId: string)
   if (existing) return
 
   const { error } = await supabase
-    .from('user_repertoire')
+    .from('repertoire')
     .insert({ song_id: songId, user_id: userId, status: 'unknown' })
 
   if (error && error.code !== '23505') {
