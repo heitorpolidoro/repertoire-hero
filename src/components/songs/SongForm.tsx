@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { SongLink, SongStatus, UserRepertoire } from '@/types/database'
+import type { SongLink, SongStatus, Repertoire } from '@/types/database'
 import { STATUS_CONFIG, STATUS_ORDER } from '@/lib/statusConfig'
 import {
   createAndAddSong,
@@ -12,7 +12,7 @@ import {
 import { useRepertoireStore } from '@/store/repertoireStore'
 
 interface SongFormProps {
-  song?: UserRepertoire
+  song?: Repertoire
   onClose: () => void
   onSuccess: () => void
 }
@@ -30,7 +30,7 @@ interface FormState {
   links: Array<SongLink & { id?: string }>
 }
 
-function buildInitialState(song?: UserRepertoire): FormState {
+function buildInitialState(song?: Repertoire): FormState {
   const dur = song?.song?.duration_seconds
   const allLinks = song?.song?.links ? [...song.song.links] : []
   const youtubeLink = allLinks.find((l) => l.label.toLowerCase() === 'youtube')
