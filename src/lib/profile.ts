@@ -1,17 +1,14 @@
-import { createClient } from '@/lib/supabase/client'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { logger } from '@/lib/logger'
 import type { Profile } from '@/types/database'
 
-export async function getProfile(): Promise<Profile | null> {
-  const supabase = createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+export async function getProfile(userId: string): Promise<Profile | null> {
+  const supabase = createAdminClient()
 
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single()
 
   if (error) {
@@ -23,21 +20,21 @@ export async function getProfile(): Promise<Profile | null> {
   return data as Profile
 }
 
-export async function updateProfile(data: {
-  full_name?: string | null
-  avatar_url?: string | null
-  instruments?: string[]
-  primary_instrument?: string | null
-}): Promise<void> {
-  const supabase = createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+export async function updateProfile(
+  userId: string,
+  data: {
+    full_name?: string | null
+    avatar_url?: string | null
+    instruments?: string[]
+    primary_instrument?: string | null
+  }
+): Promise<void> {
+  const supabase = createAdminClient()
 
   const { error } = await supabase
     .from('profiles')
     .update(data)
-    .eq('id', user.id)
+    .eq('id', userId)
 
   if (error) {
     logger.error('Failed to update profile', new Error(error.message), { code: error.code })
@@ -45,11 +42,11 @@ export async function updateProfile(data: {
   }
 }
 
-// Email changes go through Supabase Auth and require email confirmation.
-export async function updateEmail(newEmail: string): Promise<void> {
-  const supabase = createClient()
+// Email changes go through Better Auth and require email confirmation.
+export async function updateEmail(userId: string, newEmail: string): Promise<void> {
+  const supabase = createAdminClient()
 
-  const { error } = await supabase.auth.updateUser({ email: newEmail })
+  const { error } = await supabase.auth.admin.updateUserById(userId, { email: newEmail })
 
   if (error) {
     logger.error('Failed to update email', new Error(error.message))
