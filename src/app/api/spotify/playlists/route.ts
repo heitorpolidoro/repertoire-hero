@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { logger } from '@/lib/logger'
 import type { SpotifyPlaylist } from '@/types/database'
@@ -10,8 +10,14 @@ import type { SpotifyPlaylist } from '@/types/database'
 // Returns { connected: false } when the user has not linked Spotify.
 // ---------------------------------------------------------------------------
 export async function GET(): Promise<NextResponse> {
-  const supabase = await createClient()
-  const accessToken = await getSpotifyAccessToken(supabase)
+  let userId: string
+  try {
+    userId = await getRequiredUserId()
+  } catch {
+    return NextResponse.json({ connected: false })
+  }
+
+  const accessToken = await getSpotifyAccessToken(userId)
 
   if (!accessToken) {
     return NextResponse.json({ connected: false })

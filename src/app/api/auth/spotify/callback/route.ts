@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
@@ -97,26 +98,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.warn('Could not fetch Spotify user profile', { status: profileResponse.status })
   }
 
-  // --- Persist tokens in Supabase ---
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return NextResponse.json(
-      { error: 'User is not authenticated', code: 401 },
-      { status: 401 }
-    )
+  // --- Verify authenticated user ---
+  let userId: string
+  try {
+    userId = await getRequiredUserId()
+  } catch {
+    return NextResponse.json({ error: 'User is not authenticated', code: 401 }, { status: 401 })
   }
+
+  // --- Persist tokens in Supabase ---
+  const supabase = createAdminClient()
 
   const expiresAt = new Date(Date.now() + tokenJson.expires_in * 1000).toISOString()
   const now = new Date().toISOString()
 
   const { error: upsertError } = await supabase.from('spotify_tokens').upsert(
     {
-      user_id: user.id,
+      user_id: userId,
       access_token: tokenJson.access_token,
       refresh_token: tokenJson.refresh_token,
       expires_at: expiresAt,

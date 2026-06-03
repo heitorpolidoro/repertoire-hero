@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { logger } from '@/lib/logger'
 
@@ -190,19 +191,18 @@ export async function POST(
   // [id] here is the LOCAL playlist id (not the Spotify playlist id)
   const { id: localPlaylistId } = await params
 
-  const supabase = await createClient()
-  const accessToken = await getSpotifyAccessToken(supabase)
+  let userId: string
+  try {
+    userId = await getRequiredUserId()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized', code: 401 }, { status: 401 })
+  }
+
+  const supabase = createAdminClient()
+  const accessToken = await getSpotifyAccessToken(userId)
 
   if (!accessToken) {
     return NextResponse.json({ error: 'Spotify not connected', code: 401 }, { status: 401 })
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized', code: 401 }, { status: 401 })
   }
 
   let direction: 'pull' | 'push' = 'pull'
@@ -249,7 +249,7 @@ export async function POST(
       const spotifySongIds = new Set<string>()
       const owner = playlist.band_id
         ? { bandId: playlist.band_id as string }
-        : { userId: user.id }
+        : { userId: userId }
 
       for (const track of spotifyTracks) {
         const songId = await findOrCreateGlobalSong(supabase, track)

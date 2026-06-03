@@ -23,8 +23,22 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: () => Promise.resolve(activeServerClient),
 }))
 
+vi.mock('@/lib/supabase/admin', async () => {
+  const { createClient: createAdminOriginal } = await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js')
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+  const adminClient = createAdminOriginal(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  return { createAdminClient: () => adminClient }
+})
+
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => mockTestClient,
+}))
+
+vi.mock('@/lib/auth-session', () => ({
+  getRequiredUserId: vi.fn(),
 }))
 
 // Mock logger to avoid printing expected errors during tests
@@ -44,6 +58,7 @@ import { getSpotifyAccessToken } from '../spotifyAuth'
 import { searchSpotify } from '../spotify'
 import { POST as importPOST } from '@/app/api/spotify/playlists/[id]/import/route'
 import { POST as syncPOST } from '@/app/api/spotify/playlists/[id]/sync/route'
+import * as authSession from '@/lib/auth-session'
 
 describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
   const suffix = Date.now()
@@ -312,7 +327,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
       expect(error).toBeNull()
 
-      const token = await getSpotifyAccessToken(mockTestClient)
+      const token = await getSpotifyAccessToken(userAId)
       expect(token).toBeNull()
     })
 
@@ -330,7 +345,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
       expect(error).toBeNull()
 
-      const token = await getSpotifyAccessToken(mockTestClient)
+      const token = await getSpotifyAccessToken(userAId)
       expect(token).toBe('valid-access-token')
 
       // Assert that fetch was NOT called for Spotify
@@ -355,7 +370,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
       expect(error).toBeNull()
 
-      const token = await getSpotifyAccessToken(mockTestClient)
+      const token = await getSpotifyAccessToken(userAId)
       expect(token).toBe('new-refreshed-access-token')
 
       // Assert that fetch was called for Spotify accounts API
@@ -403,7 +418,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
         return originalFetch(input, init)
       })
 
-      const token = await getSpotifyAccessToken(mockTestClient)
+      const token = await getSpotifyAccessToken(userAId)
       expect(token).toBeNull()
     })
 
@@ -424,7 +439,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       delete process.env.SPOTIFY_CLIENT_ID
       delete process.env.SPOTIFY_CLIENT_SECRET
 
-      const token = await getSpotifyAccessToken(mockTestClient)
+      const token = await getSpotifyAccessToken(userAId)
       expect(token).toBeNull()
     })
   })
@@ -458,6 +473,9 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
   describe('POST /api/spotify/playlists/[id]/import', () => {
     beforeEach(async () => {
+      // Mock auth session to return User A's ID for route handlers
+      vi.mocked(authSession.getRequiredUserId).mockResolvedValue(userAId)
+
       // Setup token for User A
       await admin.from('spotify_tokens').delete().eq('user_id', userAId)
       await admin.from('spotify_tokens').insert({
@@ -628,6 +646,9 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
     })
 
     beforeEach(async () => {
+      // Mock auth session to return User A's ID for route handlers
+      vi.mocked(authSession.getRequiredUserId).mockResolvedValue(userAId)
+
       // Setup token for User A
       await admin.from('spotify_tokens').delete().eq('user_id', userAId)
       await admin.from('spotify_tokens').insert({
