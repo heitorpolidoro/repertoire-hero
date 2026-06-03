@@ -12,19 +12,21 @@ import {
   getBandPlaylists,
   createBandPlaylist,
 } from "@/lib/bands";
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import type { Band, BandMember, Playlist } from "@/types/database";
 
 export default function BandDetailPage() {
   const { id: bandId } = useParams<{ id: string }>();
   const router = useRouter();
+  const { data: session } = authClient.useSession();
 
   const [band, setBand] = useState<Band | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const currentUserId = session?.user?.id ?? null;
 
   // Edit band modal state
   const [editing, setEditing] = useState(false);
@@ -41,12 +43,6 @@ export default function BandDetailPage() {
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    setCurrentUserId(user?.id ?? null);
-
     const [bandData, playlistData] = await Promise.all([
       getBandWithMembers(bandId),
       getBandPlaylists(bandId),
