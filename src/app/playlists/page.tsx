@@ -5,11 +5,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  getUserPlaylists,
-  createPlaylist,
-  deletePlaylist,
-  updatePlaylist,
-} from "@/lib/playlists";
+  getUserPlaylistsAction as getUserPlaylists,
+  createPlaylistAction as createPlaylist,
+  deletePlaylistAction as deletePlaylist,
+  updatePlaylistAction as updatePlaylist,
+} from "@/app/actions/playlists";
 import type { Playlist, SpotifyPlaylist } from "@/types/database";
 
 // ---------------------------------------------------------------------------

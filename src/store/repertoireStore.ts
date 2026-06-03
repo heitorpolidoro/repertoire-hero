@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import {
-  getRepertoire,
-  removeSongFromRepertoire,
-  updateSongStatus,
-} from '@/lib/songs'
+  getRepertoireAction as getRepertoire,
+  removeSongAction as removeSongFromRepertoire,
+  updateSongStatusAction as updateSongStatus,
+} from '@/app/actions/repertoire'
 import type { Repertoire, SongStatus } from '@/types/database'
 
 interface RepertoireState {

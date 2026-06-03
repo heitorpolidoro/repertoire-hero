@@ -279,7 +279,7 @@ export async function POST(
       let nextPosition = existingSongIds.size + 1
 
       for (const track of spotifyTracks) {
-        const songId = await findOrCreateGlobalSong(supabase, track, user.id)
+        const songId = await findOrCreateGlobalSong(supabase, track)
 
         if (!existingSongIds.has(songId)) {
           const { error } = await supabase.from('playlist_songs').insert({

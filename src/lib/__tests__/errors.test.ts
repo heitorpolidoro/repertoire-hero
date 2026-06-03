@@ -136,20 +136,20 @@ const createChainableMock = () => {
 
 const mockClient = createChainableMock();
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => mockClient,
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => mockClient,
 }));
 
 describe("Supabase Error Handling", () => {
   describe("playlists.ts errors", () => {
     it("getUserPlaylists throws on DB error", async () => {
-      await expect(getUserPlaylists()).rejects.toThrow(
+      await expect(getUserPlaylists("mock-user-id")).rejects.toThrow(
         "Failed to fetch playlists: Mocked Database Error",
       );
     });
 
     it("createPlaylist throws on DB error", async () => {
-      await expect(createPlaylist({ name: "Test" })).rejects.toThrow(
+      await expect(createPlaylist("mock-user-id", { name: "Test" })).rejects.toThrow(
         "Failed to create playlist: Mocked Database Error",
       );
     });
@@ -170,7 +170,7 @@ describe("Supabase Error Handling", () => {
       failPlaylistLookup = false;
       failRepertoireCheck = false;
       failRepertoireInsert = false;
-      await expect(addSongToPlaylist("1", "2")).rejects.toThrow(
+      await expect(addSongToPlaylist("mock-user-id", "1", "2")).rejects.toThrow(
         "Failed to count playlist songs: Mocked Database Error",
       );
     });
@@ -181,7 +181,7 @@ describe("Supabase Error Handling", () => {
       failRepertoireInsert = false;
       failCountCheck = false;
       // The select query count will succeed (mocked above) but the subsequent insert will fail through the default fallback
-      await expect(addSongToPlaylist("1", "2")).rejects.toThrow(
+      await expect(addSongToPlaylist("mock-user-id", "1", "2")).rejects.toThrow(
         "Failed to add song to playlist: Mocked Database Error",
       );
     });
@@ -201,37 +201,37 @@ describe("Supabase Error Handling", () => {
 
   describe("songs.ts errors", () => {
     it("getRepertoire throws on DB error", async () => {
-      await expect(getRepertoire()).rejects.toThrow(
+      await expect(getRepertoire("mock-user-id")).rejects.toThrow(
         "Failed to fetch user repertoire: Mocked Database Error",
       );
     });
 
     it("addSongToRepertoire throws on DB error", async () => {
-      await expect(addSongToRepertoire("1")).rejects.toThrow(
+      await expect(addSongToRepertoire("mock-user-id", "1")).rejects.toThrow(
         "Failed to add song to repertoire: Mocked Database Error",
       );
     });
 
     it("updateSongStatus throws on DB error", async () => {
-      await expect(updateSongStatus("1", "mastered")).rejects.toThrow(
+      await expect(updateSongStatus("mock-user-id", "1", "mastered")).rejects.toThrow(
         "Failed to update song status: Mocked Database Error",
       );
     });
 
     it("updateSongTags throws on DB error", async () => {
-      await expect(updateSongTags("1", ["tag"])).rejects.toThrow(
+      await expect(updateSongTags("mock-user-id", "1", ["tag"])).rejects.toThrow(
         "Failed to update song tags: Mocked Database Error",
       );
     });
 
     it("updatePersonalKey throws on DB error", async () => {
-      await expect(updatePersonalKey("1", "Am")).rejects.toThrow(
+      await expect(updatePersonalKey("mock-user-id", "1", "Am")).rejects.toThrow(
         "Failed to update personal key: Mocked Database Error",
       );
     });
 
     it("removeSongFromRepertoire throws on DB error", async () => {
-      await expect(removeSongFromRepertoire("1")).rejects.toThrow(
+      await expect(removeSongFromRepertoire("mock-user-id", "1")).rejects.toThrow(
         "Failed to remove song from repertoire: Mocked Database Error",
       );
     });
@@ -243,7 +243,7 @@ describe("Supabase Error Handling", () => {
     });
 
     it("getSongEntry throws on DB error", async () => {
-      await expect(getSongEntry("1")).rejects.toThrow(
+      await expect(getSongEntry("mock-user-id", "1")).rejects.toThrow(
         "Failed to fetch song entry: Mocked Database Error",
       );
     });
@@ -251,7 +251,7 @@ describe("Supabase Error Handling", () => {
     it("updateSong throws on DB error", async () => {
       const mockEntry = { id: "1", user_id: null, band_id: null, song_id: "song-1", personal_key: null, status: "unknown" as const, tags: [], last_practiced: null };
       const mockData = { title: "Test", artist: "Artist", key: null, status: "unknown" as const, tags: [], links: [] };
-      await expect(updateSong(mockEntry, mockData)).rejects.toThrow(
+      await expect(updateSong("mock-user-id", mockEntry, mockData)).rejects.toThrow(
         "Failed to update global song: Mocked Database Error",
       );
     });
@@ -259,7 +259,7 @@ describe("Supabase Error Handling", () => {
     it("createAndAddSong throws on DB error during lookup", async () => {
       failLookup = true;
       await expect(
-        createAndAddSong({ title: "Test", artist: "Artist" }),
+        createAndAddSong("mock-user-id", { title: "Test", artist: "Artist" }),
       ).rejects.toThrow("Failed to look up global song: Mocked Database Error");
     });
 
@@ -268,7 +268,7 @@ describe("Supabase Error Handling", () => {
       failRepertoireCheck = true;
       failRepertoireInsert = false;
       await expect(
-        createAndAddSong({ title: "Test", artist: "Artist" }),
+        createAndAddSong("mock-user-id", { title: "Test", artist: "Artist" }),
       ).rejects.toThrow(
         "Failed to check existing repertoire entry: Mocked Database Error",
       );
@@ -279,7 +279,7 @@ describe("Supabase Error Handling", () => {
       failRepertoireCheck = false;
       failRepertoireInsert = true;
       await expect(
-        createAndAddSong({ title: "Test", artist: "Artist" }),
+        createAndAddSong("mock-user-id", { title: "Test", artist: "Artist" }),
       ).rejects.toThrow(
         "Song created but failed to add to repertoire: Mocked Database Error",
       );
@@ -350,19 +350,19 @@ describe("Supabase Error Handling", () => {
 
   describe("profile.ts errors", () => {
     it("getProfile throws on DB error", async () => {
-      await expect(getProfile()).rejects.toThrow(
+      await expect(getProfile("mock-user-id")).rejects.toThrow(
         "Failed to fetch profile: Mocked Database Error",
       );
     });
 
     it("updateProfile throws on DB error", async () => {
-      await expect(updateProfile({ full_name: "Test" })).rejects.toThrow(
+      await expect(updateProfile("mock-user-id", { full_name: "Test" })).rejects.toThrow(
         "Failed to update profile: Mocked Database Error",
       );
     });
 
     it("updateEmail throws on DB error", async () => {
-      await expect(updateEmail("test@example.com")).rejects.toThrow(
+      await expect(updateEmail("mock-user-id", "test@example.com")).rejects.toThrow(
         "Failed to update email: Mocked Database Error",
       );
     });
