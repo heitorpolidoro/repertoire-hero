@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createClient as createOriginalClient } from '@supabase/supabase-js'
 import { vi } from 'vitest'
-import { getProfile, updateProfile, updateEmail } from '../profile'
+import { getProfile, updateProfile } from '../profile'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
@@ -71,12 +71,5 @@ describe.skipIf(skip)('profile integration tests', () => {
     expect(profile!.instruments).toEqual(['Guitar', 'Bass'])
   })
 
-  it.skip('updateEmail — deferred: requires email provider + domain (Better Auth email change)', async () => {
-    const newEmail = `test-profile-new-${suffix}@example.com`
-    await updateEmail(userId, newEmail)
 
-    const { data: { user }, error } = await testClient.auth.getUser()
-    expect(error).toBeNull()
-    expect(user).toBeDefined()
-  })
 })
