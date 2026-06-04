@@ -20,7 +20,8 @@ import {
 } from "@/app/actions/repertoire";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
+import { getRepertoireAction } from "@/app/actions/repertoire";
 import type {
   GlobalSong,
   Playlist,
@@ -272,6 +273,7 @@ export default function PlaylistDetailPage() {
   const params = useParams();
   const router = useRouter();
   const playlistId = params.id as string;
+  const { data: session } = authClient.useSession();
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [songs, setSongs] = useState<PlaylistSong[]>([]);
@@ -328,16 +330,10 @@ export default function PlaylistDetailPage() {
   }, [showSearch]);
 
   const refreshPlaylist = useCallback(async () => {
-    const {
-      data: { user },
-    } = await createClient().auth.getUser();
     const [data, rep] = await Promise.all([
       getPlaylistWithSongs(playlistId),
-      // Fetch repertoire to populate repertoireMap for status/tag display
-      createClient()
-        .from("repertoire")
-        .select("*, song:global_songs(*)")
-        .then(({ data }) => (data ?? []) as Repertoire[]),
+      // Fetch personal repertoire to populate repertoireMap for status/tag display
+      getRepertoireAction(),
     ]);
     if (!data) {
       router.replace("/playlists");
@@ -346,8 +342,8 @@ export default function PlaylistDetailPage() {
     setPlaylist(data);
     setSongs(data.songs ?? []);
     setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
-    setCurrentUserId(user?.id ?? null);
-  }, [playlistId, router]);
+    setCurrentUserId(session?.user?.id ?? null);
+  }, [playlistId, router, session?.user?.id]);
 
   useEffect(() => {
     setLoading(true);
