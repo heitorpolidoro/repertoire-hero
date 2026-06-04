@@ -105,7 +105,6 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       .insert({
         name: `Spotify Test Band ${suffix}`,
         invite_code: `SPOTIFY${suffix.toString().slice(-5)}`,
-        created_by: userAId,
       })
       .select('id')
       .single()

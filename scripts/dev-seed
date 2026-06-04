@@ -30,55 +30,65 @@ echo ""
 
 psql "$DB_URL" <<SQL
 
--- ── Clean slate ────────────────────────────────────────────────────────────
-DELETE FROM "user";   -- cascades to account, session, profiles, repertoire
+-- ── Clean slate ─────────────────────────────────────────────────────────────
+-- Deleting from "user" cascades to: account, session, profiles,
+-- then profiles cascades to: band_members, repertoire, playlists.
+-- Delete bands separately (no longer FK'd to user/profiles).
+DELETE FROM bands;
+DELETE FROM "user";
 
--- ── Users (Better Auth) ────────────────────────────────────────────────────
+-- ── Users (Better Auth) ─────────────────────────────────────────────────────
 INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
 VALUES
-  (gen_random_uuid()::text, 'com.spotify@exemple.com', 'Com Spotify', true, now(), now()),
-  (gen_random_uuid()::text, 'sem_spotify@exemple.com', 'Sem Spotify', true, now(), now());
+  (gen_random_uuid(), 'com.spotify@exemple.com', 'Com Spotify', true, now(), now()),
+  (gen_random_uuid(), 'sem_spotify@exemple.com', 'Sem Spotify', true, now(), now()),
+  (gen_random_uuid(), 'sem_banda@exemple.com',   'Sem Banda',   true, now(), now());
 
--- ── Credentials ────────────────────────────────────────────────────────────
+-- ── Credentials ─────────────────────────────────────────────────────────────
 INSERT INTO "account" (id, "accountId", "providerId", "userId", password, "createdAt", "updatedAt")
-SELECT
-  gen_random_uuid()::text,
-  u.email,
-  'credential',
-  u.id,
-  '$PASSWORD_HASH',
-  now(),
-  now()
-FROM "user" u
-WHERE u.email IN ('com.spotify@exemple.com', 'sem_spotify@exemple.com');
+SELECT gen_random_uuid(), u.email, 'credential', u.id, '$PASSWORD_HASH', now(), now()
+FROM "user" u;
 
--- ── Profiles ───────────────────────────────────────────────────────────────
+-- ── Profiles ─────────────────────────────────────────────────────────────────
 INSERT INTO profiles (id, email, full_name, instruments, primary_instrument)
 SELECT
-  u.id::uuid,
+  u.id,
   u.email,
   u.name,
   CASE u.email
     WHEN 'com.spotify@exemple.com' THEN ARRAY['Bass Guitar', 'Backing Vocals']
     WHEN 'sem_spotify@exemple.com' THEN ARRAY['Drums', 'Guitar']
+    WHEN 'sem_banda@exemple.com'   THEN ARRAY['Piano', 'Saxophone']
   END,
   CASE u.email
     WHEN 'com.spotify@exemple.com' THEN 'Bass Guitar'
     WHEN 'sem_spotify@exemple.com' THEN 'Drums'
+    WHEN 'sem_banda@exemple.com'   THEN 'Piano'
   END
-FROM "user" u
-WHERE u.email IN ('com.spotify@exemple.com', 'sem_spotify@exemple.com')
-ON CONFLICT (id) DO NOTHING;
+FROM "user" u;
 
--- ── Summary ────────────────────────────────────────────────────────────────
-SELECT
-  u.email,
-  p.full_name,
-  p.primary_instrument,
-  p.instruments
-FROM "user" u
-JOIN profiles p ON p.id = u.id::uuid
+-- ── Band: Os Dois Spotify ────────────────────────────────────────────────────
+INSERT INTO bands (name, description)
+VALUES ('Os Dois Spotify', 'Banda de dev com os usuários Spotify');
+
+INSERT INTO band_members (band_id, user_id, role)
+SELECT b.id, p.id, 'admin'  FROM bands b, profiles p
+WHERE b.name = 'Os Dois Spotify' AND p.email = 'com.spotify@exemple.com';
+
+INSERT INTO band_members (band_id, user_id, role)
+SELECT b.id, p.id, 'member' FROM bands b, profiles p
+WHERE b.name = 'Os Dois Spotify' AND p.email = 'sem_spotify@exemple.com';
+
+-- ── Summary ──────────────────────────────────────────────────────────────────
+SELECT u.email, p.full_name, p.primary_instrument, p.instruments
+FROM "user" u JOIN profiles p ON p.id = u.id
 ORDER BY u.email;
+
+SELECT b.name AS band, bm.role, p.full_name
+FROM bands b
+JOIN band_members bm ON bm.band_id = b.id
+JOIN profiles p ON p.id = bm.user_id
+ORDER BY b.name, bm.role DESC;
 
 SQL
 

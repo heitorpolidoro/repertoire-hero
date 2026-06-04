@@ -235,7 +235,6 @@ describe.skipIf(skip)('playlists integration tests', () => {
       .insert({
         name: `Band Playlists ${suffix}`,
         description: 'Test band for playlists autogestion',
-        created_by: userAId,
       })
       .select('id')
       .single()

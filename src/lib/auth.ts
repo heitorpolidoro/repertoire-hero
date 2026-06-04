@@ -25,7 +25,7 @@ export const auth = betterAuth({
           // profiles.id must equal user.id so foreign-key joins work throughout the app.
           await pool.query(
             `INSERT INTO profiles (id, email, full_name)
-             VALUES ($1, $2, $3)
+             VALUES ($1::uuid, $2, $3)
              ON CONFLICT (id) DO NOTHING`,
             [user.id, user.email, user.name ?? null]
           )
