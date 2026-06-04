@@ -4,6 +4,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
 
+// Build a redirect URL using the real host from the request headers,
+// not request.url (which can be 0.0.0.0 internally in Next.js dev).
+function redirectTo(request: NextRequest, path: string): NextResponse {
+  const host = request.headers.get('host') ?? '127.0.0.1:3000'
+  const protocol = request.headers.get('x-forwarded-proto') ?? 'http'
+  return NextResponse.redirect(`${protocol}://${host}${path}`)
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/auth/spotify/callback
 // Handles the redirect from Spotify after the user grants (or denies) access.
@@ -19,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // User denied access on Spotify's consent screen.
   if (errorParam) {
     logger.warn('Spotify OAuth denied by user', { error: errorParam })
-    return NextResponse.redirect(new URL('/playlists?spotify=denied', request.url))
+    return redirectTo(request, '/playlists?spotify=denied')
   }
 
   if (!code || !state) {
@@ -133,5 +141,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     )
   }
 
-  return NextResponse.redirect(new URL('/playlists', request.url))
+  return redirectTo(request, '/playlists')
 }
