@@ -21,7 +21,7 @@ import {
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import { authClient } from "@/lib/auth-client";
-import { getRepertoireAction, getBandWeakestStatusAction } from "@/app/actions/repertoire";
+import { getRepertoireAction } from "@/app/actions/repertoire";
 import { useBandContextStore } from "@/store/bandContextStore";
 import type {
   GlobalSong,
@@ -341,25 +341,10 @@ export default function PlaylistDetailPage() {
     setSongs(data.songs ?? []);
     setCurrentUserId(session?.user?.id ?? null);
 
-    const songIds = (data.songs ?? []).map((s) => s.song_id);
-
-    if (bandId) {
-      // Band mode: status = weakest across all members' personal repertoires
-      const weakest = await getBandWeakestStatusAction(bandId, songIds);
-      // Build a synthetic repertoireMap from the weakest-status result
-      setRepertoireMap(
-        new Map(
-          Object.entries(weakest).map(([songId, status]) => [
-            songId,
-            { song_id: songId, status } as Repertoire,
-          ]),
-        ),
-      );
-    } else {
-      // Personal mode: use the user's own repertoire
-      const rep = await getRepertoireAction();
-      setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
-    }
+    // Band or personal: the trigger keeps band status in sync,
+    // so getRepertoireAction(bandId) reads the correct value directly.
+    const rep = await getRepertoireAction(bandId);
+    setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
   }, [playlistId, router, session?.user?.id, bandId]);
 
   useEffect(() => {
