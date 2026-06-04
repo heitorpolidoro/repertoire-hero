@@ -22,6 +22,7 @@ import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import { authClient } from "@/lib/auth-client";
 import { getRepertoireAction } from "@/app/actions/repertoire";
+import { useBandContextStore } from "@/store/bandContextStore";
 import type {
   GlobalSong,
   Playlist,
@@ -274,6 +275,7 @@ export default function PlaylistDetailPage() {
   const router = useRouter();
   const playlistId = params.id as string;
   const { data: session } = authClient.useSession();
+  const bandId = useBandContextStore((s) => s.bandId());
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [songs, setSongs] = useState<PlaylistSong[]>([]);
@@ -332,8 +334,8 @@ export default function PlaylistDetailPage() {
   const refreshPlaylist = useCallback(async () => {
     const [data, rep] = await Promise.all([
       getPlaylistWithSongs(playlistId),
-      // Fetch personal repertoire to populate repertoireMap for status/tag display
-      getRepertoireAction(),
+      // Fetch repertoire (personal or band) to show status/tags per song
+      getRepertoireAction(bandId),
     ]);
     if (!data) {
       router.replace("/playlists");
@@ -343,7 +345,7 @@ export default function PlaylistDetailPage() {
     setSongs(data.songs ?? []);
     setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
     setCurrentUserId(session?.user?.id ?? null);
-  }, [playlistId, router, session?.user?.id]);
+  }, [playlistId, router, session?.user?.id, bandId]);
 
   useEffect(() => {
     setLoading(true);
