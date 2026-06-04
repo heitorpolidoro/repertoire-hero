@@ -38,9 +38,12 @@ function ContextSwitcher() {
   const { context, setUserContext, setBandContext } = useBandContextStore();
   const loadSongs = useRepertoireStore((s) => s.loadSongs);
 
+  const [mounted, setMounted] = useState(false);
   const [bands, setBands] = useState<Band[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     getBandsAction().then((b) => setBands(b as unknown as Band[]));
@@ -62,7 +65,7 @@ function ContextSwitcher() {
     router.push('/');
   };
 
-  if (!user) return null;
+  if (!mounted || !user) return null;
 
   const label = context.type === 'band'
     ? context.name
