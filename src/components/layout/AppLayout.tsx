@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Playlists', href: '/playlists', icon: '🎶' },
   { label: 'Bands', href: '/bands', icon: '🎸' },
   { label: 'Profile', href: '/profile', icon: '👤' },
+  { label: 'Settings', href: '/settings', icon: '⚙️' },
 ];
 
 interface AppLayoutProps {
