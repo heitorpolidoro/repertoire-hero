@@ -100,7 +100,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       links: [{ label: 'YouTube', url: 'https://youtube.com/watch?v=123' }],
     }
 
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     expect(entry).toBeDefined()
     expect(entry.user_id).toBe(userId)
     expect(entry.status).toBe('unknown')
@@ -125,14 +125,14 @@ describe.skipIf(skip)('songs service integration tests', () => {
     }
 
     // First creation
-    const entry1 = await createAndAddSong(userId, songData)
+    const entry1 = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry1.song_id)
 
     // Remove from repertoire (but keep the global song in database)
-    await removeSongFromRepertoire(userId, entry1.id)
+    await removeSongFromRepertoire({ userId: userId }, entry1.id)
 
     // Create again with same title/album
-    const entry2 = await createAndAddSong(userId, songData)
+    const entry2 = await createAndAddSong({ userId: userId }, songData)
     expect(entry2.song_id).toBe(entry1.song_id) // Reused!
 
     // Track new repertoire entry id if we need to clean up, but the afterAll deletes by user_id
@@ -144,14 +144,14 @@ describe.skipIf(skip)('songs service integration tests', () => {
       artist: 'Artist C',
     }
 
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
-    await expect(createAndAddSong(userId, songData)).rejects.toThrow('Song already in your repertoire')
+    await expect(createAndAddSong({ userId: userId }, songData)).rejects.toThrow('Song already in your repertoire')
   })
 
   it('getRepertoire retrieves the user repertoire with song details', async () => {
-    const repertoire = await getRepertoire(userId)
+    const repertoire = await getRepertoire({ userId: userId })
     expect(repertoire).toBeInstanceOf(Array)
     // There should be at least the entry from the previous test (Song C)
     const hasSongC = repertoire.some(entry => entry.song?.title === `Song C_${suffix}`)
@@ -173,7 +173,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     const songId = globalSong!.id
     createdGlobalSongIds.add(songId)
 
-    const entry = await addSongToRepertoire(userId, songId)
+    const entry = await addSongToRepertoire({ userId: userId }, songId)
     expect(entry).toBeDefined()
     expect(entry.song_id).toBe(songId)
     expect(entry.user_id).toBe(userId)
@@ -185,15 +185,15 @@ describe.skipIf(skip)('songs service integration tests', () => {
       title: `Song E_${suffix}`,
       artist: 'Artist E',
     }
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
     expect(entry.status).toBe('unknown')
 
-    await updateSongStatus(userId, entry.id, 'learning')
+    await updateSongStatus({ userId: userId }, entry.id, 'learning')
 
     // Fetch again to verify
-    const updated = await getSongEntry(userId, entry.id)
+    const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated).not.toBeNull()
     expect(updated!.status).toBe('learning')
   })
@@ -203,15 +203,15 @@ describe.skipIf(skip)('songs service integration tests', () => {
       title: `Song F_${suffix}`,
       artist: 'Artist F',
     }
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
     expect(entry.tags).toEqual([])
 
     const newTags = ['rock', 'live', 'favorites']
-    await updateSongTags(userId, entry.id, newTags)
+    await updateSongTags({ userId: userId }, entry.id, newTags)
 
-    const updated = await getSongEntry(userId, entry.id)
+    const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated).not.toBeNull()
     expect(updated!.tags).toEqual(newTags)
   })
@@ -221,14 +221,14 @@ describe.skipIf(skip)('songs service integration tests', () => {
       title: `Song G_${suffix}`,
       artist: 'Artist G',
     }
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
     expect(entry.personal_key).toBeNull()
 
-    await updatePersonalKey(userId, entry.id, 'G#')
+    await updatePersonalKey({ userId: userId }, entry.id, 'G#')
 
-    const updated = await getSongEntry(userId, entry.id)
+    const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated).not.toBeNull()
     expect(updated!.personal_key).toBe('G#')
   })
@@ -238,24 +238,24 @@ describe.skipIf(skip)('songs service integration tests', () => {
       title: `Song H_${suffix}`,
       artist: 'Artist H',
     }
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
     // Verify it exists first
-    const before = await getSongEntry(userId, entry.id)
+    const before = await getSongEntry({ userId: userId }, entry.id)
     expect(before).not.toBeNull()
 
-    await removeSongFromRepertoire(userId, entry.id)
+    await removeSongFromRepertoire({ userId: userId }, entry.id)
 
     // Verify it is gone
-    const after = await getSongEntry(userId, entry.id)
+    const after = await getSongEntry({ userId: userId }, entry.id)
     expect(after).toBeNull()
   })
 
   it('searchGlobalSongs searches by title or artist', async () => {
     // Add two test songs
-    const song1 = await createAndAddSong(userId, { title: `SearchTitle_${suffix}`, artist: 'SomeArtist' })
-    const song2 = await createAndAddSong(userId, { title: 'SomeTitle', artist: `SearchArtist_${suffix}` })
+    const song1 = await createAndAddSong({ userId: userId }, { title: `SearchTitle_${suffix}`, artist: 'SomeArtist' })
+    const song2 = await createAndAddSong({ userId: userId }, { title: 'SomeTitle', artist: `SearchArtist_${suffix}` })
     createdGlobalSongIds.add(song1.song_id)
     createdGlobalSongIds.add(song2.song_id)
 
@@ -279,16 +279,16 @@ describe.skipIf(skip)('songs service integration tests', () => {
       title: `Song I_${suffix}`,
       artist: 'Artist I',
     }
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
-    const retrieved = await getSongEntry(userId, entry.id)
+    const retrieved = await getSongEntry({ userId: userId }, entry.id)
     expect(retrieved).not.toBeNull()
     expect(retrieved!.id).toBe(entry.id)
     expect(retrieved!.song?.title).toBe(songData.title)
 
     // Non-existent ID
-    const nonExistent = await getSongEntry(userId, '00000000-0000-0000-0000-000000000000')
+    const nonExistent = await getSongEntry({ userId: userId }, '00000000-0000-0000-0000-000000000000')
     expect(nonExistent).toBeNull()
   })
 
@@ -299,7 +299,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       album: 'Original Album',
       standard_key: 'A',
     }
-    const entry = await createAndAddSong(userId, songData)
+    const entry = await createAndAddSong({ userId: userId }, songData)
     createdGlobalSongIds.add(entry.song_id)
 
     const updateData = {
@@ -315,10 +315,10 @@ describe.skipIf(skip)('songs service integration tests', () => {
     }
 
     // Call updateSong
-    await updateSong(userId, entry, updateData)
+    await updateSong({ userId: userId }, entry, updateData)
 
     // Fetch the updated entry to verify all changes
-    const updated = await getSongEntry(userId, entry.id)
+    const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated).not.toBeNull()
     expect(updated!.status).toBe('mastered')
     expect(updated!.tags).toEqual(['updated-tag'])

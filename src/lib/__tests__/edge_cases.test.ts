@@ -119,27 +119,27 @@ describe('Supabase Edge Cases', () => {
   describe('songs.ts edge cases', () => {
     it('createAndAddSong throws on global song insertion error', async () => {
       mockInsertError = mockError
-      await expect(createAndAddSong('mock-user-id', { title: 'Song', artist: 'Artist' })).rejects.toThrow('Failed to create global song: Mocked Database Error')
+      await expect(createAndAddSong({ userId: 'mock-user-id' }, { title: 'Song', artist: 'Artist' })).rejects.toThrow('Failed to create global song: Mocked Database Error')
     })
 
     it('updateSongStatus throws not found if data is empty', async () => {
       mockData = []
-      await expect(updateSongStatus('mock-user-id', '1', 'mastered')).rejects.toThrow('Repertoire entry not found or access denied')
+      await expect(updateSongStatus({ userId: 'mock-user-id' }, '1', 'mastered')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
     it('updateSongTags throws not found if data is empty', async () => {
       mockData = []
-      await expect(updateSongTags('mock-user-id', '1', ['tag'])).rejects.toThrow('Repertoire entry not found or access denied')
+      await expect(updateSongTags({ userId: 'mock-user-id' }, '1', ['tag'])).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
     it('updatePersonalKey throws not found if data is empty', async () => {
       mockData = []
-      await expect(updatePersonalKey('mock-user-id', '1', 'Am')).rejects.toThrow('Repertoire entry not found or access denied')
+      await expect(updatePersonalKey({ userId: 'mock-user-id' }, '1', 'Am')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
     it('removeSongFromRepertoire throws not found if data is empty', async () => {
       mockData = []
-      await expect(removeSongFromRepertoire('mock-user-id', '1')).rejects.toThrow('Repertoire entry not found or access denied')
+      await expect(removeSongFromRepertoire({ userId: 'mock-user-id' }, '1')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
     it('updateSong throws if repertoire update fails but global_songs update succeeds', async () => {
@@ -156,7 +156,7 @@ describe('Supabase Edge Cases', () => {
         status: 'learning' as const,
       }
 
-      await expect(updateSong('mock-user-id', mockEntry, mockUpdateData)).rejects.toThrow('Failed to update repertoire entry: Mocked Database Error')
+      await expect(updateSong({ userId: 'mock-user-id' }, mockEntry, mockUpdateData)).rejects.toThrow('Failed to update repertoire entry: Mocked Database Error')
     })
   })
 

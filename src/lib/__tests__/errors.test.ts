@@ -204,37 +204,37 @@ describe("Supabase Error Handling", () => {
 
   describe("songs.ts errors", () => {
     it("getRepertoire throws on DB error", async () => {
-      await expect(getRepertoire("mock-user-id")).rejects.toThrow(
+      await expect(getRepertoire({ userId: "mock-user-id" })).rejects.toThrow(
         "Failed to fetch user repertoire: Mocked Database Error",
       );
     });
 
     it("addSongToRepertoire throws on DB error", async () => {
-      await expect(addSongToRepertoire("mock-user-id", "1")).rejects.toThrow(
+      await expect(addSongToRepertoire({ userId: "mock-user-id" }, "1")).rejects.toThrow(
         "Failed to add song to repertoire: Mocked Database Error",
       );
     });
 
     it("updateSongStatus throws on DB error", async () => {
-      await expect(updateSongStatus("mock-user-id", "1", "mastered")).rejects.toThrow(
+      await expect(updateSongStatus({ userId: "mock-user-id" }, "1", "mastered")).rejects.toThrow(
         "Failed to update song status: Mocked Database Error",
       );
     });
 
     it("updateSongTags throws on DB error", async () => {
-      await expect(updateSongTags("mock-user-id", "1", ["tag"])).rejects.toThrow(
+      await expect(updateSongTags({ userId: "mock-user-id" }, "1", ["tag"])).rejects.toThrow(
         "Failed to update song tags: Mocked Database Error",
       );
     });
 
     it("updatePersonalKey throws on DB error", async () => {
-      await expect(updatePersonalKey("mock-user-id", "1", "Am")).rejects.toThrow(
+      await expect(updatePersonalKey({ userId: "mock-user-id" }, "1", "Am")).rejects.toThrow(
         "Failed to update personal key: Mocked Database Error",
       );
     });
 
     it("removeSongFromRepertoire throws on DB error", async () => {
-      await expect(removeSongFromRepertoire("mock-user-id", "1")).rejects.toThrow(
+      await expect(removeSongFromRepertoire({ userId: "mock-user-id" }, "1")).rejects.toThrow(
         "Failed to remove song from repertoire: Mocked Database Error",
       );
     });
@@ -246,7 +246,7 @@ describe("Supabase Error Handling", () => {
     });
 
     it("getSongEntry throws on DB error", async () => {
-      await expect(getSongEntry("mock-user-id", "1")).rejects.toThrow(
+      await expect(getSongEntry({ userId: "mock-user-id" }, "1")).rejects.toThrow(
         "Failed to fetch song entry: Mocked Database Error",
       );
     });
@@ -254,7 +254,7 @@ describe("Supabase Error Handling", () => {
     it("updateSong throws on DB error", async () => {
       const mockEntry = { id: "1", user_id: null, band_id: null, song_id: "song-1", personal_key: null, status: "unknown" as const, tags: [], last_practiced: null };
       const mockData = { title: "Test", artist: "Artist", key: null, status: "unknown" as const, tags: [], links: [] };
-      await expect(updateSong("mock-user-id", mockEntry, mockData)).rejects.toThrow(
+      await expect(updateSong({ userId: "mock-user-id" }, mockEntry, mockData)).rejects.toThrow(
         "Failed to update global song: Mocked Database Error",
       );
     });
@@ -262,7 +262,7 @@ describe("Supabase Error Handling", () => {
     it("createAndAddSong throws on DB error during lookup", async () => {
       failLookup = true;
       await expect(
-        createAndAddSong("mock-user-id", { title: "Test", artist: "Artist" }),
+        createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
       ).rejects.toThrow("Failed to look up global song: Mocked Database Error");
     });
 
@@ -271,7 +271,7 @@ describe("Supabase Error Handling", () => {
       failRepertoireCheck = true;
       failRepertoireInsert = false;
       await expect(
-        createAndAddSong("mock-user-id", { title: "Test", artist: "Artist" }),
+        createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
       ).rejects.toThrow(
         "Failed to check existing repertoire entry: Mocked Database Error",
       );
@@ -282,7 +282,7 @@ describe("Supabase Error Handling", () => {
       failRepertoireCheck = false;
       failRepertoireInsert = true;
       await expect(
-        createAndAddSong("mock-user-id", { title: "Test", artist: "Artist" }),
+        createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
       ).rejects.toThrow(
         "Song created but failed to add to repertoire: Mocked Database Error",
       );

@@ -4,6 +4,7 @@ import {
   removeSongAction as removeSongFromRepertoire,
   updateSongStatusAction as updateSongStatus,
 } from '@/app/actions/repertoire'
+import { useBandContextStore } from '@/store/bandContextStore'
 import type { Repertoire, SongStatus } from '@/types/database'
 
 interface RepertoireState {
@@ -33,9 +34,10 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
   selectedTags: [],
 
   loadSongs: async () => {
+    const bandId = useBandContextStore.getState().bandId()
     set({ isLoading: true })
     try {
-      const songs = await getRepertoire()
+      const songs = await getRepertoire(bandId)
       set({ songs })
     } finally {
       set({ isLoading: false })
@@ -43,31 +45,27 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
   },
 
   updateStatus: async (id: string, status: SongStatus) => {
-    // Optimistic update
+    const bandId = useBandContextStore.getState().bandId()
     set((state) => ({
       songs: state.songs.map((s) => (s.id === id ? { ...s, status } : s)),
     }))
-
     try {
-      await updateSongStatus(id, status)
+      await updateSongStatus(id, status, bandId)
     } catch (error) {
-      // Roll back optimistic update on failure by reloading from server
       await get().loadSongs()
       throw error
     }
   },
 
   removeSong: async (id: string) => {
-    // Optimistic update
+    const bandId = useBandContextStore.getState().bandId()
     const previous = get().songs
     set((state) => ({
       songs: state.songs.filter((s) => s.id !== id),
     }))
-
     try {
-      await removeSongFromRepertoire(id)
+      await removeSongFromRepertoire(id, bandId)
     } catch (error) {
-      // Roll back optimistic update on failure
       set({ songs: previous })
       throw error
     }
@@ -86,22 +84,14 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
 
   filteredSongs: () => {
     const { songs, searchQuery, selectedStatus, selectedTags } = get()
-
     return songs.filter((entry) => {
       const song = entry.song
-
-      // Filter by search query against title and artist
       const matchesSearch = !searchQuery.trim() || (() => {
         const lower = searchQuery.toLowerCase()
         return (song?.title.toLowerCase().includes(lower) || song?.artist.toLowerCase().includes(lower)) ?? false
       })()
-
-      // Filter by selected status
       const matchesStatus = selectedStatus === null || entry.status === selectedStatus
-
-      // Filter by selected tags — entry must include ALL selected tags
       const matchesTags = selectedTags.length === 0 || selectedTags.every((tag) => entry.tags.includes(tag))
-
       return matchesSearch && matchesStatus && matchesTags
     })
   },
