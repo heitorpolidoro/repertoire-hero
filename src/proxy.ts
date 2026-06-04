@@ -10,16 +10,19 @@ export async function proxy(request: NextRequest) {
   // rather than importing auth directly (which would pull pg into Edge Runtime).
   let user: { id: string } | null = null
   try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 3000)
     const sessionRes = await fetch(
       new URL('/api/auth/get-session', request.url),
-      { headers: { cookie: request.headers.get('cookie') ?? '' } }
+      { headers: { cookie: request.headers.get('cookie') ?? '' }, signal: controller.signal }
     )
+    clearTimeout(timeout)
     if (sessionRes.ok) {
       const data = (await sessionRes.json()) as { user?: { id: string } } | null
       user = data?.user ?? null
     }
   } catch {
-    // Session check failed — treat as unauthenticated
+    // Session check failed or timed out — treat as unauthenticated
   }
 
   // Auto-login: dev convenience — bounce through dev-login if unauthenticated.
