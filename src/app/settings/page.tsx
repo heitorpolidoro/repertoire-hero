@@ -40,7 +40,7 @@ const SettingsPage = () => {
         <h1 className="text-xl font-bold text-gray-900">Settings</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-6 flex flex-col gap-6 max-w-lg">
+      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-6 flex flex-col gap-6">
         {error && (
           <div
             role="alert"
