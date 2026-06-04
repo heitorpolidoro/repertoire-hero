@@ -1,5 +1,7 @@
 -- Fix bands.created_by FK: auth.users → profiles
 -- (GoTrue no longer used; profiles now points to Better Auth "user" table)
+-- NOTE: created_by is fully removed by migration 20260604150000.
+-- This migration is a transitional no-op in the sequence but is kept for history.
 
 ALTER TABLE bands
   DROP CONSTRAINT IF EXISTS bands_created_by_fkey;

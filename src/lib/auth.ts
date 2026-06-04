@@ -9,10 +9,8 @@ export const auth = betterAuth({
   database: pool,
   secret: process.env.BETTER_AUTH_SECRET!,
   baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
-  advanced: {
-    // Use standard UUIDs so they match the existing uuid columns in Supabase tables.
-    generateId: () => crypto.randomUUID(),
-  },
+  // Use standard UUIDs so they match the existing uuid columns in Supabase tables.
+  generateId: 'uuid',
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,

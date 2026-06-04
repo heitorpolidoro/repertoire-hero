@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logger } from '@/lib/logger'
 import type { Profile } from '@/types/database'
+import { Pool } from 'pg'
 
 export async function getProfile(userId: string): Promise<Profile | null> {
   const supabase = createAdminClient()
@@ -42,14 +43,19 @@ export async function updateProfile(
   }
 }
 
-// Email changes go through Better Auth and require email confirmation.
+// Email changes are applied directly to both the Better Auth "user" table
+// and the app profiles table. Better Auth's own changeEmail route requires
+// email verification; this server-side function bypasses that for admin use.
 export async function updateEmail(userId: string, newEmail: string): Promise<void> {
-  const supabase = createAdminClient()
-
-  const { error } = await supabase.auth.admin.updateUserById(userId, { email: newEmail })
-
-  if (error) {
-    logger.error('Failed to update email', new Error(error.message))
-    throw new Error(`Failed to update email: ${error.message}`)
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
+  try {
+    await pool.query('UPDATE "user" SET email = $1, "updatedAt" = now() WHERE id = $2::uuid', [newEmail, userId])
+    await pool.query('UPDATE profiles SET email = $1 WHERE id = $2::uuid', [newEmail, userId])
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('Failed to update email', new Error(message))
+    throw new Error(`Failed to update email: ${message}`)
+  } finally {
+    await pool.end()
   }
 }
