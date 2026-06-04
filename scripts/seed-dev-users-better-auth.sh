@@ -38,14 +38,8 @@ create_user() {
 echo "🌱 Seeding dev users via Better Auth (${BASE_URL})..."
 echo ""
 
-create_user "heitor.polidoro@gmail.com" "Heitor Luis Polidoro"
-create_user "fg_pereira@yahoo.com.br" "Fabrício Drummer"
 create_user "com.spotify@exemple.com" "Com Spotify"
 create_user "sem_spotify@exemple.com" "Sem Spotify"
 
 echo ""
 echo "Done. Password for all users: password"
-echo ""
-echo "Add to .env.local:"
-echo "  NEXT_PUBLIC_DEV_USER_EMAIL=heitor.polidoro@gmail.com"
-echo "  NEXT_PUBLIC_DEV_USER_PASSWORD=password"
