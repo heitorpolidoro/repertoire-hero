@@ -11,11 +11,23 @@ import type { Playlist } from '@/types/database'
 export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
   const supabase = createAdminClient()
 
-  const { data, error } = await supabase
+  // Fetch band IDs the user belongs to
+  const { data: memberships } = await supabase
+    .from('band_members')
+    .select('band_id')
+    .eq('user_id', userId)
+
+  const bandIds = memberships?.map((m) => m.band_id) ?? []
+
+  // Personal playlists + playlists of every band the user is a member of
+  const query = supabase
     .from('playlists')
     .select('*, songs:playlist_songs(id, song:global_songs(duration_seconds)), band:bands(id, name)')
-    .eq('user_id', userId)
     .order('created_at', { ascending: false })
+
+  const { data, error } = bandIds.length > 0
+    ? await query.or(`user_id.eq.${userId},band_id.in.(${bandIds.join(',')})`)
+    : await query.eq('user_id', userId)
 
   if (error) {
     logger.error('Failed to fetch playlists', new Error(error.message), { code: error.code })
