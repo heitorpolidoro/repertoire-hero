@@ -1,7 +1,7 @@
 'use client'
 
 export const INSTRUMENT_LIST = [
-  'Vocals', 'Guitar', 'Electric Guitar', 'Bass Guitar',
+  'Vocals', 'Backing Vocals', 'Guitar', 'Electric Guitar', 'Bass Guitar',
   'Piano', 'Keyboard', 'Drums', 'Percussion',
   'Violin', 'Viola', 'Cello', 'Double Bass',
   'Trumpet', 'Trombone', 'French Horn', 'Tuba',
@@ -11,6 +11,7 @@ export const INSTRUMENT_LIST = [
 
 export const INSTRUMENT_ICONS: Record<string, string> = {
   'Vocals':         '🎤',
+  'Backing Vocals': '🎤',
   'Guitar':         '🎸',
   'Electric Guitar':'🎸',
   'Bass Guitar':    '🎸',
