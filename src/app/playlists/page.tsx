@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useBandContextStore } from "@/store/bandContextStore";
 import {
   getUserPlaylistsAction as getUserPlaylists,
   createPlaylistAction as createPlaylist,
@@ -168,6 +169,7 @@ type CreatePlaylistTab = "new" | "spotify";
 interface CreatePlaylistModalProps {
   spotifyConnected: boolean | null;
   spotifyPlaylists: SpotifyPlaylist[];
+  bandId: string | null;
   onClose: () => void;
   onCreate: (name: string) => Promise<void>;
   onImported: () => Promise<void>;
@@ -176,6 +178,7 @@ interface CreatePlaylistModalProps {
 const CreatePlaylistModal = ({
   spotifyConnected,
   spotifyPlaylists,
+  bandId,
   onClose,
   onCreate,
   onImported,
@@ -235,6 +238,7 @@ const CreatePlaylistModal = ({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sync_with_spotify: pendingImport.syncWithSpotify,
+            band_id: bandId ?? undefined,
           }),
         },
       );
@@ -685,6 +689,7 @@ const buildPlaylistGroups = (playlists: Playlist[]): PlaylistGroup[] => {
 
 const PlaylistsPage = () => {
   const router = useRouter();
+  const bandId = useBandContextStore((s) => s.bandId());
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [spotifyPlaylists, setSpotifyPlaylists] = useState<SpotifyPlaylist[]>([]);
@@ -881,6 +886,7 @@ const PlaylistsPage = () => {
         <CreatePlaylistModal
           spotifyConnected={spotifyConnected}
           spotifyPlaylists={spotifyPlaylists}
+          bandId={bandId}
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreatePlaylist}
           onImported={handleImported}
