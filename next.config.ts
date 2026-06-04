@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
   },
+  serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],
 };
 
 export default nextConfig;

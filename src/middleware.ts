@@ -1,4 +1,3 @@
-import { auth } from '@/lib/auth'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/signup', '/api/auth/', '/api/dev/', '/join/']
@@ -7,8 +6,21 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
 
-  const session = await auth.api.getSession({ headers: request.headers })
-  const user = session?.user ?? null
+  // Better Auth uses pg (Node.js only) — call the session endpoint via fetch
+  // rather than importing auth directly (which would pull pg into Edge Runtime).
+  let user: { id: string } | null = null
+  try {
+    const sessionRes = await fetch(
+      new URL('/api/auth/get-session', request.url),
+      { headers: { cookie: request.headers.get('cookie') ?? '' } }
+    )
+    if (sessionRes.ok) {
+      const data = (await sessionRes.json()) as { user?: { id: string } } | null
+      user = data?.user ?? null
+    }
+  } catch {
+    // Session check failed — treat as unauthenticated
+  }
 
   // Auto-login: dev convenience — bounce through dev-login if unauthenticated.
   if (
