@@ -24,20 +24,12 @@ function LoginForm() {
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return
-    // Fetch real names from DB (requires SUPABASE_SERVICE_ROLE_KEY).
-    // Falls back to seed users if the key is absent or the request fails.
     fetch('/api/dev/profiles')
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Dev profiles fetch failed'))))
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data: DevProfile[]) => {
-        if (Array.isArray(data) && data.length > 0) setDevProfiles(data)
+        if (Array.isArray(data)) setDevProfiles(data)
       })
-      .catch(() => {
-        // No service role key or local Supabase not running — use seed list
-        setDevProfiles([
-          { id: 'seed-1', email: 'com.spotify@exemple.com', full_name: 'Com Spotify' },
-          { id: 'seed-2', email: 'sem_spotify@exemple.com', full_name: 'Sem Spotify' },
-        ])
-      })
+      .catch(() => {/* DB not seeded or unreachable — show nothing */})
   }, [])
 
   const signUpHref = redirect !== '/' ? `/signup?redirect=${encodeURIComponent(redirect)}` : '/signup'
