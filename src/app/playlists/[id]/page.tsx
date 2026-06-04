@@ -21,7 +21,7 @@ import {
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import { authClient } from "@/lib/auth-client";
-import { getRepertoireAction } from "@/app/actions/repertoire";
+import { getRepertoireAction, getBandWeakestStatusAction } from "@/app/actions/repertoire";
 import { useBandContextStore } from "@/store/bandContextStore";
 import type {
   GlobalSong,
@@ -332,19 +332,34 @@ export default function PlaylistDetailPage() {
   }, [showSearch]);
 
   const refreshPlaylist = useCallback(async () => {
-    const [data, rep] = await Promise.all([
-      getPlaylistWithSongs(playlistId),
-      // Fetch repertoire (personal or band) to show status/tags per song
-      getRepertoireAction(bandId),
-    ]);
+    const data = await getPlaylistWithSongs(playlistId);
     if (!data) {
       router.replace("/playlists");
       return;
     }
     setPlaylist(data);
     setSongs(data.songs ?? []);
-    setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
     setCurrentUserId(session?.user?.id ?? null);
+
+    const songIds = (data.songs ?? []).map((s) => s.song_id);
+
+    if (bandId) {
+      // Band mode: status = weakest across all members' personal repertoires
+      const weakest = await getBandWeakestStatusAction(bandId, songIds);
+      // Build a synthetic repertoireMap from the weakest-status result
+      setRepertoireMap(
+        new Map(
+          Object.entries(weakest).map(([songId, status]) => [
+            songId,
+            { song_id: songId, status } as Repertoire,
+          ]),
+        ),
+      );
+    } else {
+      // Personal mode: use the user's own repertoire
+      const rep = await getRepertoireAction();
+      setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
+    }
   }, [playlistId, router, session?.user?.id, bandId]);
 
   useEffect(() => {
