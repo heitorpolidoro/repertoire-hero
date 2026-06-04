@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { Client } from 'pg'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,18 +16,19 @@ export async function GET() {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
+  const client = new Client({ connectionString: process.env.DATABASE_URL })
   try {
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-    const { rows } = await pool.query<{ id: string; email: string; name: string | null }>(
+    await client.connect()
+    const { rows } = await client.query<{ id: string; email: string; name: string | null }>(
       `SELECT id, email, name FROM "user" ORDER BY name`
     )
-    await pool.end()
-
     return NextResponse.json(
       rows.map((r) => ({ id: r.id, email: r.email, full_name: r.name }))
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message }, { status: 500 })
+  } finally {
+    await client.end()
   }
 }

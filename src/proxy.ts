@@ -8,21 +8,26 @@ export async function proxy(request: NextRequest) {
 
   // Better Auth uses pg (Node.js only) — call the session endpoint via fetch
   // rather than importing auth directly (which would pull pg into Edge Runtime).
+  // Skip the session check for API/static public paths — only /login and /signup
+  // need the session (to redirect already-authenticated users away from them).
+  const skipSession = ['/api/auth/', '/api/dev/', '/join/'].some((p) => pathname.startsWith(p))
   let user: { id: string } | null = null
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 3000)
-    const sessionRes = await fetch(
-      new URL('/api/auth/get-session', request.url),
-      { headers: { cookie: request.headers.get('cookie') ?? '' }, signal: controller.signal }
-    )
-    clearTimeout(timeout)
-    if (sessionRes.ok) {
-      const data = (await sessionRes.json()) as { user?: { id: string } } | null
-      user = data?.user ?? null
+  if (!skipSession) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 3000)
+      const sessionRes = await fetch(
+        new URL('/api/auth/get-session', request.url),
+        { headers: { cookie: request.headers.get('cookie') ?? '' }, signal: controller.signal }
+      )
+      clearTimeout(timeout)
+      if (sessionRes.ok) {
+        const data = (await sessionRes.json()) as { user?: { id: string } } | null
+        user = data?.user ?? null
+      }
+    } catch {
+      // Session check failed or timed out — treat as unauthenticated
     }
-  } catch {
-    // Session check failed or timed out — treat as unauthenticated
   }
 
   // Auto-login: dev convenience — bounce through dev-login if unauthenticated.
