@@ -214,12 +214,16 @@ export async function createAndAddSong(
     songId = globalSong.id
   }
 
-  const { data: existingEntry } = await supabase
+  const { data: existingEntry, error: entryLookupError } = await supabase
     .from('repertoire')
     .select('id')
     .eq('user_id', userId)
     .eq('song_id', songId)
     .maybeSingle()
+  if (entryLookupError) {
+    logger.error('Failed to check existing repertoire entry', new Error(entryLookupError.message), { code: entryLookupError.code, songId })
+    throw new Error(`Failed to check existing repertoire entry: ${entryLookupError.message}`)
+  }
   if (existingEntry) throw new Error('Song already in your repertoire')
 
   const { data: repertoireEntry, error: repertoireError } = await supabase

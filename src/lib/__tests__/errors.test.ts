@@ -63,6 +63,9 @@ const createChainableMock = () => {
           error: null,
         }),
       updateUser: () => Promise.resolve({ data: {}, error: mockError }),
+      admin: {
+        updateUserById: () => Promise.resolve({ data: {}, error: mockError }),
+      },
     },
     from: (table: string) => {
       currentTable = table;
