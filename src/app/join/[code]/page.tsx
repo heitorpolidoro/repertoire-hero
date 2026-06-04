@@ -45,7 +45,7 @@ export default async function JoinBandPage({ params }: Props) {
 
   // If authenticated, join automatically and redirect to the band page
   if (user) {
-    const bandId = await joinBandByInviteServer(code);
+    const bandId = await joinBandByInviteServer(user.id, code);
     if (bandId) {
       redirect(`/bands/${bandId}`);
     }

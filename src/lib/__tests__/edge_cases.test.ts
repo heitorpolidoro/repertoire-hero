@@ -163,7 +163,7 @@ describe('Supabase Edge Cases', () => {
   describe('bands.ts edge cases (100% branches)', () => {
     it('getBands returns empty list if data is null', async () => {
       mockData = null
-      const bands = await getBands()
+      const bands = await getBands('mock-user-id')
       expect(bands).toEqual([])
     })
 

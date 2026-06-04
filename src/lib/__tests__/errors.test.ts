@@ -288,7 +288,7 @@ describe("Supabase Error Handling", () => {
 
   describe("bands.ts errors", () => {
     it("getBands throws on DB error", async () => {
-      await expect(getBands()).rejects.toThrow(
+      await expect(getBands("mock-user-id")).rejects.toThrow(
         "Failed to fetch bands: Mocked Database Error",
       );
     });
@@ -300,7 +300,7 @@ describe("Supabase Error Handling", () => {
     });
 
     it("createBand throws on DB error", async () => {
-      await expect(createBand("Test")).rejects.toThrow(
+      await expect(createBand("mock-user-id", "Test")).rejects.toThrow(
         "Failed to create band: Mocked Database Error",
       );
     });
@@ -342,7 +342,7 @@ describe("Supabase Error Handling", () => {
     });
 
     it("joinBandByInviteClient throws on DB error", async () => {
-      await expect(joinBandByInviteClient("code")).rejects.toThrow(
+      await expect(joinBandByInviteClient("mock-user-id", "code")).rejects.toThrow(
         "Failed to join band: Mocked Database Error",
       );
     });

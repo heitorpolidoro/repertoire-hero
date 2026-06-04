@@ -4,14 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  getBandWithMembers,
-  updateBand,
-  deleteBand,
-  leaveBand,
-  removeBandMember,
-  getBandPlaylists,
-  createBandPlaylist,
-} from "@/lib/bands";
+  getBandWithMembersAction as getBandWithMembers,
+  updateBandAction as updateBand,
+  deleteBandAction as deleteBand,
+  leaveBandAction as leaveBand,
+  removeBandMemberAction as removeBandMember,
+  getBandPlaylistsAction as getBandPlaylists,
+  createBandPlaylistAction as createBandPlaylist,
+} from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import type { Band, BandMember, Playlist } from "@/types/database";
@@ -122,7 +122,7 @@ export default function BandDetailPage() {
     if (!currentUserId) return;
     if (!confirm("Leave this band?")) return;
     try {
-      await leaveBand(bandId, currentUserId);
+      await leaveBand(bandId);
       router.replace("/bands");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to leave band");

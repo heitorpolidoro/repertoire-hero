@@ -1,14 +1,15 @@
 // Library for managing bands, band members, and band playlists in Repertoire Hero
-import { createClient } from "@/lib/supabase/client";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { logger } from "@/lib/logger";
 import type { Band, BandMember, Playlist } from "@/types/database";
 
-export const getBands = async (): Promise<Band[]> => {
-  const supabase = createClient();
+export const getBands = async (userId: string): Promise<Band[]> => {
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("bands")
-    .select("*")
+    .select("*, members:band_members!inner(user_id)")
+    .eq("members.user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -22,7 +23,7 @@ export const getBands = async (): Promise<Band[]> => {
 export const getBandWithMembers = async (
   bandId: string,
 ): Promise<Band | null> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("bands")
@@ -48,13 +49,15 @@ export const getBandWithMembers = async (
 };
 
 export const createBand = async (
+  userId: string,
   name: string,
   description?: string | null,
   coverUrl?: string | null,
 ): Promise<string> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase.rpc("create_band", {
+    p_user_id: userId,
     p_name: name,
     p_description: description ?? null,
     p_cover_url: coverUrl ?? null,
@@ -76,7 +79,7 @@ export const updateBand = async (
     cover_url?: string | null;
   },
 ): Promise<void> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase
     .from("bands")
@@ -90,7 +93,7 @@ export const updateBand = async (
 };
 
 export const deleteBand = async (bandId: string): Promise<void> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase.from("bands").delete().eq("id", bandId);
 
@@ -104,7 +107,7 @@ export const leaveBand = async (
   bandId: string,
   userId: string,
 ): Promise<void> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase
     .from("band_members")
@@ -119,7 +122,7 @@ export const leaveBand = async (
 };
 
 export const removeBandMember = async (memberId: string): Promise<void> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase
     .from("band_members")
@@ -133,7 +136,7 @@ export const removeBandMember = async (memberId: string): Promise<void> => {
 };
 
 export const getBandPlaylists = async (bandId: string): Promise<Playlist[]> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("playlists")
@@ -153,7 +156,7 @@ export const createBandPlaylist = async (
   bandId: string,
   name: string,
 ): Promise<string> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("playlists")
@@ -170,11 +173,13 @@ export const createBandPlaylist = async (
 };
 
 export const joinBandByInviteClient = async (
+  userId: string,
   inviteCode: string,
 ): Promise<string | null> => {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase.rpc("join_band_by_invite", {
+    p_user_id: userId,
     p_invite_code: inviteCode,
   });
 
