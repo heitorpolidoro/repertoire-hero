@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Image from "next/image";
 import type { SongStatus, Repertoire } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
+import { useBandContextStore } from "@/store/bandContextStore";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import {
   createAndAddSongAction as createAndAddSong,
@@ -105,6 +106,8 @@ export default function HomePage() {
     updateStatus,
     removeSong,
   } = useRepertoireStore();
+
+  const bandContext = useBandContextStore((s) => s.context);
 
   const [modal, setModal] = useState<ModalState>({ open: false });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -285,7 +288,9 @@ export default function HomePage() {
     <div className="flex flex-col h-full">
       {/* Page header */}
       <header className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3 md:px-6">
-        <h1 className="text-xl font-bold text-gray-900 mb-3">My Repertoire</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-3">
+          {bandContext.type === 'band' ? `🎸 ${bandContext.name}` : 'My Repertoire'}
+        </h1>
 
         {/* Search */}
         <div>
@@ -357,7 +362,9 @@ export default function HomePage() {
             <p className="text-sm text-gray-400">
               {searchQuery || selectedStatus
                 ? "Try adjusting the filters."
-                : "Add your first song with the + button"}
+                : bandContext.type === 'band'
+                  ? `No songs in ${bandContext.name}'s repertoire yet.`
+                  : "Add your first song with the + button"}
             </p>
           </div>
         ) : (

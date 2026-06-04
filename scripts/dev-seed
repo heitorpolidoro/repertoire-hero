@@ -31,11 +31,9 @@ echo ""
 psql "$DB_URL" <<SQL
 
 -- ── Clean slate ─────────────────────────────────────────────────────────────
--- Deleting from "user" cascades to: account, session, profiles,
--- then profiles cascades to: band_members, repertoire, playlists.
--- Delete bands separately (no longer FK'd to user/profiles).
-DELETE FROM bands;
-DELETE FROM "user";
+DELETE FROM bands;        -- cascades to band_members, repertoire (band), playlists
+DELETE FROM "user";       -- cascades to account, session, profiles → repertoire (user)
+DELETE FROM global_songs; -- no FK owner; must be cleaned separately
 
 -- ── Users (Better Auth) ─────────────────────────────────────────────────────
 INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
@@ -79,10 +77,48 @@ INSERT INTO band_members (band_id, user_id, role)
 SELECT b.id, p.id, 'member' FROM bands b, profiles p
 WHERE b.name = 'Os Dois Spotify' AND p.email = 'sem_spotify@exemple.com';
 
+-- ── Global songs ────────────────────────────────────────────────────────────
+INSERT INTO global_songs (title, artist, standard_key) VALUES
+  ('Wish You Were Here',  'Pink Floyd',   'C'),
+  ('Wonderwall',          'Oasis',        'F#m'),
+  ('Hotel California',    'Eagles',       'Bm'),
+  ('Stairway to Heaven',  'Led Zeppelin', 'Am'),
+  ('Smells Like Teen Spirit', 'Nirvana',  'Fm'),
+  ('Bohemian Rhapsody',   'Queen',        'Bb');
+
+-- ── Personal repertoire: Com Spotify ────────────────────────────────────────
+INSERT INTO repertoire (user_id, song_id, status)
+SELECT p.id, g.id, 'learning'
+FROM profiles p, global_songs g
+WHERE p.email = 'com.spotify@exemple.com'
+  AND g.title IN ('Wish You Were Here', 'Wonderwall', 'Hotel California');
+
+-- ── Personal repertoire: Sem Spotify ────────────────────────────────────────
+INSERT INTO repertoire (user_id, song_id, status)
+SELECT p.id, g.id, 'practicing'
+FROM profiles p, global_songs g
+WHERE p.email = 'sem_spotify@exemple.com'
+  AND g.title IN ('Stairway to Heaven', 'Smells Like Teen Spirit');
+
+-- ── Band repertoire: Os Dois Spotify ────────────────────────────────────────
+INSERT INTO repertoire (band_id, song_id, status)
+SELECT b.id, g.id, 'polishing'
+FROM bands b, global_songs g
+WHERE b.name = 'Os Dois Spotify'
+  AND g.title IN ('Bohemian Rhapsody', 'Hotel California', 'Wish You Were Here');
+
 -- ── Summary ──────────────────────────────────────────────────────────────────
 SELECT u.email, p.full_name, p.primary_instrument, p.instruments
 FROM "user" u JOIN profiles p ON p.id = u.id
 ORDER BY u.email;
+
+SELECT g.title, r.status,
+  COALESCE(p.full_name, b.name) AS owner
+FROM repertoire r
+LEFT JOIN global_songs g ON g.id = r.song_id
+LEFT JOIN profiles p ON p.id = r.user_id
+LEFT JOIN bands b ON b.id = r.band_id
+ORDER BY owner, g.title;
 
 SELECT b.name AS band, bm.role, p.full_name
 FROM bands b
