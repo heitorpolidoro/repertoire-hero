@@ -30,19 +30,6 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Auto-login: dev convenience — bounce through dev-login if unauthenticated.
-  // Only applies to private page routes — never to public or API paths.
-  if (
-    process.env.NEXT_PUBLIC_AUTO_LOGIN === 'true' &&
-    !user &&
-    !isPublicPath
-  ) {
-    const devLoginUrl = request.nextUrl.clone()
-    devLoginUrl.pathname = '/api/auth/dev-login'
-    devLoginUrl.searchParams.set('next', pathname)
-    return NextResponse.redirect(devLoginUrl)
-  }
-
   // Unauthenticated users must go to /login (skip public paths to avoid loops).
   if (!user && !isPublicPath) {
     const loginUrl = request.nextUrl.clone()

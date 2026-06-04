@@ -17,37 +17,10 @@ function mockSession(user: { id: string } | null) {
 describe('middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env.NEXT_PUBLIC_AUTO_LOGIN = 'false'
-    // Default: unauthenticated
     mockSession(null)
-  })
-
-  it('should redirect unauthenticated users to dev-login if NEXT_PUBLIC_AUTO_LOGIN is true', async () => {
-    process.env.NEXT_PUBLIC_AUTO_LOGIN = 'true'
-    mockSession(null)
-
-    const request = new NextRequest(new URL('http://localhost/dashboard'))
-    const response = await middleware(request)
-
-    expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('http://localhost/api/auth/dev-login?next=%2Fdashboard')
-  })
-
-  it('should not redirect unauthenticated users to dev-login if path starts with dev-login', async () => {
-    process.env.NEXT_PUBLIC_AUTO_LOGIN = 'true'
-    mockSession(null)
-
-    const request = new NextRequest(new URL('http://localhost/api/auth/dev-login'))
-    const response = await middleware(request)
-
-    // /api/auth/ is a public path — passes through
-    expect(response.status).toBe(200)
-    expect(response.headers.get('location')).toBeNull()
   })
 
   it('should redirect unauthenticated users to /login for private paths', async () => {
-    mockSession(null)
-
     const request = new NextRequest(new URL('http://localhost/playlists'))
     const response = await middleware(request)
 
@@ -56,9 +29,15 @@ describe('middleware', () => {
   })
 
   it('should allow unauthenticated users to access public paths without redirect', async () => {
-    mockSession(null)
-
     const request = new NextRequest(new URL('http://localhost/signup'))
+    const response = await middleware(request)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
+  })
+
+  it('should allow unauthenticated users to access API auth paths without redirect', async () => {
+    const request = new NextRequest(new URL('http://localhost/api/auth/get-session'))
     const response = await middleware(request)
 
     expect(response.status).toBe(200)
