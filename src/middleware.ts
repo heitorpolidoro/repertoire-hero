@@ -1,45 +1,28 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/signup', '/api/auth/', '/api/dev/', '/join/']
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
-
-  // Create a server client that reads/writes cookies on the request/response pair.
-  // This is the pattern required by @supabase/ssr to keep the session token fresh.
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  // Refresh the session — this is mandatory; do NOT remove.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
   const { pathname } = request.nextUrl
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
 
-  // Auto-login: when the dev convenience flag is on and the user is not
-  // authenticated, bounce through the dev-login API route (which can set
-  // cookies before returning a redirect to /).
+  // Better Auth uses pg (Node.js only) — call the session endpoint via fetch
+  // rather than importing auth directly (which would pull pg into Edge Runtime).
+  let user: { id: string } | null = null
+  try {
+    const sessionRes = await fetch(
+      new URL('/api/auth/get-session', request.url),
+      { headers: { cookie: request.headers.get('cookie') ?? '' } }
+    )
+    if (sessionRes.ok) {
+      const data = (await sessionRes.json()) as { user?: { id: string } } | null
+      user = data?.user ?? null
+    }
+  } catch {
+    // Session check failed — treat as unauthenticated
+  }
+
+  // Auto-login: dev convenience — bounce through dev-login if unauthenticated.
   if (
     process.env.NEXT_PUBLIC_AUTO_LOGIN === 'true' &&
     !user &&
@@ -47,7 +30,6 @@ export async function middleware(request: NextRequest) {
   ) {
     const devLoginUrl = request.nextUrl.clone()
     devLoginUrl.pathname = '/api/auth/dev-login'
-    // Preserve the original destination so the route handler can redirect back.
     devLoginUrl.searchParams.set('next', pathname)
     return NextResponse.redirect(devLoginUrl)
   }
@@ -67,16 +49,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(homeUrl)
   }
 
-  return supabaseResponse
+  return NextResponse.next()
 }
 
 export const config = {
   matcher: [
-    /*
-     * Run on all paths except Next.js internals and static assets.
-     * Keeping _next/static and _next/image out avoids unnecessary work on
-     * every chunk/image request.
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

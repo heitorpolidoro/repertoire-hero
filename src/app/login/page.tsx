@@ -1,6 +1,6 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
+import { authClient } from '@/lib/auth-client'
 import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -47,14 +47,13 @@ function LoginForm() {
     setError(null)
     setLoading(true)
 
-    const supabase = createClient()
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await authClient.signIn.email({
       email,
       password,
     })
 
     if (signInError) {
-      setError(signInError.message)
+      setError(signInError.message ?? 'Sign in failed')
       setLoading(false)
       return
     }
@@ -67,14 +66,13 @@ function LoginForm() {
     setError(null)
     setLoading(true)
 
-    const supabase = createClient()
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await authClient.signIn.email({
       email,
-      password: 'password', // Assuming the seed uses 'password'
+      password: 'password',
     })
 
     if (signInError) {
-      setError(signInError.message)
+      setError(signInError.message ?? 'Sign in failed')
       setLoading(false)
       return
     }

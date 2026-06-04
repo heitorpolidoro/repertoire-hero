@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth-session";
 import {
   getBandByInviteCodeServer,
   joinBandByInviteServer,
@@ -40,14 +40,12 @@ export default async function JoinBandPage({ params }: Props) {
   }
 
   // Check if the user is authenticated
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const session = await getSession();
+  const user = session?.user ?? null;
 
   // If authenticated, join automatically and redirect to the band page
   if (user) {
-    const bandId = await joinBandByInviteServer(code);
+    const bandId = await joinBandByInviteServer(user.id, code);
     if (bandId) {
       redirect(`/bands/${bandId}`);
     }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { getBands, createBand } from "@/lib/bands";
+import { getBandsAction as getBands, createBandAction as createBand } from "@/app/actions/bands";
 import type { Band } from "@/types/database";
 const BandImage = ({ band }: { band: Band }) => {
   return band.cover_url ? (

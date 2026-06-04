@@ -1,6 +1,6 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
+import { authClient } from '@/lib/auth-client'
 import { InstrumentPicker } from '@/components/profile/InstrumentPicker'
 import Link from 'next/link'
 import { Suspense, useState } from 'react'
@@ -33,21 +33,14 @@ function SignUpForm() {
 
     setLoading(true)
 
-    const supabase = createClient()
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await authClient.signUp.email({
       email,
       password,
-      options: {
-        data: {
-          full_name: fullName.trim() || null,
-          instruments,
-          primary_instrument: primaryInstrument,
-        },
-      },
+      name: fullName.trim() || email.split('@')[0],
     })
 
     if (signUpError) {
-      setError(signUpError.message)
+      setError(signUpError.message ?? 'Sign up failed')
       setLoading(false)
       return
     }
@@ -66,7 +59,7 @@ function SignUpForm() {
 
           <div className="bg-white shadow-md rounded-2xl px-8 py-8 space-y-5 text-center">
             <p className="text-sm text-green-700 bg-green-50 rounded-lg px-3 py-3">
-              Account created! Check your email to confirm, then sign in.
+              Account created! You can now sign in.
             </p>
             {redirect !== '/' && (
               <p className="text-xs text-gray-500">

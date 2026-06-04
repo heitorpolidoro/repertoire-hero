@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { authClient } from '@/lib/auth-client';
 
 interface NavItem {
   label: string;
@@ -31,9 +31,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   };
 
   const handleSignOut = async (): Promise<void> => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push('/login');
+    await authClient.signOut()
+    router.push('/login')
   };
 
   return (

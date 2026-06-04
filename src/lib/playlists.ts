@@ -1,19 +1,20 @@
-import { createClient } from '@/lib/supabase/client'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { logger } from '@/lib/logger'
 import type { Playlist } from '@/types/database'
 
 // ---------------------------------------------------------------------------
-// All functions use the browser (client-side) Supabase client.
-// RLS policies on the database enforce that users can only access their own
-// playlists and playlist_songs rows.
+// All functions use the Supabase admin client (service role).
+// Since RLS is bypassed, all user-specific queries must explicitly filter
+// by user_id using the userId parameter passed from the caller.
 // ---------------------------------------------------------------------------
 
-export async function getUserPlaylists(): Promise<Playlist[]> {
-  const supabase = createClient()
+export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
+  const supabase = createAdminClient()
 
   const { data, error } = await supabase
     .from('playlists')
     .select('*, songs:playlist_songs(id, song:global_songs(duration_seconds)), band:bands(id, name)')
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -24,21 +25,19 @@ export async function getUserPlaylists(): Promise<Playlist[]> {
   return data as Playlist[]
 }
 
-export async function createPlaylist(data: {
-  name: string
-  description?: string
-}): Promise<Playlist> {
-  const supabase = createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Cannot create playlist: user is not authenticated')
+export async function createPlaylist(
+  userId: string,
+  data: {
+    name: string
+    description?: string
+  }
+): Promise<Playlist> {
+  const supabase = createAdminClient()
 
   const { data: playlist, error } = await supabase
     .from('playlists')
     .insert({
-      user_id: user.id,
+      user_id: userId,
       name: data.name,
       description: data.description ?? null,
     })
@@ -62,7 +61,7 @@ export async function updatePlaylist(
     tags?: string[]
   }
 ): Promise<void> {
-  const supabase = createClient()
+  const supabase = createAdminClient()
 
   const { error } = await supabase
     .from('playlists')
@@ -76,7 +75,7 @@ export async function updatePlaylist(
 }
 
 export async function deletePlaylist(id: string): Promise<void> {
-  const supabase = createClient()
+  const supabase = createAdminClient()
 
   const { error } = await supabase.from('playlists').delete().eq('id', id)
 
@@ -86,8 +85,8 @@ export async function deletePlaylist(id: string): Promise<void> {
   }
 }
 
-export async function addSongToPlaylist(playlistId: string, songId: string): Promise<void> {
-  const supabase = createClient()
+export async function addSongToPlaylist(userId: string, playlistId: string, songId: string): Promise<void> {
+  const supabase = createAdminClient()
 
   // 1. Fetch playlist to know the owner context (user vs. band)
   const { data: playlist, error: playlistError } = await supabase
@@ -140,31 +139,28 @@ export async function addSongToPlaylist(playlistId: string, songId: string): Pro
       }
     }
 
-    // Add to current user's personal repertoire (since they are adding it and RLS allows writing to their own row)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: userRep, error: userRepError } = await supabase
+    // Add to current user's personal repertoire as well
+    const { data: userRep, error: userRepError } = await supabase
+      .from('repertoire')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('song_id', songId)
+      .maybeSingle()
+
+    if (!userRep && !userRepError) {
+      const { error: insertUserError } = await supabase
         .from('repertoire')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('song_id', songId)
-        .maybeSingle()
+        .insert({
+          user_id: userId,
+          song_id: songId,
+          status: 'unknown',
+        })
 
-      if (!userRep && !userRepError) {
-        const { error: insertUserError } = await supabase
-          .from('repertoire')
-          .insert({
-            user_id: user.id,
-            song_id: songId,
-            status: 'unknown',
-          })
-
-        if (insertUserError) {
-          logger.error('Failed to add song to creator personal repertoire', new Error(insertUserError.message), {
-            userId: user.id,
-            songId,
-          })
-        }
+      if (insertUserError) {
+        logger.error('Failed to add song to creator personal repertoire', new Error(insertUserError.message), {
+          userId,
+          songId,
+        })
       }
     }
   } else if (playlist.user_id) {
@@ -236,7 +232,7 @@ export async function addSongToPlaylist(playlistId: string, songId: string): Pro
 }
 
 export async function removeSongFromPlaylist(playlistId: string, songId: string): Promise<void> {
-  const supabase = createClient()
+  const supabase = createAdminClient()
 
   const { error } = await supabase
     .from('playlist_songs')
@@ -255,7 +251,7 @@ export async function removeSongFromPlaylist(playlistId: string, songId: string)
 }
 
 export async function getPlaylistWithSongs(id: string): Promise<Playlist | null> {
-  const supabase = createClient()
+  const supabase = createAdminClient()
 
   const { data, error } = await supabase
     .from('playlists')

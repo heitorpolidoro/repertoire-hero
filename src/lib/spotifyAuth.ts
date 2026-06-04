@@ -1,22 +1,18 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
-// Returns a valid Spotify access token for the currently authenticated user,
+// Returns a valid Spotify access token for the given user,
 // automatically refreshing the token when it is within 60 seconds of expiry.
 // Returns null when the user has not connected their Spotify account.
 // ---------------------------------------------------------------------------
-export async function getSpotifyAccessToken(supabase: SupabaseClient): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) return null
+export async function getSpotifyAccessToken(userId: string): Promise<string | null> {
+  const supabase = createAdminClient()
 
   const { data: tokenRow, error } = await supabase
     .from('spotify_tokens')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
 
   if (error || !tokenRow) return null
@@ -74,7 +70,7 @@ export async function getSpotifyAccessToken(supabase: SupabaseClient): Promise<s
       expires_at: newExpiresAt,
       updated_at: new Date().toISOString(),
     })
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
 
   if (updateError) {
     logger.error('Failed to persist refreshed Spotify token', new Error(updateError.message))

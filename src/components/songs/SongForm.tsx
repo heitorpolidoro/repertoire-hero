@@ -9,11 +9,11 @@ import type {
 } from "@/types/database";
 import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
 import {
-  createAndAddSong,
-  updateSong,
-  updateSongStatus,
-  updateSongTags,
-} from "@/lib/songs";
+  createAndAddSongAction as createAndAddSong,
+  updateSongAction as updateSong,
+  updateSongStatusAction as updateSongStatus,
+  updateSongTagsAction as updateSongTags,
+} from "@/app/actions/repertoire";
 import { useRepertoireStore } from "@/store/repertoireStore";
 
 interface SongFormProps {

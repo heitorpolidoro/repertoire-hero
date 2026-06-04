@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { logger } from '@/lib/logger'
 
 export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
@@ -8,7 +8,7 @@ export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
   cover_url: string | null
   member_count: number
 } | null> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data, error } = await supabase
     .rpc('get_band_by_invite_code', { p_invite_code: inviteCode })
@@ -30,11 +30,14 @@ export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
   }
 }
 
-export async function joinBandByInviteServer(inviteCode: string): Promise<string | null> {
-  const supabase = await createClient()
+export async function joinBandByInviteServer(
+  userId: string,
+  inviteCode: string,
+): Promise<string | null> {
+  const supabase = createAdminClient()
 
   const { data, error } = await supabase
-    .rpc('join_band_by_invite', { p_invite_code: inviteCode })
+    .rpc('join_band_by_invite', { p_user_id: userId, p_invite_code: inviteCode })
 
   if (error) {
     logger.error('Failed to join band by invite', new Error(error.message))

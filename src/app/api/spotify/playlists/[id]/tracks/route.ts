@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { logger } from '@/lib/logger'
 
@@ -77,8 +77,14 @@ export async function GET(
 ): Promise<NextResponse> {
   const { id } = await params
 
-  const supabase = await createClient()
-  const accessToken = await getSpotifyAccessToken(supabase)
+  let userId: string
+  try {
+    userId = await getRequiredUserId()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized', code: 401 }, { status: 401 })
+  }
+
+  const accessToken = await getSpotifyAccessToken(userId)
 
   if (!accessToken) {
     return NextResponse.json({ error: 'Spotify not connected', code: 401 }, { status: 401 })

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import type { Repertoire } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
-import { getSongEntry } from '@/lib/songs'
+import { getSongEntryAction as getSongEntry } from '@/app/actions/repertoire'
 
 export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()

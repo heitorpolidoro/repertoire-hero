@@ -5,19 +5,19 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  getPlaylistWithSongs,
-  updatePlaylist,
-  deletePlaylist,
-  addSongToPlaylist,
-  removeSongFromPlaylist,
-} from "@/lib/playlists";
+  getPlaylistWithSongsAction as getPlaylistWithSongs,
+  updatePlaylistAction as updatePlaylist,
+  deletePlaylistAction as deletePlaylist,
+  addSongToPlaylistAction as addSongToPlaylist,
+  removeSongFromPlaylistAction as removeSongFromPlaylist,
+} from "@/app/actions/playlists";
 import {
-  updateSongStatus,
-  updateSongTags,
-  searchGlobalSongs,
-  addSongToRepertoire,
-  createAndAddSong,
-} from "@/lib/songs";
+  updateSongStatusAction as updateSongStatus,
+  updateSongTagsAction as updateSongTags,
+  searchGlobalSongsAction as searchGlobalSongs,
+  addSongAction as addSongToRepertoire,
+  createAndAddSongAction as createAndAddSong,
+} from "@/app/actions/repertoire";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import { createClient } from "@/lib/supabase/client";

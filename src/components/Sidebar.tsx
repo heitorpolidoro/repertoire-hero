@@ -1,24 +1,16 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
+import { authClient } from '@/lib/auth-client';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { User } from '@supabase/supabase-js';
 
 interface SidebarProps {
   activeItem: string;
 }
 
 export default function Sidebar({ activeItem }: SidebarProps) {
-  const [user, setUser] = useState<User | null>(null);
+  const { data: session } = authClient.useSession()
+  const user = session?.user ?? null
   const router = useRouter();
-  const supabase = createClient();
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
-    });
-  }, [supabase.auth]);
   
   const menuItems = [
     { href: "/", label: "Dashboard" },
@@ -28,9 +20,9 @@ export default function Sidebar({ activeItem }: SidebarProps) {
   ];
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
+    await authClient.signOut()
+    router.push('/login')
+    router.refresh()
   };
 
   return (
@@ -47,7 +39,7 @@ export default function Sidebar({ activeItem }: SidebarProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">
-                {user.user_metadata?.full_name || user.email?.split('@')[0]}
+                {user.name || user.email?.split('@')[0]}
               </p>
               <p className="text-gray-400 text-xs truncate">
                 {user.email}

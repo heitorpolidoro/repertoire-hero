@@ -2,7 +2,11 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { getProfile, updateProfile, updateEmail } from "@/lib/profile";
+import {
+  getProfileAction as getProfile,
+  updateProfileAction as updateProfile,
+  updateEmailAction as updateEmail,
+} from "@/app/actions/profile";
 import { InstrumentPicker } from "@/components/profile/InstrumentPicker";
 import type { Profile } from "@/types/database";
 

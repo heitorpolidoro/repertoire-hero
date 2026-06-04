@@ -12,8 +12,8 @@ const mockTestClient = createOriginalClient(SUPABASE_URL, ANON_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => mockTestClient,
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => mockTestClient,
 }))
 
 // Import the module under test after vi.mock so the mock is applied
@@ -116,7 +116,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // 1. Create playlist
     const playlistName = `My Playlist ${suffix}`
     const playlistDesc = `Description for My Playlist`
-    const playlist = await createPlaylist({ name: playlistName, description: playlistDesc })
+    const playlist = await createPlaylist(userAId, { name: playlistName, description: playlistDesc })
 
     expect(playlist).toBeDefined()
     expect(playlist.id).toBeDefined()
@@ -135,7 +135,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(playlistWithSongs!.songs!.length).toBe(0)
 
     // 3. Get user playlists
-    const playlists = await getUserPlaylists()
+    const playlists = await getUserPlaylists(userAId)
     expect(playlists).toBeDefined()
     expect(playlists.length).toBeGreaterThanOrEqual(1)
     const found = playlists.find((p) => p.id === playlist.id)
@@ -167,7 +167,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     const deletedPlaylist = await getPlaylistWithSongs(playlist.id)
     expect(deletedPlaylist).toBeNull()
 
-    const playlistsAfterDelete = await getUserPlaylists()
+    const playlistsAfterDelete = await getUserPlaylists(userAId)
     const foundAfterDelete = playlistsAfterDelete.find((p) => p.id === playlist.id)
     expect(foundAfterDelete).toBeUndefined()
   })
@@ -196,11 +196,11 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(signInError).toBeNull()
 
     // 2. Create playlist for User A
-    const playlist = await createPlaylist({ name: `Songs Playlist ${suffix}` })
+    const playlist = await createPlaylist(userAId, { name: `Songs Playlist ${suffix}` })
     createdPlaylists.push(playlist.id)
 
     // 3. Add song to playlist
-    await addSongToPlaylist(playlist.id, songId)
+    await addSongToPlaylist(userAId, playlist.id, songId)
 
     // Verify song is added
     const playlistWithSongs = await getPlaylistWithSongs(playlist.id)
@@ -226,7 +226,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // Sign in as User A to create a playlist
     const { error: signInA } = await mockTestClient.auth.signInWithPassword(USER_A)
     expect(signInA).toBeNull()
-    const playlistA = await createPlaylist({ name: `User A Playlist ${suffix}` })
+    const playlistA = await createPlaylist(userAId, { name: `User A Playlist ${suffix}` })
     createdPlaylists.push(playlistA.id)
     await mockTestClient.auth.signOut()
 
@@ -235,7 +235,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(signInB).toBeNull()
 
     // 1. User B should not see User A's playlist in getUserPlaylists
-    const playlistsB = await getUserPlaylists()
+    const playlistsB = await getUserPlaylists(userBId)
     const foundA = playlistsB.find((p) => p.id === playlistA.id)
     expect(foundA).toBeUndefined()
 
@@ -315,7 +315,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     const { error: signInError } = await mockTestClient.auth.signInWithPassword(USER_A)
     expect(signInError).toBeNull()
 
-    await addSongToPlaylist(playlistId, songId)
+    await addSongToPlaylist(userAId, playlistId, songId)
 
     // 6. Verify that:
     // A. The song was added to the band repertoire

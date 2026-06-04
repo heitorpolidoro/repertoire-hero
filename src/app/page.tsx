@@ -6,10 +6,10 @@ import type { SongStatus, Repertoire } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import {
-  createAndAddSong,
-  addSongToRepertoire,
-  searchGlobalSongs,
-} from "@/lib/songs";
+  createAndAddSongAction as createAndAddSong,
+  addSongAction as addSongToRepertoire,
+  searchGlobalSongsAction as searchGlobalSongs,
+} from "@/app/actions/repertoire";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import type { GlobalSong } from "@/types/database";
 import SongForm from "@/components/songs/SongForm";
