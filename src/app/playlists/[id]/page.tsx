@@ -1071,17 +1071,26 @@ export default function PlaylistDetailPage() {
                           {formatDuration(ps.song.duration_seconds)}
                         </span>
                       )}
-                      {/* Status badge */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleStatusCycle(ps.song_id).catch(console.error);
-                        }}
-                        aria-label={`Status: ${cfg.label}. Click to advance.`}
-                        className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
-                      >
-                        {cfg.label}
-                      </button>
+                      {/* Status badge — read-only in band mode (computed by trigger), cycles in personal mode */}
+                      {bandId ? (
+                        <span
+                          title="Band status is computed from all members"
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current opacity-75 cursor-default ${cfg.bgColor} ${cfg.textColor}`}
+                        >
+                          {cfg.label}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleStatusCycle(ps.song_id).catch(console.error);
+                          }}
+                          aria-label={`Status: ${cfg.label}. Click to advance.`}
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
+                        >
+                          {cfg.label}
+                        </button>
+                      )}
                       {/* Remove */}
                       <button
                         type="button"

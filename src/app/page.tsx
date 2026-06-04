@@ -408,17 +408,26 @@ export default function HomePage() {
                     )}
                   </div>
 
-                  {/* Status badge — cycles to next status on click */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      updateStatus(song.id, nextStatus(song.status));
-                    }}
-                    aria-label={`Status: ${cfg.label}. Click to advance.`}
-                    className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
-                  >
-                    {cfg.label}
-                  </button>
+                  {/* Status badge — read-only in band mode (computed by trigger), cycles in personal mode */}
+                  {bandContext.type === 'band' ? (
+                    <span
+                      title="Band status is computed from all members"
+                      className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current opacity-75 cursor-default ${cfg.bgColor} ${cfg.textColor}`}
+                    >
+                      {cfg.label}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateStatus(song.id, nextStatus(song.status));
+                      }}
+                      aria-label={`Status: ${cfg.label}. Click to advance.`}
+                      className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
+                    >
+                      {cfg.label}
+                    </button>
+                  )}
 
                   {/* Edit button */}
                   <button

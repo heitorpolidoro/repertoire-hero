@@ -46,11 +46,13 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
 
   updateStatus: async (id: string, status: SongStatus) => {
     const bandId = useBandContextStore.getState().bandId()
+    // Band status is computed by DB trigger (MIN across members) — read-only in band mode.
+    if (bandId) return
     set((state) => ({
       songs: state.songs.map((s) => (s.id === id ? { ...s, status } : s)),
     }))
     try {
-      await updateSongStatus(id, status, bandId)
+      await updateSongStatus(id, status)
     } catch (error) {
       await get().loadSongs()
       throw error
