@@ -1,5 +1,7 @@
 import { betterAuth } from 'better-auth'
 import { Pool } from 'pg'
+import bcrypt from 'bcryptjs'
+import { hashPassword, verifyPassword } from '@better-auth/utils/password'
 
 const pool = new Pool({
   connectionString: process.env.BETTER_AUTH_DATABASE_URL ?? process.env.DATABASE_URL!,
@@ -14,6 +16,17 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
+    password: {
+      // New accounts use scrypt (Better Auth default).
+      hash: hashPassword,
+      // Verify supports both scrypt (new) and bcrypt (migrated GoTrue users).
+      verify: async ({ hash, password }) => {
+        if (hash.startsWith('$2a$') || hash.startsWith('$2b$')) {
+          return bcrypt.compare(password, hash)
+        }
+        return verifyPassword(hash, password)
+      },
+    },
   },
   databaseHooks: {
     user: {
