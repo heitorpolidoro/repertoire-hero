@@ -8,9 +8,8 @@
  * and deletes all created resources in afterAll.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { vi } from 'vitest'
-import { createClient as createOriginalClient } from '@supabase/supabase-js'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
 import {
   getRepertoire,
   addSongToRepertoire,
@@ -25,67 +24,30 @@ import {
 } from '../songs'
 import type { SongStatus } from '@/types/database'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+const skip = !SERVICE_ROLE_KEY
 
-const skip = !SERVICE_ROLE_KEY || !ANON_KEY
-
-// Create a single shared client instance that we control and sign in with
-const mockTestClient = createOriginalClient(SUPABASE_URL, ANON_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
-
-// Mock '@/lib/supabase/client' to return our shared client
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => mockTestClient,
-}))
+const admin = createAdminTestClient()
 
 describe.skipIf(skip)('songs service integration tests', () => {
-  const admin = createOriginalClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-
   // Unique suffix so parallel runs don't collide
   const suffix = Date.now()
-  const TEST_USER = {
-    email: `test-songs-${suffix}@example.com`,
-    password: 'password123',
-  }
+  const TEST_USER = { email: `test-songs-${suffix}@example.com` }
 
   let userId: string
   const createdGlobalSongIds = new Set<string>()
 
   beforeAll(async () => {
-    // 1. Create a temporary test user
-    const { data: { user }, error: userError } = await admin.auth.admin.createUser({
-      email: TEST_USER.email,
-      password: TEST_USER.password,
-      email_confirm: true,
-    })
-    expect(userError).toBeNull()
-    userId = user!.id
-
-    // 2. Sign in the mockTestClient as this user
-    const { error: signInError } = await mockTestClient.auth.signInWithPassword(TEST_USER)
-    expect(signInError).toBeNull()
+    userId = await createTestUser(admin, { email: TEST_USER.email })
   })
 
   afterAll(async () => {
-    // Sign out client
-    await mockTestClient.auth.signOut()
-
     if (userId) {
-      // 1. Delete repertoire entries for our test user
-      await admin.from('repertoire').delete().eq('user_id', userId)
-
-      // 2. Delete global songs contributed by this user or created during the tests
+      // Global songs first (contributor_id FK), then deleteTestUser cascades the rest
       if (createdGlobalSongIds.size > 0) {
         await admin.from('global_songs').delete().in('id', Array.from(createdGlobalSongIds))
       }
-
-      // 3. Delete the test user
-      await admin.auth.admin.deleteUser(userId)
+      await deleteTestUser(admin, userId)
     }
   })
 

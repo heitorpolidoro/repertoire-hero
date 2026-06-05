@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createClient as createOriginalClient } from "@supabase/supabase-js";
-import { vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { createAdminTestClient, createTestUser, deleteTestUser } from "./test-helpers";
 import {
   getBands,
   getBandWithMembers,
@@ -15,15 +14,10 @@ import {
   getBandMembers,
 } from "../bands";
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-
 const skip = !SERVICE_ROLE_KEY;
 
-const adminClient = createOriginalClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const adminClient = createAdminTestClient();
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => adminClient,
@@ -31,14 +25,8 @@ vi.mock("@/lib/supabase/admin", () => ({
 
 describe.skipIf(skip)("bands integration tests", () => {
   const suffix = Date.now();
-  const USER_A = {
-    email: `test-band-a-${suffix}@example.com`,
-    password: "password123",
-  };
-  const USER_B = {
-    email: `test-band-b-${suffix}@example.com`,
-    password: "password123",
-  };
+  const USER_A = { email: `test-band-a-${suffix}@example.com` };
+  const USER_B = { email: `test-band-b-${suffix}@example.com` };
 
   let userAId: string;
   let userBId: string;
@@ -47,34 +35,13 @@ describe.skipIf(skip)("bands integration tests", () => {
   let playlistId: string;
 
   beforeAll(async () => {
-    // Create User A
-    const {
-      data: { user: userA },
-      error: errA,
-    } = await adminClient.auth.admin.createUser({
-      email: USER_A.email,
-      password: USER_A.password,
-      email_confirm: true,
-    });
-    expect(errA).toBeNull();
-    userAId = userA!.id;
-
-    // Create User B
-    const {
-      data: { user: userB },
-      error: errB,
-    } = await adminClient.auth.admin.createUser({
-      email: USER_B.email,
-      password: USER_B.password,
-      email_confirm: true,
-    });
-    expect(errB).toBeNull();
-    userBId = userB!.id;
+    userAId = await createTestUser(adminClient, { email: USER_A.email });
+    userBId = await createTestUser(adminClient, { email: USER_B.email });
   });
 
   afterAll(async () => {
-    if (userAId) await adminClient.auth.admin.deleteUser(userAId);
-    if (userBId) await adminClient.auth.admin.deleteUser(userBId);
+    if (userAId) await deleteTestUser(adminClient, userAId);
+    if (userBId) await deleteTestUser(adminClient, userBId);
   });
 
   it("should allow User A to create a band", async () => {

@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
   },
   serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],
+  // Next.js 16 defaults to Turbopack. Our webpack config only suppresses
+  // OpenTelemetry warnings (irrelevant in Turbopack). Declaring an empty
+  // turbopack config silences the "webpack config without turbopack config" error.
+  turbopack: {},
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Suppress "Critical dependency" warnings from OpenTelemetry packages

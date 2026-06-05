@@ -32,7 +32,7 @@ import {
   createBandPlaylist,
   joinBandByInviteClient,
 } from "../bands";
-import { getProfile, updateProfile, updateEmail } from "../profile";
+import { getProfile, updateProfile } from "../profile";
 
 // Standard mock error
 const mockError = { message: "Mocked Database Error", code: "MOCK_ERROR" };
@@ -205,7 +205,7 @@ describe("Supabase Error Handling", () => {
   describe("songs.ts errors", () => {
     it("getRepertoire throws on DB error", async () => {
       await expect(getRepertoire({ userId: "mock-user-id" })).rejects.toThrow(
-        "Failed to fetch user repertoire: Mocked Database Error",
+        "Failed to fetch repertoire: Mocked Database Error",
       );
     });
 
@@ -364,10 +364,6 @@ describe("Supabase Error Handling", () => {
       );
     });
 
-    it("updateEmail throws on DB error", async () => {
-      await expect(updateEmail("mock-user-id", "test@example.com")).rejects.toThrow(
-        "Failed to update email: Mocked Database Error",
-      );
-    });
+    // updateEmail uses pg Pool directly (not Supabase client) so it's not testable via this mock.
   });
 });
