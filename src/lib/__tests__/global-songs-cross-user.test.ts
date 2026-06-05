@@ -14,6 +14,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createClient } from '@supabase/supabase-js'
+import { createAdminTestClient, createTestUserWithGoTrue, deleteTestUserWithGoTrue } from './test-helpers'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
@@ -22,9 +23,7 @@ const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 const skip = !SERVICE_ROLE_KEY || !ANON_KEY
 
 describe.skipIf(skip)('global_songs cross-user visibility', () => {
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
+  const admin = createAdminTestClient()
 
   // Unique suffix so parallel runs don't collide
   const suffix = Date.now()
@@ -42,23 +41,9 @@ describe.skipIf(skip)('global_songs cross-user visibility', () => {
   let insertedSongId: string
 
   beforeAll(async () => {
-    // Create User A
-    const { data: { user: a }, error: errA } = await admin.auth.admin.createUser({
-      email: USER_A.email,
-      password: USER_A.password,
-      email_confirm: true,
-    })
-    expect(errA).toBeNull()
-    userAId = a!.id
-
-    // Create User B
-    const { data: { user: b }, error: errB } = await admin.auth.admin.createUser({
-      email: USER_B.email,
-      password: USER_B.password,
-      email_confirm: true,
-    })
-    expect(errB).toBeNull()
-    userBId = b!.id
+    // Create in GoTrue (for signInWithPassword) + Better Auth tables (for FK constraints)
+    ;({ userId: userAId } = await createTestUserWithGoTrue(admin, { email: USER_A.email, password: USER_A.password }))
+    ;({ userId: userBId } = await createTestUserWithGoTrue(admin, { email: USER_B.email, password: USER_B.password }))
 
     // Insert a test song attributed to User A (bypass RLS via service role)
     const { data, error: insertError } = await admin
@@ -75,8 +60,8 @@ describe.skipIf(skip)('global_songs cross-user visibility', () => {
     if (insertedSongId) {
       await admin.from('global_songs').delete().eq('id', insertedSongId)
     }
-    if (userAId) await admin.auth.admin.deleteUser(userAId)
-    if (userBId) await admin.auth.admin.deleteUser(userBId)
+    if (userAId) await deleteTestUserWithGoTrue(admin, userAId)
+    if (userBId) await deleteTestUserWithGoTrue(admin, userBId)
   })
 
   it('User B can find a song contributed by User A', async () => {

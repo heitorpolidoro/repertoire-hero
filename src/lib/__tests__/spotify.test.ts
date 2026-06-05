@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import { createClient as createOriginalClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
+import { createAdminTestClient, createTestUserWithGoTrue, deleteTestUserWithGoTrue } from './test-helpers'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
@@ -13,9 +14,7 @@ const mockTestClient = createOriginalClient(SUPABASE_URL, ANON_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
-const admin = createOriginalClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
+const admin = createAdminTestClient()
 
 let activeServerClient: any = mockTestClient
 
@@ -81,23 +80,9 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
     await admin.from('global_songs').delete().ilike('title', 'Song A')
     await admin.from('global_songs').delete().ilike('title', 'Song B')
 
-    // 1. Create User A
-    const { data: { user: a }, error: errA } = await admin.auth.admin.createUser({
-      email: USER_A.email,
-      password: USER_A.password,
-      email_confirm: true,
-    })
-    if (errA) throw errA
-    userAId = a!.id
-
-    // 2. Create User B
-    const { data: { user: b }, error: errB } = await admin.auth.admin.createUser({
-      email: USER_B.email,
-      password: USER_B.password,
-      email_confirm: true,
-    })
-    if (errB) throw errB
-    userBId = b!.id
+    // Create in GoTrue (for signInWithPassword) + Better Auth tables (for FK constraints)
+    ;({ userId: userAId } = await createTestUserWithGoTrue(admin, { email: USER_A.email, password: USER_A.password }))
+    ;({ userId: userBId } = await createTestUserWithGoTrue(admin, { email: USER_B.email, password: USER_B.password }))
 
     // 3. Create a Band
     const { data: band, error: bandErr } = await admin
@@ -164,13 +149,9 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       await admin.from('global_songs').delete().in('id', createdSongs)
     }
 
-    // 6. Delete users
-    if (userAId) {
-      await admin.auth.admin.deleteUser(userAId)
-    }
-    if (userBId) {
-      await admin.auth.admin.deleteUser(userBId)
-    }
+    // 6. Delete users (Better Auth + GoTrue)
+    if (userAId) await deleteTestUserWithGoTrue(admin, userAId)
+    if (userBId) await deleteTestUserWithGoTrue(admin, userBId)
   })
 
   beforeEach(() => {

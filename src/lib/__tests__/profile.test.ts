@@ -1,52 +1,32 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createClient as createOriginalClient } from '@supabase/supabase-js'
-import { vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
 import { getProfile, updateProfile } from '../profile'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+const skip = !SERVICE_ROLE_KEY
 
-const skip = !SERVICE_ROLE_KEY || !ANON_KEY
+const adminTestClient = createAdminTestClient()
 
-const testClient = createOriginalClient(SUPABASE_URL, ANON_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false }
-})
-
+// profile.ts calls createAdminClient() internally — replace with service role client
+// so queries bypass RLS without needing a GoTrue session.
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => testClient
+  createAdminClient: () => adminTestClient,
 }))
 
 describe.skipIf(skip)('profile integration tests', () => {
-  const admin = createOriginalClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
-
   const suffix = Date.now()
-  const USER = { email: `test-profile-${suffix}@example.com`, password: 'password123' }
+  const USER = { email: `test-profile-${suffix}@example.com` }
   let userId: string
 
   beforeAll(async () => {
-    // Create temporary test user
-    const { data: { user }, error } = await admin.auth.admin.createUser({
+    userId = await createTestUser(adminTestClient, {
       email: USER.email,
-      password: USER.password,
-      email_confirm: true,
-      user_metadata: { full_name: 'Original Test Name' }
+      name: 'Original Test Name',
     })
-    expect(error).toBeNull()
-    userId = user!.id
-
-    // Sign in as the test user on our mocked shared client
-    const { error: signInError } = await testClient.auth.signInWithPassword(USER)
-    expect(signInError).toBeNull()
   })
 
   afterAll(async () => {
-    await testClient.auth.signOut()
-    if (userId) {
-      await admin.auth.admin.deleteUser(userId)
-    }
+    if (userId) await deleteTestUser(adminTestClient, userId)
   })
 
   it('getProfile retrieves the current user profile', async () => {
@@ -61,7 +41,7 @@ describe.skipIf(skip)('profile integration tests', () => {
     await updateProfile(userId, {
       full_name: 'Updated Test Name',
       primary_instrument: 'Guitar',
-      instruments: ['Guitar', 'Bass']
+      instruments: ['Guitar', 'Bass'],
     })
 
     const profile = await getProfile(userId)
@@ -70,6 +50,4 @@ describe.skipIf(skip)('profile integration tests', () => {
     expect(profile!.primary_instrument).toBe('Guitar')
     expect(profile!.instruments).toEqual(['Guitar', 'Bass'])
   })
-
-
 })
