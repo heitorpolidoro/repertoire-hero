@@ -18,7 +18,10 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 
 /** Service-role client that bypasses RLS — use as the mock for createAdminClient(). */
 export function createAdminTestClient(): SupabaseClient {
-  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  // Fallback to a placeholder so createClient() doesn't throw during module
+  // loading when SERVICE_ROLE_KEY is absent. Tests are skipped anyway via
+  // describe.skipIf(!SERVICE_ROLE_KEY).
+  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY || 'placeholder-key', {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 }
@@ -52,7 +55,8 @@ export async function createTestUser(
  * Deletes a test user. CASCADE on profiles/repertoire/etc. handles all child rows.
  */
 export async function deleteTestUser(admin: SupabaseClient, userId: string): Promise<void> {
-  await admin.from('user').delete().eq('id', userId)
+  const { error } = await admin.from('user').delete().eq('id', userId)
+  if (error) throw new Error(`deleteTestUser failed: ${error.message}`)
 }
 
 /**
@@ -86,8 +90,14 @@ export async function createTestUserWithGoTrue(
 
 /**
  * Deletes a test user from both GoTrue and Better Auth tables.
+ * Both deletions are attempted even if one fails.
  */
 export async function deleteTestUserWithGoTrue(admin: SupabaseClient, userId: string): Promise<void> {
-  await admin.from('user').delete().eq('id', userId)
-  await admin.auth.admin.deleteUser(userId)
+  const { error: dbError } = await admin.from('user').delete().eq('id', userId)
+  const { error: authError } = await admin.auth.admin.deleteUser(userId)
+  if (dbError || authError) {
+    throw new Error(
+      `deleteTestUserWithGoTrue failed. DB: ${dbError?.message ?? 'ok'}, Auth: ${authError?.message ?? 'ok'}`
+    )
+  }
 }
