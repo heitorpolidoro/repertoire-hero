@@ -1,17 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createClient as createOriginalClient } from '@supabase/supabase-js'
-import { vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-
-// Integration tests require a running Supabase instance with service role access.
 const skip = !SERVICE_ROLE_KEY
 
-// Admin (service role) client — bypasses RLS, mirrors what createAdminClient() does in production.
-const adminTestClient = createOriginalClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
+const adminTestClient = createAdminTestClient()
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => adminTestClient,
@@ -29,13 +22,9 @@ import {
 } from '../playlists'
 
 describe.skipIf(skip)('playlists integration tests', () => {
-  const admin = createOriginalClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-
   const suffix = Date.now()
-  const USER_A = { email: `test-playlist-a-${suffix}@example.com`, password: 'password123' }
-  const USER_B = { email: `test-playlist-b-${suffix}@example.com`, password: 'password123' }
+  const USER_A = { email: `test-playlist-a-${suffix}@example.com` }
+  const USER_B = { email: `test-playlist-b-${suffix}@example.com` }
 
   let userAId: string
   let userBId: string
@@ -46,62 +35,28 @@ describe.skipIf(skip)('playlists integration tests', () => {
   const createdBands: string[] = []
 
   beforeAll(async () => {
-    // Create User A
-    const { data: { user: a }, error: errA } = await admin.auth.admin.createUser({
-      email: USER_A.email,
-      password: USER_A.password,
-      email_confirm: true,
-    })
-    if (errA) throw errA
-    userAId = a!.id
-
-    // Create User B
-    const { data: { user: b }, error: errB } = await admin.auth.admin.createUser({
-      email: USER_B.email,
-      password: USER_B.password,
-      email_confirm: true,
-    })
-    if (errB) throw errB
-    userBId = b!.id
+    userAId = await createTestUser(adminTestClient, { email: USER_A.email })
+    userBId = await createTestUser(adminTestClient, { email: USER_B.email })
   })
 
   afterAll(async () => {
-    // 1. Delete playlist songs links to avoid constraint errors
+    // Delete playlist songs + playlists (before user cascade)
     if (createdPlaylists.length > 0) {
-      await admin.from('playlist_songs').delete().in('playlist_id', createdPlaylists)
-      // 2. Delete playlists
-      await admin.from('playlists').delete().in('id', createdPlaylists)
+      await adminTestClient.from('playlist_songs').delete().in('playlist_id', createdPlaylists)
+      await adminTestClient.from('playlists').delete().in('id', createdPlaylists)
     }
-
-    // Delete band memberships and bands
+    // Delete bands
     if (createdBands.length > 0) {
-      await admin.from('band_members').delete().in('band_id', createdBands)
-      await admin.from('bands').delete().in('id', createdBands)
+      await adminTestClient.from('band_members').delete().in('band_id', createdBands)
+      await adminTestClient.from('bands').delete().in('id', createdBands)
     }
-
-    // Delete repertoires created for users or bands
-    if (userAId) {
-      await admin.from('repertoire').delete().eq('user_id', userAId)
-    }
-    if (userBId) {
-      await admin.from('repertoire').delete().eq('user_id', userBId)
-    }
-    if (createdBands.length > 0) {
-      await admin.from('repertoire').delete().in('band_id', createdBands)
-    }
-
-    // 3. Delete global songs
+    // Delete global songs
     if (createdSongs.length > 0) {
-      await admin.from('global_songs').delete().in('id', createdSongs)
+      await adminTestClient.from('global_songs').delete().in('id', createdSongs)
     }
-
-    // 4. Delete temporary users
-    if (userAId) {
-      await admin.auth.admin.deleteUser(userAId)
-    }
-    if (userBId) {
-      await admin.auth.admin.deleteUser(userBId)
-    }
+    // Delete users (CASCADE handles repertoire, profiles, etc.)
+    if (userAId) await deleteTestUser(adminTestClient, userAId)
+    if (userBId) await deleteTestUser(adminTestClient, userBId)
   })
 
   it('should successfully create, read, update, and delete a playlist', async () => {
@@ -167,7 +122,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
   it('should successfully add and remove songs to/from a playlist', async () => {
     // 1. Create a test global song first via admin
     const songTitle = `Playlist Song ${suffix}`
-    const { data: songData, error: songError } = await admin
+    const { data: songData, error: songError } = await adminTestClient
       .from('global_songs')
       .insert({
         title: songTitle,
@@ -230,7 +185,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
   it('should autogest repertoire and propagate to members when adding song to a band playlist (UC3.2)', async () => {
     // 1. Create a band using admin client to set it up easily
-    const { data: band, error: bandError } = await admin
+    const { data: band, error: bandError } = await adminTestClient
       .from('bands')
       .insert({
         name: `Band Playlists ${suffix}`,
@@ -244,14 +199,14 @@ describe.skipIf(skip)('playlists integration tests', () => {
     createdBands.push(bandId)
 
     // 2. Add User A (admin) and User B (member) to the band members list
-    const { error: membersError } = await admin.from('band_members').insert([
+    const { error: membersError } = await adminTestClient.from('band_members').insert([
       { band_id: bandId, user_id: userAId, role: 'admin' },
       { band_id: bandId, user_id: userBId, role: 'member' }
     ])
     if (membersError) throw membersError
 
     // 3. Create a band playlist using admin
-    const { data: playlist, error: playlistError } = await admin
+    const { data: playlist, error: playlistError } = await adminTestClient
       .from('playlists')
       .insert({
         band_id: bandId,
@@ -266,7 +221,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
     // 4. Create a global song
     const songTitle = `Autogest Song ${suffix}`
-    const { data: song, error: songError } = await admin
+    const { data: song, error: songError } = await adminTestClient
       .from('global_songs')
       .insert({
         title: songTitle,
@@ -284,7 +239,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
     // 6. Verify that:
     // A. The song was added to the band repertoire
-    const { data: bandRep, error: bandRepErr } = await admin
+    const { data: bandRep, error: bandRepErr } = await adminTestClient
       .from('repertoire')
       .select('id')
       .eq('band_id', bandId)
@@ -295,7 +250,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(bandRep).not.toBeNull()
 
     // B. The song was automatically propagated to User A's personal repertoire
-    const { data: userARep, error: userARepErr } = await admin
+    const { data: userARep, error: userARepErr } = await adminTestClient
       .from('repertoire')
       .select('id')
       .eq('user_id', userAId)
@@ -306,7 +261,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(userARep).not.toBeNull()
 
     // C. The song was NOT automatically propagated to User B's personal repertoire (correct for client-side RLS)
-    const { data: userBRep, error: userBRepErr } = await admin
+    const { data: userBRep, error: userBRepErr } = await adminTestClient
       .from('repertoire')
       .select('id')
       .eq('user_id', userBId)
