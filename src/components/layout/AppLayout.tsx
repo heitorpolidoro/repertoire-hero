@@ -220,10 +220,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
           ))}
         </ul>
 
-        <div className={`px-3 py-4 border-t ${borderColor}`}>
-          <p className={`px-3 pb-3 text-xs ${isBandMode ? 'text-purple-500' : 'text-gray-500'}`}>
+        {process.env.NEXT_PUBLIC_APP_VERSION && (
+          <p className={`px-6 pb-2 text-xs ${isBandMode ? 'text-purple-500' : 'text-gray-500'}`}>
             v{process.env.NEXT_PUBLIC_APP_VERSION}
           </p>
+        )}
+
+        <div className={`px-3 py-4 border-t ${borderColor}`}>
           <button
             type="button"
             onClick={handleSignOut}
