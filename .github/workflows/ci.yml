@@ -14,25 +14,3 @@ jobs:
       sonar-node-version: "24.x"
       database: supabase
     secrets: inherit # pragma: allowlist secret
-
-  # TEMPORARY: migrate Supabase auth.users → Better Auth tables.
-  # Remove this job once all users are confirmed migrated.
-  migrate-users:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.x'
-          cache: 'npm'
-      - run: npm ci
-      - name: Run auth migration (idempotent)
-        run: npx tsx scripts/migrate-auth.ts
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
