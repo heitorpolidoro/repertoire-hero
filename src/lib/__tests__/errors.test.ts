@@ -33,9 +33,20 @@ import {
   joinBandByInviteClient,
 } from "../bands";
 import { getProfile, updateProfile } from "../profile";
+import { query } from "@/lib/db";
+
+// Mock the db module
+vi.mock("@/lib/db", () => {
+  return {
+    query: vi.fn(),
+    pool: {
+      query: vi.fn(),
+    },
+  };
+});
 
 // Standard mock error
-const mockError = { message: "Mocked Database Error", code: "MOCK_ERROR" };
+const mockError = new Error("Mocked Database Error");
 
 let failLookup = true;
 let failRepertoireCheck = true;
@@ -49,99 +60,65 @@ beforeEach(() => {
   failRepertoireInsert = true;
   failCountCheck = true;
   failPlaylistLookup = true;
+
+  vi.mocked(query).mockReset();
+  vi.mocked(query).mockImplementation(async (sql: string, params?: any[]) => {
+    const normalizedSql = sql.toLowerCase();
+
+    // Support transaction commands without throwing
+    if (
+      normalizedSql.trim() === "begin" ||
+      normalizedSql.trim() === "commit" ||
+      normalizedSql.trim() === "rollback"
+    ) {
+      return { rowCount: 0, rows: [] };
+    }
+
+    // 1. playlists lookup
+    if (normalizedSql.includes("from playlists")) {
+      if (failPlaylistLookup) {
+        throw mockError;
+      }
+      return { rowCount: 1, rows: [{ user_id: "mock-user-id", band_id: null }] };
+    }
+
+    // 2. global_songs lookup
+    if (normalizedSql.includes("from global_songs")) {
+      if (failLookup) {
+        throw mockError;
+      }
+      return { rowCount: 1, rows: [{ id: "global-song-id" }] };
+    }
+
+    // 3. repertoire lookup/check
+    if (normalizedSql.includes("from repertoire")) {
+      if (failRepertoireCheck) {
+        throw mockError;
+      }
+      // Return 0 rows when check succeeds so that it proceeds to insert, or 1 row if we wanted it to be a duplicate
+      return { rowCount: 0, rows: [] };
+    }
+
+    // 4. repertoire insert
+    if (normalizedSql.includes("insert into repertoire")) {
+      if (failRepertoireInsert) {
+        throw mockError;
+      }
+      return { rowCount: 1, rows: [{ id: "repertoire-id" }] };
+    }
+
+    // 5. playlist_songs count
+    if (normalizedSql.includes("count(*) as count from playlist_songs")) {
+      if (failCountCheck) {
+        throw mockError;
+      }
+      return { rowCount: 1, rows: [{ count: 0 }] };
+    }
+
+    // Default: throw Mocked Database Error for all other queries
+    throw mockError;
+  });
 });
-
-// Chainable mock builder that resolves as a promise with the mock error
-const createChainableMock = () => {
-  let currentTable = "";
-
-  const mock: any = {
-    auth: {
-      getUser: () =>
-        Promise.resolve({
-          data: { user: { id: "mock-user-id" } },
-          error: null,
-        }),
-      updateUser: () => Promise.resolve({ data: {}, error: mockError }),
-      admin: {
-        updateUserById: () => Promise.resolve({ data: {}, error: mockError }),
-      },
-    },
-    from: (table: string) => {
-      currentTable = table;
-      return mock;
-    },
-    select: (columns: string, options?: any) => {
-      if (options?.count === "exact") {
-        return {
-          eq: () => {
-            if (failCountCheck) {
-              return Promise.resolve({ count: null, error: mockError });
-            }
-            return Promise.resolve({ count: 5, error: null });
-          },
-        };
-      }
-      return mock;
-    },
-    order: () => mock,
-    eq: () => mock,
-    single: () => {
-      if (currentTable === "global_songs") {
-        return Promise.resolve({ data: { id: "global-song-id" }, error: null });
-      }
-      if (currentTable === "repertoire") {
-        if (failRepertoireInsert) {
-          return Promise.resolve({ data: null, error: mockError });
-        }
-        return Promise.resolve({ data: { id: "repertoire-id" }, error: null });
-      }
-      if (currentTable === "playlists") {
-        if (failPlaylistLookup) {
-          return Promise.resolve({ data: null, error: mockError });
-        }
-        return Promise.resolve({ data: { user_id: "mock-user-id", band_id: null }, error: null });
-      }
-      return Promise.resolve({ data: null, error: mockError });
-    },
-    insert: () => mock,
-    update: () => mock,
-    delete: () => mock,
-    rpc: () => Promise.resolve({ data: null, error: mockError }),
-    limit: () => mock,
-    ilike: () => mock,
-    or: () => mock,
-    maybeSingle: () => {
-      if (currentTable === "global_songs") {
-        if (failLookup) {
-          return Promise.resolve({ data: null, error: mockError });
-        }
-        return Promise.resolve({ data: null, error: null });
-      }
-      if (currentTable === "repertoire") {
-        if (failRepertoireCheck) {
-          return Promise.resolve({ data: null, error: mockError });
-        }
-        return Promise.resolve({ data: null, error: null });
-      }
-      return Promise.resolve({ data: null, error: mockError });
-    },
-    then: (resolve: any) => {
-      if (currentTable === "repertoire" && !failRepertoireInsert) {
-        resolve({ data: [{ id: "repertoire-id" }], error: null, count: null });
-      } else {
-        resolve({ data: null, error: mockError, count: null });
-      }
-    },
-  };
-  return mock;
-};
-
-const mockClient = createChainableMock();
-
-vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => mockClient,
-}));
 
 describe("Supabase Error Handling", () => {
   describe("playlists.ts errors", () => {
@@ -174,7 +151,7 @@ describe("Supabase Error Handling", () => {
       failRepertoireCheck = false;
       failRepertoireInsert = false;
       await expect(addSongToPlaylist("mock-user-id", "1", "2")).rejects.toThrow(
-        "Failed to count playlist songs: Mocked Database Error",
+        "Failed to add song to playlist: Mocked Database Error",
       );
     });
 
@@ -255,7 +232,7 @@ describe("Supabase Error Handling", () => {
       const mockEntry = { id: "1", user_id: null, band_id: null, song_id: "song-1", personal_key: null, status: "unknown" as const, tags: [], last_practiced: null };
       const mockData = { title: "Test", artist: "Artist", key: null, status: "unknown" as const, tags: [], links: [] };
       await expect(updateSong({ userId: "mock-user-id" }, mockEntry, mockData)).rejects.toThrow(
-        "Failed to update global song: Mocked Database Error",
+        "Failed to update song: Mocked Database Error",
       );
     });
 
@@ -263,7 +240,7 @@ describe("Supabase Error Handling", () => {
       failLookup = true;
       await expect(
         createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
-      ).rejects.toThrow("Failed to look up global song: Mocked Database Error");
+      ).rejects.toThrow("Failed to create and add song: Mocked Database Error");
     });
 
     it("createAndAddSong throws on DB error during duplicate check", async () => {
@@ -273,7 +250,7 @@ describe("Supabase Error Handling", () => {
       await expect(
         createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
       ).rejects.toThrow(
-        "Failed to check existing repertoire entry: Mocked Database Error",
+        "Failed to create and add song: Mocked Database Error",
       );
     });
 
@@ -284,7 +261,7 @@ describe("Supabase Error Handling", () => {
       await expect(
         createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
       ).rejects.toThrow(
-        "Song created but failed to add to repertoire: Mocked Database Error",
+        "Failed to create and add song: Mocked Database Error",
       );
     });
   });

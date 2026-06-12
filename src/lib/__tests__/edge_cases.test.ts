@@ -11,106 +11,135 @@ import {
   updateSong,
 } from '../songs'
 import { getBands, getBandPlaylists } from '../bands'
+import { query } from '@/lib/db'
+
+// Mock the db module
+vi.mock('@/lib/db', () => {
+  return {
+    query: vi.fn(),
+    pool: {
+      query: vi.fn(),
+    },
+  }
+})
 
 // Standard mock error
-const mockError = { message: 'Mocked Database Error', code: 'MOCK_ERROR' }
+const mockError = new Error('Mocked Database Error')
 
-let mockUser: any = { id: 'mock-user-id' }
 let mockCount: number | null = null
 let mockSelectError: any = null
 let mockInsertError: any = null
 let mockData: any = null
 let failRepertoireUpdate = false
+let playlistsReturnBandId = false
 
-const createChainableMock = () => {
-  let currentTable = ''
+beforeEach(() => {
+  mockCount = null
+  mockSelectError = null
+  mockInsertError = null
+  mockData = null
+  failRepertoireUpdate = false
+  playlistsReturnBandId = false
 
-  const mock: any = {
-    auth: {
-      getUser: () => Promise.resolve({ data: { user: mockUser }, error: null }),
-      updateUser: () => Promise.resolve({ data: {}, error: mockError }),
-    },
-    from: (table: string) => {
-      currentTable = table
-      return mock
-    },
-    select: (columns: string, options?: any) => {
-      if (options?.count === 'exact') {
-        return {
-          eq: () => Promise.resolve({ count: mockCount, error: null }),
-        }
-      }
-      return mock
-    },
-    order: () => mock,
-    eq: () => mock,
-    single: () => {
-      if (mockSelectError) {
-        return Promise.resolve({ data: null, error: mockSelectError })
-      }
-      if (currentTable === 'global_songs') {
-        if (mockInsertError) {
-          return Promise.resolve({ data: null, error: mockInsertError })
-        }
-        return Promise.resolve({ data: { id: 'global-song-id' }, error: null })
-      }
-      return Promise.resolve({ data: { id: 'repertoire-id' }, error: null })
-    },
-    insert: () => mock,
-    update: () => mock,
-    delete: () => mock,
-    limit: () => mock,
-    ilike: () => mock,
-    or: () => mock,
-    maybeSingle: () => {
-      if (currentTable === 'global_songs') {
-        return Promise.resolve({ data: null, error: null }) // no existing song
-      }
-      if (currentTable === 'repertoire') {
-        return Promise.resolve({ data: null, error: null }) // no existing entry
-      }
-      return Promise.resolve({ data: null, error: null })
-    },
-    then: (resolve: any) => {
-      if (currentTable === 'global_songs') {
-        resolve({ data: mockData, error: null, count: null })
-      } else if (currentTable === 'repertoire' && failRepertoireUpdate) {
-        resolve({ data: null, error: mockError, count: null })
-      } else {
-        resolve({ data: mockData, error: mockSelectError, count: null })
-      }
-    },
-  }
-  return mock
-}
+  vi.mocked(query).mockReset()
+  vi.mocked(query).mockImplementation(async (sql: string, params?: any[]) => {
+    const normalizedSql = sql.toLowerCase()
 
-const mockClient = createChainableMock()
+    // Support transaction commands without throwing
+    if (
+      normalizedSql.trim() === 'begin' ||
+      normalizedSql.trim() === 'commit' ||
+      normalizedSql.trim() === 'rollback'
+    ) {
+      return { rowCount: 0, rows: [] }
+    }
 
-vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => mockClient,
-}))
+    if (mockSelectError) {
+      throw mockSelectError
+    }
+
+    // 1. playlists lookup
+    if (normalizedSql.includes('from playlists')) {
+      if (normalizedSql.includes('band_id =') || normalizedSql.includes('band_id = $')) {
+        return { rowCount: mockData ? mockData.length : 0, rows: mockData || [] }
+      }
+      return {
+        rowCount: 1,
+        rows: [{ user_id: 'mock-user-id', band_id: playlistsReturnBandId ? 'band-id' : null }],
+      }
+    }
+
+    // 2. repertoire lookup/check
+    if (normalizedSql.includes('from repertoire')) {
+      // Return 1 row so it skips repertoire insert by default, or empty if mockData is []
+      if (mockData && mockData.length === 0) {
+        return { rowCount: 0, rows: [] }
+      }
+      return { rowCount: 1, rows: [{ id: 'repertoire-id' }] }
+    }
+
+    // 3. playlist_songs count
+    if (normalizedSql.includes('count(*) as count from playlist_songs')) {
+      return { rowCount: 1, rows: [{ count: mockCount ?? 0 }] }
+    }
+
+    // 4. insert into playlist_songs
+    if (normalizedSql.includes('insert into playlist_songs')) {
+      return { rowCount: 1, rows: [{ id: 'playlist-song-id' }] }
+    }
+
+    // 5. profiles / getProfile
+    if (normalizedSql.includes('from profiles')) {
+      return { rowCount: mockData ? 1 : 0, rows: mockData ? [mockData] : [] }
+    }
+
+    // 6. global_songs lookup
+    if (normalizedSql.includes('from global_songs')) {
+      return { rowCount: 0, rows: [] }
+    }
+
+    // 7. insert into global_songs
+    if (normalizedSql.includes('insert into global_songs')) {
+      if (mockInsertError) {
+        throw mockInsertError
+      }
+      return { rowCount: 1, rows: [{ id: 'global-song-id' }] }
+    }
+
+    // 8. update repertoire
+    if (normalizedSql.includes('update repertoire')) {
+      if (failRepertoireUpdate) {
+        throw mockError
+      }
+      return { rowCount: mockData ? mockData.length : 0, rows: mockData || [] }
+    }
+
+    // 9. update global_songs
+    if (normalizedSql.includes('update global_songs')) {
+      return { rowCount: 1, rows: [{ id: 'global-song-id' }] }
+    }
+
+    // 10. getBands / getBandPlaylists
+    if (normalizedSql.includes('from bands') || normalizedSql.includes('from band_members')) {
+      return { rowCount: mockData ? mockData.length : 0, rows: mockData || [] }
+    }
+
+    // Default: throw mockError or return empty
+    return { rowCount: 0, rows: [] }
+  })
+})
 
 describe('Supabase Edge Cases', () => {
-  beforeEach(() => {
-    mockUser = { id: 'mock-user-id' }
-    mockCount = null
-    mockSelectError = null
-    mockInsertError = null
-    mockData = null
-    failRepertoireUpdate = false
-  })
-
   describe('playlists.ts edge cases', () => {
     it('addSongToPlaylist handles null count in playlist_songs', async () => {
       mockCount = null
-      // We expect it to succeed with count defaulting to 0, and then trying to insert (which will succeed in mock)
       await expect(addSongToPlaylist('mock-user-id', '1', '2')).resolves.not.toThrow()
     })
   })
 
   describe('profile.ts edge cases', () => {
     it('getProfile returns null if row not found (PGRST116)', async () => {
-      mockSelectError = { message: 'Row not found', code: 'PGRST116' }
+      mockSelectError = null
       const profile = await getProfile('mock-user-id')
       expect(profile).toBeNull()
     })
@@ -119,7 +148,7 @@ describe('Supabase Edge Cases', () => {
   describe('songs.ts edge cases', () => {
     it('createAndAddSong throws on global song insertion error', async () => {
       mockInsertError = mockError
-      await expect(createAndAddSong({ userId: 'mock-user-id' }, { title: 'Song', artist: 'Artist' })).rejects.toThrow('Failed to create global song: Mocked Database Error')
+      await expect(createAndAddSong({ userId: 'mock-user-id' }, { title: 'Song', artist: 'Artist' })).rejects.toThrow('Failed to create and add song: Mocked Database Error')
     })
 
     it('updateSongStatus throws not found if data is empty', async () => {
@@ -156,7 +185,7 @@ describe('Supabase Edge Cases', () => {
         status: 'learning' as const,
       }
 
-      await expect(updateSong({ userId: 'mock-user-id' }, mockEntry, mockUpdateData)).rejects.toThrow('Failed to update repertoire entry: Mocked Database Error')
+      await expect(updateSong({ userId: 'mock-user-id' }, mockEntry, mockUpdateData)).rejects.toThrow('Failed to update song: Mocked Database Error')
     })
   })
 

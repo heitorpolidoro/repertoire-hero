@@ -1,7 +1,7 @@
 'use server'
 
 import { getRequiredUserId } from '@/lib/auth-session'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { query } from '@/lib/db'
 import { STATUS_ORDER } from '@/lib/statusConfig'
 import {
   getRepertoire,
@@ -53,8 +53,8 @@ export async function removeSongAction(repertoireId: string, bandId?: string | n
   return removeSongFromRepertoire(owner, repertoireId)
 }
 
-export async function searchGlobalSongsAction(query: string) {
-  return searchGlobalSongs(query)
+export async function searchGlobalSongsAction(queryStr: string) {
+  return searchGlobalSongs(queryStr)
 }
 
 export async function getSongEntryAction(repertoireId: string, bandId?: string | null) {
@@ -108,38 +108,31 @@ export async function getBandWeakestStatusAction(
 ): Promise<Record<string, SongStatus>> {
   if (!songIds.length) return {}
 
-  const supabase = createAdminClient()
+  try {
+    const sql = `
+      SELECT song_id, status, user_id
+      FROM repertoire
+      WHERE song_id = ANY($1::uuid[])
+        AND user_id IS NOT NULL
+        AND user_id IN (
+          SELECT user_id FROM band_members WHERE band_id = $2
+        )
+    `
+    const { rows } = await query(sql, [songIds, bandId])
 
-  // Fetch all personal repertoire rows for band members matching the song list
-  const { data, error } = await supabase
-    .from('repertoire')
-    .select('song_id, status, user_id')
-    .in('song_id', songIds)
-    .not('user_id', 'is', null)
-    .in(
-      'user_id',
-      // subquery-style: fetch band member user_ids first
-      (
-        await supabase
-          .from('band_members')
-          .select('user_id')
-          .eq('band_id', bandId)
-      ).data?.map((m) => m.user_id) ?? [],
-    )
-
-  if (error || !data) return {}
-
-  // For each song, pick the minimum status across all members
-  const result: Record<string, SongStatus> = {}
-  for (const row of data) {
-    const current = result[row.song_id]
-    if (!current) {
-      result[row.song_id] = row.status as SongStatus
-    } else {
-      const currentIdx = STATUS_ORDER.indexOf(current)
-      const newIdx = STATUS_ORDER.indexOf(row.status as SongStatus)
-      if (newIdx < currentIdx) result[row.song_id] = row.status as SongStatus
+    const result: Record<string, SongStatus> = {}
+    for (const row of rows) {
+      const current = result[row.song_id]
+      if (!current) {
+        result[row.song_id] = row.status as SongStatus
+      } else {
+        const currentIdx = STATUS_ORDER.indexOf(current)
+        const newIdx = STATUS_ORDER.indexOf(row.status as SongStatus)
+        if (newIdx < currentIdx) result[row.song_id] = row.status as SongStatus
+      }
     }
+    return result
+  } catch {
+    return {}
   }
-  return result
 }

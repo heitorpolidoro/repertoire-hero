@@ -1,103 +1,250 @@
-/**
- * Shared test helpers for integration tests.
- *
- * Problem solved: tests previously created users via GoTrue (admin.auth.admin.createUser),
- * but the app now uses Better Auth whose tables ("user", profiles) are independent of
- * auth.users. Any FK that references profiles.id → "user".id would fail for GoTrue-only users.
- *
- * Solution: insert directly into Better Auth tables using the service role client.
- * All lib functions (songs, playlists, bands, profile) use createAdminClient() internally,
- * which bypasses RLS — so no GoTrue auth session is needed in tests.
- */
-
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
+import { query } from '@/lib/db'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+class SupabaseMockChain {
+  private table: string
+  private action: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private actionData: any = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private conditions: { type: 'eq' | 'in' | 'ilike'; col: string; val: any }[] = []
+  private singleResult = false
+  private maybeSingleResult = false
 
-/** Service-role client that bypasses RLS — use as the mock for createAdminClient(). */
-export function createAdminTestClient(): SupabaseClient {
-  // Fallback to a placeholder so createClient() doesn't throw during module
-  // loading when SERVICE_ROLE_KEY is absent. Tests are skipped anyway via
-  // describe.skipIf(!SERVICE_ROLE_KEY).
-  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY || 'placeholder-key', {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
+  constructor(table: string) {
+    this.table = table
+  }
+
+  select(fields?: string) {
+    if (this.action === 'select') {
+      this.action = 'select'
+    }
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  insert(data: any) {
+    this.action = 'insert'
+    this.actionData = data
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  update(data: any) {
+    this.action = 'update'
+    this.actionData = data
+    return this
+  }
+
+  delete() {
+    this.action = 'delete'
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  upsert(data: any) {
+    this.action = 'upsert'
+    this.actionData = data
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  eq(col: string, val: any) {
+    this.conditions.push({ type: 'eq', col, val })
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  in(col: string, val: any) {
+    this.conditions.push({ type: 'in', col, val })
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ilike(col: string, val: any) {
+    this.conditions.push({ type: 'ilike', col, val })
+    return this
+  }
+
+  single() {
+    this.singleResult = true
+    return this
+  }
+
+  maybeSingle() {
+    this.maybeSingleResult = true
+    return this
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
+    try {
+      let sql = ''
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const params: any[] = []
+      let paramIndex = 1
+
+      if (this.action === 'select') {
+        sql = `SELECT * FROM "${this.table}"`
+      } else if (this.action === 'insert') {
+        const isArray = Array.isArray(this.actionData)
+        const rows = isArray ? this.actionData : [this.actionData]
+        const keys = Object.keys(rows[0])
+        const columns = keys.map(k => `"${k}"`).join(', ')
+        const valuesClauses = rows.map((row: any) => {
+          return '(' + keys.map(k => {
+            const val = row[k]
+            params.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val)
+            return `$${paramIndex++}`
+          }).join(', ') + ')'
+        }).join(', ')
+
+        sql = `INSERT INTO "${this.table}" (${columns}) VALUES ${valuesClauses} RETURNING *`
+      } else if (this.action === 'update') {
+        const keys = Object.keys(this.actionData)
+        const setClauses = keys.map(k => {
+          const val = this.actionData[k]
+          params.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val)
+          return `"${k}" = $${paramIndex++}`
+        }).join(', ')
+        sql = `UPDATE "${this.table}" SET ${setClauses}`
+      } else if (this.action === 'delete') {
+        sql = `DELETE FROM "${this.table}"`
+      } else if (this.action === 'upsert') {
+        const isArray = Array.isArray(this.actionData)
+        const rows = isArray ? this.actionData : [this.actionData]
+        const keys = Object.keys(rows[0])
+        const columns = keys.map(k => `"${k}"`).join(', ')
+        const valuesClauses = rows.map((row: any) => {
+          return '(' + keys.map(k => {
+            const val = row[k]
+            params.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val)
+            return `$${paramIndex++}`
+          }).join(', ') + ')'
+        }).join(', ')
+
+        let conflictTarget = ''
+        if (this.table === 'repertoire') {
+          const hasUserId = keys.includes('user_id')
+          if (hasUserId) {
+            conflictTarget = '(user_id, song_id) WHERE user_id IS NOT NULL'
+          } else {
+            conflictTarget = '(band_id, song_id) WHERE band_id IS NOT NULL'
+          }
+        } else if (this.table === 'spotify_tokens') {
+          conflictTarget = '(user_id)'
+        } else {
+          conflictTarget = '(id)'
+        }
+
+        const updateKeys = keys.filter(k => k !== 'id' && k !== 'user_id' && k !== 'band_id' && k !== 'song_id')
+        let updateClause = 'DO NOTHING'
+        if (updateKeys.length > 0) {
+          updateClause = 'DO UPDATE SET ' + updateKeys.map(k => `"${k}" = EXCLUDED."${k}"`).join(', ')
+        }
+
+        sql = `INSERT INTO "${this.table}" (${columns}) VALUES ${valuesClauses} ON CONFLICT ${conflictTarget} ${updateClause} RETURNING *`
+      }
+
+      const whereClauses: string[] = []
+      for (const cond of this.conditions) {
+        if (cond.type === 'eq') {
+          if (cond.val === null) {
+            whereClauses.push(`"${cond.col}" IS NULL`)
+          } else {
+            params.push(cond.val)
+            whereClauses.push(`"${cond.col}" = $${paramIndex++}`)
+          }
+        } else if (cond.type === 'in') {
+          params.push(cond.val)
+          whereClauses.push(`"${cond.col}" = ANY($${paramIndex++})`)
+        } else if (cond.type === 'ilike') {
+          params.push(cond.val)
+          whereClauses.push(`"${cond.col}" ILIKE $${paramIndex++}`)
+        }
+      }
+
+      if (whereClauses.length > 0) {
+        sql += ` WHERE ${whereClauses.join(' AND ')}`
+      }
+
+      if (this.action === 'update' || this.action === 'delete') {
+        sql += ' RETURNING *'
+      }
+
+      const res = await query(sql, params)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let data: any = res.rows
+
+      if (this.singleResult) {
+        if (res.rowCount === 0) {
+          throw new Error('No rows found')
+        }
+        data = res.rows[0]
+      } else if (this.maybeSingleResult) {
+        data = res.rowCount === 0 ? null : res.rows[0]
+      }
+
+      const result = { data, error: null }
+      return onfulfilled ? onfulfilled(result) : result
+    } catch (err: any) {
+      const result = { data: null, error: { message: err.message, code: err.code } }
+      return onfulfilled ? onfulfilled(result) : result
+    }
+  }
 }
 
-/**
- * Creates a test user by inserting directly into Better Auth tables ("user" + profiles).
- * Returns the new user's UUID, which is valid for FK references anywhere in the schema.
- */
+class SupabaseMockClient {
+  auth = {
+    signInWithPassword: async () => ({ data: { user: {} }, error: null }),
+    signOut: async () => ({ error: null }),
+    getUser: async () => ({ data: { user: null }, error: null }),
+    admin: {
+      createUser: async () => ({ data: { user: { id: randomUUID() } }, error: null }),
+      deleteUser: async () => ({ error: null }),
+    }
+  }
+
+  from(table: string) {
+    return new SupabaseMockChain(table)
+  }
+}
+
+const mockClient = new SupabaseMockClient()
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createAdminTestClient(): any {
+  return mockClient
+}
+
 export async function createTestUser(
-  admin: SupabaseClient,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
   { email, name = 'Test User' }: { email: string; name?: string },
 ): Promise<string> {
   const userId = randomUUID()
-
-  const { error: userError } = await admin
-    .from('user')
-    .insert({ id: userId, name, email, emailVerified: true })
-
-  if (userError) throw new Error(`createTestUser "user" insert: ${userError.message}`)
-
-  const { error: profileError } = await admin
-    .from('profiles')
-    .insert({ id: userId, email, full_name: name })
-
-  if (profileError) throw new Error(`createTestUser profiles insert: ${profileError.message}`)
-
+  await query('INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, true)', [userId, name, email])
+  await query('INSERT INTO profiles (id, email, full_name) VALUES ($1, $2, $3)', [userId, email, name])
   return userId
 }
 
-/**
- * Deletes a test user. CASCADE on profiles/repertoire/etc. handles all child rows.
- */
-export async function deleteTestUser(admin: SupabaseClient, userId: string): Promise<void> {
-  const { error } = await admin.from('user').delete().eq('id', userId)
-  if (error) throw new Error(`deleteTestUser failed: ${error.message}`)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function deleteTestUser(admin: any, userId: string): Promise<void> {
+  await query('DELETE FROM "user" WHERE id = $1', [userId])
 }
 
-/**
- * Creates a test user in BOTH GoTrue (auth.users) and Better Auth tables ("user" + profiles).
- * Use this when the test needs a real GoTrue auth session (e.g. RLS or signInWithPassword tests).
- */
 export async function createTestUserWithGoTrue(
-  admin: SupabaseClient,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
   { email, name = 'Test User', password = 'password123' }: { email: string; name?: string; password?: string },
 ): Promise<{ userId: string; password: string }> {
-  const { data: { user }, error } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  })
-  if (error) throw new Error(`createTestUserWithGoTrue GoTrue: ${error.message}`)
-  const userId = user!.id
-
-  const { error: userError } = await admin
-    .from('user')
-    .insert({ id: userId, name, email, emailVerified: true })
-  if (userError) throw new Error(`createTestUserWithGoTrue "user": ${userError.message}`)
-
-  const { error: profileError } = await admin
-    .from('profiles')
-    .insert({ id: userId, email, full_name: name })
-  if (profileError) throw new Error(`createTestUserWithGoTrue profiles: ${profileError.message}`)
-
+  const userId = randomUUID()
+  await query('INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, true)', [userId, name, email])
+  await query('INSERT INTO profiles (id, email, full_name) VALUES ($1, $2, $3)', [userId, email, name])
   return { userId, password }
 }
 
-/**
- * Deletes a test user from both GoTrue and Better Auth tables.
- * Both deletions are attempted even if one fails.
- */
-export async function deleteTestUserWithGoTrue(admin: SupabaseClient, userId: string): Promise<void> {
-  const { error: dbError } = await admin.from('user').delete().eq('id', userId)
-  const { error: authError } = await admin.auth.admin.deleteUser(userId)
-  if (dbError || authError) {
-    throw new Error(
-      `deleteTestUserWithGoTrue failed. DB: ${dbError?.message ?? 'ok'}, Auth: ${authError?.message ?? 'ok'}`
-    )
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function deleteTestUserWithGoTrue(admin: any, userId: string): Promise<void> {
+  await query('DELETE FROM "user" WHERE id = $1', [userId])
 }

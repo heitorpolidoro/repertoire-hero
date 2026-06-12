@@ -4,33 +4,39 @@ import path from 'path'
 import fs from 'fs'
 
 // Manually load .env.local to ensure environment variables are present during testing
-try {
-  const envLocalPath = path.resolve(__dirname, '.env.local')
-  if (fs.existsSync(envLocalPath)) {
-    const content = fs.readFileSync(envLocalPath, 'utf8')
-    content.split('\n').forEach(line => {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) return
-      const idx = trimmed.indexOf('=')
-      if (idx > 0) {
-        const key = trimmed.substring(0, idx).trim()
-        let val = trimmed.substring(idx + 1).trim()
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.substring(1, val.length - 1)
+const loadEnv = (fileName: string) => {
+  try {
+    const envPath = path.resolve(__dirname, fileName)
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8')
+      content.split('\n').forEach(line => {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) return
+        const idx = trimmed.indexOf('=')
+        if (idx > 0) {
+          const key = trimmed.substring(0, idx).trim()
+          let val = trimmed.substring(idx + 1).trim()
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.substring(1, val.length - 1)
+          }
+          process.env[key] = val
         }
-        process.env[key] = val
-      }
-    })
+      })
+    }
+  } catch (e) {
+    console.error(`Failed to load ${fileName}`, e)
   }
-} catch (e) {
-  console.error('Failed to load .env.local', e)
 }
+
+loadEnv('.env.local')
+loadEnv('.env.development.local')
 
 export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node',
     globals: false,
+    setupFiles: ['./src/lib/__tests__/setup.ts'],
     coverage: {
       exclude: [
         '**/node_modules/**',

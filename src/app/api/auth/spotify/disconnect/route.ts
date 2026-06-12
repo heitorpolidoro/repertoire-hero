@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { query } from '@/lib/db'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
 
@@ -15,15 +15,10 @@ export async function POST(): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized', code: 401 }, { status: 401 })
   }
 
-  const supabase = createAdminClient()
-
-  const { error } = await supabase
-    .from('spotify_tokens')
-    .delete()
-    .eq('user_id', userId)
-
-  if (error) {
-    logger.error('Failed to disconnect Spotify', new Error(error.message))
+  try {
+    await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userId])
+  } catch (error) {
+    logger.error('Failed to disconnect Spotify', error as Error)
     return NextResponse.json({ error: 'Failed to disconnect Spotify', code: 500 }, { status: 500 })
   }
 

@@ -1,40 +1,40 @@
-import { createAdminClient } from '@/lib/supabase/admin'
+import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import type { Playlist } from '@/types/database'
 
-// ---------------------------------------------------------------------------
-// All functions use the Supabase admin client (service role).
-// Since RLS is bypassed, all user-specific queries must explicitly filter
-// by user_id using the userId parameter passed from the caller.
-// ---------------------------------------------------------------------------
-
 export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
-  const supabase = createAdminClient()
+  try {
+    // Fetch band IDs the user belongs to
+    const bandIdsResult = await query('SELECT band_id FROM band_members WHERE user_id = $1', [userId])
+    const bandIds = bandIdsResult.rows.map((m) => m.band_id)
 
-  // Fetch band IDs the user belongs to
-  const { data: memberships } = await supabase
-    .from('band_members')
-    .select('band_id')
-    .eq('user_id', userId)
-
-  const bandIds = memberships?.map((m) => m.band_id) ?? []
-
-  // Personal playlists + playlists of every band the user is a member of
-  const query = supabase
-    .from('playlists')
-    .select('*, songs:playlist_songs(id, song:global_songs(duration_seconds)), band:bands(id, name)')
-    .order('created_at', { ascending: false })
-
-  const { data, error } = bandIds.length > 0
-    ? await query.or(`user_id.eq.${userId},band_id.in.(${bandIds.join(',')})`)
-    : await query.eq('user_id', userId)
-
-  if (error) {
-    logger.error('Failed to fetch playlists', new Error(error.message), { code: error.code })
-    throw new Error(`Failed to fetch playlists: ${error.message}`)
+    // Personal playlists + playlists of every band the user is a member of
+    const sql = `
+      SELECT p.*,
+             COALESCE(
+               (SELECT json_agg(json_build_object(
+                 'id', ps.id,
+                 'song', json_build_object('duration_seconds', s.duration_seconds)
+               ))
+                FROM playlist_songs ps
+                JOIN global_songs s ON ps.song_id = s.id
+                WHERE ps.playlist_id = p.id
+               ), '[]'::json) as songs,
+             (SELECT json_build_object('id', b.id, 'name', b.name)
+              FROM bands b
+              WHERE b.id = p.band_id
+             ) as band
+      FROM playlists p
+      WHERE p.user_id = $1 OR p.band_id = ANY($2::uuid[])
+      ORDER BY p.created_at DESC
+    `
+    const res = await query(sql, [userId, bandIds])
+    return res.rows as Playlist[]
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch playlists', err)
+    throw new Error(`Failed to fetch playlists: ${err.message}`)
   }
-
-  return data as Playlist[]
 }
 
 export async function createPlaylist(
@@ -44,24 +44,19 @@ export async function createPlaylist(
     description?: string
   }
 ): Promise<Playlist> {
-  const supabase = createAdminClient()
-
-  const { data: playlist, error } = await supabase
-    .from('playlists')
-    .insert({
-      user_id: userId,
-      name: data.name,
-      description: data.description ?? null,
-    })
-    .select('*')
-    .single()
-
-  if (error) {
-    logger.error('Failed to create playlist', new Error(error.message), { code: error.code })
-    throw new Error(`Failed to create playlist: ${error.message}`)
+  const sql = `
+    INSERT INTO playlists (user_id, name, description)
+    VALUES ($1, $2, $3)
+    RETURNING *
+  `
+  try {
+    const res = await query(sql, [userId, data.name, data.description ?? null])
+    return res.rows[0] as Playlist
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to create playlist', err)
+    throw new Error(`Failed to create playlist: ${err.message}`)
   }
-
-  return playlist as Playlist
 }
 
 export async function updatePlaylist(
@@ -73,212 +68,151 @@ export async function updatePlaylist(
     tags?: string[]
   }
 ): Promise<void> {
-  const supabase = createAdminClient()
+  try {
+    // Dynamically build the update query to avoid overwriting omitted fields
+    const setClauses: string[] = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const values: any[] = []
+    let paramIndex = 1
 
-  const { error } = await supabase
-    .from('playlists')
-    .update({ ...data, updated_at: new Date().toISOString() })
-    .eq('id', id)
+    if (data.name !== undefined) {
+      setClauses.push(`name = $${paramIndex++}`)
+      values.push(data.name)
+    }
+    if (data.description !== undefined) {
+      setClauses.push(`description = $${paramIndex++}`)
+      values.push(data.description)
+    }
+    if (data.sync_with_spotify !== undefined) {
+      setClauses.push(`sync_with_spotify = $${paramIndex++}`)
+      values.push(data.sync_with_spotify)
+    }
+    if (data.tags !== undefined) {
+      setClauses.push(`tags = $${paramIndex++}`)
+      values.push(data.tags)
+    }
 
-  if (error) {
-    logger.error('Failed to update playlist', new Error(error.message), { code: error.code, id })
-    throw new Error(`Failed to update playlist: ${error.message}`)
+    setClauses.push(`updated_at = now()`)
+
+    if (setClauses.length === 1) return // Only updated_at
+
+    const sql = `
+      UPDATE playlists
+      SET ${setClauses.join(', ')}
+      WHERE id = $${paramIndex}
+    `
+    values.push(id)
+
+    const res = await query(sql, values)
+    if (res.rowCount === 0) throw new Error('Playlist not found')
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update playlist', err, { id })
+    throw new Error(`Failed to update playlist: ${err.message}`)
   }
 }
 
 export async function deletePlaylist(id: string): Promise<void> {
-  const supabase = createAdminClient()
-
-  const { error } = await supabase.from('playlists').delete().eq('id', id)
-
-  if (error) {
-    logger.error('Failed to delete playlist', new Error(error.message), { code: error.code, id })
-    throw new Error(`Failed to delete playlist: ${error.message}`)
+  const sql = `DELETE FROM playlists WHERE id = $1`
+  try {
+    const res = await query(sql, [id])
+    if (res.rowCount === 0) throw new Error('Playlist not found')
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to delete playlist', err, { id })
+    throw new Error(`Failed to delete playlist: ${err.message}`)
   }
 }
 
 export async function addSongToPlaylist(userId: string, playlistId: string, songId: string): Promise<void> {
-  const supabase = createAdminClient()
+  try {
+    // 1. Fetch playlist context
+    const playlistRes = await query('SELECT user_id, band_id FROM playlists WHERE id = $1', [playlistId])
+    if (playlistRes.rowCount === 0) throw new Error('Playlist not found')
+    const playlist = playlistRes.rows[0]
 
-  // 1. Fetch playlist to know the owner context (user vs. band)
-  const { data: playlist, error: playlistError } = await supabase
-    .from('playlists')
-    .select('user_id, band_id')
-    .eq('id', playlistId)
-    .single()
+    // 2. Ensure song exists in the appropriate repertoire
+    if (playlist.band_id) {
+      // Band Playlist: Ensure in band repertoire
+      const bandRep = await query('SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2', [playlist.band_id, songId])
+      if (bandRep.rowCount === 0) {
+        await query('INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, \'unknown\')', [playlist.band_id, songId])
+      }
 
-  if (playlistError) {
-    logger.error('Failed to fetch playlist owner context', new Error(playlistError.message), {
-      code: playlistError.code,
-      playlistId,
-    })
-    throw new Error(`Failed to fetch playlist context: ${playlistError.message}`)
-  }
-
-  // 2. Ensure song exists in the appropriate repertoire (UC3.2)
-  if (playlist.band_id) {
-    // Band Playlist: Add to band repertoire
-    const { data: bandRep, error: bandRepError } = await supabase
-      .from('repertoire')
-      .select('id')
-      .eq('band_id', playlist.band_id)
-      .eq('song_id', songId)
-      .maybeSingle()
-
-    if (bandRepError) {
-      logger.error('Failed to check band repertoire', new Error(bandRepError.message), {
-        bandId: playlist.band_id,
-        songId,
-      })
-      throw new Error(`Failed to check band repertoire: ${bandRepError.message}`)
-    }
-
-    if (!bandRep) {
-      const { error: insertBandError } = await supabase
-        .from('repertoire')
-        .insert({
-          band_id: playlist.band_id,
-          song_id: songId,
-          status: 'unknown',
-        })
-
-      if (insertBandError) {
-        logger.error('Failed to add song to band repertoire', new Error(insertBandError.message), {
-          bandId: playlist.band_id,
-          songId,
-        })
-        throw new Error(`Failed to add song to band repertoire: ${insertBandError.message}`)
+      // Ensure in current user repertoire
+      const userRep = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [userId, songId])
+      if (userRep.rowCount === 0) {
+        await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [userId, songId])
+      }
+    } else if (playlist.user_id) {
+      // Personal Playlist: Ensure in personal repertoire
+      const userRep = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [playlist.user_id, songId])
+      if (userRep.rowCount === 0) {
+        await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [playlist.user_id, songId])
       }
     }
 
-    // Add to current user's personal repertoire as well
-    const { data: userRep, error: userRepError } = await supabase
-      .from('repertoire')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('song_id', songId)
-      .maybeSingle()
+    // 3. Count existing songs for position
+    const countRes = await query('SELECT COUNT(*) as count FROM playlist_songs WHERE playlist_id = $1', [playlistId])
+    const count = Number(countRes.rows[0].count)
+    const position = count + 1
 
-    if (!userRep && !userRepError) {
-      const { error: insertUserError } = await supabase
-        .from('repertoire')
-        .insert({
-          user_id: userId,
-          song_id: songId,
-          status: 'unknown',
-        })
-
-      if (insertUserError) {
-        logger.error('Failed to add song to creator personal repertoire', new Error(insertUserError.message), {
-          userId,
-          songId,
-        })
-      }
-    }
-  } else if (playlist.user_id) {
-    // Personal Playlist: Add to personal repertoire
-    const { data: userRep, error: userRepError } = await supabase
-      .from('repertoire')
-      .select('id')
-      .eq('user_id', playlist.user_id)
-      .eq('song_id', songId)
-      .maybeSingle()
-
-    if (userRepError) {
-      logger.error('Failed to check user repertoire', new Error(userRepError.message), {
-        userId: playlist.user_id,
-        songId,
-      })
-      throw new Error(`Failed to check user repertoire: ${userRepError.message}`)
-    }
-
-    if (!userRep) {
-      const { error: insertUserError } = await supabase
-        .from('repertoire')
-        .insert({
-          user_id: playlist.user_id,
-          song_id: songId,
-          status: 'unknown',
-        })
-
-      if (insertUserError) {
-        logger.error('Failed to add song to user repertoire', new Error(insertUserError.message), {
-          userId: playlist.user_id,
-          songId,
-        })
-        throw new Error(`Failed to add song to user repertoire: ${insertUserError.message}`)
-      }
-    }
-  }
-
-  // 3. Determine the next position by counting existing songs.
-  const { count, error: countError } = await supabase
-    .from('playlist_songs')
-    .select('id', { count: 'exact', head: true })
-    .eq('playlist_id', playlistId)
-
-  if (countError) {
-    logger.error('Failed to count playlist songs', new Error(countError.message), {
-      code: countError.code,
-      playlistId,
-    })
-    throw new Error(`Failed to count playlist songs: ${countError.message}`)
-  }
-
-  const position = (count ?? 0) + 1
-
-  const { error } = await supabase.from('playlist_songs').insert({
-    playlist_id: playlistId,
-    song_id: songId,
-    position,
-  })
-
-  if (error) {
-    logger.error('Failed to add song to playlist', new Error(error.message), {
-      code: error.code,
-      playlistId,
-      songId,
-    })
-    throw new Error(`Failed to add song to playlist: ${error.message}`)
+    // 4. Insert into playlist_songs
+    await query('INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, $3)', [playlistId, songId, position])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to add song to playlist', err, { playlistId, songId })
+    throw new Error(`Failed to add song to playlist: ${err.message}`)
   }
 }
 
 export async function removeSongFromPlaylist(playlistId: string, songId: string): Promise<void> {
-  const supabase = createAdminClient()
-
-  const { error } = await supabase
-    .from('playlist_songs')
-    .delete()
-    .eq('playlist_id', playlistId)
-    .eq('song_id', songId)
-
-  if (error) {
-    logger.error('Failed to remove song from playlist', new Error(error.message), {
-      code: error.code,
-      playlistId,
-      songId,
-    })
-    throw new Error(`Failed to remove song from playlist: ${error.message}`)
+  const sql = `DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2`
+  try {
+    await query(sql, [playlistId, songId])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to remove song from playlist', err, { playlistId, songId })
+    throw new Error(`Failed to remove song from playlist: ${err.message}`)
   }
 }
 
 export async function getPlaylistWithSongs(id: string): Promise<Playlist | null> {
-  const supabase = createAdminClient()
-
-  const { data, error } = await supabase
-    .from('playlists')
-    .select('*, songs:playlist_songs(*, song:global_songs(*))')
-    .eq('id', id)
-    .single()
-
-  if (error) {
-    if (error.code === 'PGRST116') return null // row not found
-    logger.error('Failed to fetch playlist with songs', new Error(error.message), {
-      code: error.code,
-      id,
-    })
-    throw new Error(`Failed to fetch playlist with songs: ${error.message}`)
+  const sql = `
+    SELECT p.*,
+           COALESCE(
+             (SELECT json_agg(json_build_object(
+               'id', ps.id,
+               'playlist_id', ps.playlist_id,
+               'song_id', ps.song_id,
+               'position', ps.position,
+               'song', json_build_object(
+                 'id', s.id,
+                 'contributor_id', s.contributor_id,
+                 'title', s.title,
+                 'artist', s.artist,
+                 'album', s.album,
+                 'standard_key', s.standard_key,
+                 'cover_url', s.cover_url,
+                 'duration_seconds', s.duration_seconds,
+                 'links', s.links,
+                 'created_at', s.created_at
+               )
+             ) ORDER BY ps.position ASC)
+              FROM playlist_songs ps
+              JOIN global_songs s ON ps.song_id = s.id
+              WHERE ps.playlist_id = p.id
+             ), '[]'::json) as songs
+    FROM playlists p
+    WHERE p.id = $1
+  `
+  try {
+    const res = await query(sql, [id])
+    if (res.rowCount === 0) return null
+    return res.rows[0] as Playlist
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch playlist with songs', err, { id })
+    throw new Error(`Failed to fetch playlist with songs: ${err.message}`)
   }
-
-  return data as Playlist
 }

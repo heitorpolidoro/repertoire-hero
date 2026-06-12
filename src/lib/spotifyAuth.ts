@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/admin'
+import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
@@ -7,22 +7,27 @@ import { logger } from '@/lib/logger'
 // Returns null when the user has not connected their Spotify account.
 // ---------------------------------------------------------------------------
 export async function getSpotifyAccessToken(userId: string): Promise<string | null> {
-  const supabase = createAdminClient()
+  let tokenRow: {
+    access_token: string
+    refresh_token: string
+    expires_at: string
+  } | null = null
 
-  const { data: tokenRow, error } = await supabase
-    .from('spotify_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (error || !tokenRow) return null
+  try {
+    const res = await query('SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1 LIMIT 1', [userId])
+    if (res.rowCount === 0) return null
+    tokenRow = res.rows[0]
+  } catch (error) {
+    logger.error('Failed to query Spotify tokens', error as Error)
+    return null
+  }
 
   const expiresAt = new Date(tokenRow.expires_at).getTime()
   const nowWithBuffer = Date.now() + 60_000
 
   // Token is still valid — return it directly.
   if (expiresAt > nowWithBuffer) {
-    return tokenRow.access_token as string
+    return tokenRow.access_token
   }
 
   // Token has expired (or is about to) — refresh it.
@@ -36,45 +41,50 @@ export async function getSpotifyAccessToken(userId: string): Promise<string | nu
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
-  const refreshResponse = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: tokenRow.refresh_token as string,
-    }).toString(),
-  })
+  try {
+    const refreshResponse = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: tokenRow.refresh_token,
+      }).toString(),
+    })
 
-  if (!refreshResponse.ok) {
-    logger.error('Spotify token refresh failed', undefined, { status: refreshResponse.status })
+    if (!refreshResponse.ok) {
+      logger.error('Spotify token refresh failed', undefined, { status: refreshResponse.status })
+      return null
+    }
+
+    const refreshJson = (await refreshResponse.json()) as {
+      access_token: string
+      expires_in: number
+      refresh_token?: string
+    }
+
+    const newExpiresAt = new Date(Date.now() + refreshJson.expires_in * 1000).toISOString()
+
+    const updateSql = `
+      UPDATE spotify_tokens
+      SET access_token = $1,
+          refresh_token = $2,
+          expires_at = $3,
+          updated_at = now()
+      WHERE user_id = $4
+    `
+    await query(updateSql, [
+      refreshJson.access_token,
+      refreshJson.refresh_token ?? tokenRow.refresh_token,
+      newExpiresAt,
+      userId,
+    ])
+
+    return refreshJson.access_token
+  } catch (error) {
+    logger.error('Failed to refresh Spotify token', error as Error)
     return null
   }
-
-  const refreshJson = (await refreshResponse.json()) as {
-    access_token: string
-    expires_in: number
-    refresh_token?: string
-  }
-
-  const newExpiresAt = new Date(Date.now() + refreshJson.expires_in * 1000).toISOString()
-
-  const { error: updateError } = await supabase
-    .from('spotify_tokens')
-    .update({
-      access_token: refreshJson.access_token,
-      // Spotify may issue a new refresh token on each refresh — persist it when present.
-      refresh_token: refreshJson.refresh_token ?? tokenRow.refresh_token,
-      expires_at: newExpiresAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId)
-
-  if (updateError) {
-    logger.error('Failed to persist refreshed Spotify token', new Error(updateError.message))
-  }
-
-  return refreshJson.access_token
 }

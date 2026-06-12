@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { query } from '@/lib/db'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
 
@@ -114,27 +114,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'User is not authenticated', code: 401 }, { status: 401 })
   }
 
-  // --- Persist tokens in Supabase ---
-  const supabase = createAdminClient()
-
+  // --- Persist tokens in Database ---
   const expiresAt = new Date(Date.now() + tokenJson.expires_in * 1000).toISOString()
   const now = new Date().toISOString()
 
-  const { error: upsertError } = await supabase.from('spotify_tokens').upsert(
-    {
-      user_id: userId,
-      access_token: tokenJson.access_token,
-      refresh_token: tokenJson.refresh_token,
-      expires_at: expiresAt,
-      spotify_user_id: spotifyUserId,
-      created_at: now,
-      updated_at: now,
-    },
-    { onConflict: 'user_id' }
-  )
-
-  if (upsertError) {
-    logger.error('Failed to save Spotify tokens', new Error(upsertError.message))
+  try {
+    const upsertSql = `
+      INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at, spotify_user_id, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (user_id) DO UPDATE
+      SET access_token = EXCLUDED.access_token,
+          refresh_token = EXCLUDED.refresh_token,
+          expires_at = EXCLUDED.expires_at,
+          spotify_user_id = EXCLUDED.spotify_user_id,
+          updated_at = EXCLUDED.updated_at
+    `
+    await query(upsertSql, [
+      userId,
+      tokenJson.access_token,
+      tokenJson.refresh_token,
+      expiresAt,
+      spotifyUserId,
+      now,
+      now,
+    ])
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('Failed to save Spotify tokens', new Error(message))
     return NextResponse.json(
       { error: 'Failed to save Spotify connection', code: 500 },
       { status: 500 }

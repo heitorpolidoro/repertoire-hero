@@ -1,108 +1,201 @@
-import { createAdminClient } from '@/lib/supabase/admin'
+import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
 
 export type RepertoireOwner = { userId: string } | { bandId: string }
 
 export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[]> {
-  const supabase = createAdminClient()
-  const query = supabase.from('repertoire').select('*, song:global_songs(*)')
-  const filtered = 'bandId' in owner
-    ? query.eq('band_id', owner.bandId)
-    : query.eq('user_id', owner.userId)
-  const { data, error } = await filtered.order('id', { ascending: false })
-  if (error) {
-    logger.error('Failed to fetch repertoire', new Error(error.message), { code: error.code })
-    throw new Error(`Failed to fetch repertoire: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    SELECT r.*,
+           json_build_object(
+             'id', s.id,
+             'contributor_id', s.contributor_id,
+             'title', s.title,
+             'artist', s.artist,
+             'album', s.album,
+             'standard_key', s.standard_key,
+             'cover_url', s.cover_url,
+             'duration_seconds', s.duration_seconds,
+             'links', s.links,
+             'created_at', s.created_at
+           ) as song
+    FROM repertoire r
+    JOIN global_songs s ON r.song_id = s.id
+    WHERE ${isBand ? 'r.band_id = $1' : 'r.user_id = $1'}
+    ORDER BY r.id DESC
+  `
+  try {
+    const res = await query(sql, [id])
+    return res.rows as Repertoire[]
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch repertoire', err)
+    throw new Error(`Failed to fetch repertoire: ${err.message}`)
   }
-  return data as Repertoire[]
 }
 
 export async function addSongToRepertoire(owner: RepertoireOwner, songId: string): Promise<Repertoire> {
-  const supabase = createAdminClient()
-  const q = supabase.from('repertoire')
-  const inserted = 'bandId' in owner
-    ? q.insert({ song_id: songId, band_id: owner.bandId, status: 'unknown' as SongStatus })
-    : q.insert({ song_id: songId, user_id: owner.userId, status: 'unknown' as SongStatus })
-  const { data, error } = await inserted.select('*, song:global_songs(*)').single()
-  if (error) {
-    logger.error('Failed to add song to repertoire', new Error(error.message), { code: error.code })
-    throw new Error(`Failed to add song to repertoire: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const userId = isBand ? null : owner.userId
+  const bandId = isBand ? owner.bandId : null
+  const sql = `
+    WITH inserted AS (
+      INSERT INTO repertoire (song_id, user_id, band_id, status)
+      VALUES ($1, $2, $3, 'unknown')
+      RETURNING *
+    )
+    SELECT i.*,
+           json_build_object(
+             'id', s.id,
+             'contributor_id', s.contributor_id,
+             'title', s.title,
+             'artist', s.artist,
+             'album', s.album,
+             'standard_key', s.standard_key,
+             'cover_url', s.cover_url,
+             'duration_seconds', s.duration_seconds,
+             'links', s.links,
+             'created_at', s.created_at
+           ) as song
+    FROM inserted i
+    JOIN global_songs s ON i.song_id = s.id
+  `
+  try {
+    const res = await query(sql, [songId, userId, bandId])
+    return res.rows[0] as Repertoire
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to add song to repertoire', err)
+    throw new Error(`Failed to add song to repertoire: ${err.message}`)
   }
-  return data as Repertoire
 }
 
 export async function updateSongStatus(owner: RepertoireOwner, repertoireId: string, status: SongStatus): Promise<void> {
-  const supabase = createAdminClient()
-  const q = supabase.from('repertoire').update({ status }).eq('id', repertoireId)
-  const { data, error } = await ('bandId' in owner ? q.eq('band_id', owner.bandId) : q.eq('user_id', owner.userId)).select('id')
-  if (error) {
-    logger.error('Failed to update song status', new Error(error.message), { code: error.code, repertoireId, status })
-    throw new Error(`Failed to update song status: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    UPDATE repertoire
+    SET status = $1
+    WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}
+    RETURNING id
+  `
+  try {
+    const res = await query(sql, [status, repertoireId, id])
+    if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update song status', err, { repertoireId, status })
+    throw new Error(`Failed to update song status: ${err.message}`)
   }
-  if (!data || data.length === 0) throw new Error('Repertoire entry not found or access denied')
 }
 
 export async function updateSongTags(owner: RepertoireOwner, repertoireId: string, tags: string[]): Promise<void> {
-  const supabase = createAdminClient()
-  const q = supabase.from('repertoire').update({ tags }).eq('id', repertoireId)
-  const { data, error } = await ('bandId' in owner ? q.eq('band_id', owner.bandId) : q.eq('user_id', owner.userId)).select('id')
-  if (error) {
-    logger.error('Failed to update song tags', new Error(error.message), { code: error.code, repertoireId })
-    throw new Error(`Failed to update song tags: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    UPDATE repertoire
+    SET tags = $1
+    WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}
+    RETURNING id
+  `
+  try {
+    const res = await query(sql, [tags, repertoireId, id])
+    if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update song tags', err, { repertoireId })
+    throw new Error(`Failed to update song tags: ${err.message}`)
   }
-  if (!data || data.length === 0) throw new Error('Repertoire entry not found or access denied')
 }
 
 export async function updatePersonalKey(owner: RepertoireOwner, repertoireId: string, personalKey: string): Promise<void> {
-  const supabase = createAdminClient()
-  const q = supabase.from('repertoire').update({ personal_key: personalKey }).eq('id', repertoireId)
-  const { data, error } = await ('bandId' in owner ? q.eq('band_id', owner.bandId) : q.eq('user_id', owner.userId)).select('id')
-  if (error) {
-    logger.error('Failed to update personal key', new Error(error.message), { code: error.code, repertoireId })
-    throw new Error(`Failed to update personal key: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    UPDATE repertoire
+    SET personal_key = $1
+    WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}
+    RETURNING id
+  `
+  try {
+    const res = await query(sql, [personalKey, repertoireId, id])
+    if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update personal key', err, { repertoireId })
+    throw new Error(`Failed to update personal key: ${err.message}`)
   }
-  if (!data || data.length === 0) throw new Error('Repertoire entry not found or access denied')
 }
 
 export async function removeSongFromRepertoire(owner: RepertoireOwner, repertoireId: string): Promise<void> {
-  const supabase = createAdminClient()
-  const q = supabase.from('repertoire').delete().eq('id', repertoireId)
-  const { data, error } = await ('bandId' in owner ? q.eq('band_id', owner.bandId) : q.eq('user_id', owner.userId)).select('id')
-  if (error) {
-    logger.error('Failed to remove song from repertoire', new Error(error.message), { code: error.code, repertoireId })
-    throw new Error(`Failed to remove song from repertoire: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    DELETE FROM repertoire
+    WHERE id = $1 AND ${isBand ? 'band_id = $2' : 'user_id = $2'}
+    RETURNING id
+  `
+  try {
+    const res = await query(sql, [repertoireId, id])
+    if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to remove song from repertoire', err, { repertoireId })
+    throw new Error(`Failed to remove song from repertoire: ${err.message}`)
   }
-  if (!data || data.length === 0) throw new Error('Repertoire entry not found or access denied')
 }
 
-export async function searchGlobalSongs(query: string): Promise<GlobalSong[]> {
-  const supabase = createAdminClient()
-  const trimmed = query.trim()
+export async function searchGlobalSongs(queryStr: string): Promise<GlobalSong[]> {
+  const trimmed = queryStr.trim()
   if (!trimmed) return []
-  const { data, error } = await supabase
-    .from('global_songs')
-    .select('*')
-    .or(`title.ilike.%${trimmed}%,artist.ilike.%${trimmed}%`)
-    .order('title', { ascending: true })
-    .limit(20)
-  if (error) {
-    logger.error('Failed to search global songs', new Error(error.message), { code: error.code, query: trimmed })
-    throw new Error(`Failed to search global songs: ${error.message}`)
+  const sql = `
+    SELECT * FROM global_songs
+    WHERE title ILIKE $1 OR artist ILIKE $1
+    ORDER BY title ASC
+    LIMIT 20
+  `
+  try {
+    const res = await query(sql, [`%${trimmed}%`])
+    return res.rows as GlobalSong[]
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to search global songs', err, { query: trimmed })
+    throw new Error(`Failed to search global songs: ${err.message}`)
   }
-  return data as GlobalSong[]
 }
 
 export async function getSongEntry(owner: RepertoireOwner, repertoireId: string): Promise<Repertoire | null> {
-  const supabase = createAdminClient()
-  const q = supabase.from('repertoire').select('*, song:global_songs(*)').eq('id', repertoireId)
-  const { data, error } = await ('bandId' in owner ? q.eq('band_id', owner.bandId) : q.eq('user_id', owner.userId)).single()
-  if (error) {
-    if (error.code === 'PGRST116') return null
-    logger.error('Failed to fetch song entry', new Error(error.message), { code: error.code, repertoireId })
-    throw new Error(`Failed to fetch song entry: ${error.message}`)
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    SELECT r.*,
+           json_build_object(
+             'id', s.id,
+             'contributor_id', s.contributor_id,
+             'title', s.title,
+             'artist', s.artist,
+             'album', s.album,
+             'standard_key', s.standard_key,
+             'cover_url', s.cover_url,
+             'duration_seconds', s.duration_seconds,
+             'links', s.links,
+             'created_at', s.created_at
+           ) as song
+    FROM repertoire r
+    JOIN global_songs s ON r.song_id = s.id
+    WHERE r.id = $1 AND ${isBand ? 'r.band_id = $2' : 'r.user_id = $2'}
+  `
+  try {
+    const res = await query(sql, [repertoireId, id])
+    if (res.rowCount === 0) return null
+    return res.rows[0] as Repertoire
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch song entry', err, { repertoireId })
+    throw new Error(`Failed to fetch song entry: ${err.message}`)
   }
-  return data as Repertoire
 }
 
 export async function updateSong(
@@ -120,30 +213,55 @@ export async function updateSong(
     duration_seconds?: number | null
   }
 ): Promise<void> {
-  const supabase = createAdminClient()
-  const { error: songError } = await supabase
-    .from('global_songs')
-    .update({
-      title: data.title,
-      artist: data.artist,
-      album: data.album ?? null,
-      standard_key: data.key,
-      cover_url: data.cover_url ?? null,
-      duration_seconds: data.duration_seconds ?? null,
-      links: data.links,
-    })
-    .eq('id', entry.song_id)
-  if (songError) {
-    logger.error('Failed to update global song', new Error(songError.message), { code: songError.code, songId: entry.song_id })
-    throw new Error(`Failed to update global song: ${songError.message}`)
-  }
-  const updateQ = supabase.from('repertoire')
-    .update({ status: data.status, tags: data.tags, personal_key: data.key })
-    .eq('id', entry.id)
-  const { error: repertoireError } = await ('bandId' in owner ? updateQ.eq('band_id', owner.bandId) : updateQ.eq('user_id', owner.userId))
-  if (repertoireError) {
-    logger.error('Failed to update repertoire entry', new Error(repertoireError.message), { code: repertoireError.code, repertoireId: entry.id })
-    throw new Error(`Failed to update repertoire entry: ${repertoireError.message}`)
+  const isBand = 'bandId' in owner
+  const ownerId = isBand ? owner.bandId : owner.userId
+
+  try {
+    await query('BEGIN')
+
+    const songSql = `
+      UPDATE global_songs
+      SET title = $1,
+          artist = $2,
+          album = $3,
+          standard_key = $4,
+          cover_url = $5,
+          duration_seconds = $6,
+          links = $7
+      WHERE id = $8
+    `
+    await query(songSql, [
+      data.title,
+      data.artist,
+      data.album ?? null,
+      data.key,
+      data.cover_url ?? null,
+      data.duration_seconds ?? null,
+      JSON.stringify(data.links),
+      entry.song_id,
+    ])
+
+    const repSql = `
+      UPDATE repertoire
+      SET status = $1,
+          tags = $2,
+          personal_key = $3
+      WHERE id = $4 AND ${isBand ? 'band_id = $5' : 'user_id = $5'}
+    `
+    await query(repSql, [
+      data.status,
+      data.tags,
+      data.key,
+      entry.id,
+      ownerId,
+    ])
+
+    await query('COMMIT')
+  } catch (error) {
+    await query('ROLLBACK')
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update song', err, { songId: entry.song_id })
+    throw new Error(`Failed to update song: ${err.message}`)
   }
 }
 
@@ -159,62 +277,90 @@ export async function createAndAddSong(
     links?: SongLink[]
   }
 ): Promise<Repertoire> {
-  const supabase = createAdminClient()
+  const isBand = 'bandId' in owner
+  const ownerId = isBand ? owner.bandId : owner.userId
   const albumValue = data.album?.trim() ?? ''
 
-  let lookupQuery = supabase.from('global_songs').select('id').ilike('title', data.title)
-  if (albumValue) lookupQuery = lookupQuery.ilike('album', albumValue)
-  const { data: existing, error: lookupError } = await lookupQuery.maybeSingle()
-  if (lookupError) {
-    logger.error('Failed to look up global song', new Error(lookupError.message), { code: lookupError.code })
-    throw new Error(`Failed to look up global song: ${lookupError.message}`)
-  }
+  try {
+    let songId: string
 
-  let songId: string
-  if (existing) {
-    songId = existing.id
-  } else {
-    const { data: globalSong, error: songError } = await supabase
-      .from('global_songs')
-      .insert({
-        contributor_id: 'userId' in owner ? owner.userId : null,
-        title: data.title,
-        artist: data.artist,
-        album: albumValue || null,
-        standard_key: data.standard_key ?? null,
-        cover_url: data.cover_url ?? null,
-        duration_seconds: data.duration_seconds ?? null,
-        links: data.links ?? [],
-      })
-      .select('id')
-      .single()
-    if (songError) {
-      logger.error('Failed to create global song', new Error(songError.message), { code: songError.code })
-      throw new Error(`Failed to create global song: ${songError.message}`)
+    // Lookup song
+    let lookupSql = 'SELECT id FROM global_songs WHERE LOWER(title) = LOWER($1)'
+    const lookupParams = [data.title.trim()]
+    if (albumValue) {
+      lookupSql += ' AND LOWER(album) = LOWER($2)'
+      lookupParams.push(albumValue)
+    } else {
+      lookupSql += ' AND (album IS NULL OR album = \'\')'
     }
-    songId = globalSong.id
-  }
+    lookupSql += ' LIMIT 1'
 
-  const checkQ = supabase.from('repertoire').select('id').eq('song_id', songId)
-  const { data: existingEntry, error: entryLookupError } = await (
-    'bandId' in owner ? checkQ.eq('band_id', owner.bandId) : checkQ.eq('user_id', owner.userId)
-  ).maybeSingle()
-  if (entryLookupError) {
-    logger.error('Failed to check existing repertoire entry', new Error(entryLookupError.message), { code: entryLookupError.code, songId })
-    throw new Error(`Failed to check existing repertoire entry: ${entryLookupError.message}`)
-  }
-  if (existingEntry) throw new Error('Song already in your repertoire')
+    const lookupRes = await query(lookupSql, lookupParams)
 
-  const q2 = supabase.from('repertoire')
-  const inserted2 = 'bandId' in owner
-    ? q2.insert({ song_id: songId, band_id: owner.bandId, status: 'unknown' as SongStatus })
-    : q2.insert({ song_id: songId, user_id: owner.userId, status: 'unknown' as SongStatus })
-  const { data: repertoireEntry, error: repertoireError } = await inserted2
-    .select('*, song:global_songs(*)')
-    .single()
-  if (repertoireError) {
-    logger.error('Song created but failed to add to repertoire', new Error(repertoireError.message), { code: repertoireError.code, songId })
-    throw new Error(`Song created but failed to add to repertoire: ${repertoireError.message}`)
+    if (lookupRes.rowCount && lookupRes.rowCount > 0) {
+      songId = lookupRes.rows[0].id
+    } else {
+      // Insert song
+      const contributorId = isBand ? null : owner.userId
+      const insertSongSql = `
+        INSERT INTO global_songs (contributor_id, title, artist, album, standard_key, cover_url, duration_seconds, links)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id
+      `
+      const insertRes = await query(insertSongSql, [
+        contributorId,
+        data.title,
+        data.artist,
+        albumValue || null,
+        data.standard_key ?? null,
+        data.cover_url ?? null,
+        data.duration_seconds ?? null,
+        JSON.stringify(data.links ?? []),
+      ])
+      songId = insertRes.rows[0].id
+    }
+
+    // Check if already in repertoire
+    const checkSql = `
+      SELECT id FROM repertoire
+      WHERE song_id = $1 AND ${isBand ? 'band_id = $2' : 'user_id = $2'}
+      LIMIT 1
+    `
+    const checkRes = await query(checkSql, [songId, ownerId])
+    if (checkRes.rowCount && checkRes.rowCount > 0) {
+      throw new Error('Song already in your repertoire')
+    }
+
+    // Insert into repertoire
+    const userId = isBand ? null : owner.userId
+    const bandId = isBand ? owner.bandId : null
+    const insertRepSql = `
+      WITH inserted AS (
+        INSERT INTO repertoire (song_id, user_id, band_id, status)
+        VALUES ($1, $2, $3, 'unknown')
+        RETURNING *
+      )
+      SELECT i.*,
+             json_build_object(
+               'id', s.id,
+               'contributor_id', s.contributor_id,
+               'title', s.title,
+               'artist', s.artist,
+               'album', s.album,
+               'standard_key', s.standard_key,
+               'cover_url', s.cover_url,
+               'duration_seconds', s.duration_seconds,
+               'links', s.links,
+               'created_at', s.created_at
+             ) as song
+      FROM inserted i
+      JOIN global_songs s ON i.song_id = s.id
+    `
+    const repRes = await query(insertRepSql, [songId, userId, bandId])
+    return repRes.rows[0] as Repertoire
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to create and add song', err)
+    throw new Error(err.message.includes('already in') ? err.message : `Failed to create and add song: ${err.message}`)
   }
-  return repertoireEntry as Repertoire
 }
