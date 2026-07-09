@@ -22,6 +22,9 @@ export async function getSpotifyAccessToken(userId: string): Promise<string | nu
     return null
   }
 
+  // TypeScript guard: tokenRow is always set here (null path returns above)
+  if (!tokenRow) return null
+
   const expiresAt = new Date(tokenRow.expires_at).getTime()
   const nowWithBuffer = Date.now() + 60_000
 
