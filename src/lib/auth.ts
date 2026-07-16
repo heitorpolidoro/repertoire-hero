@@ -9,8 +9,10 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
   advanced: {
     // Generate proper UUIDs — the DB schema uses uuid columns.
-    // Must be under `advanced` (top-level generateId is ignored in Better Auth v1.x).
-    generateId: () => crypto.randomUUID(),
+    // Must be under `advanced.database` (generateId is ignored/unsupported in some tables if not in database config).
+    database: {
+      generateId: 'uuid',
+    },
   },
   trustedOrigins: [
     'http://localhost:3000',

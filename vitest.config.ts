@@ -37,6 +37,15 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     setupFiles: ['./src/lib/__tests__/setup.ts'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.claude/**',
+      '**/.gemini/**',
+      '**/e2e/**',
+      '**/.next/**',
+      '**/postgres-data/**',
+    ],
     coverage: {
       exclude: [
         '**/node_modules/**',
