@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth'
 import { pool } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 import { hashPassword, verifyPassword } from '@better-auth/utils/password'
+import { randomUUID } from 'crypto'
 
 export const auth = betterAuth({
   database: pool,
@@ -9,9 +10,10 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
   advanced: {
     // Generate proper UUIDs — the DB schema uses uuid columns.
-    // Must be under `advanced.database` (generateId is ignored/unsupported in some tables if not in database config).
+    // Must be a function, so Better Auth generates the ID in JS and inserts it,
+    // rather than delegating to the DB (which fails for text-based ids on session/account).
     database: {
-      generateId: 'uuid',
+      generateId: () => randomUUID(),
     },
   },
   trustedOrigins: [
