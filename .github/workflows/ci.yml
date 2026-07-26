@@ -12,7 +12,7 @@ jobs:
     with:
       node-versions: "['24.x']"
       sonar-node-version: "24.x"
-      database: supabase
+      database: postgres
     secrets: inherit # pragma: allowlist secret
 
   e2e:
