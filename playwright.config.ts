@@ -36,6 +36,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: '**/fast-view-mobile.spec.ts',
     },
     /* Mobile — emulate Pixel 5 (used for T4.6 Fast View tests) */
     {
