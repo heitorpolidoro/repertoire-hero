@@ -110,5 +110,5 @@ export async function deleteSong(page: Page, title: string) {
  * Useful for asserting card-level attributes.
  */
 export function songCard(page: Page, title: string) {
-  return page.getByRole('article').filter({ hasText: title })
+  return page.getByRole('article').or(page.getByRole('listitem')).filter({ hasText: title })
 }
