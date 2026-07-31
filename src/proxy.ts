@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/signup', '/api/auth/', '/api/dev/', '/join/']
+const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/reset-password', '/api/auth/', '/api/dev/', '/join/']
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -38,8 +38,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Authenticated users who land on /login or /signup are sent to the root.
-  if (user && (pathname === '/login' || pathname === '/signup')) {
+  // Authenticated users who land on public auth paths are sent to the root.
+  if (user && ['/login', '/signup', '/forgot-password', '/reset-password'].includes(pathname)) {
     const homeUrl = request.nextUrl.clone()
     homeUrl.pathname = '/'
     return NextResponse.redirect(homeUrl)

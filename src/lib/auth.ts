@@ -24,6 +24,41 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
+    sendResetPassword: async ({ user, url }) => {
+      const apiKey = process.env.RESEND_API_KEY
+      const fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev'
+      
+      if (!apiKey) {
+        console.log(`[AUTH] Password reset requested for user: ${user.email}`)
+        console.log(`[AUTH] Reset URL: ${url}`)
+        return
+      }
+
+      try {
+        const { Resend } = await import('resend')
+        const resend = new Resend(apiKey)
+        await resend.emails.send({
+          from: fromEmail,
+          to: user.email,
+          subject: 'Reset your Repertoire Hero password',
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+              <h2 style="color: #059669; margin-top: 0;">Repertoire Hero</h2>
+              <p>Hello, ${user.name || 'User'}!</p>
+              <p>We received a request to reset your password. Click the button below to choose a new one:</p>
+              <div style="margin: 24px 0;">
+                <a href="${url}" style="background-color: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+              </div>
+              <p style="color: #6b7280; font-size: 14px;">If you didn't request this, you can safely ignore this email.</p>
+              <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+              <p style="color: #9ca3af; font-size: 12px;">This link will expire shortly.</p>
+            </div>
+          `
+        })
+      } catch (error) {
+        console.error('Failed to send password reset email:', error)
+      }
+    },
     password: {
       // New accounts use scrypt (Better Auth default).
       hash: hashPassword,
