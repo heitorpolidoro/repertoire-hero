@@ -17,6 +17,8 @@ export default function ConditionalLayout({ children }: ConditionalLayoutProps) 
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
+    pathname.startsWith('/forgot-password') ||
+    pathname.startsWith('/reset-password') ||
     pathname.startsWith('/join/')
   ) {
     return children;
