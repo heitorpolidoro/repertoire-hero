@@ -167,3 +167,17 @@ export async function updateLyricsAction(repertoireId: string, lyrics: string, b
   }
   revalidatePath('/')
 }
+
+export async function fetchLyricsAction(artist: string, title: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
+      { signal: AbortSignal.timeout(5000) }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.lyrics || null
+  } catch {
+    return null
+  }
+}
