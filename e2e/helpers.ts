@@ -51,7 +51,7 @@ export async function addSong(page: Page, data: SongData) {
   }
 
   // Submit
-  await page.getByRole('button', { name: /add|save/i }).click()
+  await page.locator('dialog[open]').getByRole('button', { name: /^(add|save)$/i, exact: true }).click()
 
   // Wait for the dialog to close
   await expect(page.locator('dialog[open]')).toHaveCount(0, { timeout: 8_000 })
@@ -84,7 +84,7 @@ export async function editSong(page: Page, title: string, data: Partial<SongData
     await page.locator('#sf-artist').fill(data.artist)
   }
 
-  await page.getByRole('button', { name: /save/i }).click()
+  await page.locator('dialog[open]').getByRole('button', { name: /^(save|add)$/i, exact: true }).click()
   await expect(page.locator('dialog[open]')).toHaveCount(0, { timeout: 8_000 })
 }
 
@@ -110,5 +110,5 @@ export async function deleteSong(page: Page, title: string) {
  * Useful for asserting card-level attributes.
  */
 export function songCard(page: Page, title: string) {
-  return page.getByRole('article').filter({ hasText: title })
+  return page.getByRole('article').or(page.getByRole('listitem')).filter({ hasText: title })
 }

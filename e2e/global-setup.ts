@@ -24,7 +24,13 @@ export default async function globalSetup() {
   fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true })
 
   // Use Playwright's API request context (no browser needed for auth)
-  const ctx = await apiRequest.newContext({ baseURL: BASE_URL })
+  const ctx = await apiRequest.newContext({
+    baseURL: BASE_URL,
+    extraHTTPHeaders: {
+      Origin: BASE_URL,
+      Referer: BASE_URL + '/',
+    },
+  })
 
   // 1. Try to sign up — ignore if user already exists
   const signUpRes = await ctx.post('/api/auth/sign-up/email', {

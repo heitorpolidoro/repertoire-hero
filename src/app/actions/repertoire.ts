@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { query } from '@/lib/db'
 import { STATUS_ORDER } from '@/lib/statusConfig'
@@ -30,27 +31,37 @@ export async function getRepertoireAction(bandId?: string | null) {
 
 export async function addSongAction(songId: string, bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  return addSongToRepertoire(owner, songId)
+  const result = await addSongToRepertoire(owner, songId)
+  revalidatePath('/')
+  return result
 }
 
 export async function updateSongStatusAction(repertoireId: string, status: SongStatus, bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  return updateSongStatus(owner, repertoireId, status)
+  const result = await updateSongStatus(owner, repertoireId, status)
+  revalidatePath('/')
+  return result
 }
 
 export async function updateSongTagsAction(repertoireId: string, tags: string[], bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  return updateSongTags(owner, repertoireId, tags)
+  const result = await updateSongTags(owner, repertoireId, tags)
+  revalidatePath('/')
+  return result
 }
 
 export async function updatePersonalKeyAction(repertoireId: string, personalKey: string, bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  return updatePersonalKey(owner, repertoireId, personalKey)
+  const result = await updatePersonalKey(owner, repertoireId, personalKey)
+  revalidatePath('/')
+  return result
 }
 
 export async function removeSongAction(repertoireId: string, bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  return removeSongFromRepertoire(owner, repertoireId)
+  const result = await removeSongFromRepertoire(owner, repertoireId)
+  revalidatePath('/')
+  return result
 }
 
 export async function searchGlobalSongsAction(queryStr: string) {
@@ -78,7 +89,9 @@ export async function updateSongAction(
   bandId?: string | null
 ) {
   const owner = await resolveOwner(bandId)
-  return updateSong(owner, entry, data)
+  const result = await updateSong(owner, entry, data)
+  revalidatePath('/')
+  return result
 }
 
 export async function createAndAddSongAction(
@@ -94,7 +107,9 @@ export async function createAndAddSongAction(
   bandId?: string | null
 ) {
   const owner = await resolveOwner(bandId)
-  return createAndAddSong(owner, data)
+  const result = await createAndAddSong(owner, data)
+  revalidatePath('/')
+  return result
 }
 
 /**
@@ -135,4 +150,20 @@ export async function getBandWeakestStatusAction(
   } catch {
     return {}
   }
+}
+
+export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
+  const owner = await resolveOwner(bandId)
+  if ('bandId' in owner) {
+    await query(
+      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND band_id = $3',
+      [lyrics, repertoireId, owner.bandId]
+    )
+  } else {
+    await query(
+      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND user_id = $3',
+      [lyrics, repertoireId, owner.userId]
+    )
+  }
+  revalidatePath('/')
 }

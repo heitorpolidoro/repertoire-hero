@@ -14,6 +14,7 @@ import { AUTH_STATE_PATH } from './global-setup'
 import { addSong, goHome, songCard } from './helpers'
 
 const MOBILE_SONG_TITLE = 'E2E Mobile Song'
+const MOBILE_SONG_FAST_VIEW = 'E2E Mobile Song Fast View'
 
 // ---------------------------------------------------------------------------
 // Use authenticated session
@@ -58,10 +59,10 @@ test('fast-view page renders the song title on mobile', async ({ page }) => {
   await goHome(page)
 
   // Ensure there is at least one song we can navigate to
-  await addSong(page, { title: MOBILE_SONG_TITLE })
+  await addSong(page, { title: MOBILE_SONG_FAST_VIEW })
 
   // Find the fast-view link for our song and click it
-  const card = songCard(page, MOBILE_SONG_TITLE)
+  const card = songCard(page, MOBILE_SONG_FAST_VIEW)
   const fastViewLink = card.getByRole('link', { name: /fast view|🎸|📖/i }).or(
     // Fallback: any link inside the card that goes to /fast-view
     card.locator('a[href*="fast-view"]')
@@ -72,5 +73,5 @@ test('fast-view page renders the song title on mobile', async ({ page }) => {
   // Verify we're on the fast-view URL and the song title is displayed
   await page.waitForURL(/\/songs\/.+\/fast-view/, { timeout: 8_000 })
   await expect(page).toHaveURL(/\/songs\/.+\/fast-view/)
-  await expect(page.getByRole('heading').filter({ hasText: MOBILE_SONG_TITLE })).toBeVisible()
+  await expect(page.getByRole('heading').filter({ hasText: MOBILE_SONG_FAST_VIEW })).toBeVisible()
 })

@@ -31,12 +31,26 @@ const loadEnv = (fileName: string) => {
 loadEnv('.env.local')
 loadEnv('.env.development.local')
 
+// CI or local test fallback to Supabase's local port (54322) when no DATABASE_URL is explicitly set
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+}
+
 export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node',
     globals: false,
     setupFiles: ['./src/lib/__tests__/setup.ts'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.claude/**',
+      '**/.gemini/**',
+      '**/e2e/**',
+      '**/.next/**',
+      '**/postgres-data/**',
+    ],
     coverage: {
       exclude: [
         '**/node_modules/**',

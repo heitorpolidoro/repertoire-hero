@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import type { SongStatus, Repertoire } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
@@ -395,9 +396,12 @@ export default function HomePage() {
 
                   {/* Title + artist + album */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <Link
+                      href={`/songs/${song.id}/fast-view`}
+                      className="block text-sm font-semibold text-gray-900 truncate hover:text-emerald-600 transition-colors"
+                    >
                       {song.song?.title ?? "—"}
-                    </p>
+                    </Link>
                     <p className="text-xs text-gray-500 truncate">
                       {song.song?.artist ?? "—"}
                     </p>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
 import { getBandsAction } from '@/app/actions/bands';
 import { useBandContextStore } from '@/store/bandContextStore';
@@ -36,7 +37,7 @@ interface ContextSwitcherProps {
   isBandMode: boolean;
 }
 
-function ContextSwitcher({ isBandMode }: ContextSwitcherProps) {
+function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
   const router = useRouter();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -138,6 +139,10 @@ function ContextSwitcher({ isBandMode }: ContextSwitcherProps) {
     </div>
   );
 }
+
+const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent), {
+  ssr: false,
+});
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
