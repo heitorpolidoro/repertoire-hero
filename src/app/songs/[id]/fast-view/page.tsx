@@ -7,6 +7,18 @@ import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 
+function parseLyricsMarkdown(text: string) {
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/__(.*?)__/g, '<u>$1</u>')
+    .replace(/\[(.*?)\]/g, '<strong class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all">$1</strong>')
+  return html
+}
+
 export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -102,8 +114,14 @@ export default function FastViewPage() {
       formData.append('title', finalTitle)
       formData.append('file', uploadFile)
 
-      const newTab = await uploadTabAction(formData)
-      setTabs(prev => [newTab, ...prev])
+      const res = await uploadTabAction(formData)
+      if (res.error) {
+        setUploadError(res.error)
+        return
+      }
+      if (res.data) {
+        setTabs(prev => [res.data!, ...prev])
+      }
       setUploadTitle('')
       setUploadFile(null)
       if (fileInputRef.current) {
@@ -121,8 +139,12 @@ export default function FastViewPage() {
     if (!entry) return
     if (!confirm('Are you sure you want to delete this tablatura?')) return
     try {
-      await deleteTabAction(tabId, entry.id)
-      setTabs(prev => prev.filter(t => t.id !== tabId))
+      const res = await deleteTabAction(tabId, entry.id)
+      if (res.error) {
+        alert(res.error)
+      } else {
+        setTabs(prev => prev.filter(t => t.id !== tabId))
+      }
     } catch {
       alert('Failed to delete tablatura')
     }
@@ -392,9 +414,15 @@ export default function FastViewPage() {
         ) : (
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
             {entry.lyrics ? (
-              <pre className="text-gray-800 text-sm font-sans whitespace-pre-wrap leading-relaxed select-text">
-                {entry.lyrics}
-              </pre>
+              <div className="text-gray-800 text-sm font-sans leading-relaxed select-text flex flex-col gap-1.5">
+                {entry.lyrics.split('\n').map((line, idx) => (
+                  <div
+                    key={idx}
+                    className="min-h-[1.2rem] whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
+                  />
+                ))}
+              </div>
             ) : (
               <p className="text-sm text-gray-500 text-center py-2">No lyrics added yet.</p>
             )}
