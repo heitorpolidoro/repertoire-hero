@@ -2,7 +2,7 @@
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import { query } from '@/lib/db'
-import { supabaseAdmin } from '@/lib/supabase'
+import { put, del } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
 import type { RepertoireTab } from '@/types/database'
 
@@ -46,36 +46,20 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
       return { error: 'File size exceeds the 10MB limit' }
     }
 
-    // Ensure bucket exists
-    try {
-      await supabaseAdmin.storage.createBucket('tabs', { public: true })
-    } catch {
-      // Bucket might already exist, safe to ignore
-    }
-
     // Convert File to Buffer
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
-    // Upload to Supabase Storage
+    // Upload to Vercel Blob Storage
     const fileId = crypto.randomUUID()
-    const filePath = `${repertoireId}/${fileId}.pdf`
+    const filePath = `repertoire-tabs/${repertoireId}/${fileId}.pdf`
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('tabs')
-      .upload(filePath, buffer, {
-        contentType: 'application/pdf',
-        upsert: true,
-      })
+    const blob = await put(filePath, buffer, {
+      access: 'public',
+      contentType: 'application/pdf',
+    })
 
-    if (uploadError) {
-      return { error: `Upload failed (storage): ${uploadError.message}` }
-    }
-
-    // Get public URL
-    const { data: { publicUrl } } = supabaseAdmin.storage
-      .from('tabs')
-      .getPublicUrl(filePath)
+    const publicUrl = blob.url
 
     // Save to Database
     const { rows } = await query(
@@ -109,14 +93,8 @@ export async function deleteTabAction(tabId: string, repertoireId: string): Prom
 
     const fileUrl = tabRows[0].file_url
     
-    // Extract path from fileUrl.
-    const bucketMarker = '/storage/v1/object/public/tabs/'
-    const idx = fileUrl.indexOf(bucketMarker)
-    if (idx !== -1) {
-      const filePath = fileUrl.substring(idx + bucketMarker.length)
-      // Delete physical file
-      await supabaseAdmin.storage.from('tabs').remove([filePath])
-    }
+    // Delete physical file from Vercel Blob directly using its public URL
+    await del(fileUrl)
 
     // Delete from DB
     await query(
