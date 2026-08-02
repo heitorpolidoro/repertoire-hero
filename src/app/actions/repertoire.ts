@@ -151,3 +151,19 @@ export async function getBandWeakestStatusAction(
     return {}
   }
 }
+
+export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
+  const owner = await resolveOwner(bandId)
+  if ('bandId' in owner) {
+    await query(
+      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND band_id = $3',
+      [lyrics, repertoireId, owner.bandId]
+    )
+  } else {
+    await query(
+      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND user_id = $3',
+      [lyrics, repertoireId, owner.userId]
+    )
+  }
+  revalidatePath('/')
+}

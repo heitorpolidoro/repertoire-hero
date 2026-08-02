@@ -31,6 +31,7 @@ export interface Repertoire {
   status: SongStatus;
   tags: string[];
   last_practiced: string | null;
+  lyrics: string | null;
   song?: GlobalSong;
 }
 
@@ -108,4 +109,12 @@ export interface SpotifyPlaylist {
   cover_url: string | null;
   total_tracks: number;
   owner: string;
+}
+
+export interface RepertoireTab {
+  id: string;
+  repertoire_id: string;
+  title: string;
+  file_url: string;
+  created_at: string;
 }
