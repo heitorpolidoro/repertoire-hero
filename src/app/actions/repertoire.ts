@@ -151,3 +151,33 @@ export async function getBandWeakestStatusAction(
     return {}
   }
 }
+
+export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
+  const owner = await resolveOwner(bandId)
+  if ('bandId' in owner) {
+    await query(
+      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND band_id = $3',
+      [lyrics, repertoireId, owner.bandId]
+    )
+  } else {
+    await query(
+      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND user_id = $3',
+      [lyrics, repertoireId, owner.userId]
+    )
+  }
+  revalidatePath('/')
+}
+
+export async function fetchLyricsAction(artist: string, title: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
+      { signal: AbortSignal.timeout(5000) }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.lyrics || null
+  } catch {
+    return null
+  }
+}
