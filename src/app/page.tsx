@@ -375,42 +375,44 @@ export default function HomePage() {
               return (
                 <li
                   key={song.id}
-                  className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 transition-colors"
                 >
-                  {/* Cover image or status color square */}
-                  {song.song?.cover_url ? (
-                    <Image
-                      src={song.song.cover_url}
-                      alt={`${song.song.title} cover`}
-                      width={40}
-                      height={40}
-                      className="h-10 w-10 rounded object-cover shrink-0"
-                      unoptimized
-                    />
-                  ) : (
-                    <div
-                      className={`w-10 h-10 rounded shrink-0 ${cfg.bgColor}`}
-                      aria-hidden="true"
-                    />
-                  )}
-
-                  {/* Title + artist + album */}
-                  <div className="flex-1 min-w-0">
-                    <Link
-                      href={`/songs/${song.id}/fast-view`}
-                      className="block text-sm font-semibold text-gray-900 truncate hover:text-emerald-600 transition-colors"
-                    >
-                      {song.song?.title ?? "—"}
-                    </Link>
-                    <p className="text-xs text-gray-500 truncate">
-                      {song.song?.artist ?? "—"}
-                    </p>
-                    {song.song?.album && (
-                      <p className="text-xs text-gray-400 italic truncate">
-                        {song.song.album}
-                      </p>
+                  <Link
+                    href={`/songs/${song.id}/fast-view`}
+                    className="flex flex-1 items-center gap-3 min-w-0 focus:outline-none"
+                  >
+                    {/* Cover image or status color square */}
+                    {song.song?.cover_url ? (
+                      <Image
+                        src={song.song.cover_url}
+                        alt={`${song.song.title} cover`}
+                        width={40}
+                        height={40}
+                        className="h-10 w-10 rounded object-cover shrink-0"
+                        unoptimized
+                      />
+                    ) : (
+                      <div
+                        className={`w-10 h-10 rounded shrink-0 ${cfg.bgColor}`}
+                        aria-hidden="true"
+                      />
                     )}
-                  </div>
+
+                    {/* Title + artist + album */}
+                    <div className="flex-1 min-w-0 text-left">
+                      <span className="block text-sm font-semibold text-gray-900 truncate hover:text-emerald-600 transition-colors">
+                        {song.song?.title ?? "—"}
+                      </span>
+                      <p className="text-xs text-gray-500 truncate">
+                        {song.song?.artist ?? "—"}
+                      </p>
+                      {song.song?.album && (
+                        <p className="text-xs text-gray-400 italic truncate">
+                          {song.song.album}
+                        </p>
+                      )}
+                    </div>
+                  </Link>
 
                   {/* Status badge — read-only in band mode (computed by trigger), cycles in personal mode */}
                   {bandContext.type === 'band' ? (

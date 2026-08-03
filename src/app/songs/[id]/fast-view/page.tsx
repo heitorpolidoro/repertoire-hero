@@ -4,8 +4,20 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import type { Repertoire, RepertoireTab } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
-import { getSongEntryAction as getSongEntry, updateLyricsAction } from '@/app/actions/repertoire'
+import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
+
+function parseLyricsMarkdown(text: string) {
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/__(.*?)__/g, '<u>$1</u>')
+    .replace(/\[(.*?)\]/g, '<strong class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all">$1</strong>')
+  return html
+}
 
 export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()
@@ -27,6 +39,7 @@ export default function FastViewPage() {
   const [isEditingLyrics, setIsEditingLyrics] = useState(false)
   const [lyricsText, setLyricsText] = useState('')
   const [savingLyrics, setSavingLyrics] = useState(false)
+  const [fetchingLyrics, setFetchingLyrics] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -91,21 +104,24 @@ export default function FastViewPage() {
   async function handleUploadTab(e: React.FormEvent) {
     e.preventDefault()
     if (!entry || !uploadFile) return
-    if (!uploadTitle.trim()) {
-      setUploadError('Please provide a title')
-      return
-    }
 
     try {
       setUploading(true)
       setUploadError(null)
+      const finalTitle = uploadTitle.trim() || uploadFile.name.replace(/\.[^/.]+$/, "")
       const formData = new FormData()
       formData.append('repertoireId', entry.id)
-      formData.append('title', uploadTitle.trim())
+      formData.append('title', finalTitle)
       formData.append('file', uploadFile)
 
-      const newTab = await uploadTabAction(formData)
-      setTabs(prev => [newTab, ...prev])
+      const res = await uploadTabAction(formData)
+      if (res.error) {
+        setUploadError(res.error)
+        return
+      }
+      if (res.data) {
+        setTabs(prev => [res.data!, ...prev])
+      }
       setUploadTitle('')
       setUploadFile(null)
       if (fileInputRef.current) {
@@ -123,8 +139,12 @@ export default function FastViewPage() {
     if (!entry) return
     if (!confirm('Are you sure you want to delete this tablatura?')) return
     try {
-      await deleteTabAction(tabId, entry.id)
-      setTabs(prev => prev.filter(t => t.id !== tabId))
+      const res = await deleteTabAction(tabId, entry.id)
+      if (res.error) {
+        alert(res.error)
+      } else {
+        setTabs(prev => prev.filter(t => t.id !== tabId))
+      }
     } catch {
       alert('Failed to delete tablatura')
     }
@@ -142,6 +162,27 @@ export default function FastViewPage() {
       alert('Failed to save lyrics')
     } finally {
       setSavingLyrics(false)
+    }
+  }
+
+  // Handler for auto-importing lyrics from Web API
+  async function handleAutoImportLyrics() {
+    if (!artist) {
+      alert('Artist name is required to search for lyrics.')
+      return
+    }
+    try {
+      setFetchingLyrics(true)
+      const lyrics = await fetchLyricsAction(artist, title)
+      if (lyrics) {
+        setLyricsText(lyrics)
+      } else {
+        alert(`Lyrics not found online for "${title}" by "${artist}". You can still paste them below.`)
+      }
+    } catch {
+      alert('Failed to import lyrics from web. You can still paste them below.')
+    } finally {
+      setFetchingLyrics(false)
     }
   }
 
@@ -235,7 +276,14 @@ export default function FastViewPage() {
               type="file"
               accept="application/pdf"
               ref={fileInputRef}
-              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null
+                setUploadFile(file)
+                if (file && !uploadTitle.trim()) {
+                  const defaultTitle = file.name.replace(/\.[^/.]+$/, "")
+                  setUploadTitle(defaultTitle)
+                }
+              }}
               className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
               disabled={uploading}
             />
@@ -245,7 +293,7 @@ export default function FastViewPage() {
           )}
           <button
             type="submit"
-            disabled={uploading || !uploadFile || !uploadTitle.trim()}
+            disabled={uploading || !uploadFile}
             className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-medium text-sm rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5"
           >
             {uploading ? (
@@ -309,44 +357,72 @@ export default function FastViewPage() {
               placeholder="Paste or type the lyrics here..."
               disabled={savingLyrics}
             />
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setLyricsText(entry.lyrics ?? '')
-                  setIsEditingLyrics(false)
-                }}
-                disabled={savingLyrics}
-                className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-lg transition-colors"
+                onClick={handleAutoImportLyrics}
+                disabled={fetchingLyrics || savingLyrics}
+                className="px-3 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveLyrics}
-                disabled={savingLyrics}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 shadow-sm"
-              >
-                {savingLyrics ? (
+                {fetchingLyrics ? (
                   <>
-                    <svg className="animate-spin h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="animate-spin h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    Saving...
+                    Importing...
                   </>
                 ) : (
-                  'Save'
+                  <>
+                    <span>✨ Auto-import</span>
+                  </>
                 )}
               </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLyricsText(entry.lyrics ?? '')
+                    setIsEditingLyrics(false)
+                  }}
+                  disabled={savingLyrics}
+                  className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveLyrics}
+                  disabled={savingLyrics}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 shadow-sm"
+                >
+                  {savingLyrics ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Saving...
+                    </>
+                  ) : (
+                    'Save'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
             {entry.lyrics ? (
-              <pre className="text-gray-800 text-sm font-sans whitespace-pre-wrap leading-relaxed select-text">
-                {entry.lyrics}
-              </pre>
+              <div className="text-gray-800 text-sm font-sans leading-relaxed select-text flex flex-col gap-1.5">
+                {entry.lyrics.split('\n').map((line, idx) => (
+                  <div
+                    key={idx}
+                    className="min-h-[1.2rem] whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
+                  />
+                ))}
+              </div>
             ) : (
               <p className="text-sm text-gray-500 text-center py-2">No lyrics added yet.</p>
             )}
