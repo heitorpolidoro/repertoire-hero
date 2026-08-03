@@ -51,8 +51,10 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
     const buffer = Buffer.from(arrayBuffer)
 
     // Upload to Vercel Blob Storage
-    const fileId = crypto.randomUUID()
-    const filePath = `repertoire-tabs/${repertoireId}/${fileId}.pdf`
+    // We use the original file name (sanitized) so that the download/view link retains a legible name.
+    // Vercel Blob automatically appends a random unique suffix to prevent collisions.
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+    const filePath = `repertoire-tabs/${repertoireId}/${cleanFileName}`
 
     const blob = await put(filePath, buffer, {
       access: 'public',
