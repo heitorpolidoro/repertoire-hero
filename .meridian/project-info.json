@@ -1,0 +1,5 @@
+{
+  "name": "Repertoire Hero",
+  "stack": ["TypeScript", "Next.js", "React"],
+  "description": "A Next.js web app for musicians to catalog songs, track learning progress across five mastery levels, and organize repertoire with tags and filters for rehearsal and performance planning."
+}
