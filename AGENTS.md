@@ -167,6 +167,6 @@ spec.md, SDS.md, plan.md, tasks.md
 <!-- MERIDIAN_INSTRUCTIONS_START -->
 # Meridian Instructions
 
-> **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (JSON array with id, title, status, justification).
+> **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (A JSON object with a `tasks` array containing tasks with id, title, status, justification).
 > **Implementation Rule**: Before starting any implementation work, ask the user if they want to create a task for it in the Meridian system.
 <!-- MERIDIAN_INSTRUCTIONS_END -->
