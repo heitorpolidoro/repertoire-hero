@@ -325,7 +325,7 @@ export default function FastViewPage() {
                   </button>
                 </div>
                 <iframe
-                  src={activeTabUrl}
+                  src={`https://docs.google.com/gview?url=${encodeURIComponent(activeTabUrl)}&embedded=true`}
                   className="w-full h-[550px] rounded-lg border border-gray-100"
                   title={activeTabTitle}
                 />
