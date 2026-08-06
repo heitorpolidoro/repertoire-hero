@@ -134,6 +134,13 @@ const SettingsPage = () => {
             </div>
           )}
         </section>
+
+        {/* App Info / Version section */}
+        <section className="flex flex-col gap-1 border-t border-gray-100 pt-6 mt-2">
+          <p className="text-xs text-gray-400">
+            Repertoire Hero &bull; Version v{process.env.NEXT_PUBLIC_APP_VERSION || '0.1.5'}
+          </p>
+        </section>
       </div>
     </div>
   );

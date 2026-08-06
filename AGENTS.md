@@ -164,6 +164,11 @@ spec.md, SDS.md, plan.md, tasks.md
 - **Band Context** — A client-side UI concept (not a DB table): which "hat" the signed-in user is currently browsing under — their personal repertoire, or a specific band's shared repertoire — tracked in `bandContextStore.ts` and applied as the `RepertoireOwner` (`{ userId }` or `{ bandId }`) passed into most `src/lib` functions.
 - **Dev Fast Login / Auto-Login** — A development-only convenience (gated by `NODE_ENV`/`NEXT_PUBLIC_AUTO_LOGIN`) that lists existing users and can skip the login form, per the product requirement for a frictionless local dev experience for `heitor.polidoro@gmail.com`.
 
+# AI Agent Workflow Rules
+
+- **Version Bumping Rule**: Whenever you make changes that lead to a merge or a deploy, you MUST update the package version in `package.json`. Increase the patch/bugfix version by default and append a timestamp suffix in the format `YYYYMMDDHHmm` using the local timezone.
+  - Example version format: `v0.1.6-202608060948` (representing version `0.1.6` released on August 6, 2026 at 09:48).
+
 <!-- MERIDIAN_INSTRUCTIONS_START -->
 # Meridian Instructions
 

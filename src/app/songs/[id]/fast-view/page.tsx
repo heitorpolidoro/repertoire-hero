@@ -247,19 +247,12 @@ export default function FastViewPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        // On mobile viewports, opening in a new tab provides the best PDF reading experience (pinch zoom, full screen) and avoids broken iframe wrappers.
-                        // On desktop/tablet, we toggle the embedded iframe viewer.
-                        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-                        if (isMobile) {
-                          window.open(tab.file_url, '_blank')
+                        if (isActive) {
+                          setActiveTabUrl(null)
+                          setActiveTabTitle('')
                         } else {
-                          if (isActive) {
-                            setActiveTabUrl(null)
-                            setActiveTabTitle('')
-                          } else {
-                            setActiveTabUrl(tab.file_url)
-                            setActiveTabTitle(tab.title)
-                          }
+                          setActiveTabUrl(tab.file_url)
+                          setActiveTabTitle(tab.title)
                         }
                       }}
                       className="flex flex-1 items-center gap-3 text-left text-gray-700 hover:text-emerald-600 font-medium transition-colors focus:outline-none min-w-0"
