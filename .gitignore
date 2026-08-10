@@ -52,3 +52,4 @@ supabase/.temp/
 /playwright-report/
 /test-results/
 /e2e/.auth/
+.meridian/

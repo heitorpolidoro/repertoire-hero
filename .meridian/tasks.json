@@ -1,8 +1,0 @@
-[
-  {
-    "id": "add-vercel-deploy-checks",
-    "title": "Adicionar checks no deploy do Vercel",
-    "status": "todo",
-    "justification": "Implementar validações automatizadas e testes de fumaça pós-deploy para a Vercel, garantindo a estabilidade e integridade da aplicação após cada deploy de produção."
-  }
-]
