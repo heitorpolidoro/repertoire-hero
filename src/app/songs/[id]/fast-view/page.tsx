@@ -108,6 +108,7 @@ export default function FastViewPage() {
   const [personalTabs, setPersonalTabs] = useState<RepertoireTab[]>([])
   const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)
   const [uploadDestination, setUploadDestination] = useState<'band' | 'personal'>('band')
+  const [showUploadDestModal, setShowUploadDestModal] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -198,9 +199,20 @@ export default function FastViewPage() {
   const hasDifferentPersonalLyrics = !!(entry.band_id && personalEntry && personalEntry.lyrics && personalEntry.lyrics !== entry.lyrics)
   const displayedLyrics = (entry.band_id && showPersonalLyrics && personalEntry) ? personalEntry.lyrics : entry.lyrics
 
-  // Handler for uploading PDF tab
-  async function handleUploadTab(e: React.FormEvent) {
+  // Trigger upload click to decide destination (personal vs band)
+  function handleUploadClick(e: React.FormEvent) {
     e.preventDefault()
+    if (!entry || !uploadFile) return
+
+    if (entry.band_id) {
+      setShowUploadDestModal(true)
+    } else {
+      triggerUpload('personal')
+    }
+  }
+
+  // Real upload function
+  async function triggerUpload(destination: 'band' | 'personal') {
     if (!entry || !uploadFile) return
 
     try {
@@ -208,7 +220,7 @@ export default function FastViewPage() {
       setUploadError(null)
 
       let targetRepertoireId = entry.id
-      let isPersonal = uploadDestination === 'personal'
+      let isPersonal = destination === 'personal'
 
       if (entry.band_id) {
         if (isPersonal) {
@@ -251,6 +263,7 @@ export default function FastViewPage() {
       setUploadError(err.message || 'Failed to upload tab')
     } finally {
       setUploading(false)
+      setShowUploadDestModal(false)
     }
   }
 
@@ -258,7 +271,7 @@ export default function FastViewPage() {
   async function handleDeleteTab(tabId: string, origin: 'band' | 'personal') {
     const targetId = origin === 'personal' && personalEntry ? personalEntry.id : entry?.id
     if (!targetId) return
-    if (!confirm('Are you sure you want to delete this tablatura?')) return
+    if (!confirm('Are you sure you want to delete this tab?')) return
     try {
       const res = await deleteTabAction(tabId, targetId)
       if (res.error) {
@@ -271,7 +284,7 @@ export default function FastViewPage() {
         }
       }
     } catch {
-      alert('Failed to delete tablatura')
+      alert('Failed to delete tab')
     }
   }
 
@@ -500,7 +513,7 @@ export default function FastViewPage() {
       </section>
 
       {/* Tabs (PDF) Section */}
-      <section aria-label="Tablaturas" className="flex flex-col gap-4">
+      <section aria-label="Tabs" className="flex flex-col gap-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tabs (PDF)</h2>
         
         {/* Tab List */}
@@ -539,18 +552,18 @@ export default function FastViewPage() {
                       
                       {/* Origin Badge */}
                       {tab.origin === 'band' ? (
-                        <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Disponível para toda a banda">
-                          👥 Banda
+                        <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Shared with the whole band">
+                          👥 Band
                         </span>
                       ) : (
-                        <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Apenas estudos pessoais">
-                          👤 Pessoal
+                        <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Private study file">
+                          👤 Personal
                         </span>
                       )}
 
                       {isActive && (
                         <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-105 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 ml-1">
-                          Visualizando
+                          Viewing
                         </span>
                       )}
                     </button>
@@ -562,7 +575,7 @@ export default function FastViewPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-gray-400 hover:text-emerald-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                        title="Abrir em nova aba / download"
+                        title="Open in new tab / download"
                       >
                         <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -580,7 +593,7 @@ export default function FastViewPage() {
                           handleDeleteTab(tab.id, tab.origin)
                         }}
                         className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                        aria-label="Delete tablatura"
+                        aria-label="Delete tab"
                       >
                         <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -597,7 +610,7 @@ export default function FastViewPage() {
               <div className="flex flex-col gap-2 bg-white border border-emerald-200 rounded-xl p-3 shadow-sm transition-all duration-300">
                 <div className="flex items-center justify-between px-1">
                   <span className="text-xs font-semibold text-gray-700 truncate max-w-[280px]">
-                    Visualizando: {activeTabTitle}
+                    Viewing: {activeTabTitle}
                   </span>
                   <button
                     type="button"
@@ -607,12 +620,12 @@ export default function FastViewPage() {
                     }}
                     className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
                   >
-                    Fechar visualizador
+                    Close viewer
                   </button>
                 </div>
                 <iframe
                   src={`https://docs.google.com/gview?url=${encodeURIComponent(activeTabUrl)}&embedded=true`}
-                  className="w-full h-[550px] rounded-lg border border-gray-100"
+                  className="w-full h-[550px] rounded-lg border border-gray-150"
                   title={activeTabTitle}
                 />
               </div>
@@ -623,37 +636,8 @@ export default function FastViewPage() {
         )}
 
         {/* Upload Form */}
-        <form onSubmit={handleUploadTab} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-          <h3 className="text-xs font-semibold text-gray-700">Upload New Tablatura</h3>
-          
-          {/* Upload destination switcher (only visible in band mode) */}
-          {entry.band_id && (
-            <div className="flex items-center gap-4 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Salvar em:</span>
-              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
-                <input
-                  type="radio"
-                  name="uploadDestination"
-                  value="personal"
-                  checked={uploadDestination === 'personal'}
-                  onChange={() => setUploadDestination('personal')}
-                  className="text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
-                />
-                <span>👤 Apenas meu (Pessoal)</span>
-              </label>
-              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
-                <input
-                  type="radio"
-                  name="uploadDestination"
-                  value="band"
-                  checked={uploadDestination === 'band'}
-                  onChange={() => setUploadDestination('band')}
-                  className="text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
-                />
-                <span>👥 Compartilhar na Banda</span>
-              </label>
-            </div>
-          )}
+        <form onSubmit={handleUploadClick} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+          <h3 className="text-xs font-semibold text-gray-700">Upload New Tab</h3>
 
           <div className="flex flex-col gap-2">
             <input
@@ -1034,6 +1018,57 @@ export default function FastViewPage() {
                 dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
               />
             ))}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Upload Destination Choice Modal (Only in band mode) */}
+    {showUploadDestModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl border border-gray-150 shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">Upload Destination</h3>
+            <p className="text-xs text-gray-500 mt-1">Where would you like to save this PDF?</p>
+          </div>
+          
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => triggerUpload('personal')}
+              disabled={uploading}
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50/20 text-left transition-all group focus:outline-none"
+            >
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-gray-800 group-hover:text-blue-700 transition-colors">👤 Personal studies</span>
+                <span className="text-[10px] text-gray-400">Private only to you</span>
+              </div>
+              <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">Private</span>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => triggerUpload('band')}
+              disabled={uploading}
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/20 text-left transition-all group focus:outline-none"
+            >
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-gray-800 group-hover:text-emerald-700 transition-colors">👥 Band files</span>
+                <span className="text-[10px] text-gray-400">Shared with all members</span>
+              </div>
+              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Shared</span>
+            </button>
+          </div>
+          
+          <div className="flex items-center justify-end gap-2 mt-2">
+            <button
+              type="button"
+              onClick={() => setShowUploadDestModal(false)}
+              disabled={uploading}
+              className="px-4 py-2 border border-gray-200 hover:bg-gray-50 text-xs font-semibold rounded-lg text-gray-600 transition-colors focus:outline-none"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       </div>
