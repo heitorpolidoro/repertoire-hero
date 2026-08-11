@@ -200,3 +200,32 @@ export async function updateSongLinksAction(repertoireId: string, links: SongLin
   revalidatePath('/')
   return { success: true }
 }
+
+export async function getPersonalEntryForSongAction(songId: string): Promise<Repertoire | null> {
+  try {
+    const userId = await getRequiredUserId()
+    const res = await query(
+      `SELECT r.*,
+              json_build_object(
+                'id', s.id,
+                'contributor_id', s.contributor_id,
+                'title', s.title,
+                'artist', s.artist,
+                'album', s.album,
+                'standard_key', s.standard_key,
+                'cover_url', s.cover_url,
+                'duration_seconds', s.duration_seconds,
+                'links', s.links,
+                'created_at', s.created_at
+              ) as song
+       FROM repertoire r
+       JOIN global_songs s ON r.song_id = s.id
+       WHERE r.song_id = $1 AND r.user_id = $2`,
+      [songId, userId]
+    )
+    if (res.rowCount === 0) return null
+    return res.rows[0] as Repertoire
+  } catch {
+    return null
+  }
+}

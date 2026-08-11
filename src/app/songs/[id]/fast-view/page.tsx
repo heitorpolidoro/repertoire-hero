@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
-import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction } from '@/app/actions/repertoire'
+import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 
 function parseLyricsMarkdown(text: string) {
@@ -103,6 +103,12 @@ export default function FastViewPage() {
   const [lyricsFontSize, setLyricsFontSize] = useState(18)
   const [isStageDarkMode, setIsStageDarkMode] = useState(false)
 
+  // Band vs Personal aggregation states
+  const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
+  const [personalTabs, setPersonalTabs] = useState<RepertoireTab[]>([])
+  const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)
+  const [uploadDestination, setUploadDestination] = useState<'band' | 'personal'>('band')
+
   useEffect(() => {
     let cancelled = false
 
@@ -123,6 +129,25 @@ export default function FastViewPage() {
             setEntry(data)
             setTabs(tabData)
             setLyricsText(data.lyrics ?? '')
+
+            // If we are in band context, fetch personal entry and tabs in background
+            if (queryBandId && data.song_id) {
+              getPersonalEntryForSongAction(data.song_id).then(async (pEntry) => {
+                if (pEntry && !cancelled) {
+                  setPersonalEntry(pEntry)
+                  try {
+                    const pTabs = await getTabsAction(pEntry.id)
+                    if (!cancelled) {
+                      setPersonalTabs(pTabs)
+                    }
+                  } catch (e) {
+                    console.error('Failed to load personal tabs', e)
+                  }
+                }
+              }).catch((e) => {
+                console.error('Failed to load personal entry', e)
+              })
+            }
           }
         }
       } catch {
@@ -165,6 +190,14 @@ export default function FastViewPage() {
   const cfg = STATUS_CONFIG[entry.status]
   const links = entry.song?.links ?? []
 
+  const mergedTabs = [
+    ...tabs.map(t => ({ ...t, origin: 'band' as const })),
+    ...personalTabs.map(t => ({ ...t, origin: 'personal' as const }))
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+  const hasDifferentPersonalLyrics = !!(entry.band_id && personalEntry && personalEntry.lyrics && personalEntry.lyrics !== entry.lyrics)
+  const displayedLyrics = (entry.band_id && showPersonalLyrics && personalEntry) ? personalEntry.lyrics : entry.lyrics
+
   // Handler for uploading PDF tab
   async function handleUploadTab(e: React.FormEvent) {
     e.preventDefault()
@@ -173,9 +206,27 @@ export default function FastViewPage() {
     try {
       setUploading(true)
       setUploadError(null)
+
+      let targetRepertoireId = entry.id
+      let isPersonal = uploadDestination === 'personal'
+
+      if (entry.band_id) {
+        if (isPersonal) {
+          let pEntry = personalEntry
+          if (!pEntry) {
+            // Auto-create personal repertoire entry if not present
+            pEntry = await addSongAction(entry.song_id)
+            setPersonalEntry(pEntry)
+          }
+          targetRepertoireId = pEntry.id
+        }
+      } else {
+        isPersonal = true
+      }
+
       const finalTitle = uploadTitle.trim() || uploadFile.name.replace(/\.[^/.]+$/, "")
       const formData = new FormData()
-      formData.append('repertoireId', entry.id)
+      formData.append('repertoireId', targetRepertoireId)
       formData.append('title', finalTitle)
       formData.append('file', uploadFile)
 
@@ -185,7 +236,11 @@ export default function FastViewPage() {
         return
       }
       if (res.data) {
-        setTabs(prev => [res.data!, ...prev])
+        if (isPersonal) {
+          setPersonalTabs(prev => [res.data!, ...prev])
+        } else {
+          setTabs(prev => [res.data!, ...prev])
+        }
       }
       setUploadTitle('')
       setUploadFile(null)
@@ -200,15 +255,20 @@ export default function FastViewPage() {
   }
 
   // Handler for deleting tab
-  async function handleDeleteTab(tabId: string) {
-    if (!entry) return
+  async function handleDeleteTab(tabId: string, origin: 'band' | 'personal') {
+    const targetId = origin === 'personal' && personalEntry ? personalEntry.id : entry?.id
+    if (!targetId) return
     if (!confirm('Are you sure you want to delete this tablatura?')) return
     try {
-      const res = await deleteTabAction(tabId, entry.id)
+      const res = await deleteTabAction(tabId, targetId)
       if (res.error) {
         alert(res.error)
       } else {
-        setTabs(prev => prev.filter(t => t.id !== tabId))
+        if (origin === 'personal') {
+          setPersonalTabs(prev => prev.filter(t => t.id !== tabId))
+        } else {
+          setTabs(prev => prev.filter(t => t.id !== tabId))
+        }
       }
     } catch {
       alert('Failed to delete tablatura')
@@ -220,8 +280,27 @@ export default function FastViewPage() {
     if (!entry) return
     try {
       setSavingLyrics(true)
-      await updateLyricsAction(entry.id, lyricsText, entry.band_id)
-      setEntry(prev => prev ? { ...prev, lyrics: lyricsText } : null)
+      
+      let targetId = entry.id
+      let targetBandId = entry.band_id
+
+      if (entry.band_id && showPersonalLyrics) {
+        let pEntry = personalEntry
+        if (!pEntry) {
+          pEntry = await addSongAction(entry.song_id)
+          setPersonalEntry(pEntry)
+        }
+        targetId = pEntry.id
+        targetBandId = null
+      }
+
+      await updateLyricsAction(targetId, lyricsText, targetBandId)
+
+      if (entry.band_id && showPersonalLyrics) {
+        setPersonalEntry(prev => prev ? { ...prev, lyrics: lyricsText } : null)
+      } else {
+        setEntry(prev => prev ? { ...prev, lyrics: lyricsText } : null)
+      }
       setIsEditingLyrics(false)
     } catch {
       alert('Failed to save lyrics')
@@ -425,10 +504,10 @@ export default function FastViewPage() {
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tabs (PDF)</h2>
         
         {/* Tab List */}
-        {tabs.length > 0 ? (
+        {mergedTabs.length > 0 ? (
           <div className="flex flex-col gap-4">
             <ul className="flex flex-col gap-2">
-              {tabs.map((tab) => {
+              {mergedTabs.map((tab) => {
                 const isActive = activeTabUrl === tab.file_url
                 return (
                   <li
@@ -456,9 +535,21 @@ export default function FastViewPage() {
                       <svg className="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
-                      <span className="truncate text-sm">{tab.title}</span>
+                      <span className="truncate text-sm mr-1.5">{tab.title}</span>
+                      
+                      {/* Origin Badge */}
+                      {tab.origin === 'band' ? (
+                        <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Disponível para toda a banda">
+                          👥 Banda
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Apenas estudos pessoais">
+                          👤 Pessoal
+                        </span>
+                      )}
+
                       {isActive && (
-                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0">
+                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-105 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 ml-1">
                           Visualizando
                         </span>
                       )}
@@ -486,7 +577,7 @@ export default function FastViewPage() {
                             setActiveTabUrl(null)
                             setActiveTabTitle('')
                           }
-                          handleDeleteTab(tab.id)
+                          handleDeleteTab(tab.id, tab.origin)
                         }}
                         className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                         aria-label="Delete tablatura"
@@ -534,6 +625,36 @@ export default function FastViewPage() {
         {/* Upload Form */}
         <form onSubmit={handleUploadTab} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
           <h3 className="text-xs font-semibold text-gray-700">Upload New Tablatura</h3>
+          
+          {/* Upload destination switcher (only visible in band mode) */}
+          {entry.band_id && (
+            <div className="flex items-center gap-4 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Salvar em:</span>
+              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
+                <input
+                  type="radio"
+                  name="uploadDestination"
+                  value="personal"
+                  checked={uploadDestination === 'personal'}
+                  onChange={() => setUploadDestination('personal')}
+                  className="text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                />
+                <span>👤 Apenas meu (Pessoal)</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
+                <input
+                  type="radio"
+                  name="uploadDestination"
+                  value="band"
+                  checked={uploadDestination === 'band'}
+                  onChange={() => setUploadDestination('band')}
+                  className="text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                />
+                <span>👥 Compartilhar na Banda</span>
+              </label>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2">
             <input
               type="text"
@@ -679,9 +800,22 @@ export default function FastViewPage() {
       {/* Lyrics Section */}
       <section aria-label="Lyrics" className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Lyrics</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Lyrics</h2>
+            {entry.band_id && (
+              showPersonalLyrics ? (
+                <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                  👤 Pessoal
+                </span>
+              ) : (
+                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                  👥 Banda
+                </span>
+              )
+            )}
+          </div>
           <div className="flex items-center gap-3">
-            {entry.lyrics && !isEditingLyrics && (
+            {displayedLyrics && !isEditingLyrics && (
               <button
                 type="button"
                 onClick={() => setIsStageMode(true)}
@@ -693,14 +827,31 @@ export default function FastViewPage() {
             {!isEditingLyrics && (
               <button
                 type="button"
-                onClick={() => setIsEditingLyrics(true)}
+                onClick={() => {
+                  setLyricsText(displayedLyrics ?? '')
+                  setIsEditingLyrics(true)
+                }}
                 className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none"
               >
-                {entry.lyrics ? 'Edit' : 'Add'}
+                {displayedLyrics ? 'Edit' : 'Add'}
               </button>
             )}
           </div>
         </div>
+
+        {/* Lyrics version switcher banner (only in band mode if personal differs) */}
+        {hasDifferentPersonalLyrics && !isEditingLyrics && (
+          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 shadow-sm text-xs text-blue-700">
+            <span className="font-medium">💡 Você tem uma versão pessoal diferente para esta música.</span>
+            <button
+              type="button"
+              onClick={() => setShowPersonalLyrics(!showPersonalLyrics)}
+              className="font-bold underline hover:text-blue-900 transition-colors focus:outline-none shrink-0"
+            >
+              {showPersonalLyrics ? 'Ver letra da Banda (👥)' : 'Ver minha letra (👤)'}
+            </button>
+          </div>
+        )}
 
         {isEditingLyrics ? (
           <div className="flex flex-col gap-3">
@@ -736,7 +887,7 @@ export default function FastViewPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setLyricsText(entry.lyrics ?? '')
+                    setLyricsText(displayedLyrics ?? '')
                     setIsEditingLyrics(false)
                   }}
                   disabled={savingLyrics}
@@ -767,9 +918,9 @@ export default function FastViewPage() {
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-            {entry.lyrics ? (
+            {displayedLyrics ? (
               <div className="text-gray-800 text-sm font-sans leading-relaxed select-text flex flex-col gap-1.5">
-                {entry.lyrics.split('\n').map((line, idx) => (
+                {displayedLyrics.split('\n').map((line, idx) => (
                   <div
                     key={idx}
                     className="min-h-[1.2rem] whitespace-pre-wrap"
@@ -803,7 +954,7 @@ export default function FastViewPage() {
     </main>
 
     {/* Stage Mode (Full Screen Lyrics) */}
-    {isStageMode && entry.lyrics && (
+    {isStageMode && displayedLyrics && (
       <div
         className={`fixed inset-0 z-50 overflow-y-auto px-6 py-8 flex flex-col gap-6 transition-colors duration-300 ${
           isStageDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-white text-gray-900'
@@ -876,7 +1027,7 @@ export default function FastViewPage() {
         {/* Scrollable Lyrics Container */}
         <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text">
           <div className="flex flex-col gap-2 font-mono leading-relaxed tracking-wide">
-            {entry.lyrics.split('\n').map((line, idx) => (
+            {displayedLyrics.split('\n').map((line, idx) => (
               <div
                 key={idx}
                 className="min-h-[1.5rem] whitespace-pre-wrap"
