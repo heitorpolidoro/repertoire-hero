@@ -169,9 +169,20 @@ spec.md, SDS.md, plan.md, tasks.md
 - **Version Bumping Rule**: Whenever you make changes that lead to a merge or a deploy, you MUST update the package version in `package.json`. Increase the patch/bugfix version by default and append a timestamp suffix in the format `YYYYMMDDHHmm` using the local timezone.
   - Example version format: `v0.1.6-202608060948` (representing version `0.1.6` released on August 6, 2026 at 09:48).
 
+
+
 <!-- MERIDIAN_INSTRUCTIONS_START -->
 # Meridian Instructions
 
 > **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (A JSON object with a `tasks` array containing tasks with id, title, status, justification).
+> **Allowed Statuses**: When assigning a status to a task, you MUST use EXACTLY one of the following lowercase strings. DO NOT invent new statuses or use synonyms like 'pending', 'todo', or 'completed'.
+  - `backlog`: Task is planned but not ready to be worked on yet.
+  - `specreview`: Task needs specification or design review.
+  - `readytodo`: Task is fully specified and ready to be picked up.
+  - `inprogress`: Task is currently being worked on.
+  - `qareview`: Task is done and waiting for QA or code review.
+  - `blocked`: Task cannot proceed due to external dependencies.
+  - `done`: Task is fully completed.
+  - `nope`: Task was cancelled or won't be done.
 > **Implementation Rule**: Before starting any implementation work, ask the user if they want to create a task for it in the Meridian system.
 <!-- MERIDIAN_INSTRUCTIONS_END -->

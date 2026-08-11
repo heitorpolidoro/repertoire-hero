@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, RepertoireTab, SongStatus } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
-import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction } from '@/app/actions/repertoire'
+import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 
 function parseLyricsMarkdown(text: string) {
@@ -44,6 +44,10 @@ export default function FastViewPage() {
   const [lyricsText, setLyricsText] = useState('')
   const [savingLyrics, setSavingLyrics] = useState(false)
   const [fetchingLyrics, setFetchingLyrics] = useState(false)
+
+  // Status changing state
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -190,6 +194,21 @@ export default function FastViewPage() {
     }
   }
 
+  // Handler for changing song status/mastery level
+  async function handleStatusChange(newStatus: SongStatus) {
+    if (!entry) return
+    try {
+      setUpdatingStatus(true)
+      await updateSongStatusAction(entry.id, newStatus, entry.band_id)
+      setEntry(prev => prev ? { ...prev, status: newStatus } : null)
+      setIsStatusDropdownOpen(false)
+    } catch {
+      alert('Failed to update status')
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto">
       {/* Back button */}
@@ -211,11 +230,54 @@ export default function FastViewPage() {
               <p className="mt-1 text-lg text-gray-500">{artist}</p>
             )}
           </div>
-          <span
-            className={`shrink-0 mt-1 px-3 py-1 rounded-full text-sm font-medium ${cfg.bgColor} ${cfg.textColor}`}
-          >
-            {cfg.label}
-          </span>
+          <div className="relative shrink-0 mt-1">
+            <button
+              type="button"
+              onClick={() => setIsStatusDropdownOpen(prev => !prev)}
+              disabled={updatingStatus}
+              className={`px-3 py-1 rounded-full text-sm font-medium transition-colors border hover:shadow-sm flex items-center gap-1.5 focus:outline-none ${cfg.bgColor} ${cfg.textColor} border-transparent hover:border-gray-300/40`}
+            >
+              <span>{cfg.label}</span>
+              <span className="text-[10px] opacity-70" aria-hidden="true">&#9662;</span>
+            </button>
+
+            {isStatusDropdownOpen && (
+              <>
+                {/* Backdrop overlay to close when clicking outside */}
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setIsStatusDropdownOpen(false)}
+                />
+                
+                {/* Floating Dropdown List */}
+                <ul className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 z-30 flex flex-col gap-0.5 text-left">
+                  {Object.entries(STATUS_CONFIG).map(([statusKey, statusCfg]) => {
+                    const isSelected = entry?.status === statusKey
+                    return (
+                      <li key={statusKey}>
+                        <button
+                          type="button"
+                          onClick={() => handleStatusChange(statusKey as any)}
+                          className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-gray-50 flex items-center justify-between transition-colors ${
+                            isSelected ? 'text-emerald-700 bg-emerald-50/50' : 'text-gray-700'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            {/* Color Dot indicator */}
+                            <span className={`w-2.5 h-2.5 rounded-full ${statusCfg.bgColor}`} />
+                            <span>{statusCfg.label}</span>
+                          </span>
+                          {isSelected && (
+                            <span className="text-emerald-600 font-bold">&#10003;</span>
+                          )}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            )}
+          </div>
         </div>
 
         {key && (
