@@ -191,8 +191,9 @@ export default function FastViewPage() {
   const cfg = STATUS_CONFIG[entry.status]
   const links = entry.song?.links ?? []
 
+  const tabsOrigin = entry.band_id ? ('band' as const) : ('personal' as const)
   const mergedTabs = [
-    ...tabs.map(t => ({ ...t, origin: 'band' as const })),
+    ...tabs.map(t => ({ ...t, origin: tabsOrigin })),
     ...personalTabs.map(t => ({ ...t, origin: 'personal' as const }))
   ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
