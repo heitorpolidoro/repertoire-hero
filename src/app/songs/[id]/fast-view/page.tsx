@@ -106,6 +106,7 @@ export default function FastViewPage() {
   // Band vs Personal aggregation states
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
   const [personalTabs, setPersonalTabs] = useState<RepertoireTab[]>([])
+  const [loadingPersonal, setLoadingPersonal] = useState(false)
   const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)
   const [uploadDestination, setUploadDestination] = useState<'band' | 'personal'>('band')
   const [showUploadDestModal, setShowUploadDestModal] = useState(false)
@@ -133,6 +134,7 @@ export default function FastViewPage() {
 
             // If we are in band context, fetch personal entry and tabs in background
             if (queryBandId && data.song_id) {
+              setLoadingPersonal(true)
               getPersonalEntryForSongAction(data.song_id).then(async (pEntry) => {
                 if (pEntry && !cancelled) {
                   setPersonalEntry(pEntry)
@@ -147,6 +149,8 @@ export default function FastViewPage() {
                 }
               }).catch((e) => {
                 console.error('Failed to load personal entry', e)
+              }).finally(() => {
+                if (!cancelled) setLoadingPersonal(false)
               })
             }
           }
@@ -632,6 +636,16 @@ export default function FastViewPage() {
               </div>
             )}
           </div>
+        ) : loadingPersonal ? (
+          <div className="flex flex-col gap-2 animate-pulse" aria-busy="true" aria-label="Loading tabs...">
+            {[1, 2].map(i => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="w-5 h-5 rounded bg-gray-200 shrink-0" />
+                <div className="h-3.5 rounded bg-gray-200 flex-1 max-w-[180px]" />
+                <div className="h-4 w-14 rounded-full bg-gray-200 ml-auto" />
+              </div>
+            ))}
+          </div>
         ) : (
           <p className="text-sm text-gray-500 bg-gray-100/60 border border-gray-200/50 rounded-xl p-4 text-center">No PDFs uploaded yet.</p>
         )}
@@ -911,6 +925,12 @@ export default function FastViewPage() {
                     className="min-h-[1.2rem] whitespace-pre-wrap"
                     dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
                   />
+                ))}
+              </div>
+            ) : loadingPersonal ? (
+              <div className="flex flex-col gap-2 animate-pulse" aria-busy="true" aria-label="Loading lyrics...">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} className={`h-3 rounded bg-gray-200 ${i % 3 === 0 ? 'max-w-[55%]' : i % 2 === 0 ? 'max-w-[80%]' : 'max-w-full'}`} />
                 ))}
               </div>
             ) : (
