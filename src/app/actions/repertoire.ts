@@ -181,3 +181,22 @@ export async function fetchLyricsAction(artist: string, title: string): Promise<
     return null
   }
 }
+
+export async function updateSongLinksAction(repertoireId: string, links: SongLink[]): Promise<{ success: boolean }> {
+  const res = await query(
+    `SELECT song_id FROM repertoire WHERE id = $1`,
+    [repertoireId]
+  )
+  if (res.rowCount === 0) {
+    throw new Error('Repertoire entry not found')
+  }
+  const songId = res.rows[0].song_id
+
+  await query(
+    `UPDATE global_songs SET links = $1 WHERE id = $2`,
+    [JSON.stringify(links), songId]
+  )
+
+  revalidatePath('/')
+  return { success: true }
+}

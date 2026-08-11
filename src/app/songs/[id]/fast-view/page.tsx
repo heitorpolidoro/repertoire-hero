@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import type { Repertoire, RepertoireTab, SongStatus } from '@/types/database'
+import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
-import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction } from '@/app/actions/repertoire'
+import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 
 function parseLyricsMarkdown(text: string) {
@@ -17,6 +17,49 @@ function parseLyricsMarkdown(text: string) {
     .replace(/__(.*?)__/g, '<u>$1</u>')
     .replace(/\[(.*?)\]/g, '<strong class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all">$1</strong>')
   return html
+}
+
+function getLinkIcon(url: string) {
+  const lowercaseUrl = url.toLowerCase()
+  
+  if (lowercaseUrl.includes('spotify.com')) {
+    return (
+      <svg className="w-5 h-5 text-[#1DB954] shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.565.387-.86.207-2.377-1.454-5.37-1.783-8.893-.982-.336.075-.67-.136-.75-.472-.075-.336.136-.67.472-.75 3.856-.882 7.15-.508 9.825 1.13.295.18.387.565.207.865zm1.224-2.722c-.226.367-.707.487-1.074.26-2.72-1.672-6.87-2.157-10.082-1.182-.413.125-.85-.107-.975-.52-.125-.413.107-.85.52-.975 3.666-1.112 8.243-.574 11.378 1.353.367.226.487.707.26 1.074zm.107-2.825C14.398 8.66 8.398 8.462 4.907 9.522c-.53.16-1.09-.14-1.25-.67-.16-.53.14-1.09.67-1.25 3.997-1.213 10.63-1.002 14.735 1.442.477.283.633.9.35 1.377-.283.477-.9.633-1.377.35z"/>
+      </svg>
+    )
+  }
+  
+  if (lowercaseUrl.includes('youtube.com') || lowercaseUrl.includes('youtu.be')) {
+    return (
+      <svg className="w-5 h-5 text-[#FF0000] shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11C4.482 20.455 12 20.455 12 20.455s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+      </svg>
+    )
+  }
+  
+  if (lowercaseUrl.includes('cifraclub.com.br') || lowercaseUrl.includes('cifraclub.com') || lowercaseUrl.includes('ultimate-guitar.com')) {
+    return (
+      <svg className="w-5 h-5 text-[#FFB600] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+      </svg>
+    )
+  }
+  
+  if (lowercaseUrl.includes('drive.google.com') || lowercaseUrl.includes('docs.google.com') || lowercaseUrl.endsWith('.pdf')) {
+    return (
+      <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>
+    )
+  }
+  
+  // Generic Link Icon
+  return (
+    <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+    </svg>
+  )
 }
 
 export default function FastViewPage() {
@@ -48,6 +91,12 @@ export default function FastViewPage() {
   // Status changing state
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
+
+  // Links editing state
+  const [isAddingLink, setIsAddingLink] = useState(false)
+  const [newLinkLabel, setNewLinkLabel] = useState('')
+  const [newLinkUrl, setNewLinkUrl] = useState('')
+  const [savingLink, setSavingLink] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -206,6 +255,73 @@ export default function FastViewPage() {
       alert('Failed to update status')
     } finally {
       setUpdatingStatus(false)
+    }
+  }
+
+  // Handler for adding a new song link
+  async function handleAddLink(e: React.FormEvent) {
+    e.preventDefault()
+    if (!entry || !entry.song) return
+    
+    const newLink: SongLink = {
+      label: newLinkLabel.trim(),
+      url: newLinkUrl.trim()
+    }
+    
+    // Check for duplicate URLs
+    const currentLinks = entry.song.links ?? []
+    if (currentLinks.some(link => link.url === newLink.url)) {
+      alert('This URL is already in the links list.')
+      return
+    }
+    
+    const updatedLinks = [...currentLinks, newLink]
+    
+    try {
+      setSavingLink(true)
+      await updateSongLinksAction(entry.id, updatedLinks)
+      setEntry(prev => {
+        if (!prev || !prev.song) return prev
+        return {
+          ...prev,
+          song: {
+            ...prev.song,
+            links: updatedLinks
+          }
+        }
+      })
+      setIsAddingLink(false)
+      setNewLinkLabel('')
+      setNewLinkUrl('')
+    } catch {
+      alert('Failed to add link.')
+    } finally {
+      setSavingLink(false)
+    }
+  }
+
+  // Handler for deleting a song link
+  async function handleDeleteLink(urlToDelete: string) {
+    if (!entry || !entry.song) return
+    if (!confirm('Are you sure you want to delete this link?')) return
+    
+    const currentLinks = entry.song.links ?? []
+    const updatedLinks = currentLinks.filter(link => link.url !== urlToDelete)
+    
+    try {
+      await updateSongLinksAction(entry.id, updatedLinks)
+      setEntry(prev => {
+        if (!prev || !prev.song) return prev
+        return {
+          ...prev,
+          song: {
+            ...prev.song,
+            links: updatedLinks
+          }
+        }
+      })
+    } catch {
+      alert('Failed to delete link.')
     }
   }
 
@@ -450,26 +566,98 @@ export default function FastViewPage() {
       </section>
 
       {/* Links Section */}
-      {links.length > 0 && (
-        <section aria-label="Links" className="flex flex-col gap-3">
+      <section aria-label="Links" className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Links</h2>
+          {!isAddingLink && (
+            <button
+              type="button"
+              onClick={() => setIsAddingLink(true)}
+              className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none"
+            >
+              + Add Link
+            </button>
+          )}
+        </div>
+
+        {links.length > 0 ? (
           <ul className="flex flex-col gap-2">
-            {links.map((link) => (
-              <li key={link.url}>
+            {links.map((link, idx) => (
+              <li key={`${link.url}-${idx}`} className="group relative flex items-center justify-between">
                 <a
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-between w-full px-5 py-4 rounded-xl bg-white border border-gray-200 shadow-sm text-emerald-600 font-medium hover:bg-emerald-50 hover:border-emerald-200 transition-colors"
+                  className="flex flex-1 items-center gap-3 px-5 py-4 rounded-xl bg-white border border-gray-200 shadow-sm text-emerald-600 font-medium hover:bg-emerald-50 hover:border-emerald-200 transition-colors pr-12"
                 >
-                  <span>{link.label || link.url}</span>
-                  <span aria-hidden="true" className="text-lg">&#8599;</span>
+                  {getLinkIcon(link.url)}
+                  <span className="truncate">{link.label || link.url}</span>
+                  <span aria-hidden="true" className="text-lg ml-auto shrink-0">&#8599;</span>
                 </a>
+                
+                {/* Delete link button */}
+                <button
+                  type="button"
+                  onClick={() => handleDeleteLink(link.url)}
+                  className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 z-10 mr-1"
+                  aria-label="Delete link"
+                >
+                  <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        ) : (
+          <p className="text-sm text-gray-500 bg-gray-100/60 border border-gray-200/50 rounded-xl p-4 text-center">No links added yet.</p>
+        )}
+
+        {/* Add Link Form */}
+        {isAddingLink && (
+          <form onSubmit={handleAddLink} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+            <h3 className="text-xs font-semibold text-gray-700">Add New Link</h3>
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                placeholder="Link Label (e.g. Chords, YouTube)"
+                value={newLinkLabel}
+                onChange={(e) => setNewLinkLabel(e.target.value)}
+                required
+                className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+              />
+              <input
+                type="url"
+                placeholder="Link URL (https://...)"
+                value={newLinkUrl}
+                onChange={(e) => setNewLinkUrl(e.target.value)}
+                required
+                className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingLink(false)
+                  setNewLinkLabel('')
+                  setNewLinkUrl('')
+                }}
+                className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingLink}
+                className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+              >
+                {savingLink ? 'Saving...' : 'Add'}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
 
       {/* Lyrics Section */}
       <section aria-label="Lyrics" className="flex flex-col gap-3">
