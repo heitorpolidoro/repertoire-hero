@@ -336,7 +336,15 @@ export default function FastViewPage() {
       {/* Back button */}
       <button
         type="button"
-        onClick={() => router.back()}
+        onClick={() => {
+          const params = new URLSearchParams(window.location.search)
+          const returnTo = params.get('returnTo')
+          if (returnTo) {
+            router.push(returnTo)
+          } else {
+            router.back()
+          }
+        }}
         className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
         aria-label="Back"
       >

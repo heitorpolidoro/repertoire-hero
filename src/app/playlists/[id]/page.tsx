@@ -1035,37 +1035,75 @@ export default function PlaylistDetailPage() {
                 return (
                   <li
                     key={ps.id}
-                    className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"
+                    className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 hover:shadow transition-all group"
                   >
                     <div className="flex items-center gap-3">
-                      {ps.song?.cover_url ? (
-                        <Image
-                          src={ps.song.cover_url}
-                          alt=""
-                          width={40}
-                          height={40}
-                          className="h-10 w-10 rounded object-cover shrink-0"
-                          unoptimized
-                        />
+                      {entry ? (
+                        <Link
+                          href={`/songs/${entry.id}/fast-view?returnTo=/playlists/${playlist.id}`}
+                          className="flex-1 flex items-center gap-3 min-w-0"
+                        >
+                          {ps.song?.cover_url ? (
+                            <Image
+                              src={ps.song.cover_url}
+                              alt=""
+                              width={40}
+                              height={40}
+                              className="h-10 w-10 rounded object-cover shrink-0"
+                              unoptimized
+                            />
+                          ) : (
+                            <div
+                              className="h-10 w-10 rounded bg-emerald-100 shrink-0"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 group-hover:text-emerald-600 transition-colors truncate">
+                              {ps.song?.title ?? "—"}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {ps.song?.artist ?? "—"}
+                            </p>
+                            {ps.song?.album && (
+                              <p className="text-xs text-gray-400 italic truncate">
+                                {ps.song.album}
+                              </p>
+                            )}
+                          </div>
+                        </Link>
                       ) : (
-                        <div
-                          className="h-10 w-10 rounded bg-emerald-100 shrink-0"
-                          aria-hidden="true"
-                        />
+                        <>
+                          {ps.song?.cover_url ? (
+                            <Image
+                              src={ps.song.cover_url}
+                              alt=""
+                              width={40}
+                              height={40}
+                              className="h-10 w-10 rounded object-cover shrink-0"
+                              unoptimized
+                            />
+                          ) : (
+                            <div
+                              className="h-10 w-10 rounded bg-emerald-100 shrink-0"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {ps.song?.title ?? "—"}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {ps.song?.artist ?? "—"}
+                            </p>
+                            {ps.song?.album && (
+                              <p className="text-xs text-gray-400 italic truncate">
+                                {ps.song.album}
+                              </p>
+                            )}
+                          </div>
+                        </>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {ps.song?.title ?? "—"}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {ps.song?.artist ?? "—"}
-                        </p>
-                        {ps.song?.album && (
-                          <p className="text-xs text-gray-400 italic truncate">
-                            {ps.song.album}
-                          </p>
-                        )}
-                      </div>
                       {ps.song?.duration_seconds != null && (
                         <span className="text-xs text-gray-400 shrink-0 tabular-nums">
                           {formatDuration(ps.song.duration_seconds)}
