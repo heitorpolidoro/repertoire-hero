@@ -98,6 +98,11 @@ export default function FastViewPage() {
   const [newLinkUrl, setNewLinkUrl] = useState('')
   const [savingLink, setSavingLink] = useState(false)
 
+  // Stage mode states
+  const [isStageMode, setIsStageMode] = useState(false)
+  const [lyricsFontSize, setLyricsFontSize] = useState(18)
+  const [isStageDarkMode, setIsStageDarkMode] = useState(false)
+
   useEffect(() => {
     let cancelled = false
 
@@ -326,7 +331,8 @@ export default function FastViewPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto">
+    <>
+      <main className="min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto">
       {/* Back button */}
       <button
         type="button"
@@ -663,15 +669,26 @@ export default function FastViewPage() {
       <section aria-label="Lyrics" className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Lyrics</h2>
-          {!isEditingLyrics && (
-            <button
-              type="button"
-              onClick={() => setIsEditingLyrics(true)}
-              className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors"
-            >
-              {entry.lyrics ? 'Edit' : 'Add'}
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {entry.lyrics && !isEditingLyrics && (
+              <button
+                type="button"
+                onClick={() => setIsStageMode(true)}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors flex items-center gap-1 focus:outline-none"
+              >
+                <span>🔍 Stage Mode</span>
+              </button>
+            )}
+            {!isEditingLyrics && (
+              <button
+                type="button"
+                onClick={() => setIsEditingLyrics(true)}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none"
+              >
+                {entry.lyrics ? 'Edit' : 'Add'}
+              </button>
+            )}
+          </div>
         </div>
 
         {isEditingLyrics ? (
@@ -773,5 +790,92 @@ export default function FastViewPage() {
         </section>
       )}
     </main>
+
+    {/* Stage Mode (Full Screen Lyrics) */}
+    {isStageMode && entry.lyrics && (
+      <div
+        className={`fixed inset-0 z-50 overflow-y-auto px-6 py-8 flex flex-col gap-6 transition-colors duration-300 ${
+          isStageDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-white text-gray-900'
+        }`}
+        style={{ fontSize: `${lyricsFontSize}px` }}
+      >
+        {/* Header Controls */}
+        <div className="sticky top-0 z-10 py-3 flex items-center justify-between border-b backdrop-blur-md bg-opacity-70 pr-2 border-gray-200/20">
+          <div className="flex flex-col min-w-0">
+            <h2 className={`text-lg font-bold truncate ${isStageDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+              {title}
+            </h2>
+            {key && (
+              <span className="text-xs opacity-75">Tom: {key}</span>
+            )}
+          </div>
+          
+          {/* Control Panel */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            {/* Dark Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => setIsStageDarkMode(prev => !prev)}
+              className={`p-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none ${
+                isStageDarkMode 
+                  ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+              title="Alternar Modo Escuro"
+            >
+              {isStageDarkMode ? '☀️ Claro' : '🌙 Escuro'}
+            </button>
+            
+            {/* Font Size decrease */}
+            <button
+              type="button"
+              onClick={() => setLyricsFontSize(prev => Math.max(12, prev - 2))}
+              className={`w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-colors focus:outline-none ${
+                isStageDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+              title="Diminuir Fonte"
+            >
+              A-
+            </button>
+            
+            {/* Font Size increase */}
+            <button
+              type="button"
+              onClick={() => setLyricsFontSize(prev => Math.min(36, prev + 2))}
+              className={`w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-colors focus:outline-none ${
+                isStageDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+              title="Aumentar Fonte"
+            >
+              A+
+            </button>
+            
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setIsStageMode(false)}
+              className="ml-2 w-9 h-9 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center transition-colors focus:outline-none shadow-sm"
+              title="Fechar Modo Palco"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        
+        {/* Scrollable Lyrics Container */}
+        <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text">
+          <div className="flex flex-col gap-2 font-mono leading-relaxed tracking-wide">
+            {entry.lyrics.split('\n').map((line, idx) => (
+              <div
+                key={idx}
+                className="min-h-[1.5rem] whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
