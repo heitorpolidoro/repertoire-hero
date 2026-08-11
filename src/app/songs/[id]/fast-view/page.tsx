@@ -108,8 +108,11 @@ export default function FastViewPage() {
 
     async function load() {
       try {
+        const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+        const queryBandId = params ? params.get('bandId') : null
+
         const [data, tabData] = await Promise.all([
-          getSongEntry(id),
+          getSongEntry(id, queryBandId),
           getTabsAction(id).catch(() => [] as RepertoireTab[]),
         ])
 

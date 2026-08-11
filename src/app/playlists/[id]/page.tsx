@@ -1040,7 +1040,7 @@ export default function PlaylistDetailPage() {
                     <div className="flex items-center gap-3">
                       {entry ? (
                         <Link
-                          href={`/songs/${entry.id}/fast-view?returnTo=/playlists/${playlist.id}`}
+                          href={`/songs/${entry.id}/fast-view?returnTo=/playlists/${playlist.id}${bandId ? `&bandId=${bandId}` : ''}`}
                           className="flex-1 flex items-center gap-3 min-w-0"
                         >
                           {ps.song?.cover_url ? (
