@@ -10,6 +10,7 @@ import {
   removeSongFromPlaylist,
   getPlaylistWithSongs,
 } from '@/lib/playlists'
+import { query } from '@/lib/db'
 import type { Playlist } from '@/types/database'
 
 export async function getUserPlaylistsAction(): Promise<Playlist[]> {
@@ -52,4 +53,33 @@ export async function removeSongFromPlaylistAction(playlistId: string, songId: s
 
 export async function getPlaylistWithSongsAction(id: string) {
   return getPlaylistWithSongs(id)
+}
+
+/**
+ * Returns an ordered list of repertoire entry IDs for a playlist,
+ * matched against the given owner context (bandId or the current user).
+ */
+export async function getPlaylistEntryIdsAction(
+  playlistId: string,
+  bandId?: string | null
+): Promise<Array<{ repertoireId: string; songId: string }>> {
+  const userId = await getRequiredUserId()
+
+  const sql = `
+    SELECT ps.position, r.id AS repertoire_id, ps.song_id
+    FROM playlist_songs ps
+    JOIN repertoire r ON r.song_id = ps.song_id
+      AND (
+        ($1::uuid IS NOT NULL AND r.band_id = $1::uuid)
+        OR
+        ($1::uuid IS NULL AND r.user_id = $2::uuid)
+      )
+    WHERE ps.playlist_id = $3
+    ORDER BY ps.position ASC
+  `
+  const res = await query(sql, [bandId ?? null, userId, playlistId])
+  return res.rows.map((row) => ({
+    repertoireId: row.repertoire_id as string,
+    songId: row.song_id as string,
+  }))
 }

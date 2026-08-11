@@ -6,6 +6,7 @@ import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/da
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
+import { getPlaylistEntryIdsAction } from '@/app/actions/playlists'
 
 function parseLyricsMarkdown(text: string) {
   let html = text
@@ -111,6 +112,16 @@ export default function FastViewPage() {
   const [uploadDestination, setUploadDestination] = useState<'band' | 'personal'>('band')
   const [showUploadDestModal, setShowUploadDestModal] = useState(false)
 
+  // Playlist navigation state
+  const [playlistNav, setPlaylistNav] = useState<{
+    prevId: string | null
+    nextId: string | null
+    position: number
+    total: number
+    playlistId: string
+  } | null>(null)
+  const touchStartX = useRef<number | null>(null)
+
   useEffect(() => {
     let cancelled = false
 
@@ -152,6 +163,26 @@ export default function FastViewPage() {
               }).finally(() => {
                 if (!cancelled) setLoadingPersonal(false)
               })
+            }
+
+            // Fetch playlist navigation if returnTo is a playlist
+            const params2 = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+            const returnTo = params2?.get('returnTo') ?? null
+            const playlistMatch = returnTo?.match(/^\/playlists\/([\w-]+)$/)
+            if (playlistMatch) {
+              const playlistId = playlistMatch[1]
+              getPlaylistEntryIdsAction(playlistId, queryBandId).then((entries) => {
+                if (cancelled || entries.length === 0) return
+                const idx = entries.findIndex((e) => e.repertoireId === id)
+                if (idx === -1) return
+                setPlaylistNav({
+                  prevId: idx > 0 ? entries[idx - 1].repertoireId : null,
+                  nextId: idx < entries.length - 1 ? entries[idx + 1].repertoireId : null,
+                  position: idx + 1,
+                  total: entries.length,
+                  playlistId,
+                })
+              }).catch(() => { /* nav is optional, ignore errors */ })
             }
           }
         }
@@ -430,26 +461,81 @@ export default function FastViewPage() {
     }
   }
 
+  // Playlist navigation helper
+  function navigateTo(repertoireId: string) {
+    const params = new URLSearchParams(window.location.search)
+    const returnTo = params.get('returnTo') ?? ''
+    const bandId = params.get('bandId') ?? ''
+    const qs = new URLSearchParams()
+    if (returnTo) qs.set('returnTo', returnTo)
+    if (bandId) qs.set('bandId', bandId)
+    router.push(`/songs/${repertoireId}/fast-view?${qs.toString()}`)
+  }
+
   return (
     <>
-      <main className="min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto">
-      {/* Back button */}
-      <button
-        type="button"
-        onClick={() => {
-          const params = new URLSearchParams(window.location.search)
-          const returnTo = params.get('returnTo')
-          if (returnTo) {
-            router.push(returnTo)
-          } else {
-            router.back()
-          }
+      {/* Desktop: Side Arrow Navigation Buttons */}
+      {playlistNav?.prevId && (
+        <button
+          type="button"
+          onClick={() => navigateTo(playlistNav.prevId!)}
+          className="fixed left-3 top-1/2 -translate-y-1/2 z-40 hidden md:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
+          aria-label="Previous song"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+      {playlistNav?.nextId && (
+        <button
+          type="button"
+          onClick={() => navigateTo(playlistNav.nextId!)}
+          className="fixed right-3 top-1/2 -translate-y-1/2 z-40 hidden md:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
+          aria-label="Next song"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+
+      <main
+        className="min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto"
+        onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
+        onTouchEnd={(e) => {
+          if (touchStartX.current === null) return
+          const delta = touchStartX.current - e.changedTouches[0].clientX
+          touchStartX.current = null
+          if (Math.abs(delta) < 60) return
+          if (delta > 0 && playlistNav?.nextId) navigateTo(playlistNav.nextId)
+          if (delta < 0 && playlistNav?.prevId) navigateTo(playlistNav.prevId)
         }}
-        className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
-        aria-label="Back"
       >
-        &larr; Back
-      </button>
+      {/* Back button + playlist position indicator */}
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => {
+            const params = new URLSearchParams(window.location.search)
+            const returnTo = params.get('returnTo')
+            if (returnTo) {
+              router.push(returnTo)
+            } else {
+              router.back()
+            }
+          }}
+          className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
+          aria-label="Back"
+        >
+          &larr; Back
+        </button>
+        {playlistNav && (
+          <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full tabular-nums">
+            {playlistNav.position} / {playlistNav.total}
+          </span>
+        )}
+      </div>
 
       {/* Song identity */}
       <section aria-label="Song details" className="flex flex-col gap-3">
@@ -955,6 +1041,14 @@ export default function FastViewPage() {
             ))}
           </ul>
         </section>
+      )}
+      {/* Mobile: Swipe hint strip (only when in a playlist) */}
+      {playlistNav && (
+        <div className="md:hidden flex items-center justify-between px-1 text-[10px] text-gray-400 select-none pb-2">
+          <span>{playlistNav.prevId ? '← prev' : ''}</span>
+          <span className="font-semibold">{playlistNav.position} / {playlistNav.total}</span>
+          <span>{playlistNav.nextId ? 'next →' : ''}</span>
+        </div>
       )}
     </main>
 
