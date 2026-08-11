@@ -121,6 +121,7 @@ export default function FastViewPage() {
     playlistId: string
   } | null>(null)
   const touchStartX = useRef<number | null>(null)
+  const [slideOut, setSlideOut] = useState<'left' | 'right' | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -462,14 +463,17 @@ export default function FastViewPage() {
   }
 
   // Playlist navigation helper
-  function navigateTo(repertoireId: string) {
+  function navigateTo(repertoireId: string, direction: 'left' | 'right') {
     const params = new URLSearchParams(window.location.search)
     const returnTo = params.get('returnTo') ?? ''
     const bandId = params.get('bandId') ?? ''
     const qs = new URLSearchParams()
     if (returnTo) qs.set('returnTo', returnTo)
     if (bandId) qs.set('bandId', bandId)
-    router.push(`/songs/${repertoireId}/fast-view?${qs.toString()}`)
+    setSlideOut(direction)
+    setTimeout(() => {
+      router.push(`/songs/${repertoireId}/fast-view?${qs.toString()}`)
+    }, 220)
   }
 
   return (
@@ -478,7 +482,7 @@ export default function FastViewPage() {
       {playlistNav?.prevId && (
         <button
           type="button"
-          onClick={() => navigateTo(playlistNav.prevId!)}
+          onClick={() => navigateTo(playlistNav.prevId!, 'right')}
           className="fixed left-3 top-1/2 -translate-y-1/2 z-40 hidden md:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
           aria-label="Previous song"
         >
@@ -490,7 +494,7 @@ export default function FastViewPage() {
       {playlistNav?.nextId && (
         <button
           type="button"
-          onClick={() => navigateTo(playlistNav.nextId!)}
+          onClick={() => navigateTo(playlistNav.nextId!, 'left')}
           className="fixed right-3 top-1/2 -translate-y-1/2 z-40 hidden md:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
           aria-label="Next song"
         >
@@ -500,16 +504,20 @@ export default function FastViewPage() {
         </button>
       )}
 
+      {/* Overflow container to clip the slide animation */}
+      <div className="overflow-x-hidden">
       <main
-        className="min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto"
+        className={`min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out ${
+          slideOut === 'left' ? '-translate-x-full' : slideOut === 'right' ? 'translate-x-full' : 'translate-x-0'
+        }`}
         onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
         onTouchEnd={(e) => {
           if (touchStartX.current === null) return
           const delta = touchStartX.current - e.changedTouches[0].clientX
           touchStartX.current = null
           if (Math.abs(delta) < 60) return
-          if (delta > 0 && playlistNav?.nextId) navigateTo(playlistNav.nextId)
-          if (delta < 0 && playlistNav?.prevId) navigateTo(playlistNav.prevId)
+          if (delta > 0 && playlistNav?.nextId) navigateTo(playlistNav.nextId, 'left')
+          if (delta < 0 && playlistNav?.prevId) navigateTo(playlistNav.prevId, 'right')
         }}
       >
       {/* Back button + playlist position indicator */}
@@ -1051,7 +1059,7 @@ export default function FastViewPage() {
         </div>
       )}
     </main>
-
+      </div>
     {/* Stage Mode (Full Screen Lyrics) */}
     {isStageMode && displayedLyrics && (
       <div
