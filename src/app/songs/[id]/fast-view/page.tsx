@@ -13,9 +13,9 @@ function parseLyricsMarkdown(text: string) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/__(.*?)__/g, '<u>$1</u>')
+    .replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([\s\S]*?)\*/g, '<em>$1</em>')
+    .replace(/__([\s\S]*?)__/g, '<u>$1</u>')
     .replace(/\[(.*?)\]/g, '<strong class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all">$1</strong>')
   return html
 }
@@ -103,6 +103,7 @@ export default function FastViewPage() {
   const [isStageMode, setIsStageMode] = useState(false)
   const [lyricsFontSize, setLyricsFontSize] = useState(18)
   const [isStageDarkMode, setIsStageDarkMode] = useState(false)
+  const [isPdfStageMode, setIsPdfStageMode] = useState(false)
 
   // Band vs Personal aggregation states
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
@@ -120,8 +121,43 @@ export default function FastViewPage() {
     total: number
     playlistId: string
   } | null>(null)
+  const [playlistEntries, setPlaylistEntries] = useState<
+    Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>
+  >([])
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const touchStartX = useRef<number | null>(null)
   const [slideOut, setSlideOut] = useState<'left' | 'right' | null>(null)
+
+  // Mobile back button intercept for Stage Mode (lyrics or PDF)
+  useEffect(() => {
+    if (!isStageMode && !isPdfStageMode) return
+
+    window.history.pushState({ stageMode: true }, '')
+
+    const handlePopState = () => {
+      setIsStageMode(false)
+      setIsPdfStageMode(false)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [isStageMode, isPdfStageMode])
+
+  const closeStageMode = () => {
+    setIsStageMode(false)
+    if (window.history.state?.stageMode) {
+      window.history.back()
+    }
+  }
+
+  const closePdfStageMode = () => {
+    setIsPdfStageMode(false)
+    if (window.history.state?.stageMode) {
+      window.history.back()
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -174,6 +210,7 @@ export default function FastViewPage() {
               const playlistId = playlistMatch[1]
               getPlaylistEntryIdsAction(playlistId, queryBandId).then((entries) => {
                 if (cancelled || entries.length === 0) return
+                setPlaylistEntries(entries)
                 const idx = entries.findIndex((e) => e.repertoireId === id)
                 if (idx === -1) return
                 setPlaylistNav({
@@ -478,6 +515,78 @@ export default function FastViewPage() {
 
   return (
     <>
+      {/* Desktop Playlist Navigation Drawer */}
+      {isDrawerOpen && playlistNav && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs hidden md:block"
+            onClick={() => setIsDrawerOpen(false)}
+          />
+          <aside className="fixed right-0 top-0 bottom-0 z-50 w-80 bg-white border-l border-gray-200 shadow-2xl flex-col hidden md:flex animate-in slide-in-from-right duration-200">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🎵</span>
+                <h3 className="font-bold text-gray-900 text-sm">Playlist Setlist</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className="text-gray-400 hover:text-gray-600 text-sm font-bold p-1"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1">
+              {playlistEntries.map((item, idx) => {
+                const isCurrent = item.repertoireId === id
+                return (
+                  <button
+                    key={item.repertoireId}
+                    type="button"
+                    onClick={() => {
+                      setIsDrawerOpen(false)
+                      if (!isCurrent) {
+                        const targetIndex = idx
+                        const currentIndex = playlistEntries.findIndex((e) => e.repertoireId === id)
+                        const direction = targetIndex > currentIndex ? 'left' : 'right'
+                        navigateTo(item.repertoireId, direction)
+                      }
+                    }}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center justify-between text-xs ${
+                      isCurrent
+                        ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200 shadow-xs'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-gray-400 w-5 shrink-0 text-right font-mono">{idx + 1}.</span>
+                      <div className="min-w-0 truncate">
+                        <p className="truncate">{item.title}</p>
+                        {item.artist && <p className="text-[10px] text-gray-400 truncate">{item.artist}</p>}
+                      </div>
+                    </div>
+                    {isCurrent && <span className="text-xs text-emerald-600 shrink-0">▶ Now</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
+        </>
+      )}
+
+      {/* Desktop Playlist Drawer Toggle Button */}
+      {playlistNav && playlistEntries.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setIsDrawerOpen((prev) => !prev)}
+          className="fixed right-4 top-4 z-40 hidden md:flex items-center gap-2 px-3 py-2 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-md text-gray-700 hover:text-emerald-600 hover:border-emerald-300 transition-all focus:outline-none text-xs font-semibold"
+          title="Playlist Songs"
+        >
+          <span>🎵</span>
+          <span>Setlist ({playlistNav.position}/{playlistNav.total})</span>
+        </button>
+      )}
+
       {/* Desktop: Side Arrow Navigation Buttons */}
       {playlistNav?.prevId && (
         <button
@@ -544,6 +653,30 @@ export default function FastViewPage() {
           </span>
         )}
       </div>
+
+      {/* Mobile Select dropdown for fast playlist navigation */}
+      {playlistNav && playlistEntries.length > 0 && (
+        <div className="md:hidden">
+          <select
+            value={id}
+            onChange={(e) => {
+              const targetId = e.target.value
+              if (targetId === id) return
+              const targetIndex = playlistEntries.findIndex((item) => item.repertoireId === targetId)
+              const currentIndex = playlistEntries.findIndex((item) => item.repertoireId === id)
+              const direction = targetIndex > currentIndex ? 'left' : 'right'
+              navigateTo(targetId, direction)
+            }}
+            className="w-full text-xs font-semibold bg-white text-gray-700 border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-xs truncate"
+          >
+            {playlistEntries.map((item, idx) => (
+              <option key={item.repertoireId} value={item.repertoireId}>
+                {idx + 1}. {item.title} {item.artist ? `- ${item.artist}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Song identity */}
       <section aria-label="Song details" className="flex flex-col gap-3">
@@ -708,19 +841,28 @@ export default function FastViewPage() {
             {activeTabUrl && (
               <div className="flex flex-col gap-2 bg-white border border-emerald-200 rounded-xl p-3 shadow-sm transition-all duration-300">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-xs font-semibold text-gray-700 truncate max-w-[280px]">
+                  <span className="text-xs font-semibold text-gray-700 truncate max-w-[200px] sm:max-w-[280px]">
                     Viewing: {activeTabTitle}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTabUrl(null)
-                      setActiveTabTitle('')
-                    }}
-                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    Close viewer
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPdfStageMode(true)}
+                      className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+                    >
+                      <span>⛶</span> Stage
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTabUrl(null)
+                        setActiveTabTitle('')
+                      }}
+                      className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
                 <iframe
                   src={`https://docs.google.com/gview?url=${encodeURIComponent(activeTabUrl)}&embedded=true`}
@@ -1122,7 +1264,7 @@ export default function FastViewPage() {
             {/* Close Button */}
             <button
               type="button"
-              onClick={() => setIsStageMode(false)}
+              onClick={closeStageMode}
               className="ml-2 w-9 h-9 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center transition-colors focus:outline-none shadow-sm"
               title="Fechar Modo Palco"
             >
@@ -1142,6 +1284,33 @@ export default function FastViewPage() {
               />
             ))}
           </div>
+        </div>
+      </div>
+    )}
+
+    {/* PDF Stage Mode Overlay */}
+    {isPdfStageMode && activeTabUrl && (
+      <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white border-b border-gray-800 shrink-0">
+          <div className="flex flex-col min-w-0">
+            <span className="text-sm font-bold truncate">{activeTabTitle || 'PDF Tab'}</span>
+            <span className="text-xs text-gray-400 truncate">{title} {key ? `• ${key}` : ''}</span>
+          </div>
+          <button
+            type="button"
+            onClick={closePdfStageMode}
+            className="w-8 h-8 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center transition-colors focus:outline-none"
+            title="Close PDF Stage Mode"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 w-full h-full bg-black">
+          <iframe
+            src={`https://docs.google.com/gview?url=${encodeURIComponent(activeTabUrl)}&embedded=true`}
+            className="w-full h-full border-0"
+            title={activeTabTitle}
+          />
         </div>
       </div>
     )}

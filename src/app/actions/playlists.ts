@@ -62,12 +62,13 @@ export async function getPlaylistWithSongsAction(id: string) {
 export async function getPlaylistEntryIdsAction(
   playlistId: string,
   bandId?: string | null
-): Promise<Array<{ repertoireId: string; songId: string }>> {
+): Promise<Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>> {
   const userId = await getRequiredUserId()
 
   const sql = `
-    SELECT ps.position, r.id AS repertoire_id, ps.song_id
+    SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist
     FROM playlist_songs ps
+    JOIN global_songs s ON s.id = ps.song_id
     JOIN repertoire r ON r.song_id = ps.song_id
       AND (
         ($1::uuid IS NOT NULL AND r.band_id = $1::uuid)
@@ -81,5 +82,7 @@ export async function getPlaylistEntryIdsAction(
   return res.rows.map((row) => ({
     repertoireId: row.repertoire_id as string,
     songId: row.song_id as string,
+    title: row.title as string,
+    artist: row.artist as string | null,
   }))
 }

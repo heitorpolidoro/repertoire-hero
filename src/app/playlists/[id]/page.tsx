@@ -290,6 +290,7 @@ export default function PlaylistDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [songFilterQuery, setSongFilterQuery] = useState("");
   const [addingTagForSong, setAddingTagForSong] = useState<string | null>(null);
   const [newTagInput, setNewTagInput] = useState("");
   const [addingPlaylistTag, setAddingPlaylistTag] = useState(false);
@@ -404,15 +405,23 @@ export default function PlaylistDetailPage() {
     return [...set].sort((tagA, tagB) => tagA.localeCompare(tagB));
   }, [songs, repertoireMap]);
 
-  const filteredSongs = useMemo(
-    () =>
-      activeTagFilter
-        ? songs.filter((ps) =>
-            repertoireMap.get(ps.song_id)?.tags.includes(activeTagFilter),
-          )
-        : songs,
-    [songs, repertoireMap, activeTagFilter],
-  );
+  const filteredSongs = useMemo(() => {
+    let result = songs;
+    if (activeTagFilter) {
+      result = result.filter((ps) =>
+        repertoireMap.get(ps.song_id)?.tags.includes(activeTagFilter),
+      );
+    }
+    if (songFilterQuery.trim()) {
+      const q = songFilterQuery.toLowerCase().trim();
+      result = result.filter((ps) => {
+        const title = ps.song?.title?.toLowerCase() ?? "";
+        const artist = ps.song?.artist?.toLowerCase() ?? "";
+        return title.includes(q) || artist.includes(q);
+      });
+    }
+    return result;
+  }, [songs, repertoireMap, activeTagFilter, songFilterQuery]);
 
   // Picker results: hide songs already in the playlist; deduplicate Spotify vs catalog
   const pickerVisibleCatalog = useMemo(
@@ -976,6 +985,43 @@ export default function PlaylistDetailPage() {
         </div>
       )}
 
+      {/* Song search filter within playlist */}
+      {songs.length > 0 && (
+        <div className="px-4 md:px-6 pt-3 pb-2">
+          <div className="relative">
+            <input
+              type="text"
+              value={songFilterQuery}
+              onChange={(e) => setSongFilterQuery(e.target.value)}
+              placeholder="Filter playlist by title or artist..."
+              className="w-full pl-9 pr-8 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            />
+            <svg
+              className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            {songFilterQuery && (
+              <button
+                type="button"
+                onClick={() => setSongFilterQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Tag filter */}
       {allTags.length > 0 && (
         <div className="px-4 md:px-6 pb-2 flex flex-wrap gap-1.5">
@@ -1019,8 +1065,9 @@ export default function PlaylistDetailPage() {
           </p>
         ) : filteredSongs.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-12">
-            No songs tagged{" "}
-            <span className="font-medium">#{activeTagFilter}</span>.
+            {activeTagFilter
+              ? `No songs tagged #${activeTagFilter}.`
+              : `No songs matching "${songFilterQuery}".`}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
