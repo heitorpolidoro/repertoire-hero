@@ -519,10 +519,10 @@ export default function FastViewPage() {
       {isDrawerOpen && playlistNav && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs hidden md:block"
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs hidden lg:block"
             onClick={() => setIsDrawerOpen(false)}
           />
-          <aside className="fixed right-0 top-0 bottom-0 z-50 w-80 bg-white border-l border-gray-200 shadow-2xl flex-col hidden md:flex animate-in slide-in-from-right duration-200">
+          <aside className="fixed right-0 top-0 bottom-0 z-50 w-80 bg-white border-l border-gray-200 shadow-2xl flex-col hidden lg:flex animate-in slide-in-from-right duration-200">
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <span className="text-base">🎵</span>
@@ -579,7 +579,7 @@ export default function FastViewPage() {
         <button
           type="button"
           onClick={() => setIsDrawerOpen((prev) => !prev)}
-          className="fixed right-4 top-4 z-40 hidden md:flex items-center gap-2 px-3 py-2 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-md text-gray-700 hover:text-emerald-600 hover:border-emerald-300 transition-all focus:outline-none text-xs font-semibold"
+          className="fixed right-4 top-4 z-40 hidden lg:flex items-center gap-2 px-3 py-2 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-md text-gray-700 hover:text-emerald-600 hover:border-emerald-300 transition-all focus:outline-none text-xs font-semibold"
           title="Playlist Songs"
         >
           <span>🎵</span>
@@ -592,7 +592,7 @@ export default function FastViewPage() {
         <button
           type="button"
           onClick={() => navigateTo(playlistNav.prevId!, 'right')}
-          className="fixed left-3 top-1/2 -translate-y-1/2 z-40 hidden md:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
+          className="fixed left-3 top-1/2 -translate-y-1/2 z-40 hidden lg:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
           aria-label="Previous song"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -604,7 +604,7 @@ export default function FastViewPage() {
         <button
           type="button"
           onClick={() => navigateTo(playlistNav.nextId!, 'left')}
-          className="fixed right-3 top-1/2 -translate-y-1/2 z-40 hidden md:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
+          className="fixed right-3 top-1/2 -translate-y-1/2 z-40 hidden lg:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
           aria-label="Next song"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -654,9 +654,9 @@ export default function FastViewPage() {
         )}
       </div>
 
-      {/* Mobile Select dropdown for fast playlist navigation */}
+      {/* Mobile / Tablet Select dropdown for fast playlist navigation */}
       {playlistNav && playlistEntries.length > 0 && (
-        <div className="md:hidden">
+        <div className="lg:hidden">
           <select
             value={id}
             onChange={(e) => {
@@ -1154,15 +1154,10 @@ export default function FastViewPage() {
         ) : (
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
             {displayedLyrics ? (
-              <div className="text-gray-800 text-sm font-sans leading-relaxed select-text flex flex-col gap-1.5">
-                {displayedLyrics.split('\n').map((line, idx) => (
-                  <div
-                    key={idx}
-                    className="min-h-[1.2rem] whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
-                  />
-                ))}
-              </div>
+              <div
+                className="text-gray-800 text-sm font-sans leading-relaxed select-text whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(displayedLyrics) }}
+              />
             ) : loadingPersonal ? (
               <div className="flex flex-col gap-2 animate-pulse" aria-busy="true" aria-label="Loading lyrics...">
                 {[1, 2, 3, 4, 5].map(i => (
@@ -1192,9 +1187,9 @@ export default function FastViewPage() {
           </ul>
         </section>
       )}
-      {/* Mobile: Swipe hint strip (only when in a playlist) */}
+      {/* Mobile / Tablet: Swipe hint strip (only when in a playlist) */}
       {playlistNav && (
-        <div className="md:hidden flex items-center justify-between px-1 text-[10px] text-gray-400 select-none pb-2">
+        <div className="lg:hidden flex items-center justify-between px-1 text-[10px] text-gray-400 select-none pb-2">
           <span>{playlistNav.prevId ? '← prev' : ''}</span>
           <span className="font-semibold">{playlistNav.position} / {playlistNav.total}</span>
           <span>{playlistNav.nextId ? 'next →' : ''}</span>
@@ -1275,15 +1270,10 @@ export default function FastViewPage() {
         
         {/* Scrollable Lyrics Container */}
         <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text">
-          <div className="flex flex-col gap-2 font-mono leading-relaxed tracking-wide">
-            {displayedLyrics.split('\n').map((line, idx) => (
-              <div
-                key={idx}
-                className="min-h-[1.5rem] whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(line) }}
-              />
-            ))}
-          </div>
+          <div
+            className="font-mono leading-relaxed tracking-wide whitespace-pre-wrap"
+            dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(displayedLyrics) }}
+          />
         </div>
       </div>
     )}
