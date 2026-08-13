@@ -54,7 +54,20 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
-    getBandsAction().then((b) => setBands(b as unknown as Band[]));
+    getBandsAction().then((b) => {
+      const fetchedBands = b as unknown as Band[];
+      setBands(fetchedBands);
+      const currentCtx = useBandContextStore.getState().context;
+      if (currentCtx.type === 'band') {
+        const activeBand = fetchedBands.find((x) => x.id === currentCtx.id);
+        if (activeBand) {
+          const dbColor = activeBand.color ?? DEFAULT_BAND_COLOR;
+          if (currentCtx.color !== dbColor || currentCtx.name !== activeBand.name) {
+            useBandContextStore.getState().setBandContext(activeBand.id, activeBand.name, dbColor);
+          }
+        }
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -86,13 +99,13 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
         className={`flex w-full items-center gap-2 px-3 py-2 rounded-md transition-colors text-left ${
           isBandMode
             ? 'bg-white/15 hover:bg-white/25 ring-1 ring-white/20'
-            : 'bg-gray-800 hover:bg-gray-700'
+            : 'bg-gray-800 hover:bg-gray-700 text-white'
         }`}
       >
         <span className="text-base leading-none">
           {context.type === 'band' ? '🎸' : '👤'}
         </span>
-        <span className="flex-1 text-sm font-medium text-white truncate">{label}</span>
+        <span className="flex-1 text-sm font-medium truncate">{label}</span>
         <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''} opacity-80`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
@@ -200,7 +213,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Desktop sidebar */}
       <nav
         aria-label="Main navigation"
-        className={`hidden md:flex flex-col w-60 ${sidebarBg} text-white shrink-0 transition-colors duration-200`}
+        className={`hidden md:flex flex-col w-60 ${sidebarBg} ${isBandMode ? '' : 'text-white'} shrink-0 transition-colors duration-200`}
         style={isBandMode ? theme.style : undefined}
       >
         {/* Header */}
