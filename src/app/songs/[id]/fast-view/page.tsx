@@ -93,6 +93,19 @@ export default function FastViewPage() {
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
 
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'warning' | 'info' | 'success' } | null>(null)
+
+  function showToast(message: string, type: 'error' | 'warning' | 'info' | 'success' = 'info') {
+    setToast({ message, type })
+  }
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 4000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
   // Links editing state
   const [isAddingLink, setIsAddingLink] = useState(false)
   const [newLinkLabel, setNewLinkLabel] = useState('')
@@ -349,7 +362,7 @@ export default function FastViewPage() {
     try {
       const res = await deleteTabAction(tabId, targetId)
       if (res.error) {
-        alert(res.error)
+        showToast(res.error, 'error')
       } else {
         if (origin === 'personal') {
           setPersonalTabs(prev => prev.filter(t => t.id !== tabId))
@@ -358,7 +371,7 @@ export default function FastViewPage() {
         }
       }
     } catch {
-      alert('Failed to delete tab')
+      showToast('Failed to delete tab', 'error')
     }
   }
 
@@ -389,8 +402,9 @@ export default function FastViewPage() {
         setEntry(prev => prev ? { ...prev, lyrics: lyricsText } : null)
       }
       setIsEditingLyrics(false)
+      showToast('Lyrics saved successfully!', 'success')
     } catch {
-      alert('Failed to save lyrics')
+      showToast('Failed to save lyrics', 'error')
     } finally {
       setSavingLyrics(false)
     }
@@ -399,7 +413,7 @@ export default function FastViewPage() {
   // Handler for auto-importing lyrics from Web API
   async function handleAutoImportLyrics() {
     if (!artist) {
-      alert('Artist name is required to search for lyrics.')
+      showToast('Artist name is required to search for lyrics.', 'warning')
       return
     }
     try {
@@ -407,11 +421,12 @@ export default function FastViewPage() {
       const lyrics = await fetchLyricsAction(artist, title)
       if (lyrics) {
         setLyricsText(lyrics)
+        showToast('Lyrics imported online!', 'success')
       } else {
-        alert(`Lyrics not found online for "${title}" by "${artist}". You can still paste them below.`)
+        showToast(`Lyrics not found online for "${title}" by "${artist}". You can still paste them below.`, 'warning')
       }
     } catch {
-      alert('Failed to import lyrics from web. You can still paste them below.')
+      showToast('Failed to import lyrics from web. You can still paste them below.', 'error')
     } finally {
       setFetchingLyrics(false)
     }
@@ -425,8 +440,9 @@ export default function FastViewPage() {
       await updateSongStatusAction(entry.id, newStatus, entry.band_id)
       setEntry(prev => prev ? { ...prev, status: newStatus } : null)
       setIsStatusDropdownOpen(false)
+      showToast(`Status updated to ${STATUS_CONFIG[newStatus]?.label ?? newStatus}`, 'success')
     } catch {
-      alert('Failed to update status')
+      showToast('Failed to update status', 'error')
     } finally {
       setUpdatingStatus(false)
     }
@@ -445,7 +461,7 @@ export default function FastViewPage() {
     // Check for duplicate URLs
     const currentLinks = entry.song.links ?? []
     if (currentLinks.some(link => link.url === newLink.url)) {
-      alert('This URL is already in the links list.')
+      showToast('This URL is already in the links list.', 'warning')
       return
     }
     
@@ -467,8 +483,9 @@ export default function FastViewPage() {
       setIsAddingLink(false)
       setNewLinkLabel('')
       setNewLinkUrl('')
-    } catch {
-      alert('Failed to add link.')
+      showToast('Link added successfully!', 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to add link.', 'error')
     } finally {
       setSavingLink(false)
     }
@@ -494,8 +511,9 @@ export default function FastViewPage() {
           }
         }
       })
+      showToast('Link deleted.', 'info')
     } catch {
-      alert('Failed to delete link.')
+      showToast('Failed to delete link.', 'error')
     }
   }
 
@@ -1352,6 +1370,26 @@ export default function FastViewPage() {
               Cancel
             </button>
           </div>
+        </div>
+      </div>
+    )}
+
+    {/* Floating Toast Notification */}
+    {toast && (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
+        <div className={`rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md ${
+          toast.type === 'error'
+            ? 'bg-red-950/90 text-red-100 border-red-800'
+            : toast.type === 'warning'
+            ? 'bg-amber-950/90 text-amber-100 border-amber-800'
+            : toast.type === 'success'
+            ? 'bg-emerald-950/90 text-emerald-100 border-emerald-800'
+            : 'bg-gray-900/90 text-white border-gray-700'
+        }`}>
+          <span>{toast.message}</span>
+          <button onClick={() => setToast(null)} className="text-white/70 hover:text-white text-sm font-bold shrink-0">
+            ✕
+          </button>
         </div>
       </div>
     )}
