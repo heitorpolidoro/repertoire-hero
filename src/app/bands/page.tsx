@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { getBandsAction as getBands, createBandAction as createBand } from "@/app/actions/bands";
+import { getBandsAction as getBands, createBandAction as createBand, uploadBandCoverAction } from "@/app/actions/bands";
 import type { Band } from "@/types/database";
 const BandImage = ({ band }: { band: Band }) => {
   return band.cover_url ? (
@@ -58,6 +58,8 @@ export default function BandsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,13 +70,34 @@ export default function BandsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    if (file) {
+      setCoverFile(file);
+      setCoverPreview(URL.createObjectURL(file));
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
     setCreating(true);
     setError(null);
     try {
-      const bandId = await createBand(newName.trim(), newDesc.trim() || null);
+      let uploadedCoverUrl: string | null = null;
+      if (coverFile) {
+        const formData = new FormData();
+        formData.append("file", coverFile);
+        const uploadRes = await uploadBandCoverAction(formData);
+        if (uploadRes.error) {
+          setError(uploadRes.error);
+          setCreating(false);
+          return;
+        }
+        uploadedCoverUrl = uploadRes.coverUrl ?? null;
+      }
+
+      const bandId = await createBand(newName.trim(), newDesc.trim() || null, uploadedCoverUrl);
       router.push(`/bands/${bandId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create band");
@@ -125,6 +148,32 @@ export default function BandsPage() {
               placeholder="A brief description"
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">
+              Cover Image{" "}
+              <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <div className="flex items-center gap-3 pt-1">
+              {coverPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={coverPreview}
+                  alt="Cover preview"
+                  className="w-12 h-12 rounded-xl object-cover border border-gray-200 shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl shrink-0 border border-emerald-100 font-bold">
+                  🎸
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+              />
+            </div>
           </div>
           {error && (
             <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">

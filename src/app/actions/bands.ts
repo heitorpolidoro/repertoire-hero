@@ -1,5 +1,6 @@
 'use server'
 
+import { put } from '@vercel/blob'
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
   getBands,
@@ -68,4 +69,40 @@ export async function createBandPlaylistAction(bandId: string, name: string): Pr
 export async function joinBandByInviteAction(inviteCode: string): Promise<string | null> {
   const userId = await getRequiredUserId()
   return joinBandByInviteClient(userId, inviteCode)
+}
+
+export async function uploadBandCoverAction(
+  formData: FormData
+): Promise<{ coverUrl?: string; error?: string }> {
+  try {
+    const userId = await getRequiredUserId()
+    const file = formData.get('file') as File | null
+
+    if (!file) {
+      return { error: 'No image file provided' }
+    }
+
+    if (!file.type.startsWith('image/')) {
+      return { error: 'Only image files (JPEG, PNG, WebP, GIF) are allowed' }
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return { error: 'Image size exceeds 5MB limit' }
+    }
+
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+    const filePath = `band-covers/${userId}/${Date.now()}-${cleanFileName}`
+
+    const blob = await put(filePath, buffer, {
+      access: 'public',
+      contentType: file.type,
+    })
+
+    return { coverUrl: blob.url }
+  } catch (err: any) {
+    return { error: err.message || 'Failed to upload band cover image' }
+  }
 }

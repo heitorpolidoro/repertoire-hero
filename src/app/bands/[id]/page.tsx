@@ -11,6 +11,7 @@ import {
   removeBandMemberAction as removeBandMember,
   getBandPlaylistsAction as getBandPlaylists,
   createBandPlaylistAction as createBandPlaylist,
+  uploadBandCoverAction,
 } from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
@@ -32,6 +33,8 @@ export default function BandDetailPage() {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+  const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
+  const [editCoverPreview, setEditCoverPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // New playlist state
@@ -79,17 +82,42 @@ export default function BandDetailPage() {
   function openEdit() {
     setEditName(band?.name ?? "");
     setEditDesc(band?.description ?? "");
+    setEditCoverFile(null);
+    setEditCoverPreview(band?.cover_url ?? null);
     setEditing(true);
+  }
+
+  function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    if (file) {
+      setEditCoverFile(file);
+      setEditCoverPreview(URL.createObjectURL(file));
+    }
   }
 
   async function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editName.trim()) return;
     setSaving(true);
+    setError(null);
     try {
+      let cover_url = band?.cover_url ?? null;
+      if (editCoverFile) {
+        const formData = new FormData();
+        formData.append("file", editCoverFile);
+        const uploadRes = await uploadBandCoverAction(formData);
+        if (uploadRes.error) {
+          setError(uploadRes.error);
+          setSaving(false);
+          return;
+        }
+        cover_url = uploadRes.coverUrl ?? null;
+      }
+
       await updateBand(bandId, {
         name: editName.trim(),
         description: editDesc.trim() || null,
+        cover_url,
       });
       setBand((prev) =>
         prev
@@ -97,6 +125,7 @@ export default function BandDetailPage() {
               ...prev,
               name: editName.trim(),
               description: editDesc.trim() || null,
+              cover_url,
             }
           : prev,
       );
@@ -450,6 +479,31 @@ export default function BandDetailPage() {
                 onChange={(e) => setEditDesc(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-700">
+                Cover Image
+              </label>
+              <div className="flex items-center gap-3 pt-1">
+                {editCoverPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={editCoverPreview}
+                    alt="Band cover preview"
+                    className="w-14 h-14 rounded-2xl object-cover border border-gray-200 shrink-0 shadow-sm"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl shrink-0 font-bold">
+                    🎸
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleEditCoverChange}
+                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                />
+              </div>
             </div>
             <div className="flex gap-2">
               <button
