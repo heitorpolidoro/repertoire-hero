@@ -780,7 +780,7 @@ const PlaylistsPage = () => {
           onClick={() => setShowCreateModal(true)}
           className="shrink-0 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
         >
-          + Nova Playlist
+          + New Playlist
         </button>
       </header>
 
@@ -811,7 +811,7 @@ const PlaylistsPage = () => {
           >
             <p className="text-gray-500 font-medium">No playlists yet</p>
             <p className="text-sm text-gray-400">
-              Create your first playlist with the &ldquo;+ Nova Playlist&rdquo;
+              Create your first playlist with the &ldquo;+ New Playlist&rdquo;
               button
               {spotifyConnected && " or import one from Spotify"}.
             </p>

@@ -539,18 +539,20 @@ export default function FastViewPage() {
 
   return (
     <>
-      {/* Desktop Playlist Navigation Drawer */}
+      {/* Mobile Setlist Bottom Sheet Modal */}
       {isDrawerOpen && playlistNav && (
-        <>
+        <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden">
           <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs hidden lg:block"
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
             onClick={() => setIsDrawerOpen(false)}
           />
-          <aside className="fixed right-0 top-0 bottom-0 z-50 w-80 bg-white border-l border-gray-200 shadow-2xl flex-col hidden lg:flex animate-in slide-in-from-right duration-200">
-            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+          <div className="relative z-10 bg-white rounded-t-2xl max-h-[80vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <span className="text-base">🎵</span>
-                <h3 className="font-bold text-gray-900 text-sm">Playlist Setlist</h3>
+                <h3 className="font-bold text-gray-900 text-sm">
+                  Setlist ({playlistNav.position}/{playlistNav.total})
+                </h3>
               </div>
               <button
                 type="button"
@@ -560,7 +562,7 @@ export default function FastViewPage() {
                 ✕
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1">
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
               {playlistEntries.map((item, idx) => {
                 const isCurrent = item.repertoireId === id
                 return (
@@ -576,39 +578,32 @@ export default function FastViewPage() {
                         navigateTo(item.repertoireId, direction)
                       }
                     }}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center justify-between text-xs ${
+                    className={`w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border ${
                       isCurrent
-                        ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200 shadow-xs'
-                        : 'text-gray-700 hover:bg-gray-50'
+                        ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-xs'
+                        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100'
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-gray-400 w-5 shrink-0 text-right font-mono">{idx + 1}.</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}`}>
+                        {idx + 1}.
+                      </span>
                       <div className="min-w-0 truncate">
-                        <p className="truncate">{item.title}</p>
-                        {item.artist && <p className="text-[10px] text-gray-400 truncate">{item.artist}</p>}
+                        <p className="truncate font-medium">{item.title}</p>
+                        {item.artist && <p className="text-[11px] text-gray-400 truncate">{item.artist}</p>}
                       </div>
                     </div>
-                    {isCurrent && <span className="text-xs text-emerald-600 shrink-0">▶ Now</span>}
+                    {isCurrent && (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
+                        ▶ NOW
+                      </span>
+                    )}
                   </button>
                 )
               })}
             </div>
-          </aside>
-        </>
-      )}
-
-      {/* Desktop Playlist Drawer Toggle Button */}
-      {playlistNav && playlistEntries.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setIsDrawerOpen((prev) => !prev)}
-          className="fixed right-4 top-4 z-40 hidden lg:flex items-center gap-2 px-3 py-2 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-md text-gray-700 hover:text-emerald-600 hover:border-emerald-300 transition-all focus:outline-none text-xs font-semibold"
-          title="Playlist Songs"
-        >
-          <span>🎵</span>
-          <span>Setlist ({playlistNav.position}/{playlistNav.total})</span>
-        </button>
+          </div>
+        </div>
       )}
 
       {/* Desktop: Side Arrow Navigation Buttons */}
@@ -616,7 +611,7 @@ export default function FastViewPage() {
         <button
           type="button"
           onClick={() => navigateTo(playlistNav.prevId!, 'right')}
-          className="fixed left-3 top-1/2 -translate-y-1/2 z-40 hidden lg:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
+          className="fixed left-4 top-1/2 -translate-y-1/2 z-30 hidden lg:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
           aria-label="Previous song"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -624,59 +619,54 @@ export default function FastViewPage() {
           </svg>
         </button>
       )}
-      {playlistNav?.nextId && (
-        <button
-          type="button"
-          onClick={() => navigateTo(playlistNav.nextId!, 'left')}
-          className="fixed right-3 top-1/2 -translate-y-1/2 z-40 hidden lg:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
-          aria-label="Next song"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      )}
 
-      {/* Overflow container to clip the slide animation */}
-      <div className="overflow-x-hidden">
-      <main
-        className={`min-h-screen bg-gray-50 px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out ${
-          slideOut === 'left' ? '-translate-x-full' : slideOut === 'right' ? 'translate-x-full' : 'translate-x-0'
-        }`}
-        onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
-        onTouchEnd={(e) => {
-          if (touchStartX.current === null) return
-          const delta = touchStartX.current - e.changedTouches[0].clientX
-          touchStartX.current = null
-          if (Math.abs(delta) < 60) return
-          if (delta > 0 && playlistNav?.nextId) navigateTo(playlistNav.nextId, 'left')
-          if (delta < 0 && playlistNav?.prevId) navigateTo(playlistNav.prevId, 'right')
-        }}
-      >
-      {/* Back button + playlist position indicator */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => {
-            const params = new URLSearchParams(window.location.search)
-            const returnTo = params.get('returnTo')
-            if (returnTo) {
-              router.push(returnTo)
-            } else {
-              router.back()
-            }
-          }}
-          className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
-          aria-label="Back"
-        >
-          &larr; Back
-        </button>
-        {playlistNav && (
-          <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full tabular-nums">
-            {playlistNav.position} / {playlistNav.total}
-          </span>
-        )}
-      </div>
+      {/* Two-Column Desktop / One-Column Mobile Layout */}
+      <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+        <div className="flex-1 overflow-x-hidden min-w-0">
+          <main
+            className={`min-h-screen px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out ${
+              slideOut === 'left' ? '-translate-x-full' : slideOut === 'right' ? 'translate-x-full' : 'translate-x-0'
+            }`}
+            onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
+            onTouchEnd={(e) => {
+              if (touchStartX.current === null) return
+              const delta = touchStartX.current - e.changedTouches[0].clientX
+              touchStartX.current = null
+              if (Math.abs(delta) < 60) return
+              if (delta > 0 && playlistNav?.nextId) navigateTo(playlistNav.nextId, 'left')
+              if (delta < 0 && playlistNav?.prevId) navigateTo(playlistNav.prevId, 'right')
+            }}
+          >
+            {/* Back button + mobile setlist trigger pill */}
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const params = new URLSearchParams(window.location.search)
+                  const returnTo = params.get('returnTo')
+                  if (returnTo) {
+                    router.push(returnTo)
+                  } else {
+                    router.back()
+                  }
+                }}
+                className="text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
+                aria-label="Back"
+              >
+                &larr; Back
+              </button>
+
+              {playlistNav && (
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerOpen(true)}
+                  className="lg:hidden flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                >
+                  <span>🎵</span>
+                  <span>Setlist ({playlistNav.position}/{playlistNav.total})</span>
+                </button>
+              )}
+            </div>
 
       {/* Mobile / Tablet Select dropdown for fast playlist navigation */}
       {playlistNav && playlistEntries.length > 0 && (
@@ -1228,8 +1218,64 @@ export default function FastViewPage() {
           <span>{playlistNav.nextId ? 'next →' : ''}</span>
         </div>
       )}
-    </main>
-      </div>
+      </main>
+    </div>
+
+    {/* Dedicated Right Setlist Sidebar on Desktop (`lg:flex`) */}
+    {playlistNav && playlistEntries.length > 0 && (
+      <aside className="w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen overflow-y-auto hidden lg:flex flex-col z-20">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white z-10 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🎵</span>
+            <h3 className="font-bold text-gray-900 text-sm">Playlist Setlist</h3>
+          </div>
+          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+            {playlistNav.position} / {playlistNav.total}
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
+          {playlistEntries.map((item, idx) => {
+            const isCurrent = item.repertoireId === id
+            return (
+              <button
+                key={item.repertoireId}
+                type="button"
+                onClick={() => {
+                  if (!isCurrent) {
+                    const targetIndex = idx
+                    const currentIndex = playlistEntries.findIndex((e) => e.repertoireId === id)
+                    const direction = targetIndex > currentIndex ? 'left' : 'right'
+                    navigateTo(item.repertoireId, direction)
+                  }
+                }}
+                className={`w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border ${
+                  isCurrent
+                    ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-xs ring-1 ring-emerald-400/20'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100 hover:border-gray-200'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}`}>
+                    {idx + 1}.
+                  </span>
+                  <div className="min-w-0 truncate">
+                    <p className="truncate font-medium">{item.title}</p>
+                    {item.artist && <p className="text-[11px] text-gray-400 truncate">{item.artist}</p>}
+                  </div>
+                </div>
+                {isCurrent && (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
+                    ▶ NOW
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </aside>
+    )}
+  </div>
     {/* Stage Mode (Full Screen Lyrics) */}
     {isStageMode && displayedLyrics && (
       <div
