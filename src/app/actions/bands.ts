@@ -29,9 +29,10 @@ export async function createBandAction(
   name: string,
   description?: string | null,
   coverUrl?: string | null,
+  color?: string | null,
 ): Promise<string> {
   const userId = await getRequiredUserId()
-  return createBand(userId, name, description, coverUrl)
+  return createBand(userId, name, description, coverUrl, color)
 }
 
 export async function updateBandAction(
@@ -40,6 +41,7 @@ export async function updateBandAction(
     name?: string
     description?: string | null
     cover_url?: string | null
+    color?: string | null
   },
 ): Promise<void> {
   return updateBand(bandId, data)

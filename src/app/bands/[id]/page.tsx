@@ -15,6 +15,8 @@ import {
 } from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
 import { compressImageFile } from "@/lib/imageCompressor";
+import { BandColorPicker } from "@/components/bands/BandColorPicker";
+import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import type { Band, BandMember, Playlist } from "@/types/database";
 
@@ -36,6 +38,7 @@ export default function BandDetailPage() {
   const [editDesc, setEditDesc] = useState("");
   const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
   const [editCoverPreview, setEditCoverPreview] = useState<string | null>(null);
+  const [editColor, setEditColor] = useState<string>(DEFAULT_BAND_COLOR);
   const [saving, setSaving] = useState(false);
 
   // New playlist state
@@ -85,6 +88,7 @@ export default function BandDetailPage() {
     setEditDesc(band?.description ?? "");
     setEditCoverFile(null);
     setEditCoverPreview(band?.cover_url ?? null);
+    setEditColor(band?.color ?? DEFAULT_BAND_COLOR);
     setEditing(true);
   }
 
@@ -120,6 +124,7 @@ export default function BandDetailPage() {
         name: editName.trim(),
         description: editDesc.trim() || null,
         cover_url,
+        color: editColor,
       });
       setBand((prev) =>
         prev
@@ -128,6 +133,7 @@ export default function BandDetailPage() {
               name: editName.trim(),
               description: editDesc.trim() || null,
               cover_url,
+              color: editColor,
             }
           : prev,
       );
@@ -507,6 +513,7 @@ export default function BandDetailPage() {
                 />
               </div>
             </div>
+            <BandColorPicker value={editColor} onChange={setEditColor} />
             <div className="flex gap-2">
               <button
                 type="submit"

@@ -76,6 +76,7 @@ export interface Band {
   name: string;
   description: string | null;
   cover_url: string | null;
+  color?: string | null;
   invite_code: string;
   created_at: string;
   updated_at: string;

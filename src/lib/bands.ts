@@ -69,6 +69,7 @@ export const createBand = async (
   name: string,
   description?: string | null,
   coverUrl?: string | null,
+  color?: string | null,
 ): Promise<string> => {
   try {
     const res = await query('SELECT create_band($1, $2, $3, $4) as band_id', [
@@ -77,7 +78,11 @@ export const createBand = async (
       coverUrl ?? null,
       userId,
     ])
-    return res.rows[0].band_id as string
+    const bandId = res.rows[0].band_id as string
+    if (color) {
+      await query('UPDATE bands SET color = $1 WHERE id = $2', [color, bandId])
+    }
+    return bandId
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to create band", err)
@@ -91,6 +96,7 @@ export const updateBand = async (
     name?: string;
     description?: string | null;
     cover_url?: string | null;
+    color?: string | null;
   },
 ): Promise<void> => {
   try {
@@ -110,6 +116,10 @@ export const updateBand = async (
     if (data.cover_url !== undefined) {
       setClauses.push(`cover_url = $${paramIndex++}`)
       values.push(data.cover_url)
+    }
+    if (data.color !== undefined) {
+      setClauses.push(`color = $${paramIndex++}`)
+      values.push(data.color)
     }
 
     setClauses.push(`updated_at = now()`)

@@ -3,12 +3,12 @@ import { persist } from 'zustand/middleware'
 
 export type BandContext =
   | { type: 'user' }
-  | { type: 'band'; id: string; name: string }
+  | { type: 'band'; id: string; name: string; color?: string }
 
 interface BandContextState {
   context: BandContext
   setUserContext: () => void
-  setBandContext: (id: string, name: string) => void
+  setBandContext: (id: string, name: string, color?: string) => void
   isPersonal: () => boolean
   bandId: () => string | null
 }
@@ -20,8 +20,8 @@ export const useBandContextStore = create<BandContextState>()(
 
       setUserContext: () => set({ context: { type: 'user' } }),
 
-      setBandContext: (id: string, name: string) =>
-        set({ context: { type: 'band', id, name } }),
+      setBandContext: (id: string, name: string, color?: string) =>
+        set({ context: { type: 'band', id, name, color } }),
 
       isPersonal: () => get().context.type === 'user',
 

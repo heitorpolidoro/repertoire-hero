@@ -22,6 +22,8 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { useBandContextStore } from "@/store/bandContextStore";
 import { compressImageFile } from "@/lib/imageCompressor";
+import { BandColorPicker } from "@/components/bands/BandColorPicker";
+import { DEFAULT_BAND_COLOR, getBandThemeStyles } from "@/lib/bandColors";
 import { InstrumentPicker, INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import type { Profile, Band, BandMember, Playlist } from "@/types/database";
 
@@ -44,6 +46,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
   const [editDesc, setEditDesc] = useState("");
   const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
   const [editCoverPreview, setEditCoverPreview] = useState<string | null>(null);
+  const [editColor, setEditColor] = useState<string>(DEFAULT_BAND_COLOR);
   const [saving, setSaving] = useState(false);
 
   // Invite link copy state
@@ -98,6 +101,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
     setEditDesc(band?.description ?? "");
     setEditCoverFile(null);
     setEditCoverPreview(band?.cover_url ?? null);
+    setEditColor(band?.color ?? DEFAULT_BAND_COLOR);
     setEditing(true);
   }
 
@@ -133,6 +137,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
         name: editName.trim(),
         description: editDesc.trim() || null,
         cover_url,
+        color: editColor,
       });
 
       setBand((prev) =>
@@ -142,6 +147,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
               name: editName.trim(),
               description: editDesc.trim() || null,
               cover_url,
+              color: editColor,
             }
           : prev,
       );
@@ -494,6 +500,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 />
               </div>
             </div>
+            <BandColorPicker value={editColor} onChange={setEditColor} />
             <div className="flex gap-2 pt-2">
               <button
                 type="submit"

@@ -8,11 +8,13 @@ import { authClient } from '@/lib/auth-client';
 import { getBandsAction } from '@/app/actions/bands';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
+import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
 
 interface Band {
   id: string;
   name: string;
   role: 'admin' | 'member';
+  color?: string | null;
 }
 
 interface NavItem {
@@ -63,9 +65,9 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const switchContext = (next: { type: 'user' } | { type: 'band'; id: string; name: string }) => {
+  const switchContext = (next: { type: 'user' } | { type: 'band'; id: string; name: string; color?: string }) => {
     if (next.type === 'user') setUserContext();
-    else setBandContext(next.id, next.name);
+    else setBandContext(next.id, next.name, next.color);
     setOpen(false);
     loadSongs();
     router.push('/');
@@ -78,12 +80,12 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
     : (user.name ?? user.email?.split('@')[0] ?? 'Personal');
 
   return (
-    <div className="px-3 py-3 border-b border-purple-700/50" ref={ref}>
+    <div className="px-3 py-3 border-b border-white/10" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
         className={`flex w-full items-center gap-2 px-3 py-2 rounded-md transition-colors text-left ${
           isBandMode
-            ? 'bg-purple-800/60 hover:bg-purple-700/60 ring-1 ring-purple-500/50'
+            ? 'bg-white/15 hover:bg-white/25 ring-1 ring-white/20'
             : 'bg-gray-800 hover:bg-gray-700'
         }`}
       >
@@ -91,20 +93,20 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
           {context.type === 'band' ? '🎸' : '👤'}
         </span>
         <span className="flex-1 text-sm font-medium text-white truncate">{label}</span>
-        <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''} ${isBandMode ? 'text-purple-300' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''} opacity-80`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {open && (
-        <div className={`mt-1 rounded-md border overflow-hidden shadow-lg ${isBandMode ? 'bg-purple-900 border-purple-600' : 'bg-gray-800 border-gray-600'}`}>
+        <div className={`mt-1 rounded-md border overflow-hidden shadow-lg ${isBandMode ? 'bg-black/40 backdrop-blur-md border-white/20' : 'bg-gray-800 border-gray-600'}`}>
           {/* Personal */}
           <button
             onClick={() => switchContext({ type: 'user' })}
             className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
               context.type === 'user'
-                ? 'text-emerald-400'
-                : isBandMode ? 'text-purple-200 hover:bg-purple-800' : 'text-gray-300 hover:bg-gray-700'
+                ? 'text-emerald-400 font-bold'
+                : 'text-white/90 hover:bg-white/10'
             }`}
           >
             <span>👤</span>
@@ -114,20 +116,20 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
 
           {bands.length > 0 && (
             <>
-              <div className={`px-3 py-1 text-xs uppercase tracking-wider border-t ${isBandMode ? 'text-purple-400 border-purple-700' : 'text-gray-500 border-gray-700'}`}>
+              <div className="px-3 py-1 text-xs uppercase tracking-wider border-t border-white/10 opacity-60">
                 Bands
               </div>
               {bands.map((band) => (
                 <button
                   key={band.id}
-                  onClick={() => switchContext({ type: 'band', id: band.id, name: band.name })}
+                  onClick={() => switchContext({ type: 'band', id: band.id, name: band.name, color: band.color ?? undefined })}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
                     context.type === 'band' && context.id === band.id
-                      ? 'text-purple-300'
-                      : isBandMode ? 'text-purple-200 hover:bg-purple-800' : 'text-gray-300 hover:bg-gray-700'
+                      ? 'font-bold bg-white/20 text-white'
+                      : 'text-white/90 hover:bg-white/10'
                   }`}
                 >
-                  <span>🎸</span>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/40" style={{ backgroundColor: band.color || DEFAULT_BAND_COLOR }} />
                   <span className="truncate">{band.name}</span>
                   {context.type === 'band' && context.id === band.id && <span className="ml-auto text-xs">✓</span>}
                 </button>
@@ -158,6 +160,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   // Guard against hydration mismatch — persisted store might differ from SSR default
   const isBandMode = mounted && context.type === 'band';
   const bandName = context.type === 'band' ? context.name : '';
+  const bandColor = context.type === 'band' ? context.color : null;
+  const theme = getBandThemeStyles(isBandMode ? bandColor : null);
 
   if (mounted && !session?.user) {
     return <>{children}</>;
@@ -181,15 +185,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
   };
 
   const activeNavClass = isBandMode
-    ? 'bg-purple-600 text-white'
-    : 'bg-emerald-600 text-white';
+    ? 'bg-white/20 font-bold'
+    : 'bg-emerald-600 text-white font-bold';
 
   const inactiveNavClass = isBandMode
-    ? 'text-purple-200 hover:bg-purple-800/60 hover:text-white'
+    ? 'opacity-80 hover:opacity-100 hover:bg-white/10'
     : 'text-gray-300 hover:bg-gray-700 hover:text-white';
 
-  const sidebarBg = isBandMode ? 'bg-purple-950' : 'bg-gray-900';
-  const borderColor = isBandMode ? 'border-purple-700/50' : 'border-gray-700';
+  const sidebarBg = isBandMode ? '' : 'bg-gray-900';
+  const borderColor = isBandMode ? 'border-white/15' : 'border-gray-700';
 
   return (
     <div className="flex h-screen">
@@ -197,13 +201,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <nav
         aria-label="Main navigation"
         className={`hidden md:flex flex-col w-60 ${sidebarBg} text-white shrink-0 transition-colors duration-200`}
+        style={isBandMode ? theme.style : undefined}
       >
         {/* Header */}
         <div className={`px-6 py-5 border-b ${borderColor}`}>
           <span className="text-lg font-semibold tracking-tight">Repertoire Hero</span>
           {isBandMode && (
             <div className="mt-2">
-              <span className="inline-flex items-center gap-1.5 text-xs bg-purple-500/20 text-purple-300 px-2.5 py-1 rounded-full font-medium border border-purple-500/40">
+              <span
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-bold border"
+                style={theme.badgeStyle}
+              >
                 <span aria-hidden="true">🎸</span>
                 Band Mode
               </span>
@@ -231,7 +239,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </ul>
 
         {process.env.NEXT_PUBLIC_APP_VERSION && (
-          <p className={`px-6 pb-2 text-xs ${isBandMode ? 'text-purple-500' : 'text-gray-500'}`}>
+          <p className="px-6 pb-2 text-xs opacity-60">
             v{process.env.NEXT_PUBLIC_APP_VERSION}
           </p>
         )}
@@ -252,18 +260,22 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <main className="flex-1 overflow-y-auto bg-gray-50 pb-16 md:pb-0">
         {/* Band mode banner */}
         {isBandMode && (
-          <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5 bg-purple-900 border-b border-purple-700 text-purple-100 text-sm shadow-sm">
+          <div
+            className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5 border-b text-sm shadow-sm transition-colors"
+            style={theme.style}
+          >
             <span aria-hidden="true">🎸</span>
-            <span className="font-semibold">Band Mode</span>
-            <span className="text-purple-500" aria-hidden="true">·</span>
-            <span className="text-purple-200 truncate">{bandName}</span>
-            <span className="hidden sm:inline text-xs text-purple-400 ml-1">
+            <span className="font-bold">Band Mode</span>
+            <span className="opacity-50" aria-hidden="true">·</span>
+            <span className="font-semibold truncate">{bandName}</span>
+            <span className="hidden sm:inline text-xs opacity-75 ml-1">
               — Status is read-only, computed from all members
             </span>
             <button
               type="button"
               onClick={handleExitBandMode}
-              className="ml-auto flex items-center gap-1 text-xs bg-purple-800 hover:bg-purple-700 border border-purple-600 px-2.5 py-1 rounded-md transition-colors shrink-0"
+              className="ml-auto flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 border border-white/30 px-2.5 py-1 rounded-md transition-colors shrink-0 font-semibold"
+              style={{ color: theme.textColor }}
             >
               <span aria-hidden="true">✕</span>
               <span>Exit</span>
@@ -276,12 +288,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Mobile bottom navigation */}
       <nav
         aria-label="Main navigation"
-        className={`md:hidden fixed bottom-0 inset-x-0 text-white border-t z-10 transition-colors duration-200 ${
-          isBandMode ? 'bg-purple-950 border-purple-700' : 'bg-gray-900 border-gray-700'
+        className={`md:hidden fixed bottom-0 inset-x-0 border-t z-10 transition-colors duration-200 ${
+          isBandMode ? '' : 'bg-gray-900 border-gray-700 text-white'
         }`}
+        style={isBandMode ? theme.style : undefined}
       >
         {isBandMode && (
-          <div className="flex items-center justify-between px-3 py-1.5 bg-purple-900/80 border-b border-purple-700/50 text-xs text-purple-300">
+          <div
+            className="flex items-center justify-between px-3 py-1.5 border-b text-xs font-semibold"
+            style={{ borderColor: theme.borderStyle.borderColor }}
+          >
             <span className="flex items-center gap-1">
               <span aria-hidden="true">🎸</span>
               <span>Band Mode · {bandName}</span>
@@ -289,7 +305,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <button
               type="button"
               onClick={handleExitBandMode}
-              className="text-purple-400 hover:text-white transition-colors"
+              className="opacity-80 hover:opacity-100 transition-opacity"
             >
               ✕ Exit
             </button>

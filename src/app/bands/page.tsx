@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getBandsAction as getBands, createBandAction as createBand, uploadBandCoverAction } from "@/app/actions/bands";
 import { compressImageFile } from "@/lib/imageCompressor";
+import { BandColorPicker } from "@/components/bands/BandColorPicker";
+import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
 import type { Band } from "@/types/database";
 const BandImage = ({ band }: { band: Band }) => {
   return band.cover_url ? (
@@ -59,6 +61,7 @@ export default function BandsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [newColor, setNewColor] = useState(DEFAULT_BAND_COLOR);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -99,7 +102,7 @@ export default function BandsPage() {
         uploadedCoverUrl = uploadRes.coverUrl ?? null;
       }
 
-      const bandId = await createBand(newName.trim(), newDesc.trim() || null, uploadedCoverUrl);
+      const bandId = await createBand(newName.trim(), newDesc.trim() || null, uploadedCoverUrl, newColor);
       router.push(`/bands/${bandId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create band");
@@ -177,6 +180,7 @@ export default function BandsPage() {
               />
             </div>
           </div>
+          <BandColorPicker value={newColor} onChange={setNewColor} />
           {error && (
             <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
               {error}
