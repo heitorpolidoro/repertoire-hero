@@ -14,6 +14,7 @@ import {
   uploadBandCoverAction,
 } from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
+import { compressImageFile } from "@/lib/imageCompressor";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import type { Band, BandMember, Playlist } from "@/types/database";
 
@@ -87,11 +88,12 @@ export default function BandDetailPage() {
     setEditing(true);
   }
 
-  function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     if (file) {
-      setEditCoverFile(file);
-      setEditCoverPreview(URL.createObjectURL(file));
+      const compressed = await compressImageFile(file);
+      setEditCoverFile(compressed);
+      setEditCoverPreview(URL.createObjectURL(compressed));
     }
   }
 

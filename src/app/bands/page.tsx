@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getBandsAction as getBands, createBandAction as createBand, uploadBandCoverAction } from "@/app/actions/bands";
+import { compressImageFile } from "@/lib/imageCompressor";
 import type { Band } from "@/types/database";
 const BandImage = ({ band }: { band: Band }) => {
   return band.cover_url ? (
@@ -70,11 +71,12 @@ export default function BandsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     if (file) {
-      setCoverFile(file);
-      setCoverPreview(URL.createObjectURL(file));
+      const compressed = await compressImageFile(file);
+      setCoverFile(compressed);
+      setCoverPreview(URL.createObjectURL(compressed));
     }
   }
 

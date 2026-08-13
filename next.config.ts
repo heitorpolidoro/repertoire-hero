@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '6mb',
+    },
+  },
   serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],
   // Next.js 16 defaults to Turbopack. Our webpack config only suppresses
   // OpenTelemetry warnings (irrelevant in Turbopack). Declaring an empty

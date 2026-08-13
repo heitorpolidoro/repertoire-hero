@@ -21,6 +21,7 @@ import {
 } from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
 import { useBandContextStore } from "@/store/bandContextStore";
+import { compressImageFile } from "@/lib/imageCompressor";
 import { InstrumentPicker, INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import type { Profile, Band, BandMember, Playlist } from "@/types/database";
 
@@ -100,11 +101,12 @@ function BandProfileView({ bandId }: { bandId: string }) {
     setEditing(true);
   }
 
-  function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     if (file) {
-      setEditCoverFile(file);
-      setEditCoverPreview(URL.createObjectURL(file));
+      const compressed = await compressImageFile(file);
+      setEditCoverFile(compressed);
+      setEditCoverPreview(URL.createObjectURL(compressed));
     }
   }
 
