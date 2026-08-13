@@ -6,7 +6,7 @@ import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/da
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
-import { getPlaylistEntryIdsAction } from '@/app/actions/playlists'
+import { getPlaylistEntryIdsAction, getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
 
 function parseLyricsMarkdown(text: string) {
   let html = text
@@ -133,6 +133,7 @@ export default function FastViewPage() {
     position: number
     total: number
     playlistId: string
+    playlistName: string
   } | null>(null)
   const [playlistEntries, setPlaylistEntries] = useState<
     Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>
@@ -221,17 +222,18 @@ export default function FastViewPage() {
             const playlistMatch = returnTo?.match(/^\/playlists\/([\w-]+)$/)
             if (playlistMatch) {
               const playlistId = playlistMatch[1]
-              getPlaylistEntryIdsAction(playlistId, queryBandId).then((entries) => {
-                if (cancelled || entries.length === 0) return
-                setPlaylistEntries(entries)
-                const idx = entries.findIndex((e) => e.repertoireId === id)
+              getPlaylistDetailsWithEntriesAction(playlistId, queryBandId).then((details) => {
+                if (cancelled || details.entries.length === 0) return
+                setPlaylistEntries(details.entries)
+                const idx = details.entries.findIndex((e) => e.repertoireId === id)
                 if (idx === -1) return
                 setPlaylistNav({
-                  prevId: idx > 0 ? entries[idx - 1].repertoireId : null,
-                  nextId: idx < entries.length - 1 ? entries[idx + 1].repertoireId : null,
+                  prevId: idx > 0 ? details.entries[idx - 1].repertoireId : null,
+                  nextId: idx < details.entries.length - 1 ? details.entries[idx + 1].repertoireId : null,
                   position: idx + 1,
-                  total: entries.length,
+                  total: details.entries.length,
                   playlistId,
+                  playlistName: details.name,
                 })
               }).catch(() => { /* nav is optional, ignore errors */ })
             }
@@ -548,10 +550,10 @@ export default function FastViewPage() {
           />
           <div className="relative z-10 bg-white rounded-t-2xl max-h-[80vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <span className="text-base">🎵</span>
-                <h3 className="font-bold text-gray-900 text-sm">
-                  Setlist ({playlistNav.position}/{playlistNav.total})
+              <div className="flex items-center gap-2 min-w-0 pr-2">
+                <span className="text-base shrink-0">🎵</span>
+                <h3 className="font-bold text-gray-900 text-sm truncate" title={playlistNav.playlistName}>
+                  {playlistNav.playlistName}
                 </h3>
               </div>
               <button
@@ -1225,10 +1227,12 @@ export default function FastViewPage() {
     {playlistNav && playlistEntries.length > 0 && (
       <aside className="w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen overflow-y-auto hidden lg:flex flex-col z-20">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white z-10 shadow-2xs">
-          <div className="flex items-center gap-2">
-            <span className="text-base">🎵</span>
-            <h3 className="font-bold text-gray-900 text-sm">Playlist Setlist</h3>
-          </div>
+              <div className="flex items-center gap-2 min-w-0 pr-2">
+                <span className="text-base shrink-0">🎵</span>
+                <h3 className="font-bold text-gray-900 text-sm truncate" title={playlistNav.playlistName}>
+                  {playlistNav.playlistName}
+                </h3>
+              </div>
           <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
             {playlistNav.position} / {playlistNav.total}
           </span>

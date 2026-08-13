@@ -55,15 +55,17 @@ export async function getPlaylistWithSongsAction(id: string) {
   return getPlaylistWithSongs(id)
 }
 
-/**
- * Returns an ordered list of repertoire entry IDs for a playlist,
- * matched against the given owner context (bandId or the current user).
- */
-export async function getPlaylistEntryIdsAction(
+export async function getPlaylistDetailsWithEntriesAction(
   playlistId: string,
   bandId?: string | null
-): Promise<Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>> {
+): Promise<{
+  name: string
+  entries: Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>
+}> {
   const userId = await getRequiredUserId()
+
+  const playlistRes = await query('SELECT name FROM playlists WHERE id = $1', [playlistId])
+  const name = (playlistRes.rows[0]?.name as string) ?? 'Playlist'
 
   const sql = `
     SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist
@@ -79,10 +81,24 @@ export async function getPlaylistEntryIdsAction(
     ORDER BY ps.position ASC
   `
   const res = await query(sql, [bandId ?? null, userId, playlistId])
-  return res.rows.map((row) => ({
+  const entries = res.rows.map((row) => ({
     repertoireId: row.repertoire_id as string,
     songId: row.song_id as string,
     title: row.title as string,
     artist: row.artist as string | null,
   }))
+
+  return { name, entries }
+}
+
+/**
+ * Returns an ordered list of repertoire entry IDs for a playlist,
+ * matched against the given owner context (bandId or the current user).
+ */
+export async function getPlaylistEntryIdsAction(
+  playlistId: string,
+  bandId?: string | null
+): Promise<Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>> {
+  const details = await getPlaylistDetailsWithEntriesAction(playlistId, bandId)
+  return details.entries
 }
