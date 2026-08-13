@@ -233,6 +233,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
   }
 
   const members = band.members ?? [];
+  const theme = getBandThemeStyles(band.color);
 
   return (
     <div className="space-y-6">
@@ -245,8 +246,8 @@ function BandProfileView({ bandId }: { bandId: string }) {
         </div>
       )}
 
-      {/* Band Profile Header Card */}
-      <section className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+      {/* Band Profile Card */}
+      <section className="bg-white rounded-2xl border border-gray-200 px-6 py-6 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
           {band.cover_url ? (
             <Image
@@ -258,14 +259,20 @@ function BandProfileView({ bandId }: { bandId: string }) {
               unoptimized
             />
           ) : (
-            <div className="w-20 h-20 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center text-4xl shrink-0 font-bold border border-purple-200">
+            <div
+              className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl shrink-0 font-bold border"
+              style={theme.badgeStyle}
+            >
               🎸
             </div>
           )}
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md uppercase tracking-wider">
+              <span
+                className="text-xs font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border"
+                style={theme.badgeStyle}
+              >
                 Band Profile
               </span>
               {isAdmin && (
@@ -291,7 +298,8 @@ function BandProfileView({ bandId }: { bandId: string }) {
             <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
               <button
                 onClick={openEdit}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 text-xs font-bold transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors border"
+                style={theme.badgeStyle}
               >
                 <span>✏️</span> Edit Band
               </button>
@@ -318,7 +326,8 @@ function BandProfileView({ bandId }: { bandId: string }) {
           />
           <button
             onClick={handleCopyInvite}
-            className="shrink-0 rounded-lg bg-purple-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-purple-800 transition-colors"
+            className="shrink-0 rounded-lg px-3.5 py-2 text-xs font-bold transition-colors"
+            style={theme.style}
           >
             {copied ? "Copied!" : "Copy"}
           </button>
@@ -336,7 +345,10 @@ function BandProfileView({ bandId }: { bandId: string }) {
         <ul className="space-y-2.5">
           {members.map((member) => (
             <li key={member.id} className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-xs font-bold text-purple-700 shrink-0">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border"
+                style={theme.badgeStyle}
+              >
                 {(member.profile?.full_name ?? member.profile?.email ?? "?")[0].toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
@@ -395,7 +407,8 @@ function BandProfileView({ bandId }: { bandId: string }) {
           <h3 className="font-semibold text-gray-900 text-sm">Playlists</h3>
           <button
             onClick={() => setShowNewPlaylist(!showNewPlaylist)}
-            className="text-xs text-purple-700 hover:text-purple-900 font-bold"
+            className="text-xs font-bold hover:opacity-80 transition-opacity"
+            style={{ color: theme.bgHex }}
           >
             + New playlist
           </button>
@@ -409,12 +422,13 @@ function BandProfileView({ bandId }: { bandId: string }) {
               onChange={(e) => setNewPlaylistName(e.target.value)}
               placeholder="Playlist name"
               required
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <button
               type="submit"
               disabled={creatingPlaylist}
-              className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-bold text-white hover:bg-purple-800 disabled:opacity-60 transition-colors"
+              className="rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60 transition-colors"
+              style={theme.style}
             >
               {creatingPlaylist ? "..." : "Create"}
             </button>
@@ -436,7 +450,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
               <li key={playlist.id}>
                 <Link
                   href={`/playlists/${playlist.id}`}
-                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-purple-50/50 transition-colors"
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-100/70 transition-colors"
                 >
                   <span className="text-lg">🎶</span>
                   <span className="flex-1 text-sm font-medium text-gray-900 truncate">
@@ -467,7 +481,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div className="space-y-1">
@@ -478,7 +492,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 type="text"
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
             <div className="space-y-1">
@@ -494,7 +508,10 @@ function BandProfileView({ bandId }: { bandId: string }) {
                     className="w-14 h-14 rounded-2xl object-cover border border-gray-200 shrink-0 shadow-sm"
                   />
                 ) : (
-                  <div className="w-14 h-14 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center text-2xl shrink-0 font-bold">
+                  <div
+                    className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shrink-0 font-bold border"
+                    style={theme.badgeStyle}
+                  >
                     🎸
                   </div>
                 )}
@@ -502,7 +519,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
                   type="file"
                   accept="image/*"
                   onChange={handleEditCoverChange}
-                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer"
+                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"
                 />
               </div>
             </div>
@@ -511,9 +528,10 @@ function BandProfileView({ bandId }: { bandId: string }) {
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-xl bg-purple-700 px-4 py-2 text-sm font-bold text-white hover:bg-purple-800 disabled:opacity-60 transition-colors"
+                className="rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-60 transition-colors"
+                style={theme.style}
               >
-                {saving ? "Saving..." : "Save Changes"}
+                {saving ? "Saving..." : "Save Profile"}
               </button>
               <button
                 type="button"
@@ -793,6 +811,8 @@ export default function ProfilePage() {
     isBandMode ? "band" : "personal"
   );
 
+  const bandTheme = getBandThemeStyles(context.type === "band" ? context.color : null);
+
   // Sync tab with band context if context changes
   useEffect(() => {
     setActiveTab(context.type === "band" ? "band" : "personal");
@@ -816,9 +836,10 @@ export default function ProfilePage() {
               onClick={() => setActiveTab("band")}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeTab === "band"
-                  ? "bg-purple-700 text-white shadow-sm"
+                  ? "shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
               }`}
+              style={activeTab === "band" ? bandTheme.style : undefined}
             >
               🎸 {context.name}
             </button>
