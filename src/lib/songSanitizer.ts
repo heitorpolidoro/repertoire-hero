@@ -42,3 +42,12 @@ export function isSpecialSongVersion(title: string): boolean {
   if (!title) return false
   return /\b(live|acoustic|unplugged|demo|orchestral|instrumental|cover|radio edit|extended mix)\b/i.test(title)
 }
+
+/**
+ * Sanitizes album names by stripping remaster, deluxe, and anniversary suffixes.
+ */
+export function sanitizeAlbumName(album?: string | null): string | null {
+  if (!album) return null
+  const cleaned = sanitizeSongTitle(album)
+  return cleaned || null
+}

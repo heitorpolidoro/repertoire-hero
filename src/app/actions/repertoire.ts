@@ -199,9 +199,21 @@ export async function updateSongLinksAction(repertoireIdOrSongId: string, links:
     throw new Error('Song entry not found')
   }
 
+  const { fetchUrlTitle } = await import('@/lib/linkFetcher')
+
+  const processedLinks = await Promise.all(
+    links.map(async (l) => {
+      if (!l.label || !l.label.trim()) {
+        const fetchedTitle = await fetchUrlTitle(l.url)
+        return { label: fetchedTitle || l.url, url: l.url }
+      }
+      return l
+    })
+  )
+
   await query(
     `UPDATE global_songs SET links = $1 WHERE id = $2`,
-    [JSON.stringify(links), songId]
+    [JSON.stringify(processedLinks), songId]
   )
 
   revalidatePath('/')
@@ -242,4 +254,9 @@ export async function mergeSongsAction(primarySongId: string, secondarySongId: s
   await mergeGlobalSongs(primarySongId, secondarySongId)
   revalidatePath('/')
   return { success: true }
+}
+
+export async function fetchUrlTitleAction(url: string): Promise<string> {
+  const { fetchUrlTitle } = await import('@/lib/linkFetcher')
+  return fetchUrlTitle(url)
 }

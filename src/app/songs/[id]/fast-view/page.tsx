@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
-import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction } from '@/app/actions/repertoire'
+import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 import { getPlaylistEntryIdsAction } from '@/app/actions/playlists'
 
@@ -453,22 +453,28 @@ export default function FastViewPage() {
     e.preventDefault()
     if (!entry || !entry.song) return
     
-    const newLink: SongLink = {
-      label: newLinkLabel.trim(),
-      url: newLinkUrl.trim()
-    }
-    
     // Check for duplicate URLs
     const currentLinks = entry.song.links ?? []
-    if (currentLinks.some(link => link.url === newLink.url)) {
+    if (currentLinks.some(link => link.url === newLinkUrl.trim())) {
       showToast('This URL is already in the links list.', 'warning')
       return
     }
-    
-    const updatedLinks = [...currentLinks, newLink]
-    
+
     try {
       setSavingLink(true)
+
+      let finalLabel = newLinkLabel.trim()
+      if (!finalLabel) {
+        finalLabel = await fetchUrlTitleAction(newLinkUrl.trim())
+      }
+
+      const newLink: SongLink = {
+        label: finalLabel || newLinkUrl.trim(),
+        url: newLinkUrl.trim()
+      }
+
+      const updatedLinks = [...currentLinks, newLink]
+      
       await updateSongLinksAction(entry.id, updatedLinks)
       setEntry(prev => {
         if (!prev || !prev.song) return prev
@@ -1011,10 +1017,9 @@ export default function FastViewPage() {
             <div className="flex flex-col gap-2">
               <input
                 type="text"
-                placeholder="Link Label (e.g. Chords, YouTube)"
+                placeholder="Link Label (optional - auto-fetched if blank)"
                 value={newLinkLabel}
                 onChange={(e) => setNewLinkLabel(e.target.value)}
-                required
                 className="px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
               />
               <input

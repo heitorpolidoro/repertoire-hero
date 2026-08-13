@@ -70,7 +70,7 @@ async function fetchAllSpotifyTracks(
   return tracks
 }
 
-import { sanitizeSongTitle } from '@/lib/songSanitizer'
+import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
 
 // ---------------------------------------------------------------------------
 // Internal helper: find existing global_song by title+artist (sanitized) or create it.
@@ -79,8 +79,9 @@ import { sanitizeSongTitle } from '@/lib/songSanitizer'
 // ---------------------------------------------------------------------------
 async function findOrCreateGlobalSong(track: RawTrack): Promise<string> {
   const cleanTitle = sanitizeSongTitle(track.title)
-  const albumValue = track.album?.trim() ?? ''
-  const spotifyLink = { label: 'spotify', url: track.spotifyUrl }
+  const cleanAlbum = sanitizeAlbumName(track.album)
+  const fullTrackLabel = track.title.trim()
+  const spotifyLink = { label: fullTrackLabel, url: track.spotifyUrl }
 
   const lookupSql = `
     SELECT id, links FROM global_songs 
@@ -111,7 +112,7 @@ async function findOrCreateGlobalSong(track: RawTrack): Promise<string> {
   const insertRes = await query(insertSql, [
     cleanTitle,
     track.artist.trim(),
-    albumValue || null,
+    cleanAlbum || null,
     track.albumArt ?? null,
     track.durationSeconds,
     JSON.stringify([spotifyLink]),

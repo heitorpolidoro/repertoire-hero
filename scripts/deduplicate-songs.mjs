@@ -37,7 +37,6 @@ function sanitizeSongTitle(title) {
   if (!title) return '';
   let cleaned = title.trim();
 
-  // Remove parenthesized or bracketed edition/remaster noise unless it's a live/acoustic version
   cleaned = cleaned.replace(/\s*[\(\[]\s*[^()\[\]]*\b(?:remaster|remastered|re-master|re-mastered|deluxe|anniversary|expanded|edition)\b[^()\[\]]*[\)\]]/gi, (match) => {
     if (/\b(live|acoustic|unplugged|demo|cover|instrumental|orchestral)\b/i.test(match)) {
       return match;
@@ -45,7 +44,6 @@ function sanitizeSongTitle(title) {
     return '';
   });
 
-  // Remove trailing dash-separated edition/remaster noise
   cleaned = cleaned.replace(/\s*-\s*.*?\b(?:remaster|remastered|re-master|re-mastered|deluxe|anniversary|expanded)\b.*$/gi, (match) => {
     if (/\b(live|acoustic|unplugged|demo|cover|instrumental|orchestral)\b/i.test(match)) {
       return match;
@@ -53,7 +51,6 @@ function sanitizeSongTitle(title) {
     return '';
   });
 
-  // Clean up empty parens/brackets, trailing dashes, or double spaces
   cleaned = cleaned
     .replace(/\(\s*\)/g, '')
     .replace(/\[\s*\]/g, '')
@@ -62,6 +59,31 @@ function sanitizeSongTitle(title) {
     .trim();
 
   return cleaned || title.trim();
+}
+
+async function fetchUrlTitle(url) {
+  if (!url) return '';
+  const cleanUrl = url.trim();
+  const lower = cleanUrl.toLowerCase();
+  try {
+    if (lower.includes('youtube.com/') || lower.includes('youtu.be/')) {
+      const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.title?.trim()) return data.title.trim();
+      }
+    }
+    if (lower.includes('spotify.com/')) {
+      const res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.title?.trim()) return data.title.trim();
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return '';
 }
 
 async function runDeduplication() {
@@ -93,9 +115,47 @@ async function runDeduplication() {
   }
 
   try {
-    console.log('Running retroactive song deduplication scan...');
-    const { rows: allSongs } = await pool.query('SELECT id, title, artist, links FROM global_songs ORDER BY created_at ASC');
+    console.log('Running retroactive song deduplication & album/link title migration scan...');
+    const { rows: allSongs } = await pool.query('SELECT id, title, artist, album, links FROM global_songs ORDER BY created_at ASC');
 
+    // 1. Sanitize Albums & Upgrade Links for all existing songs
+    for (const song of allSongs) {
+      let needsUpdate = false;
+
+      // Sanitize album
+      const cleanAlbum = song.album ? sanitizeSongTitle(song.album) : null;
+      const finalAlbum = cleanAlbum || null;
+      if (song.album !== finalAlbum) {
+        needsUpdate = true;
+      }
+
+      // Upgrade links if label is generic "spotify" or blank
+      const updatedLinks = [];
+      let linksChanged = false;
+      const currentLinks = song.links || [];
+
+      for (const link of currentLinks) {
+        const currentLabel = (link.label || '').trim().toLowerCase();
+        if (!currentLabel || currentLabel === 'spotify' || currentLabel === 'link') {
+          const fetchedTitle = await fetchUrlTitle(link.url);
+          if (fetchedTitle) {
+            updatedLinks.push({ label: fetchedTitle, url: link.url });
+            linksChanged = true;
+            continue;
+          }
+        }
+        updatedLinks.push(link);
+      }
+
+      if (needsUpdate || linksChanged) {
+        await pool.query(
+          'UPDATE global_songs SET album = $1, links = $2 WHERE id = $3',
+          [finalAlbum, JSON.stringify(linksChanged ? updatedLinks : currentLinks), song.id]
+        );
+      }
+    }
+
+    // 2. Group and Deduplicate Songs
     const groups = new Map();
 
     for (const song of allSongs) {
@@ -118,7 +178,6 @@ async function runDeduplication() {
 
       console.log(`Deduplicating group: "${group.cleanTitle}" by ${group.artist} (${group.songs.length} entries)`);
 
-      // Update primary song title if needed
       if (primary.title !== group.cleanTitle) {
         await pool.query('UPDATE global_songs SET title = $1 WHERE id = $2', [group.cleanTitle, primary.id]);
       }
