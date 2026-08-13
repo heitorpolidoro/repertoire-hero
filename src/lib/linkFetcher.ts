@@ -1,5 +1,5 @@
 /**
- * Fetches page/video/track title from YouTube oEmbed, Spotify oEmbed, or HTML <title> tags.
+ * Fetches page/video/track title from YouTube (oEmbed/noembed), Spotify oEmbed, or HTML <title> tags.
  * Operates without requiring any API keys.
  */
 
@@ -8,40 +8,66 @@ export async function fetchUrlTitle(url: string): Promise<string> {
   const cleanUrl = url.trim()
   const lower = cleanUrl.toLowerCase()
 
-  try {
-    // 1. YouTube oEmbed
-    if (lower.includes('youtube.com/') || lower.includes('youtu.be/')) {
+  const headers = {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  }
+
+  // 1. YouTube
+  if (lower.includes('youtube.com/') || lower.includes('youtu.be/')) {
+    try {
       const res = await fetch(
         `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`,
-        { signal: AbortSignal.timeout(4000) }
+        { headers, signal: AbortSignal.timeout(4000) }
       )
       if (res.ok) {
         const data = (await res.json()) as { title?: string }
         if (data.title?.trim()) return data.title.trim()
       }
-    }
+    } catch {}
 
-    // 2. Spotify oEmbed
-    if (lower.includes('spotify.com/')) {
+    try {
+      const noembedRes = await fetch(
+        `https://noembed.com/embed?url=${encodeURIComponent(cleanUrl)}`,
+        { headers, signal: AbortSignal.timeout(4000) }
+      )
+      if (noembedRes.ok) {
+        const data = (await noembedRes.json()) as { title?: string }
+        if (data.title?.trim()) return data.title.trim()
+      }
+    } catch {}
+  }
+
+  // 2. Spotify
+  if (lower.includes('spotify.com/')) {
+    try {
       const res = await fetch(
         `https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`,
-        { signal: AbortSignal.timeout(4000) }
+        { headers, signal: AbortSignal.timeout(4000) }
       )
       if (res.ok) {
         const data = (await res.json()) as { title?: string }
         if (data.title?.trim()) return data.title.trim()
       }
-    }
+    } catch {}
+  }
 
-    // 3. Generic HTML Page <title>
+  // 3. Generic HTML Page <title> / og:title
+  try {
     const htmlRes = await fetch(cleanUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
+      headers,
       signal: AbortSignal.timeout(4000),
     })
     if (htmlRes.ok) {
       const text = await htmlRes.text()
+
+      // Check og:title first
+      const ogMatch = text.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i)
+      if (ogMatch && ogMatch[1]?.trim()) {
+        return ogMatch[1].trim().replace(/\s*-\s*YouTube$/i, '')
+      }
+
+      // Check <title>
       const match = text.match(/<title[^>]*>([^<]+)<\/title>/i)
       if (match && match[1]?.trim()) {
         const parsedTitle = match[1]
@@ -51,13 +77,12 @@ export async function fetchUrlTitle(url: string): Promise<string> {
           .replace(/&gt;/g, '>')
           .replace(/&#39;/g, "'")
           .replace(/&quot;/g, '"')
+          .replace(/\s*-\s*YouTube$/i, '')
           .replace(/\s+/g, ' ')
         if (parsedTitle) return parsedTitle
       }
     }
-  } catch {
-    // Fallback if network request fails or times out
-  }
+  } catch {}
 
   // Fallback to domain name
   try {

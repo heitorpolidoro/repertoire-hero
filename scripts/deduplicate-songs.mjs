@@ -65,24 +65,57 @@ async function fetchUrlTitle(url) {
   if (!url) return '';
   const cleanUrl = url.trim();
   const lower = cleanUrl.toLowerCase();
-  try {
-    if (lower.includes('youtube.com/') || lower.includes('youtu.be/')) {
-      const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`);
+  const headers = {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  };
+
+  // YouTube
+  if (lower.includes('youtube.com/') || lower.includes('youtu.be/')) {
+    try {
+      const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`, { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.title?.trim()) return data.title.trim();
       }
-    }
-    if (lower.includes('spotify.com/')) {
-      const res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`);
-      if (res.ok) {
-        const data = await res.json();
+    } catch {}
+
+    try {
+      const noembedRes = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(cleanUrl)}`, { headers });
+      if (noembedRes.ok) {
+        const data = await noembedRes.json();
         if (data.title?.trim()) return data.title.trim();
       }
-    }
-  } catch {
-    // ignore
+    } catch {}
   }
+
+  // Spotify
+  if (lower.includes('spotify.com/')) {
+    try {
+      const res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.title?.trim()) return data.title.trim();
+      }
+    } catch {}
+  }
+
+  // HTML page title
+  try {
+    const htmlRes = await fetch(cleanUrl, { headers });
+    if (htmlRes.ok) {
+      const text = await htmlRes.text();
+      const ogMatch = text.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
+      if (ogMatch && ogMatch[1]?.trim()) {
+        return ogMatch[1].trim().replace(/\s*-\s*YouTube$/i, '');
+      }
+      const match = text.match(/<title[^>]*>([^<]+)<\/title>/i);
+      if (match && match[1]?.trim()) {
+        return match[1].trim().replace(/\s*-\s*YouTube$/i, '').replace(/\s+/g, ' ');
+      }
+    }
+  } catch {}
+
   return '';
 }
 
@@ -129,14 +162,23 @@ async function runDeduplication() {
         needsUpdate = true;
       }
 
-      // Upgrade links if label is generic "spotify" or blank
+      // Upgrade links if label is generic ("spotify", "youtube", "link", or contains http/url)
       const updatedLinks = [];
       let linksChanged = false;
       const currentLinks = song.links || [];
 
       for (const link of currentLinks) {
         const currentLabel = (link.label || '').trim().toLowerCase();
-        if (!currentLabel || currentLabel === 'spotify' || currentLabel === 'link') {
+        if (
+          !currentLabel ||
+          currentLabel === 'spotify' ||
+          currentLabel === 'youtube' ||
+          currentLabel === 'link' ||
+          currentLabel.includes('youtube.com') ||
+          currentLabel.includes('youtu.be') ||
+          currentLabel.includes('http') ||
+          currentLabel === link.url.trim().toLowerCase()
+        ) {
           const fetchedTitle = await fetchUrlTitle(link.url);
           if (fetchedTitle) {
             updatedLinks.push({ label: fetchedTitle, url: link.url });
