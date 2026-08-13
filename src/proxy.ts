@@ -4,7 +4,7 @@ const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/reset-password'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  const isPublicPath = pathname === '/' || PUBLIC_PATHS.some((p) => pathname.startsWith(p))
 
   // Better Auth uses pg (Node.js only) — call the session endpoint via fetch
   // rather than importing auth directly (which would pull pg into Edge Runtime).

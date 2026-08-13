@@ -14,6 +14,8 @@ import {
 } from "@/app/actions/repertoire";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import type { GlobalSong } from "@/types/database";
+import { authClient } from "@/lib/auth-client";
+import LandingPage from "@/components/landing/LandingPage";
 import SongForm from "@/components/songs/SongForm";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +82,7 @@ const SongResultItem = ({
       </div>
     </li>
   );
-}
+};
 
 type ModalState = { open: false } | { open: true; song?: Repertoire };
 
@@ -94,7 +96,7 @@ const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
 
 const SPOTIFY_DEBOUNCE_MS = 500;
 
-export default function HomePage() {
+function RepertoireDashboard() {
   const {
     isLoading,
     searchQuery,
@@ -603,4 +605,22 @@ export default function HomePage() {
       )}
     </div>
   );
+}
+
+export default function HomePage() {
+  const { data: session, isPending } = authClient.useSession();
+
+  if (isPending) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-gray-400 text-sm font-medium">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!session?.user) {
+    return <LandingPage />;
+  }
+
+  return <RepertoireDashboard />;
 }

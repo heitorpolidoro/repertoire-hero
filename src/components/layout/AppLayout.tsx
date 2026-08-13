@@ -151,12 +151,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { setUserContext } = useBandContextStore();
   const loadSongs = useRepertoireStore((s) => s.loadSongs);
 
+  const { data: session } = authClient.useSession();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
   // Guard against hydration mismatch — persisted store might differ from SSR default
   const isBandMode = mounted && context.type === 'band';
   const bandName = context.type === 'band' ? context.name : '';
+
+  if (mounted && !session?.user) {
+    return <>{children}</>;
+  }
 
   const isActive = (href: string): boolean => {
     if (href === '/') return pathname === '/';
