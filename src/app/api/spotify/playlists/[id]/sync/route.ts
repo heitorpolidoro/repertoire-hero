@@ -208,42 +208,51 @@ export async function POST(
     if (direction === 'pull') {
       const spotifyTracks = await fetchAllSpotifyTracks(spotifyPlaylistId, accessToken)
 
-      const spotifySongIds = new Set<string>()
       const owner = playlist.band_id
         ? { bandId: playlist.band_id as string }
         : { userId: userId }
 
+      const existingSongIds = new Set(localEntries.map((e) => e.song_id as string))
+      const spotifySongIdsInOrder: string[] = []
+      const seenSpotifySongs = new Set<string>()
+
       for (const track of spotifyTracks) {
         const songId = await findOrCreateGlobalSong(track)
         await ensureInRepertoire(songId, owner)
-        spotifySongIds.add(songId)
+        if (!seenSpotifySongs.has(songId)) {
+          seenSpotifySongs.add(songId)
+          spotifySongIdsInOrder.push(songId)
+        }
       }
 
-      // Remove songs not present on Spotify
+      // Count added and removed for response summary
+      for (const songId of spotifySongIdsInOrder) {
+        if (!existingSongIds.has(songId)) {
+          added++
+        }
+      }
       for (const entry of localEntries) {
-        if (!spotifySongIds.has(entry.song_id)) {
-          await query('DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2', [localPlaylistId, entry.song_id])
+        if (!seenSpotifySongs.has(entry.song_id)) {
           removed++
         }
       }
 
-      // Add new songs
-      const existingSongIds = new Set(localEntries.map((e) => e.song_id))
-      let nextPosition = existingSongIds.size + 1
+      // Re-order and sync local playlist song entries to match Spotify track order exactly
+      await query('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
 
-      for (const track of spotifyTracks) {
-        const songId = await findOrCreateGlobalSong(track)
-
-        if (!existingSongIds.has(songId)) {
-          try {
-            await query('INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, $3)', [localPlaylistId, songId, nextPosition])
-            existingSongIds.add(songId)
-            nextPosition++
-            added++
-          } catch (err: any) {
-            if (err.code !== '23505') throw err
-          }
+      if (spotifySongIdsInOrder.length > 0) {
+        const valueClauses: string[] = []
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const values: any[] = []
+        let index = 1
+        for (let i = 0; i < spotifySongIdsInOrder.length; i++) {
+          valueClauses.push(`($${index++}, $${index++}, $${index++})`)
+          values.push(localPlaylistId, spotifySongIdsInOrder[i], i + 1)
         }
+        await query(
+          `INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ${valueClauses.join(', ')}`,
+          values
+        )
       }
     } else {
       // Push local playlist to Spotify
