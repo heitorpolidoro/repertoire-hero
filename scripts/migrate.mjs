@@ -34,13 +34,24 @@ loadEnv('.env.local')
 loadEnv('.env.development.local')
 
 async function run() {
-  const connectionString = process.env.DATABASE_URL
+  const connectionString =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.BETTER_AUTH_DATABASE_URL
+
   if (!connectionString) {
-    console.error('DATABASE_URL is not set')
-    process.exit(1)
+    console.warn("⚠️ Neither DATABASE_URL nor POSTGRES_URL is set — skipping migrations during build.")
+    return
   }
 
-  const client = new pg.Client({ connectionString })
+  const client = new pg.Client({
+    connectionString,
+    ssl:
+      connectionString.includes("localhost") ||
+      connectionString.includes("127.0.0.1")
+        ? false
+        : { rejectUnauthorized: false },
+  })
   await client.connect()
 
   try {

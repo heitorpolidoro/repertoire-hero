@@ -2,7 +2,19 @@ import { query } from "@/lib/db"
 import { logger } from "@/lib/logger"
 import type { Band, BandMember, Playlist } from "@/types/database"
 
+let colorColumnChecked = false
+async function ensureBandColorColumn() {
+  if (colorColumnChecked) return
+  try {
+    await query(`ALTER TABLE bands ADD COLUMN IF NOT EXISTS color text DEFAULT '#6b21a8'`)
+    colorColumnChecked = true
+  } catch (err) {
+    logger.error("Failed to ensure band color column", err instanceof Error ? err : new Error(String(err)))
+  }
+}
+
 export const getBands = async (userId: string): Promise<Band[]> => {
+  await ensureBandColorColumn()
   const sql = `
     SELECT b.*,
            COALESCE(
@@ -29,6 +41,7 @@ export const getBands = async (userId: string): Promise<Band[]> => {
 export const getBandWithMembers = async (
   bandId: string,
 ): Promise<Band | null> => {
+  await ensureBandColorColumn()
   const sql = `
     SELECT b.*,
            COALESCE(
@@ -71,6 +84,7 @@ export const createBand = async (
   coverUrl?: string | null,
   color?: string | null,
 ): Promise<string> => {
+  await ensureBandColorColumn()
   try {
     const res = await query('SELECT create_band($1, $2, $3, $4) as band_id', [
       name,
@@ -99,6 +113,7 @@ export const updateBand = async (
     color?: string | null;
   },
 ): Promise<void> => {
+  await ensureBandColorColumn()
   try {
     const setClauses: string[] = []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
