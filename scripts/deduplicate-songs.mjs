@@ -151,14 +151,17 @@ async function runDeduplication() {
     console.log('Running retroactive song deduplication & album/link title migration scan...');
     const { rows: allSongs } = await pool.query('SELECT id, title, artist, album, links FROM global_songs ORDER BY created_at ASC');
 
-    // 1. Sanitize Albums & Upgrade Links for all existing songs
+    // 1. Sanitize Titles, Albums & Upgrade Links for all existing songs
     for (const song of allSongs) {
       let needsUpdate = false;
 
-      // Sanitize album
+      // Sanitize title & album
+      const cleanTitle = song.title ? sanitizeSongTitle(song.title) : song.title;
       const cleanAlbum = song.album ? sanitizeSongTitle(song.album) : null;
+      const finalTitle = cleanTitle || song.title;
       const finalAlbum = cleanAlbum || null;
-      if (song.album !== finalAlbum) {
+
+      if (song.title !== finalTitle || song.album !== finalAlbum) {
         needsUpdate = true;
       }
 
@@ -191,8 +194,8 @@ async function runDeduplication() {
 
       if (needsUpdate || linksChanged) {
         await pool.query(
-          'UPDATE global_songs SET album = $1, links = $2 WHERE id = $3',
-          [finalAlbum, JSON.stringify(linksChanged ? updatedLinks : currentLinks), song.id]
+          'UPDATE global_songs SET title = $1, album = $2, links = $3 WHERE id = $4',
+          [finalTitle, finalAlbum, JSON.stringify(linksChanged ? updatedLinks : currentLinks), song.id]
         );
       }
     }
