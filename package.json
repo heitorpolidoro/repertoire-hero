@@ -1,10 +1,10 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.35-202608131412",
+  "version": "0.1.36-202608131826",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack --hostname 127.0.0.1",
-    "build": "node scripts/migrate.mjs && next build",
+    "build": "node scripts/migrate.mjs && node scripts/deduplicate-songs.mjs && next build",
     "db:migrate": "node scripts/migrate.mjs",
     "start": "next start",
     "lint": "eslint",

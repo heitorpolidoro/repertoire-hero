@@ -364,3 +364,74 @@ export async function createAndAddSong(
     throw new Error(err.message.includes('already in') ? err.message : `Failed to create and add song: ${err.message}`)
   }
 }
+
+export async function mergeGlobalSongs(primarySongId: string, secondarySongId: string): Promise<void> {
+  if (primarySongId === secondarySongId) return
+
+  await query('BEGIN')
+  try {
+    const primaryRes = await query('SELECT * FROM global_songs WHERE id = $1', [primarySongId])
+    const secondaryRes = await query('SELECT * FROM global_songs WHERE id = $1', [secondarySongId])
+
+    if (primaryRes.rowCount === 0 || secondaryRes.rowCount === 0) {
+      throw new Error('One or both songs do not exist')
+    }
+
+    const primarySong = primaryRes.rows[0]
+    const secondarySong = secondaryRes.rows[0]
+
+    // Merge links
+    const primaryLinks: Array<{ label: string; url: string }> = primarySong.links ?? []
+    const secondaryLinks: Array<{ label: string; url: string }> = secondarySong.links ?? []
+
+    const mergedLinks = [...primaryLinks]
+    for (const link of secondaryLinks) {
+      if (!mergedLinks.some((l) => l.url === link.url)) {
+        mergedLinks.push(link)
+      }
+    }
+
+    await query('UPDATE global_songs SET links = $1 WHERE id = $2', [
+      JSON.stringify(mergedLinks),
+      primarySongId,
+    ])
+
+    // Update playlist_songs pointing to secondarySongId
+    const secondaryPlaylistSongs = await query('SELECT playlist_id FROM playlist_songs WHERE song_id = $1', [secondarySongId])
+    for (const ps of secondaryPlaylistSongs.rows) {
+      const existingInPlaylist = await query('SELECT id FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2', [ps.playlist_id, primarySongId])
+      if (existingInPlaylist.rowCount && existingInPlaylist.rowCount > 0) {
+        await query('DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2', [ps.playlist_id, secondarySongId])
+      } else {
+        await query('UPDATE playlist_songs SET song_id = $1 WHERE playlist_id = $2 AND song_id = $3', [primarySongId, ps.playlist_id, secondarySongId])
+      }
+    }
+
+    // Update repertoire entries pointing to secondarySongId
+    const secondaryRepertoires = await query('SELECT id, user_id, band_id FROM repertoire WHERE song_id = $1', [secondarySongId])
+    for (const rep of secondaryRepertoires.rows) {
+      const ownerWhere = rep.band_id ? 'band_id = $1' : 'user_id = $1'
+      const ownerVal = rep.band_id ? rep.band_id : rep.user_id
+
+      const existingInRep = await query(
+        `SELECT id FROM repertoire WHERE ${ownerWhere} AND song_id = $2`,
+        [ownerVal, primarySongId]
+      )
+
+      if (existingInRep.rowCount && existingInRep.rowCount > 0) {
+        await query('UPDATE repertoire_tabs SET repertoire_id = $1 WHERE repertoire_id = $2', [existingInRep.rows[0].id, rep.id])
+        await query('DELETE FROM repertoire WHERE id = $1', [rep.id])
+      } else {
+        await query('UPDATE repertoire SET song_id = $1 WHERE id = $2', [primarySongId, rep.id])
+      }
+    }
+
+    // Delete secondary global song
+    await query('DELETE FROM global_songs WHERE id = $1', [secondarySongId])
+
+    await query('COMMIT')
+  } catch (error) {
+    await query('ROLLBACK')
+    throw error
+  }
+}

@@ -70,28 +70,37 @@ async function fetchAllSpotifyTracks(
   return tracks
 }
 
+import { sanitizeSongTitle } from '@/lib/songSanitizer'
+
 // ---------------------------------------------------------------------------
-// Resolves a global_songs row for the given track, creating it if absent.
-// Uses title + album dedup (same logic as createAndAddSong in songs.ts).
+// Internal helper: find existing global_song by title+artist (sanitized) or create it.
+// Uses title + artist dedup.
 // Returns the song id.
 // ---------------------------------------------------------------------------
 async function findOrCreateGlobalSong(track: RawTrack): Promise<string> {
+  const cleanTitle = sanitizeSongTitle(track.title)
   const albumValue = track.album?.trim() ?? ''
+  const spotifyLink = { label: 'spotify', url: track.spotifyUrl }
 
-  let lookupSql = 'SELECT id FROM global_songs WHERE LOWER(title) = LOWER($1)'
-  const lookupParams = [track.title.trim()]
-  if (albumValue) {
-    lookupSql += ' AND LOWER(album) = LOWER($2)'
-    lookupParams.push(albumValue)
-  } else {
-    lookupSql += ' AND (album IS NULL OR album = \'\')'
-  }
-  lookupSql += ' LIMIT 1'
-
-  const { rows } = await query(lookupSql, lookupParams)
+  const lookupSql = `
+    SELECT id, links FROM global_songs 
+    WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2)
+    LIMIT 1
+  `
+  const { rows } = await query(lookupSql, [cleanTitle, track.artist.trim()])
 
   if (rows.length > 0) {
-    return rows[0].id as string
+    const existingSongId = rows[0].id as string
+    const existingLinks = (rows[0].links as Array<{ label: string; url: string }>) ?? []
+
+    if (!existingLinks.some((l) => l.url === track.spotifyUrl)) {
+      const updatedLinks = [...existingLinks, spotifyLink]
+      await query('UPDATE global_songs SET links = $1 WHERE id = $2', [
+        JSON.stringify(updatedLinks),
+        existingSongId,
+      ])
+    }
+    return existingSongId
   }
 
   const insertSql = `
@@ -99,10 +108,9 @@ async function findOrCreateGlobalSong(track: RawTrack): Promise<string> {
     VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING id
   `
-  const spotifyLink = { label: 'spotify', url: track.spotifyUrl }
   const insertRes = await query(insertSql, [
-    track.title,
-    track.artist,
+    cleanTitle,
+    track.artist.trim(),
     albumValue || null,
     track.albumArt ?? null,
     track.durationSeconds,

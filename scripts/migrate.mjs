@@ -52,7 +52,13 @@ async function run() {
         ? false
         : { rejectUnauthorized: false },
   })
-  await client.connect()
+
+  try {
+    await client.connect()
+  } catch (err) {
+    console.warn("⚠️ Could not connect to Postgres DB — skipping migrations during build.")
+    return
+  }
 
   try {
     // Create migrations table if not exists

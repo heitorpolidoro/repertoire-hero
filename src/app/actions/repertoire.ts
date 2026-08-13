@@ -236,3 +236,10 @@ export async function getPersonalEntryForSongAction(songId: string): Promise<Rep
     return null
   }
 }
+
+export async function mergeSongsAction(primarySongId: string, secondarySongId: string): Promise<{ success: boolean }> {
+  const { mergeGlobalSongs } = await import('@/lib/songs')
+  await mergeGlobalSongs(primarySongId, secondarySongId)
+  revalidatePath('/')
+  return { success: true }
+}

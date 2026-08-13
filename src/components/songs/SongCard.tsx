@@ -41,6 +41,9 @@ export default function SongCard({ song, onEdit }: SongCardProps) {
           {artist && (
             <p className="text-sm text-gray-500 truncate">{artist}</p>
           )}
+          {song.song?.album && (
+            <p className="text-xs text-gray-400 italic truncate">{song.song.album}</p>
+          )}
         </div>
 
         {/* Status cycling badge */}
