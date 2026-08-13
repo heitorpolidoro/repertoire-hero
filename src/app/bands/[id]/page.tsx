@@ -14,6 +14,7 @@ import {
   uploadBandCoverAction,
 } from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
+import { useBandContextStore } from "@/store/bandContextStore";
 import { compressImageFile } from "@/lib/imageCompressor";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
@@ -137,6 +138,12 @@ export default function BandDetailPage() {
             }
           : prev,
       );
+
+      const currentContext = useBandContextStore.getState().context;
+      if (currentContext.type === "band" && currentContext.id === bandId) {
+        useBandContextStore.getState().setBandContext(bandId, editName.trim(), editColor);
+      }
+
       setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");

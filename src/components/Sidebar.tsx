@@ -15,6 +15,7 @@ interface Band {
   id: string
   name: string
   role: 'admin' | 'member'
+  color?: string | null
 }
 
 export default function Sidebar({ activeItem }: SidebarProps) {
@@ -43,9 +44,9 @@ export default function Sidebar({ activeItem }: SidebarProps) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const switchContext = (next: { type: 'user' } | { type: 'band'; id: string; name: string }) => {
+  const switchContext = (next: { type: 'user' } | { type: 'band'; id: string; name: string; color?: string }) => {
     if (next.type === 'user') setUserContext()
-    else setBandContext(next.id, next.name)
+    else setBandContext(next.id, next.name, next.color)
     setOpen(false)
     loadSongs()
     router.push('/')
@@ -115,7 +116,7 @@ export default function Sidebar({ activeItem }: SidebarProps) {
                   {bands.map((band) => (
                     <button
                       key={band.id}
-                      onClick={() => switchContext({ type: 'band', id: band.id, name: band.name })}
+                      onClick={() => switchContext({ type: 'band', id: band.id, name: band.name, color: band.color ?? undefined })}
                       className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-800 transition-colors ${context.type === 'band' && context.id === band.id ? 'text-emerald-400' : 'text-gray-300'}`}
                     >
                       <div className="w-6 h-6 rounded-full bg-purple-700 flex items-center justify-center text-white text-xs">

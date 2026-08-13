@@ -151,6 +151,12 @@ function BandProfileView({ bandId }: { bandId: string }) {
             }
           : prev,
       );
+
+      const currentContext = useBandContextStore.getState().context;
+      if (currentContext.type === "band" && currentContext.id === bandId) {
+        useBandContextStore.getState().setBandContext(bandId, editName.trim(), editColor);
+      }
+
       setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save band profile");
