@@ -997,7 +997,7 @@ export default function FastViewPage() {
                 value={newLinkLabel}
                 onChange={(e) => setNewLinkLabel(e.target.value)}
                 required
-                className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                className="px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
               />
               <input
                 type="url"
@@ -1005,7 +1005,7 @@ export default function FastViewPage() {
                 value={newLinkUrl}
                 onChange={(e) => setNewLinkUrl(e.target.value)}
                 required
-                className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                className="px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
               />
             </div>
             <div className="flex justify-end gap-2">
