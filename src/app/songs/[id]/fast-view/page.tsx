@@ -1040,11 +1040,11 @@ export default function FastViewPage() {
             {entry.band_id && (
               showPersonalLyrics ? (
                 <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  👤 Pessoal
+                  👤 Personal
                 </span>
               ) : (
                 <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  👥 Banda
+                  👥 Band
                 </span>
               )
             )}
@@ -1077,13 +1077,13 @@ export default function FastViewPage() {
         {/* Lyrics version switcher banner (only in band mode if personal differs) */}
         {hasDifferentPersonalLyrics && !isEditingLyrics && (
           <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 shadow-sm text-xs text-blue-700">
-            <span className="font-medium">💡 Você tem uma versão pessoal diferente para esta música.</span>
+            <span className="font-medium">💡 You have a different personal lyrics version for this song.</span>
             <button
               type="button"
               onClick={() => setShowPersonalLyrics(!showPersonalLyrics)}
               className="font-bold underline hover:text-blue-900 transition-colors focus:outline-none shrink-0"
             >
-              {showPersonalLyrics ? 'Ver letra da Banda (👥)' : 'Ver minha letra (👤)'}
+              {showPersonalLyrics ? 'View Band lyrics (👥)' : 'View my lyrics (👤)'}
             </button>
           </div>
         )}

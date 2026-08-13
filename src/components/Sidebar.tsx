@@ -53,13 +53,13 @@ export default function Sidebar({ activeItem }: SidebarProps) {
   }
 
   const currentLabel =
-    context.type === 'band' ? context.name : user?.name ?? user?.email?.split('@')[0] ?? 'Pessoal'
+    context.type === 'band' ? context.name : user?.name ?? user?.email?.split('@')[0] ?? 'Personal'
 
   const menuItems = [
     { href: '/', label: 'Dashboard' },
     { href: '/playlists', label: 'Playlists' },
     { href: '/songs', label: 'Songs' },
-    { href: '/bands', label: 'Bandas' },
+    { href: '/bands', label: 'Bands' },
     { href: '/settings', label: 'Settings' },
   ]
 
@@ -111,7 +111,7 @@ export default function Sidebar({ activeItem }: SidebarProps) {
               {bands.length > 0 && (
                 <>
                   <div className="border-t border-gray-700 px-3 py-1.5 text-xs text-gray-500 uppercase tracking-wider">
-                    Bandas
+                    Bands
                   </div>
                   {bands.map((band) => (
                     <button
@@ -134,12 +134,12 @@ export default function Sidebar({ activeItem }: SidebarProps) {
           )}
 
           {context.type === 'band' && (
-            <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-purple-900/40 border border-purple-700/50 rounded text-xs text-purple-300">
+            <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-white/10 border border-white/20 rounded text-xs opacity-90">
               <span>🎸</span>
-              <span className="truncate">Modo banda</span>
+              <span className="truncate">Band Mode</span>
               <button
                 onClick={() => switchContext({ type: 'user' })}
-                className="ml-auto text-purple-400 hover:text-white"
+                className="ml-auto text-white/70 hover:text-white"
               >
                 ✕
               </button>

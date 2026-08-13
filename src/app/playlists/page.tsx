@@ -261,7 +261,7 @@ const CreatePlaylistModal = ({
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/40"
       role="dialog"
       aria-modal="true"
-      aria-label="Nova Playlist"
+      aria-label="New Playlist"
       onClick={(ev) => {
         if (ev.target === ev.currentTarget) onClose();
       }}
@@ -269,7 +269,7 @@ const CreatePlaylistModal = ({
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">Nova Playlist</h2>
+          <h2 className="text-base font-semibold text-gray-900">New Playlist</h2>
           <ModalCloseButton onClose={onClose} />
         </div>
 
@@ -284,7 +284,7 @@ const CreatePlaylistModal = ({
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            Nova playlist
+            New playlist
           </button>
           <button
             type="button"
@@ -292,7 +292,7 @@ const CreatePlaylistModal = ({
               if (canShowSpotifyTab) setActiveTab("spotify");
             }}
             disabled={!canShowSpotifyTab}
-            title={!canShowSpotifyTab ? "Conecte sua conta do Spotify nas Configurações" : undefined}
+            title={!canShowSpotifyTab ? "Connect your Spotify account in Profile & Settings" : undefined}
             className={`flex-1 py-2.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500 ${
               activeTab === "spotify"
                 ? "text-emerald-700 border-b-2 border-emerald-600"
@@ -301,7 +301,7 @@ const CreatePlaylistModal = ({
                   : "text-gray-300 cursor-not-allowed"
             }`}
           >
-            Do Spotify
+            From Spotify
           </button>
         </div>
 
@@ -313,7 +313,7 @@ const CreatePlaylistModal = ({
                 htmlFor="modal-playlist-name"
                 className="text-sm font-medium text-gray-700"
               >
-                Nome da playlist
+                Playlist name
               </label>
               <input
                 ref={nameInputRef}
@@ -324,7 +324,7 @@ const CreatePlaylistModal = ({
                 onKeyDown={(ev) => {
                   if (ev.key === "Enter") handleCreate().catch(console.error);
                 }}
-                placeholder="Ex: Setlist do show"
+                placeholder="e.g. Gig setlist"
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
               {createError && (
@@ -335,21 +335,21 @@ const CreatePlaylistModal = ({
             <div className="flex flex-col gap-2">
               {!canShowSpotifyTab ? (
                 <p className="text-sm text-gray-500 text-center py-6">
-                  Conecte sua conta do Spotify nas{" "}
+                  Connect your Spotify account in{" "}
                   <Link
                     href="/profile"
                     className="text-emerald-600 hover:underline focus:outline-none focus:underline"
                     onClick={onClose}
                   >
-                    Configurações
+                    Profile & Settings
                   </Link>{" "}
-                  para importar playlists.
+                  to import playlists.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2" role="list">
                   {spotifyPlaylists.length === 0 && (
                     <li className="text-sm text-gray-400 text-center py-6">
-                      Nenhuma playlist do Spotify encontrada.
+                      No Spotify playlists found.
                     </li>
                   )}
                   {spotifyPlaylists.map((sp) => (
@@ -385,7 +385,7 @@ const CreatePlaylistModal = ({
               onClick={onClose}
               className="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
             >
-              Cancelar
+              Cancel
             </button>
             <button
               type="button"
@@ -393,7 +393,7 @@ const CreatePlaylistModal = ({
               disabled={isCreating || !newPlaylistName.trim()}
               className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isCreating ? "Criando..." : "Criar"}
+              {isCreating ? "Creating..." : "Create"}
             </button>
           </div>
         )}
