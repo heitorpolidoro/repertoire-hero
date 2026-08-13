@@ -261,7 +261,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
           ) : (
             <div
               className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl shrink-0 font-bold border"
-              style={theme.badgeStyle}
+              style={theme.lightCardBadgeStyle}
             >
               🎸
             </div>
@@ -271,7 +271,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
             <div className="flex items-center gap-2">
               <span
                 className="text-xs font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border"
-                style={theme.badgeStyle}
+                style={theme.lightCardBadgeStyle}
               >
                 Band Profile
               </span>
@@ -299,7 +299,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
               <button
                 onClick={openEdit}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors border"
-                style={theme.badgeStyle}
+                style={theme.lightCardBadgeStyle}
               >
                 <span>✏️</span> Edit Band
               </button>
@@ -347,7 +347,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
             <li key={member.id} className="flex items-center gap-3">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border"
-                style={theme.badgeStyle}
+                style={theme.lightCardBadgeStyle}
               >
                 {(member.profile?.full_name ?? member.profile?.email ?? "?")[0].toUpperCase()}
               </div>

@@ -71,5 +71,10 @@ export function getBandThemeStyles(hexColor?: string | null) {
       backgroundColor: isDarkText ? "rgba(15, 23, 42, 0.15)" : "rgba(255, 255, 255, 0.2)",
       color: textColor,
     },
+    lightCardBadgeStyle: {
+      backgroundColor: `${bgHex}18`,
+      color: bgHex,
+      borderColor: `${bgHex}35`,
+    },
   };
 }
