@@ -4,9 +4,10 @@ import { authClient } from '@/lib/auth-client'
 import { InstrumentPicker } from '@/components/profile/InstrumentPicker'
 import Link from 'next/link'
 import { Suspense, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 function SignUpForm() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const redirect = searchParams.get('redirect') ?? '/'
 
@@ -17,7 +18,6 @@ function SignUpForm() {
   const [instruments, setInstruments] = useState<string[]>([])
   const [primaryInstrument, setPrimaryInstrument] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const loginHref = redirect !== '/' ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'
@@ -45,37 +45,11 @@ function SignUpForm() {
       return
     }
 
-    setSuccess(true)
-    setLoading(false)
-  }
-
-  if (success) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-bold text-gray-900">Repertoire Hero</h1>
-          </div>
-
-          <div className="bg-white shadow-md rounded-2xl px-8 py-8 space-y-5 text-center">
-            <p className="text-sm text-green-700 bg-green-50 rounded-lg px-3 py-3">
-              Account created! You can now sign in.
-            </p>
-            {redirect !== '/' && (
-              <p className="text-xs text-gray-500">
-                After confirming, go back to your invite link to join the band.
-              </p>
-            )}
-            <Link
-              href={loginHref}
-              className="inline-block text-sm font-medium text-emerald-600 hover:text-emerald-500"
-            >
-              Back to sign in
-            </Link>
-          </div>
-        </div>
-      </main>
-    )
+    // requireEmailVerification is false, so signUp.email already created a
+    // session — go straight to the destination instead of asking the user
+    // to sign in again.
+    router.push(redirect)
+    router.refresh()
   }
 
   return (
