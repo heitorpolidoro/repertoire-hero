@@ -162,7 +162,17 @@ spec.md, SDS.md, plan.md, tasks.md
 - **Fast View** — A reading-mode page (`/songs/[id]/fast-view`) stripped of editing chrome, designed to be legible on a phone propped on a music stand mid-performance.
 - **Repertoire Tab (`repertoire_tabs`)** — A PDF file (chord chart, tab) attached to one specific repertoire entry, stored as a URL pointing into Vercel Blob.
 - **Band Context** — A client-side UI concept (not a DB table): which "hat" the signed-in user is currently browsing under — their personal repertoire, or a specific band's shared repertoire — tracked in `bandContextStore.ts` and applied as the `RepertoireOwner` (`{ userId }` or `{ bandId }`) passed into most `src/lib` functions.
-- **Dev Fast Login / Auto-Login** — A development-only convenience (gated by `NODE_ENV`/`NEXT_PUBLIC_AUTO_LOGIN`) that lists existing users and can skip the login form, per the product requirement for a frictionless local dev experience for `heitor.polidoro@gmail.com`.
+- **Song & Album Sanitization** — `sanitizeSongTitle` and `sanitizeAlbumName` (`src/lib/songSanitizer.ts`) strip remaster/edition noise (e.g. `- 2018 Remaster`, `(30th Anniversary Super Deluxe Edition)`) while strictly preserving performance versions (`Live`, `Acoustic`, `Unplugged`, `Demo`, `Cover`, `Orchestral`).
+- **Auto-Fetched Link Labels & oEmbed** — When adding external links (YouTube, Spotify, chord sites), link label input is optional. If left blank, `fetchUrlTitle` (`src/lib/linkFetcher.ts`) auto-fetches track/video/page titles via Spotify/YouTube oEmbed or HTML `<title>` parsing.
+- **Client-Side Image Compression** — Camera photos uploaded for Band covers or song art are compressed client-side (`compressImageIfNeeded` in `src/lib/imageCompressor.ts`) to max 1024x1024 JPEG (~100KB) prior to Server Action execution to prevent HTTP 413 body size errors.
+
+# UI & UX Behavioral Directives
+
+- **NO Browser Alerts**: NEVER use browser `alert()` or `confirm()` dialogs. Always use floating Toast notifications (`showToast`), inline alert banners, or accessible modal overlays.
+- **Fast View Playlist Layout**:
+  - **Desktop (`lg:flex`)**: Two-column layout with a dedicated right sidebar (`w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen`) displaying the actual playlist name, track position numbers, and `▶ NOW` indicator.
+  - **Mobile (`< lg`)**: Non-overlapping `🎵 Setlist (X/Y)` pill button in the top header row next to `← Back`, which opens a smooth bottom-sheet modal.
+- **Link Card UI**: Single white rounded card (`rounded-xl bg-white border border-gray-200 shadow-sm`) with a square-with-arrow SVG icon and an in-card delete button on the far right separated by a vertical divider line (`h-4 w-px bg-gray-200`).
 
 # AI Agent Workflow Rules
 
