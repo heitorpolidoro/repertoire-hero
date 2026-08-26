@@ -304,6 +304,11 @@ export default function FastViewPage() {
   async function triggerUpload(destination: 'band' | 'personal') {
     if (!entry || !uploadFile) return
 
+    if (uploadFile.size > 10 * 1024 * 1024) {
+      setUploadError('File size exceeds the 10MB limit')
+      return
+    }
+
     try {
       setUploading(true)
       setUploadError(null)

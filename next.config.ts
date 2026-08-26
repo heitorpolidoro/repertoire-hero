@@ -10,7 +10,9 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: '6mb',
+      // Must stay above the 10MB tab-upload limit enforced in
+      // src/app/actions/tabs.ts, plus multipart overhead.
+      bodySizeLimit: '12mb',
     },
   },
   serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],

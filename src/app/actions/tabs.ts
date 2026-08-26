@@ -36,11 +36,6 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
 
     await checkAccess(userId, repertoireId)
 
-    // Validate file
-    if (file.type !== 'application/pdf') {
-      return { error: 'Only PDF files are allowed' }
-    }
-
     // Max 10MB
     if (file.size > 10 * 1024 * 1024) {
       return { error: 'File size exceeds the 10MB limit' }
@@ -49,6 +44,15 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
     // Convert File to Buffer
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
+
+    // Validate file: file.type is unreliable for files picked via Android's
+    // Storage Access Framework (e.g. the Google Drive app), which can hand
+    // Chrome an empty or generic MIME type for a genuine PDF. Sniff the PDF
+    // magic bytes instead of trusting file.type alone.
+    const isPdf = file.type === 'application/pdf' || buffer.subarray(0, 5).toString('latin1') === '%PDF-'
+    if (!isPdf) {
+      return { error: 'Only PDF files are allowed' }
+    }
 
     // Upload to Vercel Blob Storage
     // We use the original file name (sanitized) so that the download/view link retains a legible name.
