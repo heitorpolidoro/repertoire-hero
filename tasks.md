@@ -53,3 +53,6 @@
  
  ### T7.3 – Structured Client-Side Logging
 - [x] **T7.3:** Define a thin logging utility (`src/lib/logger.ts`) that wraps `console.error`/`console.warn` in production and forwards critical events to Sentry as breadcrumbs. DoD: All Supabase API error paths in the data layer call `logger.error`; Sentry breadcrumbs confirm event delivery in a staging test.
+ 
+ ## Phase 8: Internationalization (i18n)
+- [ ] **T8.1:** Add i18n support (PT-BR and EN) with browser detection (`Accept-Language` / `navigator.language`) and cookie persistence when changed manually.

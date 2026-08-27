@@ -187,6 +187,7 @@ spec.md, SDS.md, plan.md, tasks.md
 # Meridian Instructions
 
 > **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (A JSON object with a `tasks` array containing tasks with id, title, status, justification, blockedBy).
+> **Task ID Naming Format (`id`)**: ALWAYS use the `TXXX` format (e.g. `T8.1`, `T8.2`) matching `tasks.md` phase numbering. NEVER use random IDs, slugs, words, or arbitrary string names.
 > **Dependencies (`blockedBy`)**: optional array of task IDs that must reach `done` before this task can proceed. A task with a non-empty `blockedBy` whose dependencies aren't all `done` yet should have status `blocked` — that dependency is sufficient justification on its own (e.g. `justification: "Blocked on <task-id>"`). When every task in `blockedBy` reaches `done`, move this task back to `backlog`.
 > **Allowed Statuses**: When assigning a status to a task, you MUST use EXACTLY one of the following lowercase strings. DO NOT invent new statuses or use synonyms like 'pending', 'todo', or 'completed'.
   - `backlog`: Task is planned but not ready to be worked on yet.
