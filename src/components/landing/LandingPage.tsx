@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { COOKIE_NAME, getDictionary, type Locale } from "@/lib/i18n";
+import { LanguageSelector } from "@/components/layout/LanguageSelector";
 
 interface DevProfile {
   id: string;
@@ -9,10 +11,19 @@ interface DevProfile {
   full_name: string | null;
 }
 
+function getLocaleCookie(): Locale {
+  if (typeof document === "undefined") return "pt-BR";
+  const match = document.cookie.match(new RegExp(`(?:^|; )${COOKIE_NAME}=([^;]*)`));
+  const val = match ? decodeURIComponent(match[1]) : null;
+  return val === "en" ? "en" : "pt-BR";
+}
+
 export default function LandingPage() {
   const [devProfiles, setDevProfiles] = useState<DevProfile[]>([]);
+  const [locale, setLocale] = useState<Locale>("pt-BR");
 
   useEffect(() => {
+    setLocale(getLocaleCookie());
     if (process.env.NODE_ENV !== "development") return;
     fetch("/api/dev/profiles")
       .then((res) => (res.ok ? res.json() : Promise.reject()))
@@ -21,6 +32,8 @@ export default function LandingPage() {
       })
       .catch(() => {});
   }, []);
+
+  const dict = getDictionary(locale);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
@@ -31,22 +44,23 @@ export default function LandingPage() {
             🎸
           </div>
           <span className="text-xl font-bold tracking-tight text-white">
-            Repertoire Hero
+            {dict.common.appName}
           </span>
         </div>
 
         <div className="flex items-center gap-3">
+          <LanguageSelector />
           <Link
             href="/login"
             className="px-4 py-2 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
           >
-            Sign In
+            {dict.nav.signIn}
           </Link>
           <Link
             href="/signup"
             className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-500 hover:bg-emerald-400 text-gray-950 shadow-md shadow-emerald-950/40 transition-all transform active:scale-95"
           >
-            Get Started
+            {dict.nav.getStarted}
           </Link>
         </div>
       </header>
@@ -56,19 +70,18 @@ export default function LandingPage() {
         <section className="relative px-4 md:px-8 pt-16 pb-20 max-w-5xl mx-auto text-center flex flex-col items-center gap-6">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-800/50 text-xs font-semibold text-emerald-400 backdrop-blur-xs">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Built for Musicians & Bands
+            {dict.landing.badge}
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight leading-[1.15] max-w-3xl">
-            Master Your Setlist. <br />
+            {dict.landing.title} <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500">
-              Anywhere. Together.
+              {dict.landing.titleGradient}
             </span>
           </h1>
 
           <p className="text-base sm:text-lg text-gray-400 max-w-2xl font-normal leading-relaxed">
-            The all-in-one repertoire manager for individual musicians and bands.
-            Catalog songs, track mastery stages, share setlists, and pull up chords & tabs instantly on stage.
+            {dict.landing.subtitle}
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
@@ -76,13 +89,13 @@ export default function LandingPage() {
               href="/signup"
               className="px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 text-base font-bold shadow-lg shadow-emerald-950/60 transition-all transform hover:-translate-y-0.5"
             >
-              Start Free Catalog
+              {dict.landing.startFree}
             </Link>
             <Link
               href="/login"
               className="px-6 py-3.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-base font-semibold border border-gray-700 transition-all"
             >
-              Sign In to Your Repertoire
+              {dict.landing.signInToRepertoire}
             </Link>
           </div>
 
@@ -112,10 +125,10 @@ export default function LandingPage() {
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                Everything You Need For Practice & Stage
+                {dict.landing.featuresTitle}
               </h2>
               <p className="text-sm sm:text-base text-gray-400 mt-2">
-                Designed to stop song knowledge from being scattered across chats and folders.
+                {dict.landing.featuresSubtitle}
               </p>
             </div>
 
@@ -125,9 +138,9 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
                   📚
                 </div>
-                <h3 className="text-lg font-bold text-white">Song Catalog</h3>
+                <h3 className="text-lg font-bold text-white">{dict.landing.f1Title}</h3>
                 <p className="text-sm text-gray-400 leading-relaxed">
-                  Catalog songs with title, artist, album, key, cover art, duration, and external links to Spotify, YouTube, or Cifra Club.
+                  {dict.landing.f1Desc}
                 </p>
               </div>
 
@@ -136,9 +149,9 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
                   🎯
                 </div>
-                <h3 className="text-lg font-bold text-white">5-Stage Mastery Scale</h3>
+                <h3 className="text-lg font-bold text-white">{dict.landing.f2Title}</h3>
                 <p className="text-sm text-gray-400 leading-relaxed">
-                  Track song progress with a 5-stage scale: <span className="text-gray-300 font-semibold">Unknown → Learning → Practicing → Polishing → Mastered</span>.
+                  {dict.landing.f2Desc}
                 </p>
               </div>
 
@@ -147,9 +160,9 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
                   👥
                 </div>
-                <h3 className="text-lg font-bold text-white">Band Shared Repertoires</h3>
+                <h3 className="text-lg font-bold text-white">{dict.landing.f3Title}</h3>
                 <p className="text-sm text-gray-400 leading-relaxed">
-                  Create bands, invite members with a link, and view aggregate readiness calculated automatically via the &quot;weakest link&quot; rule.
+                  {dict.landing.f3Desc}
                 </p>
               </div>
 
@@ -158,9 +171,9 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
                   ⚡
                 </div>
-                <h3 className="text-lg font-bold text-white">Stage-Ready Fast View</h3>
+                <h3 className="text-lg font-bold text-white">{dict.landing.f4Title}</h3>
                 <p className="text-sm text-gray-400 leading-relaxed">
-                  A mobile-optimized reading mode for music stands. Swipe between songs in a setlist, view lyrics with chord tags, and switch to Stage Mode.
+                  {dict.landing.f4Desc}
                 </p>
               </div>
 
@@ -169,9 +182,9 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
                   📄
                 </div>
-                <h3 className="text-lg font-bold text-white">PDF Tab & Sheet Uploads</h3>
+                <h3 className="text-lg font-bold text-white">{dict.landing.f5Title}</h3>
                 <p className="text-sm text-gray-400 leading-relaxed">
-                  Attach PDF chord charts and tablatures to any song. Keep personal study PDFs or share official charts with your entire band.
+                  {dict.landing.f5Desc}
                 </p>
               </div>
 
@@ -180,9 +193,9 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
                   🎧
                 </div>
-                <h3 className="text-lg font-bold text-white">Spotify Integration</h3>
+                <h3 className="text-lg font-bold text-white">{dict.landing.f6Title}</h3>
                 <p className="text-sm text-gray-400 leading-relaxed">
-                  Search songs directly on Spotify and import entire playlists into your personal or band repertoire with one click.
+                  {dict.landing.f6Desc}
                 </p>
               </div>
             </div>
@@ -192,23 +205,23 @@ export default function LandingPage() {
         {/* Call to Action Banner */}
         <section className="px-4 md:px-8 py-20 text-center max-w-4xl mx-auto flex flex-col items-center gap-6">
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            Ready to Take Your Setlist to the Next Stage?
+            {dict.landing.ctaTitle}
           </h2>
           <p className="text-base text-gray-400 max-w-xl">
-            Join Repertoire Hero today and keep your music cataloged, synchronized, and gig-ready.
+            {dict.landing.ctaSubtitle}
           </p>
           <Link
             href="/signup"
             className="px-8 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 text-lg font-bold shadow-xl shadow-emerald-950/80 transition-all transform hover:-translate-y-0.5"
           >
-            Create Your Free Account
+            {dict.landing.ctaButton}
           </Link>
         </section>
       </main>
 
       {/* Footer */}
       <footer className="border-t border-gray-800/80 py-8 px-4 text-center text-xs text-gray-500">
-        <p>© {new Date().getFullYear()} Repertoire Hero. All rights reserved.</p>
+        <p>{dict.landing.footer.replace("{year}", new Date().getFullYear().toString())}</p>
       </footer>
     </div>
   );

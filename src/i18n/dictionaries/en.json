@@ -18,7 +18,10 @@
     "playlists": "Playlists",
     "bands": "Bands",
     "profile": "Profile",
-    "settings": "Settings"
+    "settings": "Settings",
+    "signIn": "Sign In",
+    "signUp": "Sign Up",
+    "getStarted": "Get Started"
   },
   "status": {
     "unknown": "Unknown",
@@ -26,5 +29,31 @@
     "practicing": "Practicing",
     "polishing": "Polishing",
     "mastered": "Mastered"
+  },
+  "landing": {
+    "badge": "Built for Musicians & Bands",
+    "title": "Master Your Setlist.",
+    "titleGradient": "Anywhere. Together.",
+    "subtitle": "The all-in-one repertoire manager for individual musicians and bands. Catalog songs, track mastery stages, share setlists, and pull up chords & tabs instantly on stage.",
+    "startFree": "Start Free Catalog",
+    "signInToRepertoire": "Sign In to Your Repertoire",
+    "featuresTitle": "Everything You Need For Practice & Stage",
+    "featuresSubtitle": "Designed to stop song knowledge from being scattered across chats and folders.",
+    "f1Title": "Song Catalog",
+    "f1Desc": "Catalog songs with title, artist, album, key, cover art, duration, and external links to Spotify, YouTube, or Cifra Club.",
+    "f2Title": "5-Stage Mastery Scale",
+    "f2Desc": "Track song progress with a 5-stage scale: Unknown → Learning → Practicing → Polishing → Mastered.",
+    "f3Title": "Band Shared Repertoires",
+    "f3Desc": "Create bands, invite members with a link, and view aggregate readiness calculated automatically via the 'weakest link' rule.",
+    "f4Title": "Stage-Ready Fast View",
+    "f4Desc": "A mobile-optimized reading mode for music stands. Swipe between songs in a setlist, view lyrics with chord tags, and switch to Stage Mode.",
+    "f5Title": "PDF Tab & Sheet Uploads",
+    "f5Desc": "Attach PDF chord charts and tablatures to any song. Keep personal study PDFs or share official charts with your entire band.",
+    "f6Title": "Spotify Integration",
+    "f6Desc": "Search songs directly on Spotify and import entire playlists into your personal or band repertoire with one click.",
+    "ctaTitle": "Ready to Take Your Setlist to the Next Stage?",
+    "ctaSubtitle": "Join Repertoire Hero today and keep your music cataloged, synchronized, and gig-ready.",
+    "ctaButton": "Create Your Free Account",
+    "footer": "© {year} Repertoire Hero. All rights reserved."
   }
 }

@@ -18,7 +18,10 @@
     "playlists": "Playlists",
     "bands": "Bandas",
     "profile": "Perfil",
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "signIn": "Entrar",
+    "signUp": "Criar Conta",
+    "getStarted": "Começar Agora"
   },
   "status": {
     "unknown": "Não sei",
@@ -26,5 +29,31 @@
     "practicing": "Praticando",
     "polishing": "Aprimorando",
     "mastered": "Dominado"
+  },
+  "landing": {
+    "badge": "Feito para Músicos & Bandas",
+    "title": "Domine seu Setlist.",
+    "titleGradient": "Em Qualquer Lugar. Juntos.",
+    "subtitle": "O gerenciador completo de repertório para músicos solo e bandas. Catalogue músicas, acompanhe o nível de aprendizado, compartilhe setlists e abra cifras e tabs instantaneamente no palco.",
+    "startFree": "Começar Catálogo Grátis",
+    "signInToRepertoire": "Acessar Meu Repertório",
+    "featuresTitle": "Tudo o que Você Precisa para Ensaio & Palco",
+    "featuresSubtitle": "Projetado para evitar que o conhecimento de músicas fique espalhado em chats e pastas.",
+    "f1Title": "Catálogo de Músicas",
+    "f1Desc": "Catalogue músicas com título, artista, álbum, tom, capa, duração e links externos para Spotify, YouTube ou Cifra Club.",
+    "f2Title": "Escala de 5 Níveis de Domínio",
+    "f2Desc": "Acompanhe a evolução das músicas com 5 estágios: Não sei → Aprendendo → Praticando → Aprimorando → Dominado.",
+    "f3Title": "Repertórios Compartilhados de Banda",
+    "f3Desc": "Crie bandas, convide membros por link e veja a prontidão da banda calculada automaticamente pela regra do menor nível.",
+    "f4Title": "Fast View Otimizado para Palco",
+    "f4Desc": "Modo de leitura otimizado para estantes de partitura. Deslize entre músicas na playlist, veja letras com tom e ative o Stage Mode.",
+    "f5Title": "Upload de Partituras & Tabs em PDF",
+    "f5Desc": "Anexe arquivos PDF de cifras e tablaturas a qualquer música. Mantenha PDFs de estudo pessoal ou compartilhe partituras oficiais com sua banda.",
+    "f6Title": "Integração com Spotify",
+    "f6Desc": "Busque músicas diretamente no Spotify e importe playlists inteiras para seu repertório pessoal ou de banda com um clique.",
+    "ctaTitle": "Pronto para Levar seu Setlist para o Próximo Nível?",
+    "ctaSubtitle": "Junte-se ao Repertoire Hero hoje e mantenha suas músicas catalogadas, sincronizadas e prontas para o palco.",
+    "ctaButton": "Criar Sua Conta Gratuita",
+    "footer": "© {year} Repertoire Hero. Todos os direitos reservados."
   }
 }
