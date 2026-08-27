@@ -1,0 +1,30 @@
+{
+  "common": {
+    "appName": "Repertoire Hero",
+    "language": "Language",
+    "portuguese": "Português (BR)",
+    "english": "English",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "loading": "Loading...",
+    "search": "Search...",
+    "filter": "Filter"
+  },
+  "nav": {
+    "songs": "Songs",
+    "playlists": "Playlists",
+    "bands": "Bands",
+    "profile": "Profile",
+    "settings": "Settings"
+  },
+  "status": {
+    "unknown": "Unknown",
+    "learning": "Learning",
+    "practicing": "Practicing",
+    "polishing": "Polishing",
+    "mastered": "Mastered"
+  }
+}

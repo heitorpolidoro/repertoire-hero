@@ -6,6 +6,7 @@ import { authClient } from '@/lib/auth-client'
 import { getBandsAction } from '@/app/actions/bands'
 import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
+import { LanguageSelector } from '@/components/layout/LanguageSelector'
 
 interface SidebarProps {
   activeItem: string
@@ -164,13 +165,14 @@ export default function Sidebar({ activeItem }: SidebarProps) {
         ))}
       </nav>
 
-      {user && (
-        <div className="p-6 border-t border-gray-800">
-          <button onClick={handleSignOut} className="w-full text-left text-gray-400 hover:text-white text-sm">
-            Sign out
-          </button>
+        <div className="p-6 border-t border-gray-800 space-y-3">
+          <LanguageSelector />
+          {user && (
+            <button onClick={handleSignOut} className="w-full text-left text-gray-400 hover:text-white text-sm">
+              Sign out
+            </button>
+          )}
         </div>
-      )}
     </aside>
   )
 }
