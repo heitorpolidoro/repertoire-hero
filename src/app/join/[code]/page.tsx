@@ -26,7 +26,8 @@ export default async function JoinBandPage({ params }: Props) {
             Invalid invite link
           </h1>
           <p className="text-sm text-gray-500">
-            This invite link is invalid or has expired.
+            This invite link is no longer valid. It may be incorrect, or the
+            band admin may have generated a new one.
           </p>
           <Link
             href="/"
