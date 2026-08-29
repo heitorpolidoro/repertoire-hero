@@ -9,12 +9,13 @@ import {
 
 interface Props {
   params: Promise<{ code: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; joined?: string }>;
 }
 
 export default async function JoinBandPage({ params, searchParams }: Props) {
   const { code } = await params;
-  const { error: joinError } = await searchParams;
+  const { error: joinError, joined } = await searchParams;
+  const alreadyMember = joined === "already";
 
   // Look up band info — works for anonymous users (SECURITY DEFINER RPC)
   let bandInfo: Awaited<ReturnType<typeof getBandByInviteCodeServer>> = null;
@@ -91,10 +92,10 @@ export default async function JoinBandPage({ params, searchParams }: Props) {
       redirect("/bands");
     }
 
-    let joinedBandId: string | null = null;
+    let joinResult: Awaited<ReturnType<typeof joinBandByInviteServer>> = null;
     let joinFailed = false;
     try {
-      joinedBandId = await joinBandByInviteServer(
+      joinResult = await joinBandByInviteServer(
         currentSession.user.id,
         code
       );
@@ -105,8 +106,11 @@ export default async function JoinBandPage({ params, searchParams }: Props) {
     if (joinFailed) {
       redirect(`/join/${code}?error=technical`);
     }
-    if (joinedBandId) {
-      redirect(`/bands/${joinedBandId}`);
+    if (joinResult) {
+      if (joinResult.alreadyMember) {
+        redirect(`/join/${code}?joined=already`);
+      }
+      redirect(`/bands/${joinResult.bandId}`);
     }
     redirect(`/join/${code}?error=invalid`);
   }
@@ -163,46 +167,66 @@ export default async function JoinBandPage({ params, searchParams }: Props) {
           <hr className="border-gray-100" />
 
           {user ? (
-            /* Authenticated: Show Accept / Decline Modal Card */
-            <div className="space-y-4">
-              {joinError && (
-                <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-                  {joinError === "technical"
-                    ? "Something went wrong while joining. Please try again."
-                    : "This invite is no longer valid — it may have just been revoked by the band admin."}
-                </p>
-              )}
-              <div className="text-center space-y-1">
+            alreadyMember ? (
+              /* Authenticated + already a member: non-error interstitial */
+              <div className="space-y-4 text-center">
+                <div className="text-3xl">🎸</div>
                 <h3 className="text-base font-bold text-gray-900">
-                  Accept invitation?
+                  You&apos;re already a member!
                 </h3>
                 <p className="text-xs text-gray-500">
-                  You are signed in as{" "}
-                  <span className="font-semibold text-gray-700">
-                    {user.email}
-                  </span>
-                  . Joining will give you access to {bandInfo.name}&apos;s shared
-                  repertoire and playlists.
+                  You&apos;re already part of {bandInfo.name} — no need to
+                  accept again.
                 </p>
-              </div>
-
-              <div className="flex flex-col gap-2.5 pt-2">
-                <form action={handleAccept}>
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-950/20 transition-all transform active:scale-95"
-                  >
-                    Accept Invitation & Join
-                  </button>
-                </form>
                 <Link
-                  href="/"
-                  className="block w-full rounded-xl border border-gray-200 px-4 py-2.5 text-center text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                  href={`/bands/${bandInfo.id}`}
+                  className="block w-full rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-950/20 transition-all"
                 >
-                  Decline / Cancel
+                  Go to {bandInfo.name}
                 </Link>
               </div>
-            </div>
+            ) : (
+              /* Authenticated: Show Accept / Decline Modal Card */
+              <div className="space-y-4">
+                {joinError && (
+                  <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                    {joinError === "technical"
+                      ? "Something went wrong while joining. Please try again."
+                      : "This invite is no longer valid — it may have just been revoked by the band admin."}
+                  </p>
+                )}
+                <div className="text-center space-y-1">
+                  <h3 className="text-base font-bold text-gray-900">
+                    Accept invitation?
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    You are signed in as{" "}
+                    <span className="font-semibold text-gray-700">
+                      {user.email}
+                    </span>
+                    . Joining will give you access to {bandInfo.name}&apos;s
+                    shared repertoire and playlists.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2.5 pt-2">
+                  <form action={handleAccept}>
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-950/20 transition-all transform active:scale-95"
+                    >
+                      Accept Invitation & Join
+                    </button>
+                  </form>
+                  <Link
+                    href="/"
+                    className="block w-full rounded-xl border border-gray-200 px-4 py-2.5 text-center text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                  >
+                    Decline / Cancel
+                  </Link>
+                </div>
+              </div>
+            )
           ) : (
             /* Unauthenticated: Show Sign In / Sign Up Call to Actions */
             <div className="space-y-4">

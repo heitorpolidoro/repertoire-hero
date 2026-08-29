@@ -227,8 +227,9 @@ export const joinBandByInviteClient = async (
   inviteCode: string,
 ): Promise<string | null> => {
   try {
-    const res = await query('SELECT join_band_by_invite($1, $2) as band_id', [inviteCode, userId])
-    return res.rows[0].band_id as string | null
+    const res = await query('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
+    const row = res.rows[0]
+    return row ? (row.band_id as string | null) : null
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to join band", err)

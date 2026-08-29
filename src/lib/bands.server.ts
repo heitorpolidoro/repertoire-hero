@@ -28,13 +28,20 @@ export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
   }
 }
 
+export interface JoinBandResult {
+  bandId: string
+  alreadyMember: boolean
+}
+
 export async function joinBandByInviteServer(
   userId: string,
   inviteCode: string,
-): Promise<string | null> {
+): Promise<JoinBandResult | null> {
   try {
-    const res = await query('SELECT join_band_by_invite($1, $2) as band_id', [inviteCode, userId])
-    return res.rows[0].band_id as string | null
+    const res = await query('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
+    const row = res.rows[0]
+    if (!row || row.band_id === null) return null
+    return { bandId: row.band_id as string, alreadyMember: Boolean(row.already_member) }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to join band by invite', err)
