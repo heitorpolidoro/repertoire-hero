@@ -33,6 +33,10 @@ import {
   joinBandByInviteClient,
 } from "../bands";
 import { getProfile, updateProfile } from "../profile";
+import {
+  getBandByInviteCodeServer,
+  joinBandByInviteServer,
+} from "../bands.server";
 import { query } from "@/lib/db";
 
 // Mock the db module
@@ -325,6 +329,18 @@ describe("Supabase Error Handling", () => {
       await expect(joinBandByInviteClient("mock-user-id", "code")).rejects.toThrow(
         "Failed to join band: Mocked Database Error",
       );
+    });
+  });
+
+  describe("bands.server.ts errors", () => {
+    it("getBandByInviteCodeServer throws on DB error", async () => {
+      await expect(getBandByInviteCodeServer("some-code")).rejects.toThrow();
+    });
+
+    it("joinBandByInviteServer throws on DB error", async () => {
+      await expect(
+        joinBandByInviteServer("mock-user-id", "some-code"),
+      ).rejects.toThrow();
     });
   });
 

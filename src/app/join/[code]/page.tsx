@@ -9,13 +9,53 @@ import {
 
 interface Props {
   params: Promise<{ code: string }>;
+  searchParams: Promise<{ error?: string }>;
 }
 
-export default async function JoinBandPage({ params }: Props) {
+export default async function JoinBandPage({ params, searchParams }: Props) {
   const { code } = await params;
+  const { error: joinError } = await searchParams;
 
   // Look up band info — works for anonymous users (SECURITY DEFINER RPC)
-  const bandInfo = await getBandByInviteCodeServer(code);
+  let bandInfo: Awaited<ReturnType<typeof getBandByInviteCodeServer>> = null;
+  let lookupFailed = false;
+  try {
+    bandInfo = await getBandByInviteCodeServer(code);
+  } catch {
+    lookupFailed = true;
+  }
+
+  if (lookupFailed) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm text-center space-y-4">
+          <div className="text-5xl">⚠️</div>
+          <h1 className="text-xl font-bold text-gray-900">
+            Something went wrong
+          </h1>
+          <p className="text-sm text-gray-500">
+            We couldn&apos;t check this invite link right now. This
+            doesn&apos;t necessarily mean the link is bad — please try again
+            in a moment.
+          </p>
+          <div className="flex items-center justify-center gap-4">
+            <Link
+              href={`/join/${code}`}
+              className="text-sm font-medium text-emerald-600 hover:text-emerald-500"
+            >
+              Try again
+            </Link>
+            <Link
+              href="/"
+              className="text-sm font-medium text-gray-500 hover:text-gray-700"
+            >
+              Go home
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (!bandInfo) {
     return (
@@ -47,16 +87,28 @@ export default async function JoinBandPage({ params }: Props) {
   async function handleAccept() {
     "use server";
     const currentSession = await getSession();
-    if (currentSession?.user?.id) {
-      const joinedBandId = await joinBandByInviteServer(
+    if (!currentSession?.user?.id) {
+      redirect("/bands");
+    }
+
+    let joinedBandId: string | null = null;
+    let joinFailed = false;
+    try {
+      joinedBandId = await joinBandByInviteServer(
         currentSession.user.id,
         code
       );
-      if (joinedBandId) {
-        redirect(`/bands/${joinedBandId}`);
-      }
+    } catch {
+      joinFailed = true;
     }
-    redirect("/bands");
+
+    if (joinFailed) {
+      redirect(`/join/${code}?error=technical`);
+    }
+    if (joinedBandId) {
+      redirect(`/bands/${joinedBandId}`);
+    }
+    redirect(`/join/${code}?error=invalid`);
   }
 
   const joinPath = `/join/${code}`;
@@ -113,6 +165,13 @@ export default async function JoinBandPage({ params }: Props) {
           {user ? (
             /* Authenticated: Show Accept / Decline Modal Card */
             <div className="space-y-4">
+              {joinError && (
+                <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                  {joinError === "technical"
+                    ? "Something went wrong while joining. Please try again."
+                    : "This invite is no longer valid — it may have just been revoked by the band admin."}
+                </p>
+              )}
               <div className="text-center space-y-1">
                 <h3 className="text-base font-bold text-gray-900">
                   Accept invitation?

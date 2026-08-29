@@ -12,3 +12,8 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
 - `page.tsx` toast `type` union includes `"error"` but only `"success"` is ever dispatched in this diff (minor YAGNI, not blocking).
 - Toast state/effect/JSX block is now duplicated verbatim between `src/app/bands/[id]/page.tsx` and `src/app/songs/[id]/fast-view/page.tsx`; consider extracting a shared `useToast`/`<Toast/>` in a future task.
 - `regenerateBandInviteCode` (`src/lib/bands.ts`) does the admin-role check and the `UPDATE` as two separate round-trips (check-then-act); a future hardening could fold the check into the `UPDATE ... WHERE EXISTS (...)` clause for atomicity, but not worth blocking given the bounded consequence.
+
+## [RH-11] Melhorar tratamento de erros no fluxo de aceite de convite — 2026-08-29
+
+- The spec's new catch blocks re-throw the raw `Error` unmodified, unlike the wrapped `"Failed to X: ..."` message pattern used elsewhere in `src/lib/*.ts` (playlists.ts, songs.ts, bands.ts) that the spec itself cites as precedent. Not blocking since the new tests only assert `.rejects.toThrow()` with no message check, but a wrapped message would improve Sentry/debuggability consistency.
+- The "Manual/QA check" expected result (page renders "Something went wrong" on a forced query() throw) has no automated test coverage — consistent with this codebase's existing conventions (no e2e/component-render test infra exists for any page), so not a new gap, but worth flagging if a future task wants explicit component-level render tests.
