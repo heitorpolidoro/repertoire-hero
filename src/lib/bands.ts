@@ -236,6 +236,42 @@ export const joinBandByInviteClient = async (
   }
 }
 
+export const regenerateBandInviteCode = async (
+  bandId: string,
+  userId: string,
+): Promise<string> => {
+  const memberRes = await query(
+    `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2`,
+    [bandId, userId],
+  )
+  if (memberRes.rowCount === 0 || memberRes.rows[0].role !== 'admin') {
+    throw new Error('Only band admins can regenerate the invite link')
+  }
+
+  const MAX_ATTEMPTS = 3
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await query(
+        `UPDATE bands
+         SET invite_code = substr(replace(gen_random_uuid()::text, '-', ''), 1, 12),
+             updated_at = now()
+         WHERE id = $1
+         RETURNING invite_code`,
+        [bandId],
+      )
+      if (res.rowCount === 0) throw new Error('Band not found')
+      return res.rows[0].invite_code as string
+    } catch (error) {
+      const err = error as { code?: string }
+      if (err.code === '23505' && attempt < MAX_ATTEMPTS - 1) continue // unique_violation, retry
+      const e = error instanceof Error ? error : new Error(String(error))
+      logger.error("Failed to regenerate band invite code", e)
+      throw e
+    }
+  }
+  throw new Error('Failed to regenerate invite code')
+}
+
 export const getBandMembers = (band: Band): BandMember[] => {
   return (band.members ?? []) as BandMember[]
 }

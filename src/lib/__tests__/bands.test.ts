@@ -12,7 +12,9 @@ import {
   createBandPlaylist,
   joinBandByInviteClient,
   getBandMembers,
+  regenerateBandInviteCode,
 } from "../bands";
+import { getBandByInviteCodeServer } from "../bands.server";
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 const skip = !SERVICE_ROLE_KEY;
@@ -138,6 +140,64 @@ describe.skipIf(skip)("bands integration tests", () => {
     const membersAfter = (bandAfter as any).members;
     expect(membersAfter.length).toBe(1);
     expect(membersAfter.some((m: any) => m.user_id === userBId)).toBe(false);
+  });
+
+  it("should reject non-member from regenerating the invite code and leave it unchanged", async () => {
+    const bandBefore = await getBandWithMembers(bandId);
+    const codeBefore = bandBefore!.invite_code;
+
+    await expect(
+      regenerateBandInviteCode(bandId, userBId),
+    ).rejects.toThrow();
+
+    const bandAfter = await getBandWithMembers(bandId);
+    expect(bandAfter!.invite_code).toBe(codeBefore);
+  });
+
+  it("should reject non-admin member from regenerating the invite code and leave it unchanged", async () => {
+    // Re-join as User B (role: member)
+    const joinedBandId = await joinBandByInviteClient(userBId, inviteCode);
+    expect(joinedBandId).toBe(bandId);
+
+    const bandBefore = await getBandWithMembers(bandId);
+    const codeBefore = bandBefore!.invite_code;
+
+    await expect(
+      regenerateBandInviteCode(bandId, userBId),
+    ).rejects.toThrow();
+
+    const bandAfter = await getBandWithMembers(bandId);
+    expect(bandAfter!.invite_code).toBe(codeBefore);
+
+    // Clean up: leave the band again so state matches later tests' expectations
+    await leaveBand(bandId, userBId);
+  });
+
+  it("should allow the admin to regenerate the invite code and invalidate the old one", async () => {
+    const bandBefore = await getBandWithMembers(bandId);
+    const oldCode = bandBefore!.invite_code;
+
+    const newCode = await regenerateBandInviteCode(bandId, userAId);
+
+    expect(newCode).toBeDefined();
+    expect(typeof newCode).toBe("string");
+    expect(newCode).toMatch(/^[0-9a-f]{12}$/);
+    expect(newCode).not.toBe(oldCode);
+
+    const bandAfter = await getBandWithMembers(bandId);
+    expect(bandAfter!.invite_code).toBe(newCode);
+
+    // Old code no longer resolves to the band
+    const oldLookup = await getBandByInviteCodeServer(oldCode);
+    expect(oldLookup).toBeNull();
+
+    // New code does resolve to the band
+    const newLookup = await getBandByInviteCodeServer(newCode);
+    expect(newLookup).not.toBeNull();
+    expect(newLookup!.id).toBe(bandId);
+
+    // Keep inviteCode in sync for any later tests relying on it
+    inviteCode = newCode;
   });
 
   it("should allow deleting the band", async () => {

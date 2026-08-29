@@ -12,6 +12,7 @@ import {
   getBandPlaylistsAction as getBandPlaylists,
   createBandPlaylistAction as createBandPlaylist,
   uploadBandCoverAction,
+  regenerateBandInviteCodeAction,
 } from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
 import { useBandContextStore } from "@/store/bandContextStore";
@@ -50,6 +51,23 @@ export default function BandDetailPage() {
   // Invite link copy state
   const [copied, setCopied] = useState(false);
 
+  // Invite link regenerate state
+  const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  function showToast(message: string, type: "success" | "error" = "success") {
+    setToast({ message, type });
+  }
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const load = useCallback(async () => {
     const [bandData, playlistData] = await Promise.all([
       getBandWithMembers(bandId),
@@ -82,6 +100,24 @@ export default function BandDetailPage() {
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleRegenerateInvite() {
+    setRegenerating(true);
+    setError(null);
+    try {
+      const newCode = await regenerateBandInviteCodeAction(bandId);
+      setBand((prev) => (prev ? { ...prev, invite_code: newCode } : prev));
+      setCopied(false);
+      setConfirmingRegenerate(false);
+      showToast("Invite link regenerated. The old link no longer works.", "success");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to regenerate invite link",
+      );
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   function openEdit() {
@@ -285,7 +321,18 @@ export default function BandDetailPage() {
 
         {/* Invite link */}
         <section className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Invite link</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-900">Invite link</h2>
+            {isAdmin && !confirmingRegenerate && (
+              <button
+                onClick={() => setConfirmingRegenerate(true)}
+                disabled={regenerating}
+                className="text-sm text-emerald-600 hover:text-emerald-700 font-medium disabled:opacity-60"
+              >
+                Regenerate
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <input
               readOnly
@@ -302,6 +349,31 @@ export default function BandDetailPage() {
           <p className="text-xs text-gray-400 mt-2">
             Anyone with this link can join the band.
           </p>
+
+          {isAdmin && confirmingRegenerate && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
+              <p className="text-xs text-amber-800">
+                This will invalidate the current link immediately. Anyone with
+                the old link won&apos;t be able to join.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRegenerateInvite}
+                  disabled={regenerating}
+                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60 transition-colors"
+                >
+                  {regenerating ? "Regenerating..." : "Regenerate"}
+                </button>
+                <button
+                  onClick={() => setConfirmingRegenerate(false)}
+                  disabled={regenerating}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Members */}
@@ -538,6 +610,27 @@ export default function BandDetailPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
+          <div
+            className={`rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md ${
+              toast.type === "error"
+                ? "bg-red-950/90 text-red-100 border-red-800"
+                : "bg-emerald-950/90 text-emerald-100 border-emerald-800"
+            }`}
+          >
+            <span>{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="text-white/70 hover:text-white text-sm font-bold shrink-0"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
     </>

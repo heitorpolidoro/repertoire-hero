@@ -13,6 +13,7 @@ import {
   getBandPlaylists,
   createBandPlaylist,
   joinBandByInviteClient,
+  regenerateBandInviteCode,
 } from '@/lib/bands'
 import type { Band, Playlist } from '@/types/database'
 
@@ -71,6 +72,11 @@ export async function createBandPlaylistAction(bandId: string, name: string): Pr
 export async function joinBandByInviteAction(inviteCode: string): Promise<string | null> {
   const userId = await getRequiredUserId()
   return joinBandByInviteClient(userId, inviteCode)
+}
+
+export async function regenerateBandInviteCodeAction(bandId: string): Promise<string> {
+  const userId = await getRequiredUserId()
+  return regenerateBandInviteCode(bandId, userId)
 }
 
 export async function uploadBandCoverAction(
