@@ -25,3 +25,24 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
 ## [RH-12] Adicionar aviso de 'você já é membro' ao reabrir um convite (code review) — 2026-08-29
 
 - src/lib/__tests__/bands.server.test.ts only mocks @/lib/db's query, so the DB function's actual pre-check/no-op-on-repeat behavior is never exercised by an automated real-DB test (deferred to the spec's manual/QA checklist). Consider a follow-up real-DB assertion in bands.test.ts that calls joinBandByInviteClient twice without an intervening leaveBand to lock in already_member semantics.
+
+## [RH-5] Implementar anotações manuscritas (camada de desenho) sobre as tablaturas — 2026-08-29
+
+- Extract the point normalize/denormalize math into pure functions and unit-test them with vitest, to reduce reliance on manual QA for cross-viewport repositioning.
+- Add a server-side positive-integer check on pageNumber in saveTabAnnotationsAction before it's folded into the jsonb_set path, to avoid an opaque Postgres error on bad input.
+- Pin down the actual 4 hex values for the fixed color palette before implementation.
+- Note a fallback/self-hosting option for the pdf.js worker (e.g. copying into public/ at build time) as a future hardening step, since the CDN-hosted worker introduces a third-party runtime dependency.
+
+## [RH-5] Implementar anotações manuscritas (camada de desenho) sobre as tablaturas (round 7, final) — 2026-08-30
+
+- saveTabAnnotationsAction's jsonb_set path parameter is passed without an explicit ::text[] cast - will very likely work via Postgres type inference, but an explicit cast would be more robust.
+- Pinning the pdf.js worker to unpkg.com (a third-party CDN) is reasonable per the spec's own stated reasoning, but self-hosting could be considered in a future task to remove the external-availability dependency (duplicate of an earlier suggestion, kept for visibility).
+
+## [RH-5] Implementar anotações manuscritas (camada de desenho) sobre as tablaturas (code review) — 2026-08-30
+
+- TabDrawingStage.tsx's unmount-flush effect reads from strokesRef/pageNumberRef (mirrored via a useEffect one commit cycle after setStrokes) instead of the already-synchronous annotationsRef.current[String(pageNumberRef.current)] that every other save path now correctly uses. Safe in practice, but a redundant, theoretically-laggier tracking mechanism worth simplifying for defense-in-depth.
+- Pre-existing catch (err: any) in uploadTabAction/deleteTabAction (src/app/actions/tabs.ts) could match the cleaner err instanceof Error style the new actions use - pre-existing, out of scope, not blocking.
+
+## [RH-5] Implementar anotações manuscritas (camada de desenho) sobre as tablaturas (QA) — 2026-08-30
+
+- A narrow edge case where an erase gesture interrupted by a second finger touching down (multi-touch abort logic) can silently skip persisting the just-erased stroke, since scheduleSave() is not called before the abort flag reset.

@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.51-202608290959",
+  "version": "0.1.52-202608301133",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack --hostname 127.0.0.1",
@@ -28,6 +28,7 @@
     "pg": "^8.21.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "react-pdf": "^10.5.0",
     "resend": "^6.18.1",
     "webpack": "^5.106.2",
     "zustand": "^5.0.13"
