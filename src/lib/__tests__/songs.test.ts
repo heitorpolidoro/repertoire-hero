@@ -254,7 +254,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(nonExistent).toBeNull()
   })
 
-  it('updateSong updates both global song details and repertoire details', async () => {
+  it('updateSong always overwrites repertoire-scoped fields (status, tags, personal_key)', async () => {
     const songData = {
       title: `Original Title_${suffix}`,
       artist: 'Original Artist',
@@ -276,19 +276,79 @@ describe.skipIf(skip)('songs service integration tests', () => {
       duration_seconds: 220,
     }
 
-    // Call updateSong
     await updateSong({ userId: userId }, entry, updateData)
 
-    // Fetch the updated entry to verify all changes
     const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated).not.toBeNull()
     expect(updated!.status).toBe('mastered')
     expect(updated!.tags).toEqual(['updated-tag'])
     expect(updated!.personal_key).toBe('B')
+  })
 
+  it('updateSong does not overwrite already-set global song fields (fill-if-empty)', async () => {
+    // global_songs is a shared catalog: fields that already have a value
+    // must survive an edit from any repertoire owner, so a stray/incorrect
+    // edit from one user's repertoire can't clobber good data for everyone
+    // else who has the same song. Correcting an already-set field (e.g. a
+    // typo in the title) is a separate, not-yet-built mechanism.
+    const songData = {
+      title: `Preserve Original Title_${suffix}`,
+      artist: 'Preserve Original Artist',
+      album: 'Preserve Original Album',
+      standard_key: 'A',
+    }
+    const entry = await createAndAddSong({ userId: userId }, songData)
+    createdGlobalSongIds.add(entry.song_id)
+
+    const updateData = {
+      title: `Updated Title_${suffix}`,
+      artist: 'Updated Artist',
+      album: 'Updated Album',
+      key: 'B',
+      status: 'mastered' as SongStatus,
+      tags: ['updated-tag'],
+      links: [{ label: 'Spotify', url: 'https://spotify.com/track/123' }],
+      cover_url: 'https://example.com/updated-cover.jpg',
+      duration_seconds: 220,
+    }
+
+    await updateSong({ userId: userId }, entry, updateData)
+
+    const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated!.song).toBeDefined()
-    expect(updated!.song!.title).toBe(updateData.title)
-    expect(updated!.song!.artist).toBe(updateData.artist)
+    // Already-set fields: unchanged, despite different values submitted.
+    expect(updated!.song!.title).toBe(songData.title)
+    expect(updated!.song!.artist).toBe(songData.artist)
+    expect(updated!.song!.album).toBe(songData.album)
+    expect(updated!.song!.standard_key).toBe(songData.standard_key)
+  })
+
+  it('updateSong fills in empty global song fields (fill-if-empty)', async () => {
+    const songData = {
+      title: `Blank Fields Title_${suffix}`,
+      artist: 'Blank Fields Artist',
+      // album/standard_key/cover_url/duration_seconds/links all start empty
+    }
+    const entry = await createAndAddSong({ userId: userId }, songData)
+    createdGlobalSongIds.add(entry.song_id)
+
+    const updateData = {
+      title: songData.title,
+      artist: songData.artist,
+      album: 'Filled Album',
+      key: 'B',
+      status: 'unknown' as SongStatus,
+      tags: [],
+      links: [{ label: 'Spotify', url: 'https://spotify.com/track/123' }],
+      cover_url: 'https://example.com/updated-cover.jpg',
+      duration_seconds: 220,
+    }
+
+    await updateSong({ userId: userId }, entry, updateData)
+
+    const updated = await getSongEntry({ userId: userId }, entry.id)
+    expect(updated!.song).toBeDefined()
+    // Previously-empty fields: now filled with the submitted values.
     expect(updated!.song!.album).toBe(updateData.album)
     expect(updated!.song!.standard_key).toBe(updateData.key)
     expect(updated!.song!.cover_url).toBe(updateData.cover_url)

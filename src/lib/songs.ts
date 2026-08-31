@@ -219,15 +219,21 @@ export async function updateSong(
   try {
     await query('BEGIN')
 
+    // global_songs is a shared catalog: fields that already have a value
+    // are left untouched so an edit from one repertoire owner can't
+    // clobber good data for everyone else who has the same song. Only
+    // fields that are currently empty get filled in. Correcting an
+    // already-set field (e.g. a typo) is a separate mechanism, not yet
+    // built.
     const songSql = `
       UPDATE global_songs
-      SET title = $1,
-          artist = $2,
-          album = $3,
-          standard_key = $4,
-          cover_url = $5,
-          duration_seconds = $6,
-          links = $7
+      SET title = CASE WHEN title IS NULL OR title = '' THEN $1 ELSE title END,
+          artist = CASE WHEN artist IS NULL OR artist = '' THEN $2 ELSE artist END,
+          album = CASE WHEN album IS NULL OR album = '' THEN $3 ELSE album END,
+          standard_key = CASE WHEN standard_key IS NULL OR standard_key = '' THEN $4 ELSE standard_key END,
+          cover_url = CASE WHEN cover_url IS NULL OR cover_url = '' THEN $5 ELSE cover_url END,
+          duration_seconds = CASE WHEN duration_seconds IS NULL THEN $6 ELSE duration_seconds END,
+          links = CASE WHEN links IS NULL OR links = '[]'::jsonb THEN $7::jsonb ELSE links END
       WHERE id = $8
     `
     await query(songSql, [
