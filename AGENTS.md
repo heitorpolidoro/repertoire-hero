@@ -185,20 +185,33 @@ spec.md, SDS.md, plan.md, tasks.md
 
 
 
+
+
 <!-- MERIDIAN_INSTRUCTIONS_START -->
 # Meridian Instructions
 
-> **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (A JSON object with a `tasks` array containing tasks with id, title, status, justification, blockedBy).
-> **Task ID Naming Format (`id`)**: ALWAYS use the `RH-N` format (e.g. `RH-1`, `RH-14`), incrementing sequentially for each new task. NEVER use random IDs, slugs, or arbitrary string names.
+> **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (A JSON object with a `tasks` array containing tasks with `id`, `title`, `status`, `justification`, `blockedBy`, `running`).
+> **Active Execution (`running`)**: boolean flag (`true`/`false`). Set to `true` when an agent starts actively working on a task, and set to `false` when finished or handed off.
 > **Dependencies (`blockedBy`)**: optional array of task IDs that must reach `done` before this task can proceed. A task with a non-empty `blockedBy` whose dependencies aren't all `done` yet should have status `blocked` — that dependency is sufficient justification on its own (e.g. `justification: "Blocked on <task-id>"`). When every task in `blockedBy` reaches `done`, move this task back to `backlog`.
 > **Allowed Statuses**: When assigning a status to a task, you MUST use EXACTLY one of the following lowercase strings. DO NOT invent new statuses or use synonyms like 'pending', 'todo', or 'completed'.
   - `backlog`: Task is planned but not ready to be worked on yet.
   - `specreview`: Task needs specification or design review.
   - `readytodo`: Task is fully specified and ready to be picked up.
-  - `inprogress`: Task is currently being worked on.
-  - `qareview`: Task is done and waiting for QA or code review.
+  - `inprogress`: Task is currently being worked on by developer.
+  - `codereview`: Task code is being reviewed for architecture, security, and test quality.
+  - `qareview`: Task is being verified independently by QA against expected results.
   - `blocked`: Task cannot proceed due to external dependencies.
   - `done`: Task is fully completed.
   - `nope`: Task was cancelled or won't be done.
 > **Implementation Rule**: Before starting any implementation work, ask the user if they want to create a task for it in the Meridian system.
 <!-- MERIDIAN_INSTRUCTIONS_END -->
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

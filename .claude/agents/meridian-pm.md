@@ -26,6 +26,7 @@ Read `AGENTS.md` once per session on first dispatch. Do not re-read it on subseq
   "spec_iterations": 0,
   "code_review_iterations": 0,
   "qa_iterations": 0,
+  "running": false,
   "last_review_findings": [],
   "created_at": "ISO-8601",
   "updated_at": "ISO-8601"
@@ -43,22 +44,22 @@ Read `AGENTS.md` once per session on first dispatch. Do not re-read it on subseq
 ## Fluxo A — Spec (one task at a time)
 
 For a task in `backlog`:
-1. Dispatch `meridian-spec-generator` (give it: task title, `expected_results`, `blockedBy` spec paths, `AGENTS.md` pointer). It writes `docs/tasks/<id>-spec.md`.
-2. Move to `specreview`. Dispatch `meridian-spec-reviewer` with **only** spec path + `expected_results`.
+1. Set `running: true` on the task. Dispatch `meridian-spec-generator` (give it: task title, `expected_results`, `blockedBy` spec paths, `AGENTS.md` pointer). It writes `docs/tasks/<id>-spec.md`. Set `running: false` when it returns.
+2. Move to `specreview`. Set `running: true`. Dispatch `meridian-spec-reviewer` with **only** spec path + `expected_results`. Set `running: false` when it returns.
 3. On `APPROVED`: move to `readytodo`, clear `last_review_findings`, unblock dependents.
-4. On `NEEDS_REVISION`: stagnation check → if clear, increment `spec_iterations`, store findings, redispatch `meridian-spec-generator` with findings only.
+4. On `NEEDS_REVISION`: stagnation check → if clear, increment `spec_iterations`, store findings, set `running: true`, redispatch `meridian-spec-generator` with findings only, set `running: false` when it returns.
 5. Append suggestions to `docs/suggestions-log.md` under `## [<id>] <title> — <date>`. **Trim the file to the last 30 entries** after each append to prevent unbounded growth.
 
 ## Fluxo B — Dev → Code Review → QA (one task at a time)
 
 For a task in `readytodo`:
-1. Move to `inprogress`. Dispatch `meridian-developer` with spec path + `expected_results`.
-2. Move to `codereview`. Dispatch `meridian-code-reviewer` with spec path. It uses `git diff --stat` to scope its review.
+1. Move to `inprogress`. Set `running: true`. Dispatch `meridian-developer` with spec path + `expected_results`. Set `running: false` when it returns.
+2. Move to `codereview`. Set `running: true`. Dispatch `meridian-code-reviewer` with spec path. It uses `git diff --stat` to scope its review. Set `running: false` when it returns.
    - `APPROVED` → move to `qareview`.
-   - `NEEDS_REVISION` → stagnation check → increment `code_review_iterations`, store findings, redispatch `meridian-developer` with findings.
-3. Dispatch `meridian-qa` with **only** `expected_results` + system pointers (no dev reasoning).
-   - `APPROVED` → `git add` + `git commit -m "<id>: <title>"`. Move to `done`. Re-evaluate blocked tasks.
-   - `NEEDS_REVISION` → stagnation check → increment `qa_iterations`, store findings, redispatch `meridian-developer` with findings.
+   - `NEEDS_REVISION` → stagnation check → increment `code_review_iterations`, store findings, set `running: true`, redispatch `meridian-developer` with findings, set `running: false` when it returns.
+3. Move to `qareview`. Set `running: true`. Dispatch `meridian-qa` with **only** `expected_results` + system pointers (no dev reasoning). Set `running: false` when it returns.
+   - `APPROVED` → `git add` + `git commit -m "<id>: <title>"`. Move to `done`. Set `running: false`. Re-evaluate blocked tasks.
+   - `NEEDS_REVISION` → stagnation check → increment `qa_iterations`, store findings, set `running: true`, redispatch `meridian-developer` with findings, set `running: false` when it returns.
 
 ## Stagnation / Iteration Cap (limit: 5)
 

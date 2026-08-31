@@ -42,6 +42,23 @@ export interface Profile {
   avatar_url: string | null;
   instruments: string[];
   primary_instrument: string | null;
+  is_system_admin?: boolean;
+}
+
+export type EditStatus = "pending" | "approved" | "rejected";
+
+export interface GlobalSongEdit {
+  id: string;
+  song_id: string;
+  requested_by: string;
+  proposed_data: Record<string, unknown>;
+  status: EditStatus;
+  reviewed_by: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  song?: GlobalSong;
+  requester?: Profile;
 }
 
 export interface SpotifyToken {

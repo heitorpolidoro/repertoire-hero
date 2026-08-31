@@ -15,6 +15,7 @@ import {
   updateSongTagsAction as updateSongTags,
 } from "@/app/actions/repertoire";
 import { useRepertoireStore } from "@/store/repertoireStore";
+import { CorrectionModal } from "./CorrectionModal";
 
 interface SongFormProps {
   song?: Repertoire;
@@ -129,6 +130,8 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
   const [form, setForm] = useState<FormState>(() => buildInitialState(song));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Open dialog on mount, close on backdrop click
   useEffect(() => {
@@ -522,23 +525,51 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
         )}
 
         {/* Footer buttons */}
-        <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-          >
-            {submitting ? "Saving..." : isEditMode ? "Save" : "Add"}
-          </button>
+        <div className="flex justify-between items-center gap-3 pt-2 border-t border-gray-100">
+          {isEditMode && song?.song && (
+            <button
+              type="button"
+              onClick={() => setShowCorrectionModal(true)}
+              className="text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+            >
+              ✏️ Correct Global Info
+            </button>
+          )}
+          <div className="flex gap-3 ml-auto">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? "Saving..." : isEditMode ? "Save" : "Add"}
+            </button>
+          </div>
         </div>
       </form>
+
+      {showCorrectionModal && song?.song && (
+        <CorrectionModal
+          song={song.song}
+          onClose={() => setShowCorrectionModal(false)}
+          onSuccess={() => {
+            setToastMessage("Correction request submitted for admin review!");
+            setTimeout(() => setToastMessage(null), 4000);
+          }}
+        />
+      )}
+
+      {toastMessage && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-xl bg-emerald-900 text-emerald-100 px-4 py-3 text-sm shadow-xl border border-emerald-700">
+          {toastMessage}
+        </div>
+      )}
     </dialog>
   );
 }
