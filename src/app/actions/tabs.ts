@@ -4,7 +4,9 @@ import { getRequiredUserId } from '@/lib/auth-session'
 import { query } from '@/lib/db'
 import { put, del } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
-import type { RepertoireTab } from '@/types/database'
+import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
+
+export type { Stroke, TabAnnotations }
 
 async function checkAccess(userId: string, repertoireId: string) {
   const sql = `
@@ -112,6 +114,62 @@ export async function deleteTabAction(tabId: string, repertoireId: string): Prom
     return { success: true }
   } catch (err: any) {
     return { error: err.message || 'Failed to delete tablatura' }
+  }
+}
+
+export async function getTabAnnotationsAction(
+  tabId: string,
+  repertoireId: string,
+): Promise<{ data?: TabAnnotations; error?: string }> {
+  try {
+    const userId = await getRequiredUserId()
+    await checkAccess(userId, repertoireId)
+    const { rows } = await query(
+      'SELECT annotations FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
+      [tabId, repertoireId]
+    )
+    if (rows.length === 0) return { error: 'Tab not found' }
+    return { data: rows[0].annotations as TabAnnotations }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined
+    return { error: message || 'Failed to load annotations' }
+  }
+}
+
+export async function saveTabAnnotationsAction(
+  tabId: string,
+  repertoireId: string,
+  pageNumber: number,
+  strokes: Stroke[],
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const userId = await getRequiredUserId()
+    await checkAccess(userId, repertoireId)
+    // Defensive validation: pageNumber gets folded directly into the
+    // jsonb_set path below, so reject anything that isn't a positive
+    // integer before it reaches SQL (avoids an opaque Postgres error on
+    // bad input, e.g. a stale/tampered client sending pageNumber: 0 or NaN).
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+      return { error: 'Invalid page number' }
+    }
+    // jsonb_set writes/overwrites only this page's key, leaving every
+    // other page's strokes in the same row untouched.
+    // RETURNING id is required so the affected row count can be checked
+    // below — without it a non-matching tabId/repertoireId pair would
+    // silently no-op and this action would still report { success: true },
+    // masking a not-found case.
+    const { rows } = await query(
+      `UPDATE repertoire_tabs
+       SET annotations = jsonb_set(annotations, $3, $4::jsonb, true)
+       WHERE id = $1 AND repertoire_id = $2
+       RETURNING id`,
+      [tabId, repertoireId, `{${pageNumber}}`, JSON.stringify(strokes)]
+    )
+    if (rows.length === 0) return { error: 'Tab not found' }
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined
+    return { error: message || 'Failed to save annotations' }
   }
 }
 

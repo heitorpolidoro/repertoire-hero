@@ -6,6 +6,7 @@ import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/da
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
+import TabDrawingStage from '@/components/tabs/TabDrawingStage'
 import { getPlaylistEntryIdsAction, getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
 
 function parseLyricsMarkdown(text: string) {
@@ -82,6 +83,8 @@ export default function FastViewPage() {
   // PDF Viewer state
   const [activeTabUrl, setActiveTabUrl] = useState<string | null>(null)
   const [activeTabTitle, setActiveTabTitle] = useState('')
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [activeTabRepertoireId, setActiveTabRepertoireId] = useState<string | null>(null)
 
   // Lyrics state
   const [isEditingLyrics, setIsEditingLyrics] = useState(false)
@@ -790,9 +793,13 @@ export default function FastViewPage() {
                         if (isActive) {
                           setActiveTabUrl(null)
                           setActiveTabTitle('')
+                          setActiveTabId(null)
+                          setActiveTabRepertoireId(null)
                         } else {
                           setActiveTabUrl(tab.file_url)
                           setActiveTabTitle(tab.title)
+                          setActiveTabId(tab.id)
+                          setActiveTabRepertoireId(tab.repertoire_id)
                         }
                       }}
                       className="flex flex-1 items-center gap-3 text-left text-gray-700 hover:text-emerald-600 font-medium transition-colors focus:outline-none min-w-0"
@@ -842,6 +849,8 @@ export default function FastViewPage() {
                           if (isActive) {
                             setActiveTabUrl(null)
                             setActiveTabTitle('')
+                            setActiveTabId(null)
+                            setActiveTabRepertoireId(null)
                           }
                           handleDeleteTab(tab.id, tab.origin)
                         }}
@@ -878,6 +887,8 @@ export default function FastViewPage() {
                       onClick={() => {
                         setActiveTabUrl(null)
                         setActiveTabTitle('')
+                        setActiveTabId(null)
+                        setActiveTabRepertoireId(null)
                       }}
                       className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
                     >
@@ -1367,7 +1378,7 @@ export default function FastViewPage() {
     )}
 
     {/* PDF Stage Mode Overlay */}
-    {isPdfStageMode && activeTabUrl && (
+    {isPdfStageMode && activeTabUrl && activeTabId && activeTabRepertoireId && (
       <div className="fixed inset-0 z-50 bg-black flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white border-b border-gray-800 shrink-0">
           <div className="flex flex-col min-w-0">
@@ -1383,13 +1394,12 @@ export default function FastViewPage() {
             ✕
           </button>
         </div>
-        <div className="flex-1 w-full h-full bg-black">
-          <iframe
-            src={`https://docs.google.com/gview?url=${encodeURIComponent(activeTabUrl)}&embedded=true`}
-            className="w-full h-full border-0"
-            title={activeTabTitle}
-          />
-        </div>
+        <TabDrawingStage
+          key={activeTabId}
+          tabId={activeTabId}
+          repertoireId={activeTabRepertoireId}
+          fileUrl={activeTabUrl}
+        />
       </div>
     )}
 

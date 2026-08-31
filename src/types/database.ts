@@ -112,10 +112,21 @@ export interface SpotifyPlaylist {
   owner: string;
 }
 
+export interface Stroke {
+  id: string; // client-generated (crypto.randomUUID()), used for undo (pop by id) and eraser hit-testing (remove by id)
+  color: string; // any hex color, e.g. "#ef4444" or "#7c3aed" — a free string, not an enum
+  width: number; // stroke width in normalized units (a fraction of the page's original width)
+  points: [number, number][]; // [x, y] pairs, each 0..1 relative to the PDF page's original (scale-independent) dimensions
+}
+
+// repertoire_tabs.annotations shape: page number (1-indexed, as string) -> that page's strokes
+export type TabAnnotations = Record<string, Stroke[]>;
+
 export interface RepertoireTab {
   id: string;
   repertoire_id: string;
   title: string;
   file_url: string;
   created_at: string;
+  annotations?: TabAnnotations; // only present when explicitly fetched via getTabAnnotationsAction
 }
