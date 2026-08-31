@@ -57,6 +57,5 @@
  ## Phase 8: Internationalization (i18n)
 - [x] **RH-14:** Add i18n support (PT-BR and EN) with browser detection (`Accept-Language` / `navigator.language`) and cookie persistence when changed manually.
 
- ## Phase 9: Administration & Global Catalog Moderation
-- [ ] **RH-27:** Implement System Administrator role and global catalog modification approval/moderation queue.
-- [ ] **RH-15:** Allow correcting pre-existing global song fields (blocked on RH-27).
+ ## Phase 9: Global Catalog Moderation & Correction
+- [ ] **RH-15:** Allow correcting pre-existing global song fields via admin approval & moderation queue.
