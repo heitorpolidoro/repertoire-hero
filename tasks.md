@@ -55,4 +55,8 @@
 - [x] **T7.3:** Define a thin logging utility (`src/lib/logger.ts`) that wraps `console.error`/`console.warn` in production and forwards critical events to Sentry as breadcrumbs. DoD: All Supabase API error paths in the data layer call `logger.error`; Sentry breadcrumbs confirm event delivery in a staging test.
  
  ## Phase 8: Internationalization (i18n)
-- [ ] **RH-14:** Add i18n support (PT-BR and EN) with browser detection (`Accept-Language` / `navigator.language`) and cookie persistence when changed manually.
+- [x] **RH-14:** Add i18n support (PT-BR and EN) with browser detection (`Accept-Language` / `navigator.language`) and cookie persistence when changed manually.
+
+ ## Phase 9: Administration & Global Catalog Moderation
+- [ ] **RH-27:** Implement System Administrator role and global catalog modification approval/moderation queue.
+- [ ] **RH-15:** Allow correcting pre-existing global song fields (blocked on RH-27).
