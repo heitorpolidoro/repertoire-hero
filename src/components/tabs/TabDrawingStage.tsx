@@ -13,6 +13,11 @@ import {
   findStrokeToErase,
   type PageGeometry,
 } from '@/lib/annotationMath'
+import {
+  canvasPointerEvents,
+  stageTouchAction,
+  shouldHandleStagePointer,
+} from '@/lib/stageInteraction'
 
 interface TabDrawingStageProps {
   tabId: string
@@ -61,6 +66,9 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   const [pageNumber, setPageNumber] = useState(1)
   const [pageGeometry, setPageGeometry] = useState<PageGeometry | null>(null)
 
+  // Drawing is OFF every time Stage Mode opens and the preference is never
+  // persisted: a tablet handed to a bandmate must not be drawn on by accident.
+  const [drawingEnabled, setDrawingEnabled] = useState(false)
   const [mode, setMode] = useState<Mode>('pen')
   const [color, setColor] = useState(PRESET_COLORS[0])
   const [customColor, setCustomColor] = useState('#f97316')
@@ -362,6 +370,7 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!shouldHandleStagePointer(drawingEnabled)) return
     const canvas = canvasRef.current
     if (!canvas) return
     canvas.setPointerCapture(e.pointerId)
@@ -390,6 +399,7 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!shouldHandleStagePointer(drawingEnabled)) return
     if (!pointersRef.current.has(e.pointerId)) return
     const pos = getRelativePos(e)
     pointersRef.current.set(e.pointerId, pos)
@@ -415,11 +425,16 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   }
 
   function endPointer(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!shouldHandleStagePointer(drawingEnabled)) return
     const canvas = canvasRef.current
+    // Drop the bookkeeping entry *before* releasing capture: the explicit
+    // release below (and the implicit one the UA performs at `pointerup`) fires
+    // `lostpointercapture`, and `handleLostPointerCapture` uses the absence of
+    // this entry to tell a normal gesture end from a genuine silent loss.
+    pointersRef.current.delete(e.pointerId)
     if (canvas?.hasPointerCapture(e.pointerId)) {
       canvas.releasePointerCapture(e.pointerId)
     }
-    pointersRef.current.delete(e.pointerId)
 
     if (pinchStateRef.current && pointersRef.current.size < 2) {
       pinchStateRef.current = null
@@ -452,6 +467,52 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
     lastPanPosRef.current = null
   }
 
+  /**
+   * A pointer the browser silently takes away never fires `pointerup` /
+   * `pointercancel`, so without this its `pointersRef` entry would survive and
+   * the *next* single touch would be counted as `size === 2` and misread as a
+   * pinch. Routed to the same cleanup as `endPointer`, minus the commit: the
+   * interrupted stroke is aborted rather than turned into a stray mark.
+   *
+   * `lostpointercapture` also fires on *every* normal gesture end — both from
+   * the explicit `releasePointerCapture` in `endPointer` and from the implicit
+   * release the UA performs at `pointerup`. `endPointer` has already deleted the
+   * id by then, so a missing entry means "already handled" and this must be a
+   * no-op. Without that guard it would undo the state `endPointer` deliberately
+   * just set when one finger of a pinch is lifted: the remaining finger's
+   * `activeStrokeRef` / `lastPanPosRef` (stroke continuation dies) and
+   * `erasedDuringGestureRef` (the pending erase is never saved and reappears on
+   * reload).
+   */
+  function handleLostPointerCapture(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!pointersRef.current.has(e.pointerId)) return
+    pointersRef.current.delete(e.pointerId)
+    if (pointersRef.current.size < 2) {
+      pinchStateRef.current = null
+    }
+    activeStrokeRef.current = null
+    erasedDuringGestureRef.current = false
+    lastPanPosRef.current = null
+    redraw()
+  }
+
+  function handleToggleDrawing() {
+    if (drawingEnabled) {
+      // Leaving drawing mode: abort anything in flight so no half-gesture is
+      // committed, drop all pointer bookkeeping so re-enabling starts clean,
+      // and flush the debounced save so switching to reading (and then closing
+      // Stage Mode) can never drop the last stroke.
+      activeStrokeRef.current = null
+      erasedDuringGestureRef.current = false
+      pointersRef.current.clear()
+      pinchStateRef.current = null
+      lastPanPosRef.current = null
+      redraw()
+      flushSave()
+    }
+    setDrawingEnabled(!drawingEnabled)
+  }
+
   function handleZoomIn() {
     setZoomLevel((z) => clamp(Math.round((z + ZOOM_STEP) * 100) / 100, MIN_ZOOM, MAX_ZOOM))
   }
@@ -479,10 +540,32 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   const renderWidth = baseFitWidth > 0 ? baseFitWidth * zoomLevel : undefined
   const saveLabel = saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : saveState === 'loading' ? 'Loading…' : 'Saved'
 
+  // The stage root below is the common ancestor of BOTH the drawing area and
+  // the toolbar, and touch-action composes as the intersection down the
+  // ancestor chain — a descendant can never widen it. It therefore stays
+  // permissive ('pan-x pan-y') at all times, so the toolbar keeps its own
+  // 'pan-x' horizontal scroll while drawing is on. Gestures over the drawing
+  // area are suppressed by the three nodes below it instead ('none' while
+  // drawing). Do not restore 'none' to the stage root.
+  //
+  // It is also laid out *inside* its parent's flex column ('flex-1 min-h-0'),
+  // never 'h-full': the Stage Mode overlay is a `flex flex-col` with a definite
+  // pixel height, so `height: 100%` here would resolve to the FULL overlay
+  // height without subtracting the overlay header, pushing the toolbar exactly
+  // one header-height below the visible area — the reported tablet bug.
+  // 'min-h-0' is what lets this column shrink to the space the header leaves.
   return (
-    <div className="flex-1 w-full h-full bg-black flex flex-col relative" style={{ touchAction: 'none' }}>
-      <div ref={stageContainerRef} className="flex-1 min-h-0 relative overflow-hidden">
-        <div ref={scrollContainerRef} className="w-full h-full overflow-auto" style={{ touchAction: 'none' }}>
+    <div className="flex-1 min-h-0 w-full bg-black flex flex-col relative" style={{ touchAction: 'pan-x pan-y' }}>
+      <div
+        ref={stageContainerRef}
+        className="flex-1 min-h-0 relative overflow-hidden"
+        style={{ touchAction: stageTouchAction(drawingEnabled) }}
+      >
+        <div
+          ref={scrollContainerRef}
+          className="w-full h-full overflow-auto"
+          style={{ touchAction: stageTouchAction(drawingEnabled), overscrollBehavior: 'contain' }}
+        >
           <div className="min-h-full w-full flex items-start justify-center p-4">
             {renderWidth !== undefined && (
               <div className="relative inline-block">
@@ -507,14 +590,20 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
                     }
                   />
                 </Document>
+                {/* Stays mounted while drawing is off so saved strokes keep
+                    rendering read-only; only hit-testing is disabled. */}
                 <canvas
                   ref={canvasRef}
                   className="absolute top-0 left-0"
-                  style={{ touchAction: 'none' }}
+                  style={{
+                    touchAction: stageTouchAction(drawingEnabled),
+                    pointerEvents: canvasPointerEvents(drawingEnabled),
+                  }}
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={endPointer}
                   onPointerCancel={endPointer}
+                  onLostPointerCapture={handleLostPointerCapture}
                 />
               </div>
             )}
@@ -522,8 +611,14 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
         </div>
       </div>
 
-      {/* Floating bottom toolbar — thumb-reachable */}
-      <div className="shrink-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800 px-3 py-2 flex flex-col gap-2">
+      {/* Floating bottom toolbar — thumb-reachable. Its own border-box height is
+          constant (page-nav row + one no-wrap control row) at every supported
+          width; the device safe-area inset is carried by the sibling spacer
+          below, never by this element's padding. */}
+      <div
+        className="shrink-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800 px-3 py-2 flex flex-col gap-2"
+        style={{ touchAction: 'pan-x' }}
+      >
         {/* Page navigation */}
         <div className="flex items-center justify-center gap-3 text-white text-xs">
           <button
@@ -554,9 +649,27 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+        {/* Single, never-wrapping control row: its height is what keeps the
+            whole toolbar at a constant, budgeted height on tablets. Anything
+            that does not fit is reached by scrolling the row horizontally. */}
+        <div className="flex items-center justify-between gap-2 flex-nowrap overflow-x-auto overscroll-x-contain">
+          {/* Drawing on/off — always rendered, leftmost, 44×44 touch target */}
+          <button
+            type="button"
+            aria-label="Toggle drawing"
+            aria-pressed={drawingEnabled}
+            onClick={handleToggleDrawing}
+            className={`shrink-0 min-h-11 min-w-11 px-3 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              drawingEnabled ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-300 hover:text-white'
+            }`}
+          >
+            {drawingEnabled ? '✏️ Draw: On' : '✏️ Draw: Off'}
+          </button>
+
+          {drawingEnabled && (
+          <>
           {/* Mode toggle: Pen / Erase / Pan */}
-          <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
+          <div className="shrink-0 flex items-center gap-1 bg-gray-800 rounded-lg p-1">
             {(['pen', 'erase', 'pan'] as Mode[]).map((m) => (
               <button
                 key={m}
@@ -572,7 +685,7 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
           </div>
 
           {/* Color control: 4 presets + 1 custom swatch */}
-          <div className="flex items-center gap-1.5">
+          <div className="shrink-0 flex items-center gap-1.5">
             {PRESET_COLORS.map((preset) => (
               <button
                 key={preset}
@@ -600,9 +713,13 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
               tabIndex={-1}
             />
           </div>
+          </>
+          )}
 
-          {/* Zoom controls */}
-          <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
+          {/* Zoom controls — in-app zoom only; it scales the PDF canvas and
+              never the browser's visual viewport, so it is available in both
+              read and draw mode. */}
+          <div className="shrink-0 flex items-center gap-1 bg-gray-800 rounded-lg p-1">
             <button
               type="button"
               onClick={handleZoomOut}
@@ -629,7 +746,8 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
           </div>
 
           {/* Undo / Clear */}
-          <div className="flex items-center gap-1.5">
+          {drawingEnabled && (
+          <div className="shrink-0 flex items-center gap-1.5">
             <button
               type="button"
               onClick={handleUndo}
@@ -647,8 +765,19 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
               Clear page
             </button>
           </div>
+          )}
         </div>
       </div>
+
+      {/* Safe-area spacer: keeps env(safe-area-inset-bottom) OUT of the
+          toolbar's own box, so the toolbar's border-box height is identical on
+          every device, while the home-indicator strip is still filled with the
+          toolbar's background and overlaps no control. */}
+      <div
+        aria-hidden
+        className="shrink-0 bg-gray-900/95"
+        style={{ height: 'env(safe-area-inset-bottom, 0px)' }}
+      />
 
       {/* Clear-page confirmation — Toast-based, no native confirm() */}
       {clearConfirmOpen && (

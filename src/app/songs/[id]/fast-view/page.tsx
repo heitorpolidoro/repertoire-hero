@@ -7,6 +7,7 @@ import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
+import { stageViewportHeight, isStableViewportMeasurement } from '@/lib/stageInteraction'
 import { getPlaylistEntryIdsAction, getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
 
 function parseLyricsMarkdown(text: string) {
@@ -62,6 +63,21 @@ function getLinkIcon(url: string) {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
     </svg>
   )
+}
+
+/**
+ * Nearest scrollable DOM ancestor of `node`, resolved by computed overflow
+ * rather than by tag name: this page contains two <main> elements — the app
+ * shell's (AppLayout, `flex-1 overflow-y-auto`, which really scrolls) and the
+ * page's own (`min-h-screen`, which never does) — and only the former may be
+ * scroll-locked while PDF Stage Mode is open.
+ */
+function findScrollHost(node: HTMLElement | null): HTMLElement | null {
+  for (let el = node?.parentElement ?? null; el; el = el.parentElement) {
+    const oy = getComputedStyle(el).overflowY
+    if (oy === 'auto' || oy === 'scroll') return el
+  }
+  return null
 }
 
 export default function FastViewPage() {
@@ -120,6 +136,8 @@ export default function FastViewPage() {
   const [lyricsFontSize, setLyricsFontSize] = useState(18)
   const [isStageDarkMode, setIsStageDarkMode] = useState(false)
   const [isPdfStageMode, setIsPdfStageMode] = useState(false)
+  const pdfStageOverlayRef = useRef<HTMLDivElement>(null)
+  const [pdfStageHeight, setPdfStageHeight] = useState<number | null>(null)
 
   // Band vs Personal aggregation states
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
@@ -161,6 +179,60 @@ export default function FastViewPage() {
       window.removeEventListener('popstate', handlePopState)
     }
   }, [isStageMode, isPdfStageMode])
+
+  // Size the PDF Stage Mode overlay to the *visual* viewport. `100vh` /
+  // `inset-0` resolve against the large viewport on iOS/iPadOS Safari and
+  // Android Chrome, i.e. the size the page has with the browser chrome
+  // collapsed; while the chrome is expanded the bottom strip of the overlay —
+  // exactly the toolbar — is laid out below the visible area, which is the
+  // reported "toolbar flashes then is unreachable" bug on tablets.
+  useEffect(() => {
+    if (!isPdfStageMode) return
+
+    const vv = typeof window !== 'undefined' ? window.visualViewport : undefined
+
+    const measure = () => {
+      // A pinch-zoomed visual viewport reports a fraction of the layout
+      // viewport, which is not the box a fixed overlay occupies — keep the last
+      // stable height instead of shrinking the overlay (and pushing the toolbar
+      // off screen again).
+      if (!isStableViewportMeasurement(vv?.scale)) return
+      setPdfStageHeight(stageViewportHeight(vv?.height, window.innerHeight))
+    }
+
+    measure()
+    // iOS Safari fires only `scroll` (not `resize`) for some chrome
+    // expand/collapse transitions, hence both subscriptions.
+    vv?.addEventListener('resize', measure)
+    vv?.addEventListener('scroll', measure)
+    window.addEventListener('resize', measure)
+    window.addEventListener('orientationchange', measure)
+    return () => {
+      vv?.removeEventListener('resize', measure)
+      vv?.removeEventListener('scroll', measure)
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('orientationchange', measure)
+      setPdfStageHeight(null)
+    }
+  }, [isPdfStageMode])
+
+  // Scroll-lock the page's real scroll container while PDF Stage Mode is open.
+  // That container is the app shell's <main> (AppLayout, `flex-1
+  // overflow-y-auto`) — not `body`, which never scrolls in a `flex h-screen`
+  // shell — and it is also the overlay's nearest scrollable ancestor, i.e. the
+  // element a vertical drag on the overlay header would otherwise chain to.
+  useEffect(() => {
+    if (!isPdfStageMode) return
+    const host = findScrollHost(pdfStageOverlayRef.current)
+    if (!host) return
+    const previousOverflow = host.style.overflow
+    host.style.overflow = 'hidden'
+    return () => {
+      // Restored verbatim, so an element that had no inline overflow goes back
+      // to having none (computing to `auto`) rather than being frozen.
+      host.style.overflow = previousOverflow
+    }
+  }, [isPdfStageMode])
 
   const closeStageMode = () => {
     setIsStageMode(false)
@@ -1379,7 +1451,23 @@ export default function FastViewPage() {
 
     {/* PDF Stage Mode Overlay */}
     {isPdfStageMode && activeTabUrl && activeTabId && activeTabRepertoireId && (
-      <div className="fixed inset-0 z-50 bg-black flex flex-col">
+      <div
+        ref={pdfStageOverlayRef}
+        className="fixed inset-x-0 top-0 z-50 bg-black flex flex-col"
+        style={{
+          // Measured visual-viewport height is authoritative (correct in every
+          // mobile browser); `100dvh` is only the pre-measurement fallback.
+          height: pdfStageHeight ? `${pdfStageHeight}px` : '100dvh',
+          // Removes browser pinch-zoom from the whole overlay subtree,
+          // react-pdf's own DOM included — it is incompatible with sizing the
+          // overlay from the visual viewport. In-app zoom controls remain.
+          touchAction: 'pan-x pan-y',
+          // Makes the overlay root a (non-scrollable) scroll container so
+          // `overscroll-behavior` applies and no drag inside it chains out.
+          overflow: 'hidden',
+          overscrollBehavior: 'contain',
+        }}
+      >
         <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white border-b border-gray-800 shrink-0">
           <div className="flex flex-col min-w-0">
             <span className="text-sm font-bold truncate">{activeTabTitle || 'PDF Tab'}</span>
