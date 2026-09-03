@@ -634,3 +634,85 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
 - The skip list is enumerated by name only, which means a future build output directory (`dist/`, `.turbo/`, `out/`, a Python `.venv/`) would be walked. Consider deriving the skip list from `vitest.config.ts`'s `exclude` (the file's own comment notes the symmetry goal) or from `.gitignore`, so the two lists cannot drift apart silently.
 - `docker/init-migrations.sh` and `scripts/migrate.mjs` now maintain the same `_migrations` ledger with independently written DDL (`VARCHAR(255) UNIQUE NOT NULL` in the shell script). A follow-up could assert that the two `CREATE TABLE IF NOT EXISTS _migrations` definitions agree, so a column change in one runner cannot silently diverge from the other.
 - The guard covers layout but not content: nothing asserts that a file in `migrations/` is non-empty or parseable SQL. An empty `0007_x.sql` would pass every invariant and be recorded as applied. A trivial "every migration file is non-empty" assertion would close that gap cheaply.
+
+## [RH-18] Adicionar teste contra banco real para semantica already_member em join_band_by_invite — 2026-09-03
+
+- **Pin the fixture naming normatively.** Expected result 9's cleanup check is
+  `SELECT count(*) FROM bands WHERE name LIKE 'RH-18%'` and
+  `... FROM "user" WHERE email LIKE 'test-rh18-%'`, but the Approach section
+  introduces those names with "e.g.". An implementer who picks different prefixes
+  makes result 9 pass vacuously — the queries return 0 because they match nothing,
+  not because cleanup worked. Dropping the "e.g." and stating the prefixes as
+  required would turn result 9 from a weak check into a real one.
+- **The new file is itself an ordered stateful sequence.** The spec rejects
+  `bands.test.ts` as a host because it is "a single stateful sequence sharing one
+  `bandId`/`inviteCode` across its `it` blocks", then specifies five cases "in this
+  order" sharing one `bandId`/`inviteCode`, with case 4 asserting "no
+  `band_members` row … beyond the one from the earlier cases". The design works
+  (vitest runs `it` blocks within a file sequentially) and the ordering is at least
+  explicit, but the stated rationale reads as inconsistent. Having every case
+  assert an absolute count for its own `(band, user)` pair — as cases 1, 2 and 5
+  already do — would make the coupling ordering-only.
+- **State how `inviteCode` is obtained in `beforeAll`.** The sketch imports
+  `getBandWithMembers` and says "users, band, invite code created in `beforeAll`",
+  leaving the reader to infer `(await getBandWithMembers(bandId))!.invite_code`.
+  It is the only plausible route (`getBandByInviteCodeServer` needs the code
+  already), but one explicit line removes the inference.
+- **Consider folding the no-duplicate-member assertion into result 5.** Spec case 2
+  asserts `getBandWithMembers(bandId)` reports exactly 2 members and that B's role
+  is still `'member'`; that is the strongest "no duplicate, no role churn" signal in
+  the file, and it is not reflected in any expected result. Result 5 currently stops
+  at the `(band_id, user_id)` row count.
+- **Follow-up task: gate real-DB suites on DB reachability, not on
+  `SUPABASE_SERVICE_ROLE_KEY`.** Six files will now share a gate whose flag has
+  nothing to do with the resource they need. A shared helper that pings the pool
+  once and skips on connection failure would make the whole set honest, and is
+  correctly out of scope here.
+- **Result 2's absolute "Test Files 21 passed (21)" is baseline-sensitive.** If any
+  other task lands a test file before RH-18 reaches QA, that exact string breaks
+  even on a perfect implementation. Low risk given the branch-scoped QA, but
+  phrasing it as "baseline + 1" would be more robust.
+
+## [RH-18] Adicionar teste contra banco real para semantica already_member em join_band_by_invite — 2026-09-03
+
+1. **`afterAll` short-circuits on a `deleteBand` failure**
+   (`src/lib/__tests__/joinBandByInvite.test.ts:75-77`). `deleteBand` throws
+   `'Band not found'` when `rowCount === 0` (bands.ts:147). If it ever throws, the two
+   `deleteTestUser` calls below it never run and the fixture users leak into the shared
+   local DB, where the `test-rh18-%` rows would linger across runs. The risk is low today
+   (no test deletes the band, so the row is always present), but wrapping the three
+   cleanup calls so each runs regardless of the previous one's outcome would make the
+   teardown robust on failure paths. Non-blocking — the existing files have the same
+   shape, so this is a suggestion for the convention rather than for this file alone.
+
+2. **Cases 2-5 depend on case 1 having run.** The re-join assertions require user B's
+   membership to already exist, so no individual `it` is runnable in isolation via
+   `it.only` (case 2 alone would insert the row itself and see `alreadyMember === false`).
+   This is inherent to testing re-join semantics, is the ordering the spec prescribes, and
+   matches `bands.test.ts`'s existing stateful style — so it is the right call here. Worth
+   noting only so the coupling is a known property rather than a surprise for whoever next
+   edits the file. The pre-assertion of `count === 0` at line 81 already protects the
+   sequence's starting state, which is the part that mattered most.
+
+3. **Redundant null checks in case 3**
+   (`src/lib/__tests__/joinBandByInvite.test.ts:111-114`). `expect(first).not.toBeNull()`
+   and `expect(second).not.toBeNull()` are subsumed by the `toBe(bandId)` assertions two
+   lines down, since `bandId` is a non-null string. Harmless, and arguably documents the
+   spec's "neither returns null" wording explicitly; drop them only if you prefer the
+   tighter form.
+
+## [RH-18] Adicionar teste contra banco real para semantica already_member em join_band_by_invite — 2026-09-03
+
+- The whole suite is one ordered stateful sequence: test 2 (`re-join`) depends on test 1 having
+  inserted the membership, and tests 3/4 depend on that same row. Running a single case in
+  isolation (`-t "re-join"`) would fail. If the file grows, consider making each case establish its
+  own membership precondition (or use `beforeEach` seeding) so cases stay independently runnable.
+- The `describe.skipIf(!SUPABASE_SERVICE_ROLE_KEY)` guard means that in an environment where the
+  key is absent the whole file silently reports as skipped rather than failing. That matches the
+  existing convention in `songs.test.ts`, but a CI-only assertion that the real-DB suites did in
+  fact run would prevent the coverage from evaporating unnoticed. Note the file does not actually
+  use the service-role key for anything beyond the guard — the helpers talk to Postgres via
+  `DATABASE_URL` — so gating on `DATABASE_URL` reachability would be a more honest precondition.
+- `docs/suggestions-log.md` (+66 lines) is modified but **unstaged**, and `docs/tasks/RH-18-spec.md`
+  is untracked. Neither is covered by the expected results, but if they are meant to ship with this
+  task they need to be staged before the commit.
