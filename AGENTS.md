@@ -178,6 +178,8 @@ spec.md, SDS.md, plan.md, tasks.md
 
 - **Version Bumping Rule**: Whenever you make changes that lead to a merge or a deploy, you MUST update the package version in `package.json`. Increase the patch/bugfix version by default and append a timestamp suffix in the format `YYYYMMDDHHmm` using the local timezone.
   - Example version format: `v0.1.6-202608060948` (representing version `0.1.6` released on August 6, 2026 at 09:48).
+  - The version must only ever go up: check `git log` for the highest version already used before bumping, never reuse or go below it.
+- **Landing Page Rule**: The landing page (`src/components/landing/LandingPage.tsx`, copy in `src/i18n/dictionaries/en.json` and `pt-BR.json` under `landing.*`) is marketing, not a changelog — it lists **selling points only**. Whenever a task ships a user-facing feature, its spec MUST decide whether the feature is a selling point (something a musician or band would choose the app for, e.g. handwritten annotations on tabs in Stage Mode) and, if so, include an expected result that updates the landing copy in BOTH dictionaries. The developer implements that expected result as part of the same task, and code review and QA verify it like any other expected result. Internal, operational or admin features (moderation queues, invite-link maintenance, i18n plumbing, error handling, etc.) are NOT selling points and must not be added to the landing page.
 
 
 
@@ -187,24 +189,7 @@ spec.md, SDS.md, plan.md, tasks.md
 
 
 
-<!-- MERIDIAN_INSTRUCTIONS_START -->
-# Meridian Instructions
 
-> **AI Task Management**: If an AI agent needs to create, update, or read project tasks, they MUST directly parse and modify the `.meridian/tasks.json` file (A JSON object with a `tasks` array containing tasks with `id`, `title`, `status`, `justification`, `blockedBy`, `running`).
-> **Active Execution (`running`)**: boolean flag (`true`/`false`). Set to `true` when an agent starts actively working on a task, and set to `false` when finished or handed off.
-> **Dependencies (`blockedBy`)**: optional array of task IDs that must reach `done` before this task can proceed. A task with a non-empty `blockedBy` whose dependencies aren't all `done` yet should have status `blocked` — that dependency is sufficient justification on its own (e.g. `justification: "Blocked on <task-id>"`). When every task in `blockedBy` reaches `done`, move this task back to `backlog`.
-> **Allowed Statuses**: When assigning a status to a task, you MUST use EXACTLY one of the following lowercase strings. DO NOT invent new statuses or use synonyms like 'pending', 'todo', or 'completed'.
-  - `backlog`: Task is planned but not ready to be worked on yet.
-  - `specreview`: Task needs specification or design review.
-  - `readytodo`: Task is fully specified and ready to be picked up.
-  - `inprogress`: Task is currently being worked on by developer.
-  - `codereview`: Task code is being reviewed for architecture, security, and test quality.
-  - `qareview`: Task is being verified independently by QA against expected results.
-  - `blocked`: Task cannot proceed due to external dependencies.
-  - `done`: Task is fully completed.
-  - `nope`: Task was cancelled or won't be done.
-> **Implementation Rule**: Before starting any implementation work, ask the user if they want to create a task for it in the Meridian system.
-<!-- MERIDIAN_INSTRUCTIONS_END -->
 
 <!-- BEGIN:nextjs-agent-rules -->
 
@@ -215,3 +200,25 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+<!-- MERIDIAN_INSTRUCTIONS_START -->
+# Meridian Instructions
+
+> **AI Task Management**: If an AI agent needs to create, update, or read project tasks, it MUST go through the Meridian server first — the server owns the timestamps, so it is the only write path that keeps them consistent. Read with `GET http://localhost:3333/api/status?project=<absolute project path>`, create with `POST http://localhost:3333/api/projects/tasks`, update with `PUT http://localhost:3333/api/projects/tasks/<task id>` (both writes take `projectPath` in the JSON body). Only when the server is not running — the request fails to connect and `node cli.js start` is not an option — may an agent fall back to hand-editing `.meridian/tasks.json` directly, applying the timestamp rules below by hand.
+> **File Shape**: `.meridian/tasks.json` is a bare JSON **array** of task objects. It is NOT an object with a `tasks` key. A task carries `id`, `title`, `status`, `priority`, `justification`, `expected_results`, `blockedBy`, `running`, `created_at`, `updated_at`, `moved_at` and `completed_at`. Never delete a task — move it to `nope` instead.
+> **Timestamps**: ISO-8601 UTC strings. `created_at` is set once, on creation. `updated_at` is set on every write. `moved_at` is set on every status change. `completed_at` is set when the status enters `done` and set back to `null` when it leaves `done`. The server stamps all four; a hand-edit must reproduce them exactly.
+> **Priority (`priority`)**: EXACTLY one of `critical`, `high`, `medium`, `low`. A task without one is read as `medium`.
+> **Active Execution (`running`)**: boolean flag (`true`/`false`). Set to `true` when an agent starts actively working on a task, and set to `false` when finished or handed off.
+> **Dependencies (`blockedBy`)**: optional array of task IDs that must reach `done` before this task can proceed. A task with a non-empty `blockedBy` whose dependencies aren't all `done` yet should have status `blocked` — that dependency is sufficient justification on its own (e.g. `justification: "Blocked on <task-id>"`). When every task in `blockedBy` reaches `done`, move this task back to `backlog`.
+> **Allowed Statuses**: When assigning a status to a task, you MUST use EXACTLY one of the following lowercase strings. They carry no spaces and no slashes. DO NOT invent new statuses or use synonyms like 'pending', 'todo', 'completed', 'in progress' or 'qa/review'.
+  - `backlog`: Task is planned but not ready to be worked on yet.
+  - `spec_review`: Task needs specification or design review.
+  - `ready_todo`: Task is fully specified and ready to be picked up.
+  - `in_progress`: Task is currently being worked on by developer.
+  - `code_review`: Task code is being reviewed for architecture, security, and test quality.
+  - `qa_review`: Task is being verified independently by QA against expected results.
+  - `blocked`: Task cannot proceed due to external dependencies.
+  - `done`: Task is fully completed.
+  - `nope`: Task was cancelled or won't be done.
+> **Implementation Rule**: Before starting any implementation work, ask the user if they want to create a task for it in the Meridian system.
+<!-- MERIDIAN_INSTRUCTIONS_END -->
