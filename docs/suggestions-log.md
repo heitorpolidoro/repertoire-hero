@@ -1378,3 +1378,321 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   the repo. JSON has no comments, so a short note in `AGENTS.md` next to the existing
   knip bullet would prevent a future cleanup from removing them by mistake.
 
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- **S1 — The spec's Expected Results section is not the list that ships, and its own cross-references
+  are broken.** The spec indexes ER1–ER18; the task carries ER1–ER20 (the spec merges task ER7+ER8 into
+  one line and has no counterpart to task ER17, "new unit tests exist and pass"), so every spec ER
+  number from 7 onward points at a different criterion than the same number in the task — a trap for
+  the developer and for the code reviewer. Worse, spec ER7 says the jscpd totals "fall to **the stated
+  ceilings**" and the ceilings (≤ 20 clones, ≤ 300 duplicated lines, ≤ 1.80 %, ≤ 2.20 % tokens) are
+  stated nowhere in the spec; the Duplication-gate section's "(see ER8)" points at the `lint:dup`
+  criterion under both numbering schemes rather than at the percentage. Either renumber the index to
+  match the shipped results verbatim, or state the four ceilings inline in §Duplication gate.
+- **S2 — A3's 26-value return bag is the one extraction that reads as coupling rather than reuse.**
+  The logic really is duplicated ~200 lines deep, so the extraction is justified, but a hook that
+  returns `band, setBand, playlists, loading, error, setError, editing, editName, setEditName, …` plus
+  nine handlers is a page controller, not an abstraction. Consider grouping the edit-modal state
+  (`editName/editDesc/editCoverPreview/editColor/saving/openEdit/handleEditCoverChange/handleSaveEdit`)
+  into a nested object so the destructure at each call site stays readable.
+- **S3 — The same 26-value bag is a live risk to ER8, which has zero margin.** ER8 allows "at most 4
+  clones naming both `bands/[id]/page.tsx` and `profile/page.tsx`" and exactly 4 (the deliberate JSX
+  clones #17–20) are meant to survive. Both pages will now open with a near-identical multi-line
+  destructure of the same ~26 names in the same order — comfortably over jscpd's 8-line / 50-token
+  floor, i.e. a brand-new bands↔profile clone that would make it 5 and fail ER8 (and take the total to
+  20, the ER7 ceiling exactly). Worth pre-empting in the spec: have each page destructure only the
+  names its JSX actually uses, or group as in S2.
+- **S4 — `currentUserId` is missing from A3's returned bag.** Both pages need it in *JSX*
+  (`bands/[id]/page.tsx:445,468`; `profile/page.tsx:423,445`), not just in handlers, and the hook needs
+  it too (`handleCreatePlaylist`, `currentMember`, `isAdmin`). The spec should say whether the hook
+  calls `authClient.useSession()` itself and returns `currentUserId`, or receives it as an option —
+  otherwise both pages end up with a second `useSession()` subscription by accident.
+- **S5 — A1's fast-view sentence is factually wrong.** "the two calls that pass nothing keep the
+  `'info'` default" — all 16 `showToast` calls in `songs/[id]/fast-view/page.tsx` pass an explicit tone
+  (lines 603 and 624 pass `'info'` literally). The rule "each existing call keeps its literal" already
+  covers the file; drop the clause.
+- **S6 — A2's `buildPlaylistSongsInsert` does silently unify one string.** `import/route.ts:272–275`
+  uses a multi-line indented `INSERT …` template while `sync/route.ts:263–265` uses a single-line one.
+  They are whitespace-equivalent to Postgres, so this is harmless, but the spec's blanket "the moved
+  code keeps its … SQL text" claim should acknowledge it, as it acknowledges the `statusText` delta.
+- **S7 — ER12's parenthetical baseline is off by one.** `grep -rn "function fetchAllSpotifyTracks\|function fetchAllTracks\|function findOrCreateGlobalSong\|function ensureInRepertoire" src`
+  returns **7** lines at `fe300d4`, not 8 (import 3 + sync 3 + tracks 1). The operative assertion
+  ("exactly 3 lines, all in `src/lib/spotifyPlaylistSync.ts`") is right and QA runs on the post-change
+  tree, so nothing fails — but the "(was 8 …)" context is wrong.
+- **S8 — ER20's second clause is judgement, not a command.** "that section records the deliberate
+  leave-alone decisions" is checkable only because the four items are enumerated; make it a grep (e.g.
+  the `## [RH-23]` section must mention `SongForm`, `settings`, `playlists` and the song-row clones).
+  Ownership is also worth a line in the spec: `docs/suggestions-log.md` is normally appended to by the
+  review pipeline, and §Out of Scope is what assigns the section to the developer here. ER20's "at
+  least 1 line" wording already tolerates the pipeline adding a second `## [RH-23]` section later, so
+  the criterion is satisfiable — just make the intent explicit.
+- **S9 — `tracks/route.ts` exports `SpotifyTrackItem`, used only inside that file** (`knip` tolerates
+  it because route files are entry points). Once `fetchAllTracks` moves out, the spec should say
+  whether the interface stays as the documented response shape or goes; leaving it undecided invites a
+  needless knip/tsc surprise.
+- **S10 — `<AlertBanner>`'s `className?` prop has no caller.** All five converted/unconverted sites use
+  the identical wrapper class list, so the prop ships dead on arrival, and its merge semantics
+  (replace vs append) are unspecified. Drop it unless a call site needs it.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- **ER12's baseline parenthetical is wrong.** It says the pre-change grep was "8 lines across the
+  three route files"; the tree at `fe300d4` returns 7 (`tracks:31` `fetchAllTracks`; `sync:38,78,121`;
+  `import:35,80,126`). The operative clause ("exactly 3 lines, all in
+  `src/lib/spotifyPlaylistSync.ts`") is correct and verifiable, so this is cosmetic — but a QA agent
+  that treats the parenthetical as fact will be confused.
+- **The spec's ER index still does not match the shipped list**, which is exactly round-1's S1 and
+  is unfixed: the spec numbers ER1–ER19, the task carries ER1–ER21. Consequences inside the spec:
+  §"Duplication gate" says the percentage lands near 1.3 % "(see ER8)", but the percentage ceilings
+  live in task ER7 (spec ER8 is the `lint:dup` criterion) — the cross-reference is wrong under both
+  numberings; and spec ER7's "the stated ceilings" are stated nowhere in the spec (they exist only
+  in task ER7: ≤ 20 clones, ≤ 300 duplicated lines, ≤ 1.80 %, ≤ 2.20 % tokens). Either drop the
+  spec-side index in favour of the shipped list, or reproduce the shipped items verbatim including
+  the four ceilings.
+- **§A3 does not say how `load`'s `useCallback` identity is stabilised.** Today the deps are
+  `[bandId, router]` (bands) and `[bandId]` (profile); in the hook, `onNotFound`, `showToast`,
+  `onGone` and `onNavigateToPlaylist` will be inline arrows at the call sites, so an
+  exhaustive-deps-honest `useCallback(..., [onNotFound, showToast, …])` re-creates `load` every
+  render and the `useEffect(() => { load() }, [load])` then refetches on every render. It is not a
+  genuine two-readings ambiguity (one reading is plainly a bug and no ER would catch it, since ER18
+  would still pass), but one sentence — "callbacks are held in refs / the load callback depends only
+  on `bandId` and the policy" — would remove the trap.
+- **ER8 has zero margin on the bands↔profile pair and the hook's return bag is the threat.** 12
+  clones today, "at most 4" after, and exactly the 4 deliberate JSX clones (#17–20) are meant to
+  survive. §A3 returns 26 state values plus 9 handlers; a matching multi-line destructure at both
+  call sites is easily over jscpd's 8-line / 50-token floor and would create clone #5. Worth saying
+  explicitly in §A3 that the call sites must not both spell out an identical destructure (e.g. keep
+  the result in one object, or group the edit-modal state into a nested object as round 1's S2
+  suggested).
+- **No expected result covers scope item 4 (the `AGENTS.md` touch-ups).** `AGENTS.md` today contains
+  neither `jscpd` nor `src/hooks` (verified by grep), the file is on ER2's whitelist, but nothing
+  asserts it changed — a QA run cannot tell whether that deliverable shipped. A one-line ER
+  (`grep -c "jscpd" AGENTS.md` ≥ 1 and `grep -c "src/hooks" AGENTS.md` ≥ 1) would close it.
+- **ER20's first clause is already satisfied at `fe300d4`.** `docs/suggestions-log.md:1382` already
+  has `## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03`, written by the
+  round-1 review and containing S1/S2/S3 about the spec, not the leave-alone decisions. The grep half
+  of ER20 therefore passes without the developer doing anything; the load-bearing half is "that
+  section records the deliberate leave-alone decisions (SongForm's own toast; the settings/ and
+  playlists/ alert banners; the playlists song-row clones)", which is checkable by reading but is not
+  a grep. Consider naming the three items as required substrings, and saying whether the developer
+  appends to the existing section or adds a second `## [RH-23]` heading (ER20 says "that section",
+  which is ambiguous if two exist).
+- **ER15's `grep -rn "catch (\w*: any" src`** relies on `\w` in a BRE, which BSD `grep` on macOS may
+  not honour — the grep can return 0 lines for the wrong reason. The `vitest run` half of ER15
+  (`errorHandlingStyle.test.ts`) is the real guard, so this is not load-bearing, but `grep -rEn
+  "catch \([A-Za-z_]*: any"` would mean what it says.
+- Non-blocking positives worth recording: the 22/19 clone classification accounts for all 41 clones
+  with no double-counting; the six spotify-route clone pairs (#4–9) and the 12 bands↔profile pairs
+  reconcile with the live JSON report; the arithmetic of the (A) table (~530 of 747 duplicated lines
+  removed) leaves comfortable headroom under ER7's ≤ 300 lines / ≤ 1.80 % ceilings; A2's named
+  `statusText` delta is genuinely invisible to clients (the route returns the fixed R1 message);
+  §A9's "export only if the tests need it" instruction correctly protects `npm run lint:dead`.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- ER16 asserts the route "still returns `NextResponse.json({ tracks })`", which is the literal form
+  at `tracks/route.ts:95` today, but §A2 line 214 writes the new payload as
+  `{ tracks: raw.map(({ … }) => ({ … })) }`. Inlining the `.map()` into the `NextResponse.json`
+  call would satisfy the payload intent while failing a literal reading of ER16. Say in §A2 that the
+  mapped array is assigned to `const tracks` first, so the `return` line stays byte-identical.
+- Scope item 4 (`AGENTS.md`: the new `src/hooks/` directory in the tree, `jscpd` in "Testing &
+  quality") is an in-scope deliverable with no expected result covering it. `AGENTS.md` is in ER2's
+  whitelist, so nothing fails if it is skipped. Consider a small ER: `grep -c "src/hooks" AGENTS.md`
+  ≥ 1 and `grep -ci jscpd AGENTS.md` ≥ 1.
+- ER4's ceiling of 19 warnings equals the baseline exactly, so a single new `exhaustive-deps` warning
+  from `useToast`/`useBandAdmin` fails the gate. That is arguably the intent (no new lint debt), but
+  the spec never says the new hooks must be warning-free; a sentence in §A1/§A3 stating that the
+  extracted hooks introduce no new ESLint warnings would make the tight bound deliberate rather than
+  incidental.
+- §A2's named behavioural delta (the thrown page-fetch text losing `${statusText}`) is well argued
+  and non-user-visible, and §A9's "export only if the tests need it" is correctly tied to `knip`.
+  No change requested; noting that I checked them against the "no behaviour change" scope line and
+  the Error Handling Conventions paragraph and found them consistent.
+- Clones #8 and #9 are attributed to "A2/A6" in the classification table. Which extraction removes
+  them does not change any ER (ER8 only counts clones between the three Spotify route files), so this
+  is not blocking, but a single owner per clone would make the table easier to audit next time.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- **§A1, fast-view tone table (spec line 223)** — "the two calls that pass nothing keep the `'info'`
+  default" is factually wrong: `songs/[id]/fast-view/page.tsx` has 16 `showToast(...)` call sites and
+  **all 16 pass an explicit tone**; the two the sentence means (lines 603 and 624) pass `'info'`
+  literally. Harmless — the preceding clause ("each existing `showToast(msg, 'x')` call keeps its
+  literal") already covers every call, and `useToast`'s `'info'` default matches today's signature at
+  line 129 — but the sentence describes a case that does not exist and should be dropped.
+- **§A9 knip rationale (spec lines 482-484)** — "an exported-but-unimported symbol would fail
+  `npm run lint:dead`" is not quite right for this repo: `knip.json` sets
+  `"ignoreExportsUsedInFile": true`, so a symbol exported and used within `linkFetcher.ts` would not
+  be reported. The either/or instruction is still safe, just justified by a rule that does not apply.
+- **ER8's `at most 4 clones naming both bands and profile` has zero slack** — it is exactly the four
+  `(B)` JSX clones (17-20). If deleting ~250 lines of hook logic from both files causes jscpd to
+  split or re-anchor one of those JSX regions, the count goes to 5 and ER8 fails on a clone the spec
+  deliberately kept. A ceiling of 5 would absorb re-anchoring without weakening the gate (the eight
+  A1/A3 clones are still pinned by ER7's totals and by ER10/ER13's greps).
+- **Scope item 4 (`AGENTS.md`: new `src/hooks/` in the tree, `jscpd` in "Testing & quality") still
+  has no expected result covering it** — carried over from round 3, still non-blocking since
+  `AGENTS.md` is in ER2's whitelist so nothing fails if it is skipped, but nothing verifies it
+  either. `grep -c "src/hooks" AGENTS.md` ≥ 1 and `grep -ci jscpd AGENTS.md` ≥ 1 would close it.
+  Related drift the task could absorb for free: the directory tree in `AGENTS.md` already omits
+  `src/components/ui/` even though `ConfirmPanel.tsx` has lived there since RH-16, and A1/A4 add two
+  more files to it.
+- **`stripComments` has a third copy** the spec does not mention:
+  `src/lib/__tests__/erasePersistence.test.ts:` already `export`s a byte-identical 5-line version.
+  It is below jscpd's thresholds so it never shows as a clone and leaving it is correct under ER2
+  (that file is not whitelisted) — but it is worth one line in `docs/suggestions-log.md` alongside
+  the other deliberate leave-alones, and it is a hint that `test-helpers.ts` is the right home.
+- **ER4's warning ceiling equals the baseline exactly (19)** — carried over from round 3. A single
+  new `react-hooks/exhaustive-deps` warning out of `useBandAdmin` fails the gate. §A1's `useToast`
+  is written with correct deps, but §A3 elides `useBandAdmin`'s `load` deps as a literal `[...]`
+  (spec line 315). One sentence saying the new hooks must be warning-free would make the constraint
+  explicit rather than implied.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- **ER4's "final line" is not literally the final line.** The real tail of `npx eslint .` is:
+  ```
+  ✖ 32 problems (13 errors, 19 warnings)
+    1 error and 0 warnings potentially fixable with the `--fix` option.
+  ```
+  The summary is the second-to-last non-empty line. ER4's operative numeric bounds ("E at most 13 and
+  W at most 19") are unambiguous, so this is not blocking, but "final line is" would be safer as
+  "output contains a summary line".
+- **ER8's paths carry a `src/` prefix the jscpd report does not.** Running the ER7 command
+  (`jscpd src …`) produces report paths relative to the scanned root — `app/api/spotify/…`,
+  `lib/bands.ts`, `lib/__tests__/errorHandlingStyle.test.ts` — with **no** `src/` prefix. ER8 names
+  them as `src/app/api/spotify/…` etc. A verifier doing naive literal matching would find zero
+  matches for every path and mark all seven "0 clones …" terms as vacuously satisfied. ER7's totals
+  (41 → ≤20) still prevent a no-op from passing overall, so this is not blocking, but adding
+  "(report paths are relative to `src`)" to ER8 would remove the trap.
+- **§A7's "unmoved" for the `test-helpers.ts` self-clone is slightly off.** Baseline is
+  `[89:42-100:22] ↔ [113:42-124:22]`; after the two added imports it shifts to `[91:42-102:22] ↔
+  [115:42-126:22]`. Same clone, two lines lower. Nothing in the expected results depends on it —
+  purely a wording nit in the measurement table.
+- **§A1's fast-view row misdescribes the call sites.** It says "the two calls that pass nothing keep
+  the `'info'` default", but all 16 `showToast` calls in `fast-view/page.tsx` pass an explicit tone —
+  the two `'info'` ones (lines 603, 624) pass `'info'` literally. The operative instruction ("each
+  existing `showToast(msg, 'x')` call keeps its literal") already covers every case correctly, so
+  behaviour is unaffected; the parenthetical is just inaccurate.
+- **ER7 / ER9 overlap.** ER7 permits `percentageTokens` up to 2.20 while `.jscpd.json` sets
+  `threshold: 2`. If the sweep landed in the 2.00–2.20 band, ER7 could pass while ER9's
+  `npm run lint:dup` exits non-zero. Both must pass so the implementer targets the stricter bound
+  anyway, and the expected landing point (~1.3 %) is far below — but tightening ER7's
+  `percentageTokens` to ≤ 2.00 would make the two results agree by construction.
+- **`docs/suggestions-log.md` already carries four identical `## [RH-23]` headings** (working-tree
+  change, not in `fe300d4`, which has zero). ER20 asks for "at least 1 line", so it passes, but
+  consolidating them into one section would make the "records the deliberate leave-alone decisions"
+  half easier to check.
+- **`AGENTS.md`'s directory tree omits `src/components/ui/`**, which already exists at baseline
+  (`ConfirmPanel.tsx`). Since the task is already editing that tree to add `src/hooks/`, adding
+  `components/ui/` in the same pass would be nearly free. Pre-existing gap, not caused by RH-23.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- **Hazard the spec does not name: the hook call site can create a *new* bands↔profile clone.**
+  A3 has both pages destructure ~35 identical names from `useBandAdmin`. I measured this: two
+  synthetic files whose only shared text is a one-name-per-line destructuring of the spec's exact
+  returned bag, scanned with `npx jscpd@5.1.2 . --min-tokens 50 --min-lines 8`, report **1 clone,
+  41 lines / 88 tokens**. That single clone would take ER8's "at most 4 clones naming both
+  `src/app/bands/[id]/page.tsx` and `src/app/profile/page.tsx`" to 5 and fail it, while ER7's
+  ceilings would still pass — so the failure would surface late. It is avoidable inside the spec's
+  own rules (the repo has no Prettier and ESLint enforces no formatting: packing the destructured
+  names several per line puts the block under the 8-line floor). Worth one sentence in A3 telling
+  the implementer to keep the two destructuring blocks under 8 lines, and worth checking first when
+  ER8 is measured.
+- **The returned state bag omits `setEditing`.** Both pages keep their edit-modal markup verbatim
+  ("No JSX moves"), and that markup calls `setEditing(false)` (`bands/[id]/page.tsx:687`,
+  `profile/page.tsx:626`). The enumerated bag in A3 lists `editing` but not `setEditing`, so a
+  literal reading does not compile. The fix is implied by "returns the whole state bag both pages
+  already declare", but naming it would remove the round trip.
+- **`currentUserId` / `authClient.useSession()` ownership is unspecified.** The hook returns
+  `currentMember` and `isAdmin`, which derive from `session?.user?.id`, and the retained JSX still
+  reads `currentUserId` directly (`bands:468`, `profile:423,445`). Two behaviour-identical readings
+  exist: the hook calls `authClient.useSession()` itself and also returns `currentUserId`, or each
+  page keeps its two session lines. Either satisfies every ER; picking one in A3 would be cleaner.
+- **ER4 says "final line" but eslint prints a trailing hint.** At `fe300d4` the last two lines are
+  `✖ 32 problems (13 errors, 19 warnings)` followed by
+  ``  1 error and 0 warnings potentially fixable with the `--fix` option.`` The numeric content ER4
+  checks is unambiguous and present, so this is not blocking, but "final summary line" (or "the
+  `N problems (E errors, W warnings)` line") would remove a literal-reader trap of the same family
+  as round 5's ER5 finding.
+- **AGENTS.md touch-ups have no ER.** Scope item 4 (add `src/hooks/` to the directory tree, add
+  `jscpd` to "Testing & quality") is in scope but no expected result mentions AGENTS.md, so QA — which
+  sees only the list — cannot notice if it is skipped. A one-clause addition to ER9 (`AGENTS.md`
+  mentions `jscpd` and `src/hooks/`) would close it. Related, pre-existing and out of scope:
+  the AGENTS.md tree already omits `src/components/ui/`.
+- **Test-count floors depend on unstated granularity.** ER17 requires ≥ 12 tests across
+  `uiTones` + `sqlUpdate` + `spotifyPlaylistSync`, and ER3 requires +14 tests overall. Only
+  `uiTones.test.ts` is given an explicit count ("five tests"); the other two files are described as
+  behaviour lists. An implementer who writes one `it` per file with several `expect`s would satisfy
+  the prose and fail ER17. Stating a per-file minimum, as A1's test bullet already does, removes the
+  risk.
+- Follow-ups already logged by the spec (playlists song-row extraction, `SongForm`'s ad-hoc toast,
+  the `settings`/`playlists` alert banners) look correctly deferred; the `settings`/`playlists`
+  exclusions are what make ER11's count of exactly 3 correct rather than 1.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+- `src/app/api/spotify/playlists/[id]/sync/route.ts:96` — the shared `buildPlaylistSongsInsert`
+  emits the import route's indented multi-line statement, where sync previously sent a single-line
+  one. Purely whitespace, but worth listing in the PR description next to the already-named
+  `statusText` delta so nobody rediscovers it in a query log.
+- `src/lib/sqlUpdate.ts:13` — `startIndex` has no production caller (both call sites take the
+  default 1); it is exercised only by the unit test. Harmless, but it is speculative surface that
+  could be dropped if a second caller never appears.
+- `src/lib/sqlUpdate.ts:10` — the doc comment could state the invariant that `columns` must be
+  in-source literals, never user input, since column names are interpolated rather than bound.
+- `src/hooks/useBandAdmin.ts:21` — `export type PendingAction` is not imported anywhere; knip stays
+  quiet only because `ignoreExportsUsedInFile: true` and the type is used inside its own file. It
+  could be module-local until a consumer needs it.
+- `src/app/profile/page.tsx:48-61` — two consecutive destructures of the same `bandAdmin` object;
+  one block would read the same and be shorter.
+- `package.json:51` — `jscpd` is `^5.1.2` while the sibling gate `knip` is pinned exactly
+  (`6.34.0`). Pinning jscpd exactly would keep the duplication gate from drifting onto a minor with
+  different detection heuristics.
+- `.github/workflows/ci.yml:118` — step name `jscpd` is lowercase where the neighbouring job uses
+  `Knip`; cosmetic consistency only.
+- `src/hooks/useBandAdmin.ts:1` — no `"use client"` directive (correct today, since it is only
+  imported from client components), whereas `Toast.tsx`/`AlertBanner.tsx` declare one. Adding it
+  would make the boundary explicit and fail loudly if a server component ever imports the hook.
+
+## [RH-23] Extrair/remover duplicacao de codigo no projeto — 2026-09-03
+
+Non-blocking only; none of these affects the verdict.
+
+1. **`docs/suggestions-log.md` is unstaged while everything else is staged.**
+   `git status` shows it as ` M` (working-tree modification only) and
+   `git show :docs/suggestions-log.md | grep -c "^## \[RH-23\]"` returns `0` —
+   the entire 277-line RH-23 addition exists only in the working tree. ER20 is
+   written against the tree and passes there, and ER2 whitelists the file, so this
+   is not a failure. But if the commit is built from the index alone, the artifact
+   ER20 exists to guarantee would not land in it. Worth staging before the commit.
+
+2. **Playwright's `webServer` readiness probe cannot see a healthy server.**
+   Because the probe hits `/` and `/` 500s (RH-32), `npx playwright test` against a
+   correctly running `next start` fails with
+   `Timed out waiting 120000ms from config.webServer` rather than running a single
+   test — which reads as an e2e failure when it is a probe failure. Pointing
+   `webServer.url` at a route that actually returns <400 (e.g. `/login`, or `/bands`
+   which returns 307) would make the local e2e path work without the RH-32 fix.
+   Out of scope for RH-23; noting it because it will bite the next person who runs
+   this spec.
+
+3. **`jscpd` is a floating range while the sibling gate is pinned.**
+   `devDependencies.jscpd` is `^5.1.2` where `knip` is pinned exactly. ER9 accepts
+   `^5.1.2`, and the developer already logged this in the suggestions file, so it is
+   only echoed here: a duplication gate whose detector can drift onto a new minor
+   can change its verdict without any source change. Pinning would make the ER7/ER8
+   numbers reproducible over time.
+
+4. **`.jscpd.json` is auto-picked up by the ER7 command.**
+   The verbatim ER7 invocation printed `Using config from .jscpd.json`, so the run
+   used the config's `ignore: ["**/node_modules/**"]` in addition to the CLI flags.
+   The flags it does duplicate (`minTokens 50`, `minLines 8`) agree with the config,
+   and the ignore pattern cannot hide any `src/` file, so the measured numbers are
+   sound. Mentioned only so a future re-run of ER7 is not surprised by the banner.
+
+5. **`src/lib/sqlUpdate.ts` `startIndex` has no production caller.**
+   Both call sites take the default `1`; the parameter is exercised only by the unit
+   test. Already self-reported in the suggestions log; independently confirmed here.
+   Harmless, but it is speculative surface.

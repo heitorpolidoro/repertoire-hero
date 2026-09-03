@@ -16,25 +16,12 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import fs from 'fs'
-import path from 'path'
+import { stripComments, findViolations, formatViolations } from './test-helpers'
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
-const SRC_DIR = path.join(REPO_ROOT, 'src')
-const SELF = path.join(SRC_DIR, 'lib', '__tests__', 'errorHandlingStyle.test.ts')
+const SELF = 'src/lib/__tests__/errorHandlingStyle.test.ts'
 
 /** Matches a `catch` clause whose binding is annotated `: any`. */
 const ANY_TYPED_CATCH = /catch\s*\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*:\s*any\s*\)/
-
-/**
- * Removes `//` line comments and block comments from a source string.
- * Block comments are blanked out so line numbers are preserved.
- */
-function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, '')
-}
 
 /**
  * Returns one entry per line of `source` that declares an `any`-typed catch
@@ -45,20 +32,6 @@ export function findAnyTypedCatches(source: string): string[] {
     .split('\n')
     .filter((line) => ANY_TYPED_CATCH.test(line))
     .map((line) => line.trim())
-}
-
-/** Recursively lists every `.ts`/`.tsx` file under `dir`. */
-function listSourceFiles(dir: string): string[] {
-  const files: string[] = []
-  for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, dirent.name)
-    if (dirent.isDirectory()) {
-      files.push(...listSourceFiles(full))
-    } else if (/\.tsx?$/.test(dirent.name)) {
-      files.push(full)
-    }
-  }
-  return files
 }
 
 // Built by concatenation so the literal banned text never appears in this file.
@@ -93,20 +66,7 @@ describe('findAnyTypedCatches (detector)', () => {
 
 describe('src/ tree', () => {
   it('contains no `any`-typed catch bindings', () => {
-    const violations: string[] = []
-
-    for (const file of listSourceFiles(SRC_DIR)) {
-      if (file === SELF) continue
-      const source = fs.readFileSync(file, 'utf8')
-      const relative = path.relative(REPO_ROOT, file)
-      stripComments(source)
-        .split('\n')
-        .forEach((line, index) => {
-          if (ANY_TYPED_CATCH.test(line)) {
-            violations.push(`${relative}:${index + 1} — ${line.trim()}`)
-          }
-        })
-    }
+    const violations = formatViolations(findViolations(ANY_TYPED_CATCH, { skip: SELF }))
 
     expect(
       violations,

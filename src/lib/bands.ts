@@ -1,5 +1,6 @@
 import { query } from "@/lib/db"
 import { logger } from "@/lib/logger"
+import { buildUpdateSet } from "@/lib/sqlUpdate"
 import type { Band, BandMember, Playlist } from "@/types/database"
 
 export const getBands = async (userId: string): Promise<Band[]> => {
@@ -100,27 +101,12 @@ export const updateBand = async (
   },
 ): Promise<void> => {
   try {
-    const setClauses: string[] = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const values: any[] = []
-    let paramIndex = 1
-
-    if (data.name !== undefined) {
-      setClauses.push(`name = $${paramIndex++}`)
-      values.push(data.name)
-    }
-    if (data.description !== undefined) {
-      setClauses.push(`description = $${paramIndex++}`)
-      values.push(data.description)
-    }
-    if (data.cover_url !== undefined) {
-      setClauses.push(`cover_url = $${paramIndex++}`)
-      values.push(data.cover_url)
-    }
-    if (data.color !== undefined) {
-      setClauses.push(`color = $${paramIndex++}`)
-      values.push(data.color)
-    }
+    const { setClauses, values, nextIndex: paramIndex } = buildUpdateSet(data, [
+      'name',
+      'description',
+      'cover_url',
+      'color',
+    ])
 
     setClauses.push(`updated_at = now()`)
 

@@ -83,6 +83,7 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 - `@playwright/test` — end-to-end tests (`/e2e`), covering auth, songs CRUD, and mobile Fast View
 - ESLint 9 (`eslint-config-next`)
 - `knip` — dead-code / unused-dependency detection (`npm run lint:dead`, config in `knip.json`), enforced by the `dead-code` CI job
+- `jscpd` — copy/paste (duplication) detection (`npm run lint:dup`, config in `.jscpd.json`: `src`, `minTokens: 50`, `minLines: 8`, `threshold: 2`), enforced by the `Duplication (jscpd)` CI job
 - SonarCloud (`sonar-project.properties`) and DeepSource (`.deepsource.toml`) for static analysis / code quality gates
 
 **Deployment**
@@ -115,7 +116,11 @@ src/
 ├── components/
 │   ├── layout/                 AppLayout, ConditionalLayout (auth-aware chrome)
 │   ├── profile/                InstrumentPicker
-│   └── songs/                  SongForm
+│   ├── songs/                  SongForm
+│   └── ui/                     Shared presentational pieces (ConfirmPanel, Toast, AlertBanner)
+├── hooks/                      Shared React hooks (client-side controllers)
+│   ├── useToast.ts             Floating Toast state + 4s auto-dismiss (render with components/ui/Toast)
+│   └── useBandAdmin.ts         Band-detail controller shared by /bands/[id] and the /profile band tab
 ├── lib/                        Domain logic + data access (no ORM; parameterized SQL via `pg`)
 │   ├── db.ts                   Postgres connection pool + `query()` helper
 │   ├── auth.ts / auth-client.ts / auth-session.ts

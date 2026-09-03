@@ -9,6 +9,8 @@ import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsActi
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
 import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
+import { Toast } from '@/components/ui/Toast'
+import { useToast } from '@/hooks/useToast'
 import { stageViewportHeight, isStableViewportMeasurement } from '@/lib/stageInteraction'
 import { getPlaylistEntryIdsAction, getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
 
@@ -124,17 +126,7 @@ export default function FastViewPage() {
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   // Toast notification state
-  const [toast, setToast] = useState<{ message: string; type: 'error' | 'warning' | 'info' | 'success' } | null>(null)
-
-  function showToast(message: string, type: 'error' | 'warning' | 'info' | 'success' = 'info') {
-    setToast({ message, type })
-  }
-
-  useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(null), 4000)
-    return () => clearTimeout(timer)
-  }, [toast])
+  const { toast, showToast, dismissToast } = useToast()
 
   // Links editing state
   const [isAddingLink, setIsAddingLink] = useState(false)
@@ -1587,22 +1579,7 @@ export default function FastViewPage() {
 
     {/* Floating Toast Notification */}
     {toast && (
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
-        <div className={`rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md ${
-          toast.type === 'error'
-            ? 'bg-red-950/90 text-red-100 border-red-800'
-            : toast.type === 'warning'
-            ? 'bg-amber-950/90 text-amber-100 border-amber-800'
-            : toast.type === 'success'
-            ? 'bg-emerald-950/90 text-emerald-100 border-emerald-800'
-            : 'bg-gray-900/90 text-white border-gray-700'
-        }`}>
-          <span>{toast.message}</span>
-          <button onClick={() => setToast(null)} className="text-white/70 hover:text-white text-sm font-bold shrink-0">
-            ✕
-          </button>
-        </div>
-      </div>
+      <Toast message={toast.message} tone={toast.tone} onDismiss={dismissToast} />
     )}
     </>
   )

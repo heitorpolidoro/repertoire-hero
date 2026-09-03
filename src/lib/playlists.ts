@@ -1,5 +1,6 @@
 import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { buildUpdateSet } from '@/lib/sqlUpdate'
 import type { Playlist } from '@/types/database'
 
 export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
@@ -70,27 +71,12 @@ export async function updatePlaylist(
 ): Promise<void> {
   try {
     // Dynamically build the update query to avoid overwriting omitted fields
-    const setClauses: string[] = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const values: any[] = []
-    let paramIndex = 1
-
-    if (data.name !== undefined) {
-      setClauses.push(`name = $${paramIndex++}`)
-      values.push(data.name)
-    }
-    if (data.description !== undefined) {
-      setClauses.push(`description = $${paramIndex++}`)
-      values.push(data.description)
-    }
-    if (data.sync_with_spotify !== undefined) {
-      setClauses.push(`sync_with_spotify = $${paramIndex++}`)
-      values.push(data.sync_with_spotify)
-    }
-    if (data.tags !== undefined) {
-      setClauses.push(`tags = $${paramIndex++}`)
-      values.push(data.tags)
-    }
+    const { setClauses, values, nextIndex: paramIndex } = buildUpdateSet(data, [
+      'name',
+      'description',
+      'sync_with_spotify',
+      'tags',
+    ])
 
     setClauses.push(`updated_at = now()`)
 

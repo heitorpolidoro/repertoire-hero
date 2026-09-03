@@ -198,20 +198,23 @@ export async function getSongEntry(owner: RepertoireOwner, repertoireId: string)
   }
 }
 
+/** The editable song fields a repertoire owner can submit from the song form. */
+export interface SongUpdateInput {
+  title: string
+  artist: string
+  album?: string | null
+  key: string | null
+  status: SongStatus
+  tags: string[]
+  links: SongLink[]
+  cover_url?: string | null
+  duration_seconds?: number | null
+}
+
 export async function updateSong(
   owner: RepertoireOwner,
   entry: Repertoire,
-  data: {
-    title: string
-    artist: string
-    album?: string | null
-    key: string | null
-    status: SongStatus
-    tags: string[]
-    links: SongLink[]
-    cover_url?: string | null
-    duration_seconds?: number | null
-  }
+  data: SongUpdateInput
 ): Promise<void> {
   const isBand = 'bandId' in owner
   const ownerId = isBand ? owner.bandId : owner.userId

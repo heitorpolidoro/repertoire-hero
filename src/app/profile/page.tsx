@@ -2,273 +2,63 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getProfileAction as getProfile,
   updateProfileAction as updateProfile,
   updateEmailAction as updateEmail,
 } from "@/app/actions/profile";
-import {
-  getBandWithMembersAction as getBandWithMembers,
-  updateBandAction as updateBand,
-  getBandPlaylistsAction as getBandPlaylists,
-  createBandPlaylistAction as createBandPlaylist,
-  uploadBandCoverAction,
-  deleteBandAction as deleteBand,
-  leaveBandAction as leaveBand,
-  removeBandMemberAction as removeBandMember,
-} from "@/app/actions/bands";
-import { authClient } from "@/lib/auth-client";
 import { useBandContextStore } from "@/store/bandContextStore";
-import { compressImageFile } from "@/lib/imageCompressor";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
-import { DEFAULT_BAND_COLOR, getBandThemeStyles } from "@/lib/bandColors";
+import { getBandThemeStyles } from "@/lib/bandColors";
 import { InstrumentPicker, INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
+import { AlertBanner } from "@/components/ui/AlertBanner";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
-import type { Profile, Band, BandMember, Playlist } from "@/types/database";
+import { Toast } from "@/components/ui/Toast";
+import { useToast } from "@/hooks/useToast";
+import { useBandAdmin } from "@/hooks/useBandAdmin";
+import { BAND_PROFILE_LOAD_POLICY } from "@/lib/bandAdminLoad";
+import type { Profile } from "@/types/database";
 
-/** A destructive band action awaiting in-page confirmation. */
-type PendingAction =
-  | { kind: "deleteBand" }
-  | { kind: "leaveBand" }
-  | { kind: "removeMember"; member: BandMember };
+/** Module-level so the hook's `load` callback stays referentially stable. */
+const BAND_PROFILE_MESSAGES = {
+  save: "Failed to save band profile",
+  load: "Failed to load band profile",
+};
 
 // ---------------------------------------------------------------------------
 // BandProfileView Component
 // ---------------------------------------------------------------------------
 function BandProfileView({ bandId }: { bandId: string }) {
   const router = useRouter();
-  const { data: session } = authClient.useSession();
-  const currentUserId = session?.user?.id ?? null;
 
-  const [band, setBand] = useState<Band | null>(null);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { toast, showToast, dismissToast } = useToast();
 
-  // Edit band state
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
-  const [editCoverPreview, setEditCoverPreview] = useState<string | null>(null);
-  const [editColor, setEditColor] = useState<string>(DEFAULT_BAND_COLOR);
-  const [saving, setSaving] = useState(false);
+  const bandAdmin = useBandAdmin({
+    bandId,
+    showToast,
+    onNotFound: () => setError("Band not found."),
+    loadPolicy: BAND_PROFILE_LOAD_POLICY,
+    onGone: () => router.replace("/bands"),
+    onNavigateToPlaylist: (playlistId) => router.push(`/playlists/${playlistId}`),
+    messages: BAND_PROFILE_MESSAGES,
+  });
 
-  // Invite link copy state
-  const [copied, setCopied] = useState(false);
+  const {
+    currentUserId, band, playlists, loading, error, setError,
+    editing, setEditing, editName, setEditName, editDesc, setEditDesc,
+    editCoverPreview, editColor, setEditColor, saving, copied,
+    showNewPlaylist, setShowNewPlaylist, newPlaylistName, setNewPlaylistName,
+    creatingPlaylist, pendingAction, setPendingAction, actionBusy,
+    currentMember, isAdmin, inviteUrl,
+  } = bandAdmin;
 
-  // New playlist state
-  const [showNewPlaylist, setShowNewPlaylist] = useState(false);
-  const [newPlaylistName, setNewPlaylistName] = useState("");
-  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
-
-  // Destructive action confirmation state
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
-
-  // Toast notification state
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-
-  function showToast(message: string, type: "success" | "error" = "success") {
-    setToast({ message, type });
-  }
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  const load = useCallback(async () => {
-    try {
-      const [bandData, playlistData] = await Promise.all([
-        getBandWithMembers(bandId),
-        getBandPlaylists(bandId),
-      ]);
-
-      if (!bandData) {
-        setError("Band not found.");
-        setLoading(false);
-        return;
-      }
-
-      setBand(bandData);
-      setPlaylists(playlistData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load band profile");
-    } finally {
-      setLoading(false);
-    }
-  }, [bandId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const currentMember = band?.members?.find((m) => m.user_id === currentUserId);
-  const isAdmin = currentMember?.role === "admin";
-  const inviteUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/join/${band?.invite_code ?? ""}`
-      : "";
-
-  async function handleCopyInvite() {
-    await navigator.clipboard.writeText(inviteUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  function openEdit() {
-    setEditName(band?.name ?? "");
-    setEditDesc(band?.description ?? "");
-    setEditCoverFile(null);
-    setEditCoverPreview(band?.cover_url ?? null);
-    setEditColor(band?.color ?? DEFAULT_BAND_COLOR);
-    setEditing(true);
-  }
-
-  async function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (file) {
-      const compressed = await compressImageFile(file);
-      setEditCoverFile(compressed);
-      setEditCoverPreview(URL.createObjectURL(compressed));
-    }
-  }
-
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editName.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      let cover_url = band?.cover_url ?? null;
-      if (editCoverFile) {
-        const formData = new FormData();
-        formData.append("file", editCoverFile);
-        const uploadRes = await uploadBandCoverAction(formData);
-        if (uploadRes.error) {
-          setError(uploadRes.error);
-          setSaving(false);
-          return;
-        }
-        cover_url = uploadRes.coverUrl ?? null;
-      }
-
-      await updateBand(bandId, {
-        name: editName.trim(),
-        description: editDesc.trim() || null,
-        cover_url,
-        color: editColor,
-      });
-
-      setBand((prev) =>
-        prev
-          ? {
-              ...prev,
-              name: editName.trim(),
-              description: editDesc.trim() || null,
-              cover_url,
-              color: editColor,
-            }
-          : prev,
-      );
-
-      const currentContext = useBandContextStore.getState().context;
-      if (currentContext.type === "band" && currentContext.id === bandId) {
-        useBandContextStore.getState().setBandContext(bandId, editName.trim(), editColor);
-      }
-
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save band profile");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleDelete() {
-    setError(null);
-    setPendingAction({ kind: "deleteBand" });
-  }
-
-  function handleLeave() {
-    if (!currentUserId) return;
-    setError(null);
-    setPendingAction({ kind: "leaveBand" });
-  }
-
-  function handleRemoveMember(member: BandMember) {
-    setError(null);
-    setPendingAction({ kind: "removeMember", member });
-  }
-
-  async function confirmPendingAction() {
-    if (!pendingAction) return;
-    setActionBusy(true);
-    try {
-      switch (pendingAction.kind) {
-        case "deleteBand":
-          try {
-            await deleteBand(bandId);
-            setPendingAction(null);
-            // No toast: the view unmounts immediately, navigation is the feedback.
-            router.replace("/bands");
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to delete band");
-          }
-          break;
-        case "leaveBand":
-          try {
-            await leaveBand(bandId);
-            setPendingAction(null);
-            router.replace("/bands");
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to leave band");
-          }
-          break;
-        case "removeMember": {
-          const { member } = pendingAction;
-          try {
-            await removeBandMember(member.id);
-            setBand((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    members: prev.members?.filter((m) => m.id !== member.id),
-                  }
-                : prev,
-            );
-            setPendingAction(null);
-            showToast(
-              `${member.profile?.full_name ?? "This member"} removed from the band.`,
-              "success",
-            );
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to remove member");
-          }
-          break;
-        }
-      }
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function handleCreatePlaylist(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newPlaylistName.trim() || !currentUserId) return;
-    setCreatingPlaylist(true);
-    try {
-      const playlistId = await createBandPlaylist(bandId, newPlaylistName.trim());
-      router.push(`/playlists/${playlistId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create playlist");
-      setCreatingPlaylist(false);
-    }
-  }
+  const {
+    handleCopyInvite, openEdit, handleEditCoverChange, handleSaveEdit,
+    handleDelete, handleLeave, handleRemoveMember, confirmPendingAction,
+    handleCreatePlaylist,
+  } = bandAdmin;
 
   if (loading) {
     return (
@@ -292,12 +82,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
   return (
     <div className="space-y-6">
       {error && (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-3">
-          <p className="text-sm text-red-700">{error}</p>
-          <button type="button" onClick={() => setError(null)} className="text-red-400 hover:text-red-600 text-xs focus:outline-none">
-            ✕
-          </button>
-        </div>
+        <AlertBanner tone="error" message={error} onDismiss={() => setError(null)} />
       )}
 
       {/* Band Profile Card */}
@@ -634,25 +419,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
       )}
 
       {/* Floating Toast Notification */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
-          <div
-            className={`rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md ${
-              toast.type === "error"
-                ? "bg-red-950/90 text-red-100 border-red-800"
-                : "bg-emerald-950/90 text-emerald-100 border-emerald-800"
-            }`}
-          >
-            <span>{toast.message}</span>
-            <button
-              onClick={() => setToast(null)}
-              className="text-white/70 hover:text-white text-sm font-bold shrink-0"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+      {toast && <Toast message={toast.message} tone={toast.tone} onDismiss={dismissToast} />}
     </div>
   );
 }
@@ -754,34 +521,10 @@ function PersonalProfileView() {
   return (
     <div className="flex flex-col gap-6">
       {error && (
-        <div
-          role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-3"
-        >
-          <p className="text-sm text-red-700">{error}</p>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            className="text-red-400 hover:text-red-600 text-xs focus:outline-none"
-          >
-            ✕
-          </button>
-        </div>
+        <AlertBanner tone="error" message={error} onDismiss={() => setError(null)} />
       )}
       {success && (
-        <div
-          role="status"
-          className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 flex items-center justify-between gap-3"
-        >
-          <p className="text-sm text-green-700">{success}</p>
-          <button
-            type="button"
-            onClick={() => setSuccess(null)}
-            className="text-green-500 hover:text-green-700 text-xs focus:outline-none"
-          >
-            ✕
-          </button>
-        </div>
+        <AlertBanner tone="success" message={success} onDismiss={() => setSuccess(null)} />
       )}
 
       {/* Photo */}

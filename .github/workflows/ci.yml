@@ -98,3 +98,22 @@ jobs:
 
       - name: Knip
         run: npm run lint:dead
+
+  duplication:
+    name: "Duplication (jscpd)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: jscpd
+        run: npm run lint:dup

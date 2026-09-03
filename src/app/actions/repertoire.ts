@@ -14,6 +14,7 @@ import {
   updateSong,
   createAndAddSong,
   type RepertoireOwner,
+  type SongUpdateInput,
 } from '@/lib/songs'
 import type { Repertoire, SongLink, SongStatus } from '@/types/database'
 
@@ -66,17 +67,7 @@ export async function getSongEntryAction(repertoireId: string, bandId?: string |
 
 export async function updateSongAction(
   entry: Repertoire,
-  data: {
-    title: string
-    artist: string
-    album?: string | null
-    key: string | null
-    status: SongStatus
-    tags: string[]
-    links: SongLink[]
-    cover_url?: string | null
-    duration_seconds?: number | null
-  },
+  data: SongUpdateInput,
   bandId?: string | null
 ) {
   const owner = await resolveOwner(bandId)

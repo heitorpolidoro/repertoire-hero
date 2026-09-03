@@ -3,6 +3,27 @@
  * Operates without requiring any API keys.
  */
 
+/**
+ * Calls an oEmbed endpoint and returns its `title`, trimmed, or `null` when the
+ * provider answers with an error, an unusable body or a blank title.
+ * Module-private: the exported entry point is `fetchUrlTitle`.
+ */
+async function fetchOembedTitle(
+  endpoint: string,
+  headers: Record<string, string>
+): Promise<string | null> {
+  try {
+    const res = await fetch(endpoint, { headers, signal: AbortSignal.timeout(4000) })
+    if (res.ok) {
+      const data = (await res.json()) as { title?: string }
+      if (data.title?.trim()) return data.title.trim()
+    }
+  } catch {
+    // oEmbed is best-effort — the caller falls through to its next strategy.
+  }
+  return null
+}
+
 export async function fetchUrlTitle(url: string): Promise<string> {
   if (!url) return ''
   const cleanUrl = url.trim()
@@ -15,47 +36,29 @@ export async function fetchUrlTitle(url: string): Promise<string> {
 
   // 1. YouTube
   if (lower.includes('youtube.com/') || lower.includes('youtu.be/')) {
-    try {
-      const res = await fetch(
-        `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`,
-        { headers, signal: AbortSignal.timeout(4000) }
-      )
-      if (res.ok) {
-        const data = (await res.json()) as { title?: string }
-        if (data.title?.trim()) return data.title.trim()
-      }
-    } catch {
-      // YouTube oEmbed is best-effort — fall through to noembed.
-    }
+    // YouTube oEmbed is best-effort — fall through to noembed.
+    const youtubeTitle = await fetchOembedTitle(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`,
+      headers
+    )
+    if (youtubeTitle) return youtubeTitle
 
-    try {
-      const noembedRes = await fetch(
-        `https://noembed.com/embed?url=${encodeURIComponent(cleanUrl)}`,
-        { headers, signal: AbortSignal.timeout(4000) }
-      )
-      if (noembedRes.ok) {
-        const data = (await noembedRes.json()) as { title?: string }
-        if (data.title?.trim()) return data.title.trim()
-      }
-    } catch {
-      // noembed.com is a best-effort fallback — fall through to the generic HTML fetch.
-    }
+    // noembed.com is a best-effort fallback — fall through to the generic HTML fetch.
+    const noembedTitle = await fetchOembedTitle(
+      `https://noembed.com/embed?url=${encodeURIComponent(cleanUrl)}`,
+      headers
+    )
+    if (noembedTitle) return noembedTitle
   }
 
   // 2. Spotify
   if (lower.includes('spotify.com/')) {
-    try {
-      const res = await fetch(
-        `https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`,
-        { headers, signal: AbortSignal.timeout(4000) }
-      )
-      if (res.ok) {
-        const data = (await res.json()) as { title?: string }
-        if (data.title?.trim()) return data.title.trim()
-      }
-    } catch {
-      // Spotify oEmbed is best-effort — fall through to the generic HTML fetch.
-    }
+    // Spotify oEmbed is best-effort — fall through to the generic HTML fetch.
+    const spotifyTitle = await fetchOembedTitle(
+      `https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`,
+      headers
+    )
+    if (spotifyTitle) return spotifyTitle
   }
 
   // 3. Generic HTML Page <title> / og:title

@@ -6,6 +6,7 @@ import {
   getPendingGlobalSongEditsAction,
   reviewGlobalSongEditAction,
 } from "@/app/actions/moderation";
+import { AlertBanner } from "@/components/ui/AlertBanner";
 import type { GlobalSongEdit } from "@/types/database";
 
 export default function AdminModerationPage() {
@@ -138,35 +139,11 @@ export default function AdminModerationPage() {
 
       {/* Toast Alerts */}
       {error && (
-        <div
-          role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between gap-3"
-        >
-          <p className="text-sm text-red-700">{error}</p>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            className="text-red-400 hover:text-red-600 text-xs focus:outline-none"
-          >
-            ✕
-          </button>
-        </div>
+        <AlertBanner tone="error" message={error} onDismiss={() => setError(null)} />
       )}
 
       {success && (
-        <div
-          role="status"
-          className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 flex items-center justify-between gap-3"
-        >
-          <p className="text-sm text-green-700">{success}</p>
-          <button
-            type="button"
-            onClick={() => setSuccess(null)}
-            className="text-green-500 hover:text-green-700 text-xs focus:outline-none"
-          >
-            ✕
-          </button>
-        </div>
+        <AlertBanner tone="success" message={success} onDismiss={() => setSuccess(null)} />
       )}
 
       {/* Moderation Queue */}

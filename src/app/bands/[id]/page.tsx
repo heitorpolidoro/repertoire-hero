@@ -1,117 +1,79 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import {
-  getBandWithMembersAction as getBandWithMembers,
-  updateBandAction as updateBand,
-  deleteBandAction as deleteBand,
-  leaveBandAction as leaveBand,
-  removeBandMemberAction as removeBandMember,
-  getBandPlaylistsAction as getBandPlaylists,
-  createBandPlaylistAction as createBandPlaylist,
-  uploadBandCoverAction,
-  regenerateBandInviteCodeAction,
-} from "@/app/actions/bands";
-import { authClient } from "@/lib/auth-client";
-import { useBandContextStore } from "@/store/bandContextStore";
-import { compressImageFile } from "@/lib/imageCompressor";
+import { regenerateBandInviteCodeAction } from "@/app/actions/bands";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
-import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
-import type { Band, BandMember, Playlist } from "@/types/database";
+import { Toast } from "@/components/ui/Toast";
+import { useToast } from "@/hooks/useToast";
+import { useBandAdmin } from "@/hooks/useBandAdmin";
+import { BANDS_PAGE_LOAD_POLICY } from "@/lib/bandAdminLoad";
 
-/** A destructive action awaiting in-page confirmation. */
-type PendingAction =
-  | { kind: "deleteBand" }
-  | { kind: "leaveBand" }
-  | { kind: "removeMember"; member: BandMember };
+/** Module-level so the hook's `load` callback stays referentially stable. */
+const BAND_PAGE_MESSAGES = { save: "Failed to save" };
 
 export default function BandDetailPage() {
   const { id: bandId } = useParams<{ id: string }>();
   const router = useRouter();
-  const { data: session } = authClient.useSession();
 
-  const [band, setBand] = useState<Band | null>(null);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { toast, showToast, dismissToast } = useToast();
 
-  const currentUserId = session?.user?.id ?? null;
+  const {
+    currentUserId,
+    band,
+    setBand,
+    playlists,
+    loading,
+    error,
+    setError,
+    editing,
+    setEditing,
+    editName,
+    setEditName,
+    editDesc,
+    setEditDesc,
+    editCoverPreview,
+    editColor,
+    setEditColor,
+    saving,
+    copied,
+    setCopied,
+    showNewPlaylist,
+    setShowNewPlaylist,
+    newPlaylistName,
+    setNewPlaylistName,
+    creatingPlaylist,
+    pendingAction,
+    setPendingAction,
+    actionBusy,
+    currentMember,
+    isAdmin,
+    inviteUrl,
+    handleCopyInvite,
+    openEdit,
+    handleEditCoverChange,
+    handleSaveEdit,
+    handleDelete,
+    handleLeave,
+    handleRemoveMember,
+    confirmPendingAction,
+    handleCreatePlaylist,
+  } = useBandAdmin({
+    bandId,
+    showToast,
+    onNotFound: () => router.replace("/bands"),
+    loadPolicy: BANDS_PAGE_LOAD_POLICY,
+    onGone: () => router.replace("/bands"),
+    onNavigateToPlaylist: (playlistId) => router.push(`/playlists/${playlistId}`),
+    messages: BAND_PAGE_MESSAGES,
+  });
 
-  // Edit band modal state
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
-  const [editCoverPreview, setEditCoverPreview] = useState<string | null>(null);
-  const [editColor, setEditColor] = useState<string>(DEFAULT_BAND_COLOR);
-  const [saving, setSaving] = useState(false);
-
-  // New playlist state
-  const [showNewPlaylist, setShowNewPlaylist] = useState(false);
-  const [newPlaylistName, setNewPlaylistName] = useState("");
-  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
-
-  // Invite link copy state
-  const [copied, setCopied] = useState(false);
-
-  // Invite link regenerate state
+  // Invite link regenerate state — single-site, so it stays on the page.
   const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-
-  // Destructive action confirmation state
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
-
-  // Toast notification state
-  const [toast, setToast] = useState<{ message: string } | null>(null);
-
-  function showToast(message: string) {
-    setToast({ message });
-  }
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  const load = useCallback(async () => {
-    const [bandData, playlistData] = await Promise.all([
-      getBandWithMembers(bandId),
-      getBandPlaylists(bandId),
-    ]);
-
-    if (!bandData) {
-      router.replace("/bands");
-      return;
-    }
-
-    setBand(bandData);
-    setPlaylists(playlistData);
-    setLoading(false);
-  }, [bandId, router]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-  }, [load]);
-
-  const currentMember = band?.members?.find((m) => m.user_id === currentUserId);
-  const isAdmin = currentMember?.role === "admin";
-  const inviteUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/join/${band?.invite_code ?? ""}`
-      : "";
-
-  async function handleCopyInvite() {
-    await navigator.clipboard.writeText(inviteUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
 
   async function handleRegenerateInvite() {
     setRegenerating(true);
@@ -121,172 +83,13 @@ export default function BandDetailPage() {
       setBand((prev) => (prev ? { ...prev, invite_code: newCode } : prev));
       setCopied(false);
       setConfirmingRegenerate(false);
-      showToast("Invite link regenerated. The old link no longer works.");
+      showToast("Invite link regenerated. The old link no longer works.", "success");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to regenerate invite link",
       );
     } finally {
       setRegenerating(false);
-    }
-  }
-
-  function openEdit() {
-    setEditName(band?.name ?? "");
-    setEditDesc(band?.description ?? "");
-    setEditCoverFile(null);
-    setEditCoverPreview(band?.cover_url ?? null);
-    setEditColor(band?.color ?? DEFAULT_BAND_COLOR);
-    setEditing(true);
-  }
-
-  async function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (file) {
-      const compressed = await compressImageFile(file);
-      setEditCoverFile(compressed);
-      setEditCoverPreview(URL.createObjectURL(compressed));
-    }
-  }
-
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editName.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      let cover_url = band?.cover_url ?? null;
-      if (editCoverFile) {
-        const formData = new FormData();
-        formData.append("file", editCoverFile);
-        const uploadRes = await uploadBandCoverAction(formData);
-        if (uploadRes.error) {
-          setError(uploadRes.error);
-          setSaving(false);
-          return;
-        }
-        cover_url = uploadRes.coverUrl ?? null;
-      }
-
-      await updateBand(bandId, {
-        name: editName.trim(),
-        description: editDesc.trim() || null,
-        cover_url,
-        color: editColor,
-      });
-      setBand((prev) =>
-        prev
-          ? {
-              ...prev,
-              name: editName.trim(),
-              description: editDesc.trim() || null,
-              cover_url,
-              color: editColor,
-            }
-          : prev,
-      );
-
-      const currentContext = useBandContextStore.getState().context;
-      if (currentContext.type === "band" && currentContext.id === bandId) {
-        useBandContextStore.getState().setBandContext(bandId, editName.trim(), editColor);
-      }
-
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleDelete() {
-    setError(null);
-    setPendingAction({ kind: "deleteBand" });
-  }
-
-  function handleLeave() {
-    if (!currentUserId) return;
-    setError(null);
-    setPendingAction({ kind: "leaveBand" });
-  }
-
-  function handleRemoveMember(member: BandMember) {
-    setError(null);
-    setPendingAction({ kind: "removeMember", member });
-  }
-
-  async function confirmPendingAction() {
-    if (!pendingAction) return;
-    setActionBusy(true);
-    try {
-      switch (pendingAction.kind) {
-        case "deleteBand":
-          try {
-            await deleteBand(bandId);
-            setPendingAction(null);
-            // No toast: the page unmounts immediately, navigation is the feedback.
-            router.replace("/bands");
-          } catch (err) {
-            setError(
-              err instanceof Error ? err.message : "Failed to delete band",
-            );
-          }
-          break;
-        case "leaveBand":
-          try {
-            await leaveBand(bandId);
-            setPendingAction(null);
-            router.replace("/bands");
-          } catch (err) {
-            setError(
-              err instanceof Error ? err.message : "Failed to leave band",
-            );
-          }
-          break;
-        case "removeMember": {
-          const { member } = pendingAction;
-          try {
-            await removeBandMember(member.id);
-            setBand((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    members: prev.members?.filter((m) => m.id !== member.id),
-                  }
-                : prev,
-            );
-            setPendingAction(null);
-            showToast(
-              `${member.profile?.full_name ?? "This member"} removed from the band.`,
-            );
-          } catch (err) {
-            setError(
-              err instanceof Error ? err.message : "Failed to remove member",
-            );
-          }
-          break;
-        }
-      }
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function handleCreatePlaylist(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newPlaylistName.trim() || !currentUserId) return;
-    setCreatingPlaylist(true);
-    try {
-      const playlistId = await createBandPlaylist(
-        bandId,
-        newPlaylistName.trim(),
-      );
-      router.push(`/playlists/${playlistId}`);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create playlist",
-      );
-      setCreatingPlaylist(false);
     }
   }
 
@@ -696,19 +499,7 @@ export default function BandDetailPage() {
 
       {/* Floating Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
-          <div
-            className="rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md bg-emerald-950/90 text-emerald-100 border-emerald-800"
-          >
-            <span>{toast.message}</span>
-            <button
-              onClick={() => setToast(null)}
-              className="text-white/70 hover:text-white text-sm font-bold shrink-0"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+        <Toast message={toast.message} tone={toast.tone} onDismiss={dismissToast} />
       )}
     </>
   );

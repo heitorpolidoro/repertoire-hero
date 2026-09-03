@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.63-202609030716",
+  "version": "0.1.64-202609031401",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "lint:dead": "knip",
+    "lint:dup": "jscpd",
     "seed": "bash scripts/dev-seed",
     "test": "vitest",
     "test:e2e": "playwright test",
@@ -47,6 +48,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
+    "jscpd": "^5.1.2",
     "knip": "6.34.0",
     "tailwindcss": "^4",
     "typescript": "^5",
