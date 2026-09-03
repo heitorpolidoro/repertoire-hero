@@ -7,6 +7,7 @@ import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
+import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import { stageViewportHeight, isStableViewportMeasurement } from '@/lib/stageInteraction'
 import { getPlaylistEntryIdsAction, getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
 
@@ -80,6 +81,11 @@ function findScrollHost(node: HTMLElement | null): HTMLElement | null {
   return null
 }
 
+/** A destructive delete awaiting in-page confirmation. */
+type PendingDelete =
+  | { kind: 'tab'; tabId: string; origin: 'band' | 'personal'; targetId: string }
+  | { kind: 'link'; url: string }
+
 export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -111,6 +117,10 @@ export default function FastViewPage() {
   // Status changing state
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
+
+  // Delete confirmation state
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'warning' | 'info' | 'success' } | null>(null)
@@ -436,25 +446,11 @@ export default function FastViewPage() {
     }
   }
 
-  // Handler for deleting tab
-  async function handleDeleteTab(tabId: string, origin: 'band' | 'personal') {
+  // Handler for deleting tab — opens the in-page confirmation
+  function handleDeleteTab(tabId: string, origin: 'band' | 'personal') {
     const targetId = origin === 'personal' && personalEntry ? personalEntry.id : entry?.id
     if (!targetId) return
-    if (!confirm('Are you sure you want to delete this tab?')) return
-    try {
-      const res = await deleteTabAction(tabId, targetId)
-      if (res.error) {
-        showToast(res.error, 'error')
-      } else {
-        if (origin === 'personal') {
-          setPersonalTabs(prev => prev.filter(t => t.id !== tabId))
-        } else {
-          setTabs(prev => prev.filter(t => t.id !== tabId))
-        }
-      }
-    } catch {
-      showToast('Failed to delete tab', 'error')
-    }
+    setPendingDelete({ kind: 'tab', tabId, origin, targetId })
   }
 
   // Handler for saving lyrics
@@ -579,29 +575,58 @@ export default function FastViewPage() {
     }
   }
 
-  // Handler for deleting a song link
-  async function handleDeleteLink(urlToDelete: string) {
+  // Handler for deleting a song link — opens the in-page confirmation
+  function handleDeleteLink(urlToDelete: string) {
     if (!entry || !entry.song) return
-    if (!confirm('Are you sure you want to delete this link?')) return
-    
-    const currentLinks = entry.song.links ?? []
-    const updatedLinks = currentLinks.filter(link => link.url !== urlToDelete)
-    
+    setPendingDelete({ kind: 'link', url: urlToDelete })
+  }
+
+  // Runs the delete that the in-page confirmation is holding
+  async function confirmPendingDelete() {
+    if (!pendingDelete) return
+    setDeleteBusy(true)
     try {
-      await updateSongLinksAction(entry.id, updatedLinks)
-      setEntry(prev => {
-        if (!prev || !prev.song) return prev
-        return {
-          ...prev,
-          song: {
-            ...prev.song,
-            links: updatedLinks
+      if (pendingDelete.kind === 'tab') {
+        const { tabId, origin, targetId } = pendingDelete
+        try {
+          const res = await deleteTabAction(tabId, targetId)
+          if (res.error) {
+            showToast(res.error, 'error')
+          } else {
+            if (origin === 'personal') {
+              setPersonalTabs(prev => prev.filter(t => t.id !== tabId))
+            } else {
+              setTabs(prev => prev.filter(t => t.id !== tabId))
+            }
+            showToast('Tab deleted.', 'info')
           }
+        } catch {
+          showToast('Failed to delete tab', 'error')
         }
-      })
-      showToast('Link deleted.', 'info')
-    } catch {
-      showToast('Failed to delete link.', 'error')
+      } else if (entry?.song) {
+        const currentLinks = entry.song.links ?? []
+        const updatedLinks = currentLinks.filter(link => link.url !== pendingDelete.url)
+
+        try {
+          await updateSongLinksAction(entry.id, updatedLinks)
+          setEntry(prev => {
+            if (!prev || !prev.song) return prev
+            return {
+              ...prev,
+              song: {
+                ...prev.song,
+                links: updatedLinks
+              }
+            }
+          })
+          showToast('Link deleted.', 'info')
+        } catch {
+          showToast('Failed to delete link.', 'error')
+        }
+      }
+      setPendingDelete(null)
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -1540,6 +1565,22 @@ export default function FastViewPage() {
           </div>
         </div>
       </div>
+    )}
+
+    {/* In-page delete confirmation — anchored above the Toast so they never overlap */}
+    {pendingDelete && (
+      <ConfirmPanel
+        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-sm shadow-xl"
+        message={
+          pendingDelete.kind === 'tab'
+            ? "Delete this tab? This can't be undone."
+            : "Delete this link? This can't be undone."
+        }
+        confirmLabel="Delete"
+        busy={deleteBusy}
+        onConfirm={confirmPendingDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     )}
 
     {/* Floating Toast Notification */}

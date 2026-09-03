@@ -25,7 +25,14 @@ import { compressImageFile } from "@/lib/imageCompressor";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { DEFAULT_BAND_COLOR, getBandThemeStyles } from "@/lib/bandColors";
 import { InstrumentPicker, INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
+import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
 import type { Profile, Band, BandMember, Playlist } from "@/types/database";
+
+/** A destructive band action awaiting in-page confirmation. */
+type PendingAction =
+  | { kind: "deleteBand" }
+  | { kind: "leaveBand" }
+  | { kind: "removeMember"; member: BandMember };
 
 // ---------------------------------------------------------------------------
 // BandProfileView Component
@@ -56,6 +63,23 @@ function BandProfileView({ bandId }: { bandId: string }) {
   const [showNewPlaylist, setShowNewPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+
+  // Destructive action confirmation state
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  function showToast(message: string, type: "success" | "error" = "success") {
+    setToast({ message, type });
+  }
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const load = useCallback(async () => {
     try {
@@ -165,41 +189,71 @@ function BandProfileView({ bandId }: { bandId: string }) {
     }
   }
 
-  async function handleDelete() {
-    if (!confirm(`Delete "${band?.name}"? This cannot be undone.`)) return;
-    try {
-      await deleteBand(bandId);
-      router.replace("/bands");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete band");
-    }
+  function handleDelete() {
+    setError(null);
+    setPendingAction({ kind: "deleteBand" });
   }
 
-  async function handleLeave() {
+  function handleLeave() {
     if (!currentUserId) return;
-    if (!confirm("Leave this band?")) return;
-    try {
-      await leaveBand(bandId);
-      router.replace("/bands");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to leave band");
-    }
+    setError(null);
+    setPendingAction({ kind: "leaveBand" });
   }
 
-  async function handleRemoveMember(member: BandMember) {
-    if (!confirm(`Remove ${member.profile?.full_name ?? "this member"}?`)) return;
+  function handleRemoveMember(member: BandMember) {
+    setError(null);
+    setPendingAction({ kind: "removeMember", member });
+  }
+
+  async function confirmPendingAction() {
+    if (!pendingAction) return;
+    setActionBusy(true);
     try {
-      await removeBandMember(member.id);
-      setBand((prev) =>
-        prev
-          ? {
-              ...prev,
-              members: prev.members?.filter((m) => m.id !== member.id),
-            }
-          : prev,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove member");
+      switch (pendingAction.kind) {
+        case "deleteBand":
+          try {
+            await deleteBand(bandId);
+            setPendingAction(null);
+            // No toast: the view unmounts immediately, navigation is the feedback.
+            router.replace("/bands");
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to delete band");
+          }
+          break;
+        case "leaveBand":
+          try {
+            await leaveBand(bandId);
+            setPendingAction(null);
+            router.replace("/bands");
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to leave band");
+          }
+          break;
+        case "removeMember": {
+          const { member } = pendingAction;
+          try {
+            await removeBandMember(member.id);
+            setBand((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    members: prev.members?.filter((m) => m.id !== member.id),
+                  }
+                : prev,
+            );
+            setPendingAction(null);
+            showToast(
+              `${member.profile?.full_name ?? "This member"} removed from the band.`,
+              "success",
+            );
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to remove member");
+          }
+          break;
+        }
+      }
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -313,6 +367,17 @@ function BandProfileView({ bandId }: { bandId: string }) {
             </div>
           )}
         </div>
+
+        {pendingAction?.kind === "deleteBand" && (
+          <ConfirmPanel
+            className="mt-4"
+            message={`Delete "${band.name}"? This can't be undone.`}
+            confirmLabel="Delete"
+            busy={actionBusy}
+            onConfirm={confirmPendingAction}
+            onCancel={() => setPendingAction(null)}
+          />
+        )}
       </section>
 
       {/* Invite Link */}
@@ -344,47 +409,60 @@ function BandProfileView({ bandId }: { bandId: string }) {
         </h3>
         <ul className="space-y-2.5">
           {members.map((member) => (
-            <li key={member.id} className="flex items-center gap-3">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border"
-                style={theme.lightCardBadgeStyle}
-              >
-                {(member.profile?.full_name ?? member.profile?.email ?? "?")[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {member.profile?.full_name ?? member.profile?.email ?? "Unknown"}
-                  {member.user_id === currentUserId && (
-                    <span className="ml-1 text-xs text-gray-400 font-normal">(you)</span>
-                  )}
-                </p>
-                {member.profile?.primary_instrument && (
-                  <p className="text-xs text-gray-500 truncate">
-                    <span aria-hidden="true">
-                      {INSTRUMENT_ICONS[member.profile.primary_instrument] ?? "🎵"}
-                    </span>{" "}
-                    {member.profile.primary_instrument}
+            <li key={member.id} className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border"
+                  style={theme.lightCardBadgeStyle}
+                >
+                  {(member.profile?.full_name ?? member.profile?.email ?? "?")[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {member.profile?.full_name ?? member.profile?.email ?? "Unknown"}
+                    {member.user_id === currentUserId && (
+                      <span className="ml-1 text-xs text-gray-400 font-normal">(you)</span>
+                    )}
                   </p>
+                  {member.profile?.primary_instrument && (
+                    <p className="text-xs text-gray-500 truncate">
+                      <span aria-hidden="true">
+                        {INSTRUMENT_ICONS[member.profile.primary_instrument] ?? "🎵"}
+                      </span>{" "}
+                      {member.profile.primary_instrument}
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${
+                    member.role === "admin"
+                      ? "bg-amber-100 text-amber-800"
+                      : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {member.role}
+                </span>
+                {isAdmin && member.user_id !== currentUserId && (
+                  <button
+                    onClick={() => handleRemoveMember(member)}
+                    className="text-gray-400 hover:text-red-500 transition-colors text-base leading-none"
+                    title="Remove member"
+                  >
+                    ×
+                  </button>
                 )}
               </div>
-              <span
-                className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${
-                  member.role === "admin"
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                {member.role}
-              </span>
-              {isAdmin && member.user_id !== currentUserId && (
-                <button
-                  onClick={() => handleRemoveMember(member)}
-                  className="text-gray-400 hover:text-red-500 transition-colors text-base leading-none"
-                  title="Remove member"
-                >
-                  ×
-                </button>
-              )}
+
+              {pendingAction?.kind === "removeMember" &&
+                pendingAction.member.id === member.id && (
+                  <ConfirmPanel
+                    message={`Remove ${member.profile?.full_name ?? "this member"} from the band?`}
+                    confirmLabel="Remove"
+                    busy={actionBusy}
+                    onConfirm={confirmPendingAction}
+                    onCancel={() => setPendingAction(null)}
+                  />
+                )}
             </li>
           ))}
         </ul>
@@ -397,6 +475,16 @@ function BandProfileView({ bandId }: { bandId: string }) {
             >
               Leave band
             </button>
+            {pendingAction?.kind === "leaveBand" && (
+              <ConfirmPanel
+                className="mt-3"
+                message="Leave this band?"
+                confirmLabel="Leave"
+                busy={actionBusy}
+                onConfirm={confirmPendingAction}
+                onCancel={() => setPendingAction(null)}
+              />
+            )}
           </div>
         )}
       </section>
@@ -542,6 +630,27 @@ function BandProfileView({ bandId }: { bandId: string }) {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
+          <div
+            className={`rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md ${
+              toast.type === "error"
+                ? "bg-red-950/90 text-red-100 border-red-800"
+                : "bg-emerald-950/90 text-emerald-100 border-emerald-800"
+            }`}
+          >
+            <span>{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="text-white/70 hover:text-white text-sm font-bold shrink-0"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
     </div>

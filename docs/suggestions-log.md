@@ -365,3 +365,169 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
 
 ---
 
+
+## [RH-16] Substituir window.confirm() por Toast na pagina de banda — 2026-09-03
+
+- **§5 contains an instruction that cannot be followed literally alongside ER #2.**
+  §5 says the guardrail file "must be written so that it does not itself match the
+  shell grep gate (build the pattern so the literal text `confirm(` / `alert(`
+  never appears adjacent to an opening parenthesis)", but ER #2 requires the file
+  to contain the fixture snippets `if (!confirm('x')) return` and
+  `window.alert('x')`, which match the gate by construction. The belt-and-braces
+  `grep -v "noBrowserDialogs.test.ts"` in ER #1 makes this harmless either way, so
+  it is not blocking — but the instruction should be narrowed to "the *detector
+  regex source* must not match the gate" and the fixtures explicitly exempted, so
+  the developer does not waste effort obfuscating the fixtures.
+
+- **ER #3's import gate is brittle in a way the spec does not need.**
+  `grep -rn "ConfirmPanel" src --include='*.tsx' | grep import` only matches when
+  the identifier and the keyword `import` are on the *same physical line*. A
+  perfectly conforming multi-line import (`import {\n  ConfirmPanel,\n} from ...`)
+  yields zero lines for that file and fails the gate. `grep -rl "from \"@/components/ui/ConfirmPanel\"" src`
+  (or `grep -rlE "ConfirmPanel" src/app` with the component file excluded) would be
+  robust to formatting.
+
+- **The detector's prefix class differs between the two gates**: the shell gate
+  uses `[^A-Za-z0-9_.]` while §5's JS regex uses `[^A-Za-z0-9_$.]`. They will agree
+  in practice, but making them identical would remove a source of "the test passes
+  and the grep fails" confusion.
+
+- **Comment stripping should preserve line numbers.** §5 asks for `file:line`
+  reporting on failure and for `/* */` stripping; a naive `replace(/\/\*[\s\S]*?\*\//g, '')`
+  collapses lines and will misreport the location of any real violation that
+  follows a multi-line comment. Suggest replacing block-comment bodies with an
+  equal number of newlines.
+
+- **The remove-member toast copy has an unstated fallback.** §2 writes
+  `showToast(\`${name} removed from the band.\`)` without saying what `name` is
+  when `member.profile?.full_name` is null; the panel message explicitly uses the
+  `?? "this member"` fallback, which would render the toast as "this member removed
+  from the band." Worth stating the intended string (e.g. reuse the same fallback,
+  or fall back to `member.profile?.email`).
+
+- **ER #5 and ER #6 require a second user.** They are legitimate and precisely
+  worded, but a QA agent will need to create a second account and join via the
+  invite link to reach "a band with at least two members" and "a non-admin member".
+  Adding one sentence naming the dev-login / invite-link route to that setup would
+  make them cheaper to execute without weakening them.
+
+- **`aria-live="assertive"` on a `role="alertdialog"` root is redundant** — the
+  role already implies an assertive announcement, and doubling it can cause some
+  screen readers to announce twice. Harmless, but consider dropping it.
+
+- **`ConfirmPanel`'s `document`-level Escape listener on the fast-view page** may
+  race with other Escape handlers on that page (modals, sheets). Suggest the panel
+  call `stopPropagation()` or that §4 state explicitly that the confirmation takes
+  Escape precedence, so the behaviour is not decided by listener registration order.
+
+- **Fast-view `deleteBusy` is declared but never explicitly set.** §4 declares the
+  state and passes `busy={deleteBusy}`, but unlike §2 it never says
+  `confirmPendingDelete()` wraps its body in `setDeleteBusy(true)` /
+  `finally { setDeleteBusy(false) }`. Obvious in context, but worth one line for symmetry.
+
+## [RH-16] Substituir window.confirm() por Toast na pagina de banda — 2026-09-03
+
+- **Line-preserving comment stripping in the guardrail test.** My simulation of §5's
+  algorithm reported the fast-view violations at lines 437/579 instead of the true
+  443/585, because removing `/* */` blocks wholesale shifts subsequent line numbers.
+  Expected Result 2 only requires the failure message to list `file:line`, so this does
+  not block, but replacing each stripped block with its own newline count (or blanking
+  comment characters in place) would make the reported locations directly clickable.
+- **Result 3's `grep -rn "ConfirmPanel" src --include='*.tsx' | grep import` is
+  formatting-sensitive.** It counts lines containing both `ConfirmPanel` and `import`, so
+  a multi-line `import { ConfirmPanel } from …` in any of the three pages would drop that
+  file from the output and fail a conforming implementation. Consider stating the
+  intent ("exactly these three files import `ConfirmPanel`") alongside the command, or
+  using a command that tolerates line breaks.
+- **`role="alertdialog"` normally wants an accessible name.** §1 gives the root
+  `role="alertdialog"` and `aria-live="assertive"`; `aria-live` is redundant on a role
+  that is already assertive by definition, and an `aria-label` or `aria-labelledby`
+  pointing at the message paragraph would make the panel announce properly. Purely an
+  a11y polish item — no expected result depends on it.
+- **Failure-path panel state in fast-view is unstated.** §2 says the bands page clears
+  `pendingAction` on success (so the panel stays open on failure, which is sensible for
+  retry). §4 does not say the same for `pendingDelete` after an error toast. No expected
+  result exercises the failure path, so this is not blocking; one sentence would remove
+  the guesswork.
+- **In the E2E "cancel keeps the band" test, scope the focus assertion to the
+  alertdialog.** The bands page has other `Cancel` buttons (edit-band modal, and the
+  RH-8 regenerate panel), so `getByRole('alertdialog').getByRole('button', { name: 'Cancel' })`
+  is the safer locator than a page-wide one.
+- **The 24/20 lint baseline is a moving target across tasks.** It is correct as of the
+  current `master` (verified). If another task lands lint-affecting changes before RH-16
+  is implemented, QA should re-measure the baseline on the merge-base rather than trust
+  the literal numbers.
+
+## [RH-16] Substituir window.confirm() por Toast na pagina de banda — 2026-09-03
+
+- **`src/components/ui/ConfirmPanel.tsx:70` — `role="alertdialog"` has no accessible
+  name.** ARIA expects a dialog role to be named via `aria-label` /
+  `aria-labelledby`; screen readers will announce "alert dialog" with no title. A
+  one-line fix: give the message `<p>` an `id` and point `aria-labelledby` at it (or
+  `aria-describedby` plus `aria-label={confirmLabel}`). Non-blocking because the
+  message text is inside the dialog and is read on entry, and the spec prescribed the
+  exact attribute set.
+- **`src/components/ui/ConfirmPanel.tsx:71` — `aria-live="assertive"` on a dialog role
+  is redundant** and, on some AT combinations, causes a double announcement (live
+  region + dialog entry). It was explicitly required by the spec, so it stays; worth
+  revisiting if QA hears duplicated speech.
+- **No focus restoration on close.** The panel focuses `Cancel` on mount
+  (`ConfirmPanel.tsx:52-54`) but never returns focus to the control that opened it
+  when it unmounts, so a keyboard user who presses `Escape` is dropped back at the
+  document body. Capturing `document.activeElement` on mount and restoring it in the
+  cleanup is ~4 lines and would make the panel keyboard-complete. The panel is also
+  deliberately non-modal (no focus trap, background stays interactive), which is
+  consistent with the inline design the spec chose.
+- **`src/components/ui/ConfirmPanel.tsx:62` — the `keydown` listener re-subscribes on
+  every render.** The effect depends on `onCancel`, and every call site passes a fresh
+  inline arrow (`onCancel={() => setPendingAction(null)}`). Functionally correct, but a
+  `useCallback` at the call sites or a ref-held handler inside the panel would avoid
+  the add/remove churn.
+- **`src/app/bands/[id]/page.tsx:218` and `src/app/profile/page.tsx:208` are near-verbatim
+  duplicates** — the same `PendingAction` union, the same `confirmPendingAction`
+  switch, the same toast block. The spec explicitly rules de-duplicating
+  `BandProfileView` out of scope, so this is not a finding against the diff; it is the
+  strongest argument yet for the already-recorded follow-up. A single
+  `useBandDestructiveActions(bandId)` hook plus a shared `useToast` would collapse
+  ~120 duplicated lines across the two files.
+- **Inconsistent panel lifetime on failure.** `bands/[id]` and `profile` keep the
+  confirmation open when the action throws (the red banner explains why, and the user
+  can retry), while `fast-view` clears it unconditionally at
+  `src/app/songs/[id]/fast-view/page.tsx:627`, including after `showToast(res.error,
+  'error')`. Both are defensible in isolation — fast-view surfaces the error as a toast
+  rather than a banner — but aligning them would remove a small behavioural surprise.
+- **`confirmPendingAction` nests a `try/catch` per switch case inside the outer
+  `try/finally`.** A single `catch` with a `{ deleteBand: "Failed to delete band", ... }`
+  message lookup would be shorter and flatter. Current shape is readable; purely
+  stylistic.
+- **`stripComments` in `src/lib/__tests__/noBrowserDialogs.test.ts` also strips
+  comment-like text inside string literals and regex literals** (e.g. `"https://x"`
+  loses its tail). This can only produce false negatives, never false positives, so the
+  guardrail stays sound — but it is worth a one-line comment so a future reader does
+  not mistake it for a real parser.
+
+
+## [RH-16] Substituir window.confirm() por Toast na pagina de banda — 2026-09-03
+
+1. **Leaving a band does not clear the persisted band context.** After a non-admin leaves a band
+   (from either `/bands/<id>` or `/profile`) the app navigates to `/bands` and correctly shows
+   "No bands yet", but the sidebar switcher and the purple "Band Mode" banner still display the
+   name of the band the user just left, because `localStorage['band-context']` is untouched.
+   Calling `useBandContextStore.getState().setUserContext()` in the `leaveBand` success path (and
+   in `deleteBand` when the deleted band is the active context) would fix it. Pre-existing and
+   outside RH-16's scope — noting it because RH-16's work made it easy to observe.
+2. **`ConfirmPanel` ignores `Escape` while `busy`.** This is a defensible choice (do not let a user
+   dismiss the panel mid-request), but the confirm and cancel buttons are already `disabled` while
+   busy, so the guard is belt-and-braces. Worth a one-line comment stating the intent so a future
+   reader does not "fix" it.
+3. **`ConfirmPanel` does not trap focus.** It has `role="alertdialog"` and moves focus to `Cancel`,
+   but `Tab` can move focus out of the panel to the page behind it. For a genuinely modal
+   confirmation, a focus trap plus `aria-modal="true"` would complete the pattern. Not required by
+   any expected result.
+4. **The dialog guardrail only scans `src/`.** `e2e/` and `scripts/` are not covered. Widening
+   `listSourceFiles` to the repo root (minus `node_modules` / `.next`) would close the gap cheaply,
+   though the risk there is low.
+5. **Playwright cannot manage its own dev server while RH-32 is open**, because the
+   `webServer.url` health check probes `GET /`. Pointing it at a route that does not SSR-crash (or
+   an API health endpoint) would make `npx playwright test` work out of the box again; worth
+   folding into RH-32.

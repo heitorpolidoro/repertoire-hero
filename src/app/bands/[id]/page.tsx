@@ -20,7 +20,14 @@ import { compressImageFile } from "@/lib/imageCompressor";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
+import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
 import type { Band, BandMember, Playlist } from "@/types/database";
+
+/** A destructive action awaiting in-page confirmation. */
+type PendingAction =
+  | { kind: "deleteBand" }
+  | { kind: "leaveBand" }
+  | { kind: "removeMember"; member: BandMember };
 
 export default function BandDetailPage() {
   const { id: bandId } = useParams<{ id: string }>();
@@ -54,6 +61,10 @@ export default function BandDetailPage() {
   // Invite link regenerate state
   const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+
+  // Destructive action confirmation state
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -188,42 +199,77 @@ export default function BandDetailPage() {
     }
   }
 
-  async function handleDelete() {
-    if (!confirm(`Delete "${band?.name}"? This cannot be undone.`)) return;
-    try {
-      await deleteBand(bandId);
-      router.replace("/bands");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete band");
-    }
+  function handleDelete() {
+    setError(null);
+    setPendingAction({ kind: "deleteBand" });
   }
 
-  async function handleLeave() {
+  function handleLeave() {
     if (!currentUserId) return;
-    if (!confirm("Leave this band?")) return;
-    try {
-      await leaveBand(bandId);
-      router.replace("/bands");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to leave band");
-    }
+    setError(null);
+    setPendingAction({ kind: "leaveBand" });
   }
 
-  async function handleRemoveMember(member: BandMember) {
-    if (!confirm(`Remove ${member.profile?.full_name ?? "this member"}?`))
-      return;
+  function handleRemoveMember(member: BandMember) {
+    setError(null);
+    setPendingAction({ kind: "removeMember", member });
+  }
+
+  async function confirmPendingAction() {
+    if (!pendingAction) return;
+    setActionBusy(true);
     try {
-      await removeBandMember(member.id);
-      setBand((prev) =>
-        prev
-          ? {
-              ...prev,
-              members: prev.members?.filter((m) => m.id !== member.id),
-            }
-          : prev,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove member");
+      switch (pendingAction.kind) {
+        case "deleteBand":
+          try {
+            await deleteBand(bandId);
+            setPendingAction(null);
+            // No toast: the page unmounts immediately, navigation is the feedback.
+            router.replace("/bands");
+          } catch (err) {
+            setError(
+              err instanceof Error ? err.message : "Failed to delete band",
+            );
+          }
+          break;
+        case "leaveBand":
+          try {
+            await leaveBand(bandId);
+            setPendingAction(null);
+            router.replace("/bands");
+          } catch (err) {
+            setError(
+              err instanceof Error ? err.message : "Failed to leave band",
+            );
+          }
+          break;
+        case "removeMember": {
+          const { member } = pendingAction;
+          try {
+            await removeBandMember(member.id);
+            setBand((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    members: prev.members?.filter((m) => m.id !== member.id),
+                  }
+                : prev,
+            );
+            setPendingAction(null);
+            showToast(
+              `${member.profile?.full_name ?? "This member"} removed from the band.`,
+              "success",
+            );
+          } catch (err) {
+            setError(
+              err instanceof Error ? err.message : "Failed to remove member",
+            );
+          }
+          break;
+        }
+      }
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -311,6 +357,17 @@ export default function BandDetailPage() {
               </div>
             )}
           </div>
+
+          {pendingAction?.kind === "deleteBand" && (
+            <ConfirmPanel
+              className="mt-4"
+              message={`Delete "${band.name}"? This can't be undone.`}
+              confirmLabel="Delete"
+              busy={actionBusy}
+              onConfirm={confirmPendingAction}
+              onCancel={() => setPendingAction(null)}
+            />
+          )}
         </div>
 
         {error && (
@@ -351,28 +408,16 @@ export default function BandDetailPage() {
           </p>
 
           {isAdmin && confirmingRegenerate && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
-              <p className="text-xs text-amber-800">
-                This will invalidate the current link immediately. Anyone with
-                the old link won&apos;t be able to join.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleRegenerateInvite}
-                  disabled={regenerating}
-                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60 transition-colors"
-                >
-                  {regenerating ? "Regenerating..." : "Regenerate"}
-                </button>
-                <button
-                  onClick={() => setConfirmingRegenerate(false)}
-                  disabled={regenerating}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+            <ConfirmPanel
+              className="mt-3"
+              tone="warning"
+              message="This will invalidate the current link immediately. Anyone with the old link won't be able to join."
+              confirmLabel="Regenerate"
+              busyLabel="Regenerating..."
+              busy={regenerating}
+              onConfirm={handleRegenerateInvite}
+              onCancel={() => setConfirmingRegenerate(false)}
+            />
           )}
         </section>
 
@@ -386,59 +431,84 @@ export default function BandDetailPage() {
           </h2>
           <ul className="space-y-2">
             {members.map((member) => (
-              <li key={member.id} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-semibold text-emerald-700 shrink-0">
-                  {(member.profile?.full_name ??
-                    member.profile?.email ??
-                    "?")[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {member.profile?.full_name ??
+              <li key={member.id} className="flex flex-col gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-semibold text-emerald-700 shrink-0">
+                    {(member.profile?.full_name ??
                       member.profile?.email ??
-                      "Unknown"}
-                    {member.user_id === currentUserId && (
-                      <span className="ml-1 text-xs text-gray-400">(you)</span>
-                    )}
-                  </p>
-                  {member.profile?.primary_instrument && (
-                    <p className="text-xs text-gray-500 truncate">
-                      <span aria-hidden="true">
-                        {INSTRUMENT_ICONS[member.profile.primary_instrument] ??
-                          "🎵"}
-                      </span>{" "}
-                      {member.profile.primary_instrument}
+                      "?")[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {member.profile?.full_name ??
+                        member.profile?.email ??
+                        "Unknown"}
+                      {member.user_id === currentUserId && (
+                        <span className="ml-1 text-xs text-gray-400">(you)</span>
+                      )}
                     </p>
+                    {member.profile?.primary_instrument && (
+                      <p className="text-xs text-gray-500 truncate">
+                        <span aria-hidden="true">
+                          {INSTRUMENT_ICONS[member.profile.primary_instrument] ??
+                            "🎵"}
+                        </span>{" "}
+                        {member.profile.primary_instrument}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      member.role === "admin"
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {member.role}
+                  </span>
+                  {isAdmin && member.user_id !== currentUserId && (
+                    <button
+                      onClick={() => handleRemoveMember(member)}
+                      className="text-gray-400 hover:text-red-500 transition-colors text-lg leading-none"
+                      title="Remove member"
+                    >
+                      ×
+                    </button>
                   )}
                 </div>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    member.role === "admin"
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  {member.role}
-                </span>
-                {isAdmin && member.user_id !== currentUserId && (
-                  <button
-                    onClick={() => handleRemoveMember(member)}
-                    className="text-gray-400 hover:text-red-500 transition-colors text-lg leading-none"
-                    title="Remove member"
-                  >
-                    ×
-                  </button>
-                )}
+
+                {pendingAction?.kind === "removeMember" &&
+                  pendingAction.member.id === member.id && (
+                    <ConfirmPanel
+                      message={`Remove ${member.profile?.full_name ?? "this member"} from the band?`}
+                      confirmLabel="Remove"
+                      busy={actionBusy}
+                      onConfirm={confirmPendingAction}
+                      onCancel={() => setPendingAction(null)}
+                    />
+                  )}
               </li>
             ))}
           </ul>
           {!isAdmin && currentMember && (
-            <button
-              onClick={handleLeave}
-              className="mt-4 text-sm text-red-600 hover:text-red-700 font-medium"
-            >
-              Leave band
-            </button>
+            <>
+              <button
+                onClick={handleLeave}
+                className="mt-4 text-sm text-red-600 hover:text-red-700 font-medium"
+              >
+                Leave band
+              </button>
+              {pendingAction?.kind === "leaveBand" && (
+                <ConfirmPanel
+                  className="mt-3"
+                  message="Leave this band?"
+                  confirmLabel="Leave"
+                  busy={actionBusy}
+                  onConfirm={confirmPendingAction}
+                  onCancel={() => setPendingAction(null)}
+                />
+              )}
+            </>
           )}
         </section>
 
@@ -527,12 +597,24 @@ export default function BandDetailPage() {
 
         {/* Leave band (for non-admin members, shown at bottom too) */}
         {isAdmin && members.length > 1 && (
-          <button
-            onClick={handleLeave}
-            className="text-sm text-red-600 hover:text-red-700 font-medium"
-          >
-            Leave band
-          </button>
+          <div>
+            <button
+              onClick={handleLeave}
+              className="text-sm text-red-600 hover:text-red-700 font-medium"
+            >
+              Leave band
+            </button>
+            {pendingAction?.kind === "leaveBand" && (
+              <ConfirmPanel
+                className="mt-3"
+                message="Leave this band?"
+                confirmLabel="Leave"
+                busy={actionBusy}
+                onConfirm={confirmPendingAction}
+                onCancel={() => setPendingAction(null)}
+              />
+            )}
+          </div>
         )}
       </div>
 
