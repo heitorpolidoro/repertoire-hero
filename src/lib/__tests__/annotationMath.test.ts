@@ -5,6 +5,7 @@ import {
   normalizeWidth,
   denormalizeWidth,
   findStrokeToErase,
+  applyEraseAt,
   ERASE_TOLERANCE_PX,
   type PageGeometry,
 } from '../annotationMath'
@@ -100,5 +101,87 @@ describe('findStrokeToErase — 16 CSS px tolerance, never scaled by zoom', () =
     const page1x: PageGeometry = { width: 1000, height: 1000, originalWidth: 1000, originalHeight: 1000 }
     const hit = findStrokeToErase(strokes, 5, 5, page1x)
     expect(hit).toBeNull()
+  })
+})
+
+describe('applyEraseAt — pure whole-stroke erase (RH-20)', () => {
+  const page: PageGeometry = { width: 1000, height: 1000, originalWidth: 1000, originalHeight: 1000 }
+
+  // Three well-separated strokes: A at (500,500), B along (100,100)-(900,900),
+  // C at (200,800). Every hit position below is far outside the 16px tolerance
+  // of the other two, so each assertion isolates exactly one stroke.
+  function makeStrokes(): Stroke[] {
+    return [
+      { id: 'stroke-a', color: '#000000', width: 0.005, points: [[0.5, 0.5]] },
+      { id: 'stroke-b', color: '#ef4444', width: 0.005, points: [[0.1, 0.1], [0.9, 0.9]] },
+      { id: 'stroke-c', color: '#2563eb', width: 0.005, points: [[0.2, 0.8]] },
+    ]
+  }
+
+  it('returns the input array by identity and a null removedId on a miss', () => {
+    const strokes = makeStrokes()
+    const result = applyEraseAt(strokes, 5, 5, page)
+
+    expect(result.removedId).toBeNull()
+    // Identity, not just deep equality: the caller uses `removedId !== null` as
+    // the sole "the persistent model changed" signal, and a miss must not
+    // produce a new array that looks like a change.
+    expect(result.strokes).toBe(strokes)
+  })
+
+  it('removes only the hit stroke and reports its id on a hit', () => {
+    const strokes = makeStrokes()
+    const result = applyEraseAt(strokes, 500 + 10, 500, page)
+
+    expect(result.removedId).toBe('stroke-a')
+    expect(result.strokes.map((s) => s.id)).toEqual(['stroke-b', 'stroke-c'])
+  })
+
+  it('preserves the original relative order of the surviving strokes', () => {
+    const strokes = makeStrokes()
+    // stroke-b is in the middle; removing it must not reorder a and c.
+    const result = applyEraseAt(strokes, 900, 900, page)
+
+    expect(result.removedId).toBe('stroke-b')
+    expect(result.strokes.map((s) => s.id)).toEqual(['stroke-a', 'stroke-c'])
+  })
+
+  it('returns a new array on a hit and never mutates the input', () => {
+    const strokes = makeStrokes()
+    const before = [...strokes]
+    const result = applyEraseAt(strokes, 500, 500, page)
+
+    expect(result.strokes).not.toBe(strokes)
+    expect(strokes).toHaveLength(3)
+    expect(strokes).toEqual(before)
+  })
+
+  it('chains: feeding one result into a second call at another stroke removes both', () => {
+    // The multi-hit fast-drag case — two erase hits inside a single pointer
+    // gesture. Each call must apply to the *result* of the previous one, so
+    // neither removal resurrects the other.
+    const strokes = makeStrokes()
+    const first = applyEraseAt(strokes, 500, 500, page)
+    const second = applyEraseAt(first.strokes, 200, 800, page)
+
+    expect(first.removedId).toBe('stroke-a')
+    expect(second.removedId).toBe('stroke-c')
+    expect(second.strokes.map((s) => s.id)).toEqual(['stroke-b'])
+    // The original array is still intact after both calls.
+    expect(strokes).toHaveLength(3)
+  })
+
+  it('honours the same unscaled 16px tolerance as findStrokeToErase', () => {
+    const strokes = makeStrokes()
+    expect(applyEraseAt(strokes, 500 + ERASE_TOLERANCE_PX, 500, page).removedId).toBe('stroke-a')
+    expect(applyEraseAt(strokes, 500 + ERASE_TOLERANCE_PX + 1, 500, page).removedId).toBeNull()
+  })
+
+  it('returns the empty input array by identity when there is nothing to erase', () => {
+    const empty: Stroke[] = []
+    const result = applyEraseAt(empty, 500, 500, page)
+
+    expect(result.removedId).toBeNull()
+    expect(result.strokes).toBe(empty)
   })
 })

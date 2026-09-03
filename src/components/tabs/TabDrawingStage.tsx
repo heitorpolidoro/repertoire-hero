@@ -10,7 +10,7 @@ import {
   denormalizePoint,
   normalizeWidth,
   denormalizeWidth,
-  findStrokeToErase,
+  applyEraseAt,
   type PageGeometry,
 } from '@/lib/annotationMath'
 import {
@@ -93,12 +93,12 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   useEffect(() => { pageNumberRef.current = pageNumber }, [pageNumber])
   useEffect(() => { pageGeometryRef.current = pageGeometry }, [pageGeometry])
 
-  // Live in-progress stroke / erase-gesture state — kept in refs (not React
-  // state) so a fast pointermove drag redraws the canvas imperatively
-  // without going through a full React re-render on every point, avoiding
-  // perceptible lag while drawing.
+  // Live in-progress gesture state — kept in refs (not React state) so a fast
+  // pointermove drag redraws the canvas imperatively without going through a
+  // full React re-render on every point, avoiding perceptible lag while drawing.
+  // Erasing keeps no gesture state at all: each removal is applied and persisted
+  // on the spot (RH-20), so there is nothing for an aborted gesture to lose.
   const activeStrokeRef = useRef<{ x: number; y: number }[] | null>(null)
-  const erasedDuringGestureRef = useRef(false)
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map())
   const lastPanPosRef = useRef<{ x: number; y: number } | null>(null)
   const pinchStateRef = useRef<PinchState | null>(null)
@@ -305,12 +305,17 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   function eraseAt(x: number, y: number) {
     const page = pageGeometryRef.current
     if (!page) return
-    const hitId = findStrokeToErase(strokes, x, y, page)
-    if (!hitId) return
-    const next = strokes.filter((s) => s.id !== hitId)
+    // annotationsRef — not the `strokes` state closure — is the source of truth the
+    // save path reads; two erase hits inside one fast drag can share a stale
+    // `strokes` value and the second would otherwise resurrect the first removal.
+    const current = annotationsRef.current[String(pageNumber)] ?? strokes
+    const { strokes: next, removedId } = applyEraseAt(current, x, y, page)
+    if (!removedId) return
     annotationsRef.current[String(pageNumber)] = next
     setStrokes(next)
-    erasedDuringGestureRef.current = true
+    // Persist here, never at the end of the gesture (RH-20): the removal is
+    // already applied, and every gesture-abort path discards end-of-gesture state.
+    scheduleSave()
   }
 
   function handleUndo() {
@@ -379,9 +384,10 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
 
     if (pointersRef.current.size === 2) {
       // A second simultaneous pointer always means "pinch zoom/pan" — abort
-      // (not commit) any in-progress single-pointer stroke/erase-drag.
+      // (not commit) any in-progress single-pointer stroke. Nothing has to be
+      // rescued for an erase-drag: `eraseAt` already scheduled the save for every
+      // stroke it removed, so there is no deferred write left to drop here.
       activeStrokeRef.current = null
-      erasedDuringGestureRef.current = false
       redraw()
       startPinch()
       return
@@ -393,7 +399,6 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
       activeStrokeRef.current = [pos]
       redraw()
     } else if (mode === 'erase') {
-      erasedDuringGestureRef.current = false
       eraseAt(pos.x, pos.y)
     }
   }
@@ -446,7 +451,6 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
         if (mode === 'pen') {
           activeStrokeRef.current = [remainingPos]
         } else if (mode === 'erase') {
-          erasedDuringGestureRef.current = false
           eraseAt(remainingPos.x, remainingPos.y)
         }
       }
@@ -458,12 +462,8 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
       activeStrokeRef.current = null
       commitStroke(points)
       redraw()
-    } else if (mode === 'erase') {
-      if (erasedDuringGestureRef.current) {
-        scheduleSave()
-      }
-      erasedDuringGestureRef.current = false
     }
+    // No erase branch: every removal was already persisted by `eraseAt` itself.
     lastPanPosRef.current = null
   }
 
@@ -480,9 +480,11 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
    * id by then, so a missing entry means "already handled" and this must be a
    * no-op. Without that guard it would undo the state `endPointer` deliberately
    * just set when one finger of a pinch is lifted: the remaining finger's
-   * `activeStrokeRef` / `lastPanPosRef` (stroke continuation dies) and
-   * `erasedDuringGestureRef` (the pending erase is never saved and reappears on
-   * reload).
+   * `activeStrokeRef` / `lastPanPosRef`, so stroke continuation would die.
+   *
+   * An erase interrupted here needs no rescue either: `eraseAt` persists each
+   * removal as it applies it (RH-20), so a pointer taken away mid-erase leaves
+   * nothing unsaved behind.
    */
   function handleLostPointerCapture(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!pointersRef.current.has(e.pointerId)) return
@@ -491,7 +493,6 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
       pinchStateRef.current = null
     }
     activeStrokeRef.current = null
-    erasedDuringGestureRef.current = false
     lastPanPosRef.current = null
     redraw()
   }
@@ -503,7 +504,6 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
       // and flush the debounced save so switching to reading (and then closing
       // Stage Mode) can never drop the last stroke.
       activeStrokeRef.current = null
-      erasedDuringGestureRef.current = false
       pointersRef.current.clear()
       pinchStateRef.current = null
       lastPanPosRef.current = null

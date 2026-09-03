@@ -102,3 +102,34 @@ export function findStrokeToErase(
   }
   return null
 }
+
+export interface EraseResult {
+  /** The stroke set after the erase. Same array identity as the input on a miss. */
+  strokes: Stroke[]
+  /** Id of the stroke removed, or null if the pointer hit nothing. */
+  removedId: string | null
+}
+
+/**
+ * Applies one whole-stroke erase at a canvas-relative pixel position.
+ *
+ * Pure: never mutates `strokes`. On a miss it returns the input array *by
+ * identity* and `removedId: null`, so a caller can use `removedId !== null` as
+ * the single "this changed the persistent model" signal.
+ *
+ * Contract for callers (RH-20): a non-null `removedId` that is applied to the
+ * persisted model MUST be followed by scheduling a save in the same call. An
+ * erase is destructive the moment it is applied, so deferring the save to the end
+ * of the pointer gesture loses it whenever the gesture is aborted (second finger
+ * → pinch, lost pointer capture, drawing toggled off).
+ */
+export function applyEraseAt(
+  strokes: Stroke[],
+  pointerX: number,
+  pointerY: number,
+  page: PageGeometry,
+): EraseResult {
+  const removedId = findStrokeToErase(strokes, pointerX, pointerY, page)
+  if (!removedId) return { strokes, removedId: null }
+  return { strokes: strokes.filter((s) => s.id !== removedId), removedId }
+}

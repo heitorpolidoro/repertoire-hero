@@ -914,3 +914,133 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   same class of drift `pdfWorkerAsset.test.ts` was written to prevent for the
   worker copy.
 
+
+## [RH-20] Corrigir traco apagado nao persistido quando gesto e interrompido por segundo dedo — 2026-09-03
+
+- Results 8, 9 and 11 require a real touchscreen (result 8 states, correctly, that
+  Chrome device-mode cannot add a second contact mid-gesture). Add one clause telling QA
+  what to do without hardware — e.g. mark them hardware-dependent and treat results 6, 7
+  (desktop mouse) plus results 3 and 4 (source guards) as the executable gate, since
+  after `erasedDuringGestureRef` is deleted there is no per-path state left for paths
+  1–3 to lose. Worth folding into the same revision round as the blocking finding.
+- In §4b, spell out that the invariant's detector must match an **assignment**
+  (`annotationsRef.current[…] =`) and not a bare read, otherwise `flushSave` (`:278`)
+  and the new `eraseAt`'s own first line will be flagged as offenders.
+- Add a non-vacuity assertion to the §4b invariant: assert the enumeration actually
+  found the four expected function names (`commitStroke`, `eraseAt`, `handleUndo`,
+  `handleClearConfirm`). As written, converting these to arrow consts would make the
+  general invariant pass while guarding nothing.
+- §4b names `sliceFunction(source, name)` but the invariant needs a helper that walks
+  *every* component-inner function. Name that helper too, so the implementer does not
+  invent an enumeration rule.
+- §2 changes only `eraseAt` to read from `annotationsRef.current`, leaving `commitStroke`
+  and `handleUndo` on the `strokes` closure. That asymmetry is correct — those run on
+  discrete (`pointerup`, `click`) events, which React flushes between occurrences,
+  whereas only `eraseAt` repeats inside continuous `pointermove` — but stating it would
+  stop a future reader from "fixing" the other two or from reading the omission as an
+  oversight.
+- Result 6's "within ~2 s" could fail spuriously on a slow connection (800 ms debounce
+  plus a server action round trip). "Within a few seconds" would remove the arbitrary
+  threshold without weakening the observation that matters (the pill moves *while the
+  button is still held*).
+
+## [RH-20] Corrigir traco apagado nao persistido quando gesto e interrompido por segundo dedo — 2026-09-03
+
+1. **Add the `handleLostPointerCapture` JSDoc to the deletion list.** Approach §3
+   enumerates the ref declaration (`:101`) and seven code sites, but not the
+   doc-comment at `:470-486`, whose last paragraph explains the guard partly in
+   terms of `erasedDuringGestureRef` ("the pending erase is never saved and
+   reappears on reload"). Expected result 3's `grep` is not comment-stripped, so
+   leaving that prose in place fails the result. The paragraph also becomes
+   factually wrong after the fix, while the rest of the guard (protecting
+   `activeStrokeRef` / `lastPanPosRef` on a pinch-finger lift) stays valid — so it
+   needs rewriting, not just deleting.
+2. **Spell out that the rule-(c) detector matches an *assignment*.** A detector
+   that matched any occurrence of `annotationsRef.current[` would flag
+   `scheduleSave` (`:264`) and `flushSave` (`:278`), which legitimately read it —
+   and `scheduleSave` can never satisfy "calls `scheduleSave()` in the same body".
+   The guard would then fail on a fully conforming implementation. The spec's word
+   "assigns" is correct; naming the shape (e.g. `annotationsRef.current[…] =`, with
+   the readers listed as the negative cases the synthetic-string unit tests should
+   cover) removes the trap.
+3. **Record the two-space-indent assumption in the guard's failure message.**
+   `sliceFunction` is sound on this file today (verified for all 25 functions),
+   but it silently depends on component-inner functions being declared at exactly
+   two spaces. A failure message that says so turns a future confusing red test
+   into a self-explaining one.
+4. **Optional: widen result 16's pathspec to `migrations/`.** The result's prose
+   claims "no migration", but the pathspec (`src/ package.json`) cannot observe
+   one. Adding `migrations/` to the same command would make the prose and the
+   command agree without reopening the round-1 over-breadth problem, since
+   `migrations/` is unrelated to docs and workflow bookkeeping.
+5. **Note the local-Postgres prerequisite on result 5.** `npx vitest run` covers
+   real-DB suites and needs Postgres on `127.0.0.1:54322` (the `vitest.config.ts`
+   fallback). It is up here and this is established project convention, so this is
+   documentation only, not a defect.
+
+## [RH-20] Corrigir traco apagado nao persistido quando gesto e interrompido por segundo dedo — 2026-09-03
+
+1. **(Pre-existing, worth a follow-up task — not introduced here.)**
+   `performSave`'s `.then` unconditionally clears `pendingSaveRef`
+   (`TabDrawingStage.tsx:242`), even when a *newer* `scheduleSave()` ran while
+   that save was in flight. If a page change or drawing toggle-off then calls
+   `flushSave()` (`:273-280`) in that window, `flushSave` clears the armed timer
+   and skips `performSave` because `pendingSaveRef` is already `false` — the
+   newer write is dropped. This race exists at `4d5b7bd` for `commitStroke` too,
+   so it is not an RH-20 regression, but RH-20 makes saves start mid-gesture and
+   therefore slightly widens the window for erases. A generation counter (or
+   only clearing `pendingSaveRef` when no timer has been re-armed since the save
+   started) would close it. Recommend filing as its own Meridian task rather
+   than expanding this PR.
+2. `eraseAt` uses `if (!removedId) return` (`:313`) while the helper's documented
+   contract is `removedId !== null`. Equivalent for UUID ids, but
+   `if (removedId === null) return` would match the contract exactly and be
+   immune to a future empty-string id.
+3. `componentFunctionNames` only recognises `function` declarations at two-space
+   indent. A future `const eraseAt = (x, y) => { ... }`, or a write performed
+   inside a `useEffect`/`useCallback` callback, would be invisible to the
+   invariant. The anti-vacuity test turns the first case into a loud failure, so
+   this is safe today; extending the matcher to
+   `^ {2}const <name> = ... =>` later would keep it that way for free.
+4. `applyEraseAt`'s JSDoc in `annotationMath.ts` narrates component-level gesture
+   paths (pinch, lost pointer capture, drawing toggle). It is useful context, but
+   it couples a domain-pure lib module's docs to one caller's implementation; a
+   one-line "callers must persist in the same call (RH-20)" with the detail left
+   in `TabDrawingStage.tsx` would age better.
+
+
+## [RH-20] Corrigir traco apagado nao persistido quando gesto e interrompido por segundo dedo — 2026-09-03
+
+- **(Pre-existing, out of RH-20's scope — worth its own task.)** Ending a pinch
+  leaves a stray one-point dot in Pen mode. In `endPointer`, when the pointer
+  count drops from 2 to 1 the remaining finger restarts a stroke
+  (`activeStrokeRef.current = [remainingPos]`); lifting that finger a moment
+  later commits a 1-point stroke. I measured 12 px of ink (~2 px dot) after a
+  two-finger pinch that began mid-stroke, even when both fingers were lifted in a
+  single touch event. On a real device the two fingers never leave the glass at
+  the same instant, so this dot is reachable in ordinary use, and it is saved and
+  survives reload. The code is byte-identical to `4d5b7bd`, so RH-20 neither
+  caused nor was required to fix it — but it is the closest thing I found to the
+  criterion-11 wording "the partial stroke leaves no mark". A cheap fix would be
+  to require ≥2 points (or a minimum path length) before `commitStroke` persists
+  anything.
+- `applyEraseAt` uses `if (!removedId) return { strokes, removedId: null }`.
+  Stroke ids are `crypto.randomUUID()` so an empty-string id is not reachable
+  today, but `removedId === null` would express the intent exactly and cost
+  nothing. Same for the `if (!hitId)` shape it replaced.
+- `erasePersistence.test.ts`'s `sliceFunction` terminates on a line that is
+  exactly `  }`. That is true of every component-inner function in the file today
+  and the helper is unit-tested for the nested-brace case, but it is coupled to
+  Prettier's current 2-space output: a reformat (or a function written as
+  `const foo = () => {}`) would silently make `componentFunctionNames` return
+  fewer names and quietly weaken the invariant rather than fail loudly. A cheap
+  hardening would be to assert a minimum expected function count, or to assert
+  that the four known writers are all found *before* checking the offender list
+  (the file does the latter, but as a separate `it` — a single combined assertion
+  would make a silent slice failure impossible).
+- The `annotations` write path is `jsonb_set(annotations, '{<page>}', …)` with a
+  last-write-wins debounce and no version/etag. Two devices in Stage Mode on the
+  same tab will clobber each other's page arrays. Out of scope here, and probably
+  acceptable for a personal repertoire app, but the RH-20 change makes erases
+  land sooner and therefore makes the window slightly more reachable.
+
