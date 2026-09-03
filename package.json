@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.56-202609030144",
+  "version": "0.1.57-202609030245",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack --hostname 127.0.0.1",

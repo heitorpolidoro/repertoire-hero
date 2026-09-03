@@ -26,7 +26,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - db-data:/var/lib/postgresql/data
-      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
       - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
       - ./docker/init-migrations.sh:/docker-entrypoint-initdb.d/99-migrations.sh:ro
     healthcheck:

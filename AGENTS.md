@@ -35,7 +35,7 @@ Browser (React 19)
 src/lib/*  (data-access + domain logic, talks to Postgres via `pg`/Pool in src/lib/db.ts)
    │
    ▼
-PostgreSQL  (schema in /migrations, /supabase/migrations)
+PostgreSQL  (schema in /migrations)
    — hosts both the app's own tables and Better Auth's auth tables in the same DB/schema
    │
    also: Vercel Blob (tab PDF storage), Spotify Web API (external), Resend (transactional email)
@@ -51,7 +51,7 @@ Key architectural decisions:
 - **State**: `zustand` (with `persist`) is used client-side only for lightweight UI state — currently just which "context" (personal vs. a specific band) the user is browsing in (`src/store/bandContextStore.ts`).
 - **Observability**: Sentry (`@sentry/nextjs`) is wired for client, server, and edge configs.
 
-Legacy/unused code to be aware of: `src/lib/mongodb.ts` and the `Song`/`Playlist` shapes in `src/types/index.ts` are leftovers from an earlier MongoDB-based prototype and are not wired into any current route or action — the live data model is `src/types/database.ts`. Similarly, `NEXT_PUBLIC_SUPABASE_*` env vars and stray "Supabase" comments are historical; the app's actual persistence and auth run on plain Postgres via Better Auth, not Supabase Auth/client (a `supabase/` directory with local migrations still exists, likely for local Postgres tooling).
+Legacy/unused code to be aware of: `src/lib/mongodb.ts` and the `Song`/`Playlist` shapes in `src/types/index.ts` are leftovers from an earlier MongoDB-based prototype and are not wired into any current route or action — the live data model is `src/types/database.ts`. Similarly, `NEXT_PUBLIC_SUPABASE_*` env vars and stray "Supabase" comments are historical; the app's actual persistence and auth run on plain Postgres via Better Auth, not Supabase Auth/client (the `supabase/` directory retains only `config.toml` and `seed.sql` for the local docker-compose stack; the Supabase CLI migration flow is disabled — see `[db.migrations] enabled = false`).
 
 # Key Technologies & Stack
 
@@ -65,7 +65,7 @@ Legacy/unused code to be aware of: `src/lib/mongodb.ts` and the `Song`/`Playlist
 - PostgreSQL — primary datastore, accessed via `pg` (`Pool`) in `src/lib/db.ts`
 - `kysely` — present as a query-builder dependency
 - `better-auth` (+ `@better-auth/utils`) — authentication (email/password), session management; passwords hashed with scrypt (new accounts) or `bcryptjs` (migrated legacy accounts)
-- Raw SQL migrations in `/migrations` and `/supabase/migrations`, run via `scripts/migrate.mjs` (invoked automatically on `npm run build` and via `npm run db:migrate`)
+- Raw SQL migrations in `/migrations` (the single source of truth for the schema), run via `scripts/migrate.mjs` (invoked automatically on `npm run build` and via `npm run db:migrate`)
 
 **Storage & external services**
 - `@vercel/blob` — PDF tab file storage
@@ -140,8 +140,14 @@ src/
 │   └── index.ts                Legacy/unused types from the MongoDB-era prototype
 └── proxy.ts                    Next.js middleware — session-gates all non-public routes
 
-migrations/                     Hand-written SQL migrations (source of truth for schema), run by scripts/migrate.mjs
-supabase/migrations/            Mirrors migrations/ for local Supabase CLI tooling
+migrations/                     Hand-written SQL migrations — the SINGLE source of truth for the schema.
+                                 Applied by scripts/migrate.mjs (`npm run db:migrate`, and automatically on
+                                 `npm run build`), and bind-mounted by docker-compose.yml for local
+                                 first-boot database initialisation (docker/init-migrations.sh).
+                                 New migrations MUST be named `NNNN_snake_case.sql`, continuing the existing
+                                 four-digit numbering — lexicographic order is the apply order. Do not create
+                                 a second migrations directory; a vitest guard
+                                 (src/lib/__tests__/migrationsSingleSource.test.ts) enforces this.
 e2e/                            Playwright end-to-end specs (auth, songs CRUD, mobile fast view)
 docker/                         Local Postgres/Kong env config + Dockerfile support files
 scripts/                        migrate.mjs (schema migration runner), dev-seed (local data seeding)

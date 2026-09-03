@@ -531,3 +531,106 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
    `webServer.url` health check probes `GET /`. Pointing it at a route that does not SSR-crash (or
    an API health endpoint) would make `npx playwright test` work out of the box again; worth
    folding into RH-32.
+
+## [RH-17] Sincronizar supabase/migrations com o diretorio migrations numerado — 2026-09-03
+
+- **`[db.migrations]` already exists in `supabase/config.toml`.** Approach §4 presents the section as a block to add, showing a `[db.migrations]` header with a comment and `enabled = false`. The file already has `[db.migrations]` at line ~50 with `enabled = true` and `schema_paths = []`. The sentence "`schema_paths`, `[db.seed]` and every other section stay as they are" implies an in-place edit, and expected result 6 says "a `[db.migrations]` section" in the singular, so the intent is recoverable — but a literal reading could produce a duplicate TOML table, which makes the whole config unparseable by the CLI. Say "edit the existing `[db.migrations]` section: flip `enabled` to `false` and replace the stock comment; leave `schema_paths = []`."
+- **`<base>` is defined only once, in expected result 3.** QA sees the results list without the spec, and result 17 reuses `<base>` without redefining it. It is resolvable from result 3's parenthetical, but pin it mechanically, e.g. "`<base>` = the parent of the first commit whose message contains `RH-17` (`git log --grep=RH-17 --format=%H | tail -1`)^". This repo lands one commit per task on `master`, so `HEAD~1` will usually work, but that should be stated rather than inferred.
+- **Expected result 8 is verified by reading the test source, while 9 and 10 are behavioural.** Invariants (c) contiguous numbering and (d) docker mount get no behavioural probe. Consider adding two more probes in the same style — e.g. creating `migrations/0009_gap.sql` must fail the run, and temporarily rewriting the compose mount to `./supabase/migrations` must fail the run — so all four invariants are proven live rather than by inspection.
+- **The guard walking the whole repo from the root will traverse `.next/` cache, `coverage/`, `public/` and any large untracked directories on every test run.** The skip list handles the known ones, but a `maxDepth` or an early skip of any dotted directory would make it robust against future additions like `.turbo/` or `.vercel/output`.
+- **Expected result 15 needs a live Postgres.** It is verifiable in this environment (both `54322` and `5432` are listening, and `docker` is on `PATH`), so this is not blocking — but the result would be more self-contained for QA if it named how to obtain such a database, e.g. "run `npm run db:migrate` once first, then assert the second and third runs are pure skips."
+- **Consider asserting the docker init path end-to-end.** The most valuable consequence of this task — `docker compose up -d` on a fresh volume finally producing a complete schema including `0002` — is not covered by any expected result. A result such as "after `docker compose down -v && docker compose up -d db`, `\d repertoire_tabs` shows the `annotations` column and `SELECT name FROM _migrations` returns the six basenames" would prove both §2 and §3 actually work, and would exercise finding 2's fix.
+- **`README.md` was not checked by expected result 4's grep.** It happens to contain no `supabase/migrations` reference today (verified by `git grep`), so nothing is missing — but adding `README.md` to that grep list costs nothing and prevents the string reappearing there.
+
+## [RH-17] Sincronizar supabase/migrations com o diretorio migrations numerado — 2026-09-03
+
+- **Expected Result 10's `ls -d .claude/worktrees/*/supabase/migrations` probe is
+  environment-dependent.** It holds today (two worktrees present, verified), but
+  those directories are gitignored scratch state that can be pruned at any time.
+  If they are gone when QA runs, a literal reading of "confirming that … still
+  lists at least one directory" fails a correct implementation. Consider
+  rewording to "if `.claude/worktrees/` contains any checkout with a
+  `supabase/migrations/` directory, the guard still passes" — the load-bearing
+  half of the result (the skip list includes `.claude`) is verifiable by reading
+  the file regardless.
+- **`supabase/config.toml` already has a `[db.migrations]` section.** It
+  currently reads `enabled = true` with the stock comment plus
+  `schema_paths = []`. Spec §4 presents its TOML block as something to add,
+  without noting the section exists; appending it verbatim would produce a
+  duplicate TOML table and an unparseable config. The intent is clear enough
+  from "`schema_paths` … stay as they are", but saying "flip the existing
+  `enabled = true` to `false` in place and replace the stock comment" would
+  remove the last doubt. Expected Result 7 could add "and `config.toml` contains
+  exactly one `[db.migrations]` section".
+- **Expected Result 6 offers two implementations and then a check only one
+  passes.** It accepts either `-v ON_ERROR_STOP=1` *or* an explicit exit-status
+  check, then requires
+  `grep -c 'ON_ERROR_STOP' docker/init-migrations.sh` ≥ 1 — which the second
+  option fails. Since §3 already calls `ON_ERROR_STOP=1` "the intended form",
+  dropping the alternative from the result would make it self-consistent. Not
+  blocking: the grep clause effectively forces the intended form, so a developer
+  reading both cannot land the failing variant.
+- **Results 13 and 8 say "with no database running" while result 18 needs a
+  running database with the six ledger rows.** The sequence is satisfiable but
+  invites QA to stop the local Supabase stack. Pointing `DATABASE_URL` at an
+  unused port for the vitest runs (`DATABASE_URL=postgresql://…:1/postgres npx
+  vitest run`) proves DB-independence without touching the developer's stack;
+  worth stating as the intended verification method.
+- **Result 18's "executes no DDL"** would be more directly checkable as "prints
+  no `Executing migration:` line", which is what the runner actually emits when
+  it applies a file.
+- **Results 3, 17 and 20 compare `a51951f..HEAD`** and therefore pass vacuously
+  if QA runs before the work is committed (HEAD is still `a51951f` today).
+  `git diff a51951f -- <paths>` covers the working tree as well and is true in
+  both orderings. The existing repo convention (RH-16's results inspect commits
+  via `git log --grep`) suggests QA runs post-commit here, so this is
+  precautionary only.
+- **Out of Scope names RH-5 and RH-12** as the prior specs documenting the
+  mirror convention; `docs/tasks/RH-8-spec.md` also references
+  `supabase/migrations`. Harmless — the exclusion is categorical and the
+  Expected Result 4 grep does not cover `docs/` — but the parenthetical is
+  incomplete.
+- **Local bootstrap path worth a line in `AGENTS.md`.** The database actually
+  running on this machine is the Supabase CLI stack
+  (`supabase_db_repertoire_hero`), not the `docker-compose.yml` `db` service.
+  With `[db.migrations] enabled = false`, a `supabase db reset` will leave an
+  empty schema, and the developer must follow it with `npm run db:migrate`.
+  §6 already rewrites the Directory Structure entry; adding that two-step
+  sequence there would close the loop for whoever next resets a local database.
+
+## [RH-17] Sincronizar supabase/migrations com o diretorio migrations numerado — 2026-09-03
+
+- `docker/init-migrations.sh:25` — `for f in $(find … | sort)` word-splits on
+  whitespace (pre-existing line, not introduced here). It is now effectively
+  safe because the new vitest guard forbids any filename outside
+  `^\d{4}_[a-z0-9_]+\.sql$`, but `find … -print0 | sort -z | while IFS= read -r -d ''`
+  would remove the dependency of the shell script's correctness on a TypeScript
+  test. Non-blocking; the current coupling is at least documented.
+- `src/lib/__tests__/migrationsSingleSource.test.ts:169` — the test
+  `'skips every documented tooling directory'` asserts membership in the
+  `SKIPPED_DIRECTORY_NAMES` constant rather than the walk's behaviour. Only
+  `node_modules`, `.claude`, `.meridian` and `.temp` get an actual behavioural
+  check (line 137). Iterating the skip list and creating
+  `<tmp>/<skipped>/migrations` for each name would make all fourteen entries
+  behaviourally covered with roughly the same amount of code.
+- `src/lib/__tests__/migrationsSingleSource.test.ts:280` — the numbering test
+  feeds every regular file in `migrations/` to `findNumberingViolations`,
+  including hypothetical non-migration files. A stray `README.md` would yield
+  `expected 0002, found READ`, which is a confusing message; the naming test
+  fires on the same file with a clear message, so this is cosmetic. Filtering to
+  `.sql` entries (or to names matching the pattern) before the numbering check
+  would keep the message honest about what it diagnoses.
+- `src/lib/__tests__/migrationsSingleSource.test.ts:255,280` — both repo-level
+  assertions pass vacuously if `migrations/` is ever emptied (the "no
+  subdirectories" and "no violations" arrays are trivially empty). The
+  `expect(directories).toContain(MIGRATIONS_DIR)` at line 252 catches deletion of
+  the directory itself but not of its contents. A single
+  `expect(names.length).toBeGreaterThan(0)` would close it.
+
+
+## [RH-17] Sincronizar supabase/migrations com o diretorio migrations numerado — 2026-09-03
+
+- `findMigrationDirectories` still descends into a directory it just matched, so a pathological `migrations/migrations/` would be reported twice (once as the root match's child). Harmless today — invariant (b) already rejects subdirectories inside `migrations/` — but a `continue` after `found.push(full)` would make the two failures non-overlapping and the error message tighter.
+- The skip list is enumerated by name only, which means a future build output directory (`dist/`, `.turbo/`, `out/`, a Python `.venv/`) would be walked. Consider deriving the skip list from `vitest.config.ts`'s `exclude` (the file's own comment notes the symmetry goal) or from `.gitignore`, so the two lists cannot drift apart silently.
+- `docker/init-migrations.sh` and `scripts/migrate.mjs` now maintain the same `_migrations` ledger with independently written DDL (`VARCHAR(255) UNIQUE NOT NULL` in the shell script). A follow-up could assert that the two `CREATE TABLE IF NOT EXISTS _migrations` definitions agree, so a column change in one runner cannot silently diverge from the other.
+- The guard covers layout but not content: nothing asserts that a file in `migrations/` is non-empty or parseable SQL. An empty `0007_x.sql` would pass every invariant and be recorded as applied. A trivial "every migration file is non-empty" assertion would close that gap cheaply.
