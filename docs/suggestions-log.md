@@ -1044,3 +1044,111 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   acceptable for a personal repertoire app, but the RH-20 change makes erases
   land sooner and therefore makes the window slightly more reachable.
 
+
+## [RH-31] Atualizar landing page com anotacoes no Stage Mode e catalogo compartilhado — 2026-09-03
+
+- **EN `f5Desc` — the band-sharing promise got weaker.** Today's card says "Keep personal study
+  PDFs or share official charts with your entire band"; the replacement says "…to any song, yours
+  or shared with your band", which attaches the sharing to the *song*, not to the chart. The
+  "share the same official chart with the whole band" hook is what a band leader buys. Consider
+  "…to any song in your repertoire or your band's, so everyone plays from the same chart, and
+  write straight on them…".
+- **PT `f5Desc` — agreement ambiguity.** "Anexe cifras e tablaturas em PDF a qualquer música,
+  suas ou compartilhadas com a banda" places the feminine-plural "suas ou compartilhadas" after
+  the singular "qualquer música", so a reader first attaches it to "música" and has to
+  backtrack. "Anexe cifras e tablaturas em PDF a qualquer música — do seu repertório ou do da sua
+  banda — e escreva por cima delas…" removes the backtrack.
+- **"so you add them in one tap" / "e você adiciona em um toque" is the one over-promise in the
+  copy.** There is no one-tap add path for a catalogued song: `SongForm.tsx` still requires
+  typing and submitting the form, and the dedup happens server-side in `createAndAddSong`. The
+  honest and equally strong version is "…arrive pre-filled — title, artist, album, key, cover art
+  and links — so you don't retype what someone else already catalogued."
+- **The test sketch omits the vitest imports.** `vitest.config.ts` sets `globals: false`, so
+  `landingCopy.test.ts` needs `import { describe, it, expect } from 'vitest'`. Self-correcting
+  (the file simply fails to run otherwise), but worth one line in §2 since the spec advertises
+  "no wording decisions left to the developer".
+- **Case 1 of the new test is worth more than this task.** A dictionary key-parity guard is a
+  repo-wide asset; consider noting in the spec that it intentionally covers the whole dictionary,
+  not just `landing.*` (§2 already says so — just make sure the reviewer of the diff doesn't
+  "narrow" it to `landing.*` as a cleanup).
+- **Expected result #3's tail** ("both still list title, artist, album, key/tom, cover/capa and
+  links") is checkable but phrased prosaically next to ten regex-precise siblings; spelling it as
+  the six substrings per locale would make it uniform.
+
+
+## [RH-31] Atualizar landing page com anotacoes no Stage Mode e catalogo compartilhado — 2026-09-03
+
+- **Result #10 — state the signed-out precondition.** `src/app/page.tsx:621–622` renders
+  `<LandingPage />` only when `!session?.user`; otherwise `/` renders `RepertoireDashboard`.
+  A QA run with a live session cookie would find a different (or no) `div.grid` and could
+  report a false failure. Adding "as a signed-out visitor" to result #10 removes the whole
+  failure mode. Low risk in practice (fresh browser contexts are unauthenticated, and
+  fallback (b) is auth-independent), and the copy assertions are redundantly covered by
+  self-contained results #1–#3 — hence a suggestion, not a blocker.
+- **Result #9 — "empty output" is fragile in this environment.** Raw
+  `npx eslint src/lib/__tests__/landingCopy.test.ts` on a clean file prints nothing, but the
+  rtk command hook rewrites it and prints `ESLint: No issues found` (verified: raw via
+  `rtk proxy` → empty; hooked → one summary line). Phrasing it as "reports 0 errors and 0
+  warnings for that file" would be immune to the wrapper.
+- **Result #6 — "the six named cases" is a soft dangling reference.** QA never sees the names
+  (they live in the spec's *Approach §2*). It is still decidable — six `it(...)` cases, suite
+  green — but "six `it(...)` cases" would be strictly self-contained.
+- **PT `f5Desc` — number agreement.** "a qualquer música, suas ou compartilhadas com a banda"
+  mixes singular *música* with plural *suas/compartilhadas*. "a qualquer música, sua ou
+  compartilhada com a banda" reads correctly. The regression test asserts substrings only
+  (`anotaç`, `desenho`, `tablet`, `caneta`, `dedo`, `stage mode`), none of which are affected,
+  so this can be fixed in the pinned string without touching the tests or the results.
+- **Fallback (b) grep robustness.** `grep -rl "Anotações à Mão nas Tabs em PDF"` depends on the
+  production minifier not escaping non-ASCII. Current chunks keep UTF-8 literal (verified), so
+  it should hold; grepping an ASCII-safe substring such as `"nas Tabs em PDF"` would be
+  immune to a future `asciiOnly` minifier setting.
+- **Optional:** `tsconfig.json` excludes `**/__tests__/**`, so `npx tsc --noEmit` (result #9)
+  will not type-check the new test file. That is pre-existing repo behaviour and not a defect
+  in this spec — noted only so nobody reads result #9 as type-coverage of `landingCopy.test.ts`.
+
+## [RH-31] Atualizar landing page com anotacoes no Stage Mode e catalogo compartilhado — 2026-09-03
+
+- `landingCopy.test.ts:21-22` — `landingStrings` only reads the top-level values of
+  `dict.landing`. `landing` is flat today (24 string leaves), so the moderation guard is
+  complete; but if a nested group is ever added under `landing.*`, the forbidden-word check
+  would silently skip it. Reusing a recursive collector (or reusing `flattenKeys` to walk
+  values) would keep the guard total. Non-blocking.
+- `en.json` `f1Desc` — the sentence mixes American "Catalog songs" with British "already
+  catalogued". Both spellings are correct English, but picking one ("already cataloged", or
+  rephrasing to "already added by other musicians") would read slightly tighter. The wording is
+  spec-mandated, so this is a copy-owner call, not a defect.
+- `pt-BR.json` `f5Desc` — the second sentence chains three clauses ("são salvas … , o modo de
+  desenho liga e desliga … , e funciona muito bem no tablet"). It is grammatical, but on a
+  narrow card it renders as a long block; splitting after "página por página." would read
+  slightly crisper on mobile. Purely cosmetic.
+
+## [RH-31] Atualizar landing page com anotacoes no Stage Mode e catalogo compartilhado — 2026-09-03
+
+- **RH-32 is real, reproducible, and now confirmed to affect production builds,
+  not only the dev server.** `npx next build && npx next start` yields HTTP 500 on
+  `GET /` with `TypeError: Cannot read properties of null (reading 'useRef')`
+  (digest `1375200389`). If RH-32 is currently scoped as a dev-server-only
+  annoyance, that scoping is too narrow — the app does not serve its landing page
+  in production either. Worth attaching this observation to RH-32. Non-blocking
+  for RH-31 by the criterion's own terms.
+
+- **The landing copy is currently guarded only by string assertions, never by a
+  render.** `landingCopy.test.ts` is a good, fast, zero-DOM guard and does exactly
+  what it claims, but nothing in the suite asserts that `LandingPage` actually
+  renders `f5Title`/`f1Desc` for a given locale. A single render test (or a
+  Playwright e2e on `/`) would catch a future refactor that drops a card or
+  mis-wires the dictionary — but it cannot be written until RH-32 unblocks
+  rendering, so this is a follow-up, not an omission here.
+
+- **`docs/suggestions-log.md` is modified but left unstaged** (` M` in
+  `git status`), and `docs/tasks/RH-31-spec.md` is untracked. Neither is covered
+  by any criterion and neither affects this verdict, but whoever commits should
+  decide deliberately whether they belong in the RH-31 commit rather than letting
+  them drift into a later unrelated one.
+
+- **Minor, cosmetic:** in `landingCopy.test.ts` the EN/PT f5 cases build regexes
+  with `new RegExp(term, 'i')` from plain substrings. It works and is readable,
+  but since the terms are literals, `String.prototype.includes` on a lowercased
+  value would express the intent more directly and avoid any future foot-gun if
+  someone adds a term containing a regex metacharacter (e.g. a `.` or `+`).
+
