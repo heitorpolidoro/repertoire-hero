@@ -61,16 +61,6 @@ export interface GlobalSongEdit {
   requester?: Profile;
 }
 
-export interface SpotifyToken {
-  user_id: string;
-  access_token: string;
-  refresh_token: string;
-  expires_at: string;
-  spotify_user_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Playlist {
   id: string;
   user_id: string | null;

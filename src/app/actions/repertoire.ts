@@ -3,13 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { query } from '@/lib/db'
-import { STATUS_ORDER } from '@/lib/statusConfig'
 import {
   getRepertoire,
   addSongToRepertoire,
   updateSongStatus,
   updateSongTags,
-  updatePersonalKey,
   removeSongFromRepertoire,
   searchGlobalSongs,
   getSongEntry,
@@ -46,13 +44,6 @@ export async function updateSongStatusAction(repertoireId: string, status: SongS
 export async function updateSongTagsAction(repertoireId: string, tags: string[], bandId?: string | null) {
   const owner = await resolveOwner(bandId)
   const result = await updateSongTags(owner, repertoireId, tags)
-  revalidatePath('/')
-  return result
-}
-
-export async function updatePersonalKeyAction(repertoireId: string, personalKey: string, bandId?: string | null) {
-  const owner = await resolveOwner(bandId)
-  const result = await updatePersonalKey(owner, repertoireId, personalKey)
   revalidatePath('/')
   return result
 }
@@ -110,46 +101,6 @@ export async function createAndAddSongAction(
   const result = await createAndAddSong(owner, data)
   revalidatePath('/')
   return result
-}
-
-/**
- * For a band playlist: returns a map of song_id → weakest status across all
- * band members who have that song in their personal repertoire.
- * Members who haven't added the song are ignored (not treated as "unknown").
- */
-export async function getBandWeakestStatusAction(
-  bandId: string,
-  songIds: string[],
-): Promise<Record<string, SongStatus>> {
-  if (!songIds.length) return {}
-
-  try {
-    const sql = `
-      SELECT song_id, status, user_id
-      FROM repertoire
-      WHERE song_id = ANY($1::uuid[])
-        AND user_id IS NOT NULL
-        AND user_id IN (
-          SELECT user_id FROM band_members WHERE band_id = $2
-        )
-    `
-    const { rows } = await query(sql, [songIds, bandId])
-
-    const result: Record<string, SongStatus> = {}
-    for (const row of rows) {
-      const current = result[row.song_id]
-      if (!current) {
-        result[row.song_id] = row.status as SongStatus
-      } else {
-        const currentIdx = STATUS_ORDER.indexOf(current)
-        const newIdx = STATUS_ORDER.indexOf(row.status as SongStatus)
-        if (newIdx < currentIdx) result[row.song_id] = row.status as SongStatus
-      }
-    }
-    return result
-  } catch {
-    return {}
-  }
 }
 
 export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
@@ -247,13 +198,6 @@ export async function getPersonalEntryForSongAction(songId: string): Promise<Rep
   } catch {
     return null
   }
-}
-
-export async function mergeSongsAction(primarySongId: string, secondarySongId: string): Promise<{ success: boolean }> {
-  const { mergeGlobalSongs } = await import('@/lib/songs')
-  await mergeGlobalSongs(primarySongId, secondarySongId)
-  revalidatePath('/')
-  return { success: true }
 }
 
 export async function fetchUrlTitleAction(url: string): Promise<string> {

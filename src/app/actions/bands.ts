@@ -12,7 +12,6 @@ import {
   removeBandMember,
   getBandPlaylists,
   createBandPlaylist,
-  joinBandByInviteClient,
   regenerateBandInviteCode,
 } from '@/lib/bands'
 import type { Band, Playlist } from '@/types/database'
@@ -67,11 +66,6 @@ export async function getBandPlaylistsAction(bandId: string): Promise<Playlist[]
 
 export async function createBandPlaylistAction(bandId: string, name: string): Promise<string> {
   return createBandPlaylist(bandId, name)
-}
-
-export async function joinBandByInviteAction(inviteCode: string): Promise<string | null> {
-  const userId = await getRequiredUserId()
-  return joinBandByInviteClient(userId, inviteCode)
 }
 
 export async function regenerateBandInviteCodeAction(bandId: string): Promise<string> {

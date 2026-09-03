@@ -67,10 +67,10 @@ export default function BandDetailPage() {
   const [actionBusy, setActionBusy] = useState(false);
 
   // Toast notification state
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ message: string } | null>(null);
 
-  function showToast(message: string, type: "success" | "error" = "success") {
-    setToast({ message, type });
+  function showToast(message: string) {
+    setToast({ message });
   }
 
   useEffect(() => {
@@ -121,7 +121,7 @@ export default function BandDetailPage() {
       setBand((prev) => (prev ? { ...prev, invite_code: newCode } : prev));
       setCopied(false);
       setConfirmingRegenerate(false);
-      showToast("Invite link regenerated. The old link no longer works.", "success");
+      showToast("Invite link regenerated. The old link no longer works.");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to regenerate invite link",
@@ -258,7 +258,6 @@ export default function BandDetailPage() {
             setPendingAction(null);
             showToast(
               `${member.profile?.full_name ?? "This member"} removed from the band.`,
-              "success",
             );
           } catch (err) {
             setError(
@@ -699,11 +698,7 @@ export default function BandDetailPage() {
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] mx-auto pointer-events-auto">
           <div
-            className={`rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md ${
-              toast.type === "error"
-                ? "bg-red-950/90 text-red-100 border-red-800"
-                : "bg-emerald-950/90 text-emerald-100 border-emerald-800"
-            }`}
+            className="rounded-xl px-4 py-3 shadow-xl border flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md bg-emerald-950/90 text-emerald-100 border-emerald-800"
           >
             <span>{toast.message}</span>
             <button

@@ -7,8 +7,8 @@
 --   supabase db seed
 --
 -- Notes:
---   - This file only populates global_songs. Auth users must be created via
---     the GoTrue admin API — run: npm run dev:seed-users
+--   - This file only populates global_songs. Auth users must be created
+--     separately — run: npm run seed
 --   - Running this file multiple times is safe: the ON CONFLICT clause
 --     skips rows whose (title, artist) pair already exists.
 --   - The `links` column stores a JSON array of {label, url} objects.

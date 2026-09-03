@@ -22,6 +22,8 @@ const eslintConfig = defineConfig([
     // Build artifact: a ~1 MB minified vendor bundle copied in by
     // scripts/copy-pdf-worker.mjs (RH-19).
     "public/**",
+    // Generated coverage report (gitignored) — not source.
+    "coverage/**",
   ]),
 ]);
 

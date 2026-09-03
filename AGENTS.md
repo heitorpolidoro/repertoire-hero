@@ -51,7 +51,7 @@ Key architectural decisions:
 - **State**: `zustand` (with `persist`) is used client-side only for lightweight UI state — currently just which "context" (personal vs. a specific band) the user is browsing in (`src/store/bandContextStore.ts`).
 - **Observability**: Sentry (`@sentry/nextjs`) is wired for client, server, and edge configs.
 
-Legacy/unused code to be aware of: `src/lib/mongodb.ts` and the `Song`/`Playlist` shapes in `src/types/index.ts` are leftovers from an earlier MongoDB-based prototype and are not wired into any current route or action — the live data model is `src/types/database.ts`. Similarly, `NEXT_PUBLIC_SUPABASE_*` env vars and stray "Supabase" comments are historical; the app's actual persistence and auth run on plain Postgres via Better Auth, not Supabase Auth/client (the `supabase/` directory retains only `config.toml` and `seed.sql` for the local docker-compose stack; the Supabase CLI migration flow is disabled — see `[db.migrations] enabled = false`).
+Legacy/unused code to be aware of: the live data model is `src/types/database.ts`. `NEXT_PUBLIC_SUPABASE_*` env vars and stray "Supabase" comments are historical; the app's actual persistence and auth run on plain Postgres via Better Auth, not Supabase Auth/client (the `supabase/` directory retains only `config.toml` and `seed.sql` for the local docker-compose stack; the Supabase CLI migration flow is disabled — see `[db.migrations] enabled = false`).
 
 # Key Technologies & Stack
 
@@ -82,6 +82,7 @@ Legacy/unused code to be aware of: `src/lib/mongodb.ts` and the `Song`/`Playlist
 - `vitest` (+ `@vitest/coverage-v8`, `@vitejs/plugin-react`) — unit/integration tests for `src/lib/*` domain logic (`src/lib/__tests__/`)
 - `@playwright/test` — end-to-end tests (`/e2e`), covering auth, songs CRUD, and mobile Fast View
 - ESLint 9 (`eslint-config-next`)
+- `knip` — dead-code / unused-dependency detection (`npm run lint:dead`, config in `knip.json`), enforced by the `dead-code` CI job
 - SonarCloud (`sonar-project.properties`) and DeepSource (`.deepsource.toml`) for static analysis / code quality gates
 
 **Deployment**
@@ -114,8 +115,7 @@ src/
 ├── components/
 │   ├── layout/                 AppLayout, ConditionalLayout (auth-aware chrome)
 │   ├── profile/                InstrumentPicker
-│   ├── songs/                  SongCard, SongForm
-│   └── Sidebar.tsx
+│   └── songs/                  SongForm
 ├── lib/                        Domain logic + data access (no ORM; parameterized SQL via `pg`)
 │   ├── db.ts                   Postgres connection pool + `query()` helper
 │   ├── auth.ts / auth-client.ts / auth-session.ts
@@ -130,14 +130,12 @@ src/
 │   ├── filterSongs.ts          Search/filter predicate logic used by the UI
 │   ├── statusConfig.ts         The 5-stage status enum, labels, colors, ordering/cycling helper
 │   ├── logger.ts                Structured logging helper
-│   ├── mongodb.ts              Legacy/unused — from an earlier prototype, not wired up
 │   └── __tests__/              Vitest unit/integration tests for the above
 ├── store/
 │   ├── bandContextStore.ts     Zustand store: is the user viewing "personal" or a specific band?
 │   └── repertoireStore.ts      Client-side repertoire UI state
 ├── types/
-│   ├── database.ts             Authoritative domain types (Song, Repertoire, Band, Playlist, …)
-│   └── index.ts                Legacy/unused types from the MongoDB-era prototype
+│   └── database.ts             Authoritative domain types (Song, Repertoire, Band, Playlist, …)
 └── proxy.ts                    Next.js middleware — session-gates all non-public routes
 
 migrations/                     Hand-written SQL migrations — the SINGLE source of truth for the schema.

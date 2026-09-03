@@ -1286,3 +1286,95 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   the documented L1a exception — are currently enforced only by the greps in this task's acceptance
   criteria, which disappear once the task closes. Extending the same file with three more scans
   would make the whole section self-enforcing rather than just its first bullet.
+
+## [RH-22] Remover codigo morto do projeto — 2026-09-03
+
+- **N1 — the spec's own "Expected Results" section (11 bullets) is a paraphrase of the 18 persisted
+  `expected_results`, not the same list.** The persisted list is the stronger of the two and is what
+  QA sees, so nothing is at risk downstream. But the spec's own bullet *"diff vs `bd24bbc` stays
+  inside the whitelist"* never enumerates that whitelist anywhere in the spec body — it exists only
+  in persisted ER18. A developer working from the spec document alone cannot check it. Worth pasting
+  the 18 into the spec (or at least the whitelist) so the two documents agree.
+- **N2 — two dangling references to deleted paths survive the sweep and are deliberately outside the
+  ER18 whitelist**: `vitest.config.ts:62` (`coverage.exclude` lists `'src/lib/mongodb.ts'`) and
+  `sonar-project.properties:8` (`sonar.coverage.exclusions` includes `src/lib/mongodb.ts`). Both are
+  harmless — they are path/glob exclusion lists that simply stop matching — but an implementer who
+  spots them while sweeping may "helpfully" clean them and fail ER18's whitelist. One sentence in
+  §7 or in the Out-of-Scope table ("leave these; they are inert and outside the diff whitelist")
+  removes the trap. `docs/plans/mobile-app-analysis.md:68` and `docs/test-coverage-plan.md:22` go
+  stale for the same reason and are likewise fine to leave.
+- **N3 — evidence nit, `mongodb` is not actually flagged by knip at baseline.** I re-ran
+  `knip@6.34.0`: unused dependencies are `@supabase/ssr`, `kysely`, `webpack` only — `mongodb` is
+  held live by `src/lib/mongodb.ts` and `seed.js`, and becomes unused only *after* §1. The §4 table's
+  "knip + depcheck" attribution for `mongodb` overstates it slightly. The conclusion is unaffected
+  (I proved the removal safe independently), it is just imprecise evidence.
+- **N4 — line-number nit**: `getBandWeakestStatusAction` starts at `src/app/actions/repertoire.ts:120`,
+  not 115 as §2 states (115 is inside the preceding doc comment). `STATUS_ORDER` hits are at lines
+  6, 144, 145 as stated.
+- **N5 — the `dead-code` job could reuse the `e2e` job's `needs: []` comment convention** and, if the
+  reusable `node-ci.yml` already installs and caches node modules, a future consolidation into that
+  workflow would save a redundant `npm ci` per run. Not worth doing now — the inline job is the only
+  shape available from this file today.
+- **N6 — consider a follow-up for the `export` keywords hidden by `ignoreExportsUsedInFile: true`.**
+  The seven (`openEditDialog`, `INSTRUMENT_LIST`, `parseTags`, `isSupportedLocale`,
+  `checkSystemAdmin`, `BandContext`, `EditStatus`) are live code, so the flag is the right call for
+  this task, but dropping the redundant keyword would let the flag be turned off later and make the
+  guard strictly stronger. Likewise `knip --production` is a stricter future gate.
+
+## [RH-22] Remover codigo morto do projeto — 2026-09-03
+
+- `vitest.config.ts:62` and `sonar-project.properties:8` still list `src/lib/mongodb.ts` in their
+  coverage-exclusion globs, and `docs/test-coverage-plan.md:22` / `docs/plans/mobile-app-analysis.md:68`
+  still describe deleted files. All four are inert (a glob that matches nothing costs nothing) and all
+  four are deliberately outside this task's ER18 diff whitelist — already logged as N2 in
+  `docs/suggestions-log.md`. Correctly left alone here; worth a one-line follow-up so the config stops
+  naming a file that does not exist.
+- The lockfile carries 4 incidental transitive patch bumps (`@emnapi/core`, `@emnapi/runtime`
+  1.11.1→1.11.2, `get-tsconfig` 4.14.0→4.14.3, `picomatch` 4.0.5→4.0.7) that no direct dependency
+  asked for. This is normal `npm uninstall` re-resolution and all four stay inside their existing
+  semver ranges, so it is not worth reverting — but it is worth knowing the diff is not *purely* the
+  three removals plus knip, in case a bisect ever lands here.
+- AGENTS.md line 54 now reads "Legacy/unused code to be aware of: the live data model is
+  `src/types/database.ts`." The lead-in no longer introduces legacy code, so the first clause is a
+  non-sequitur. Something like "The live data model is `src/types/database.ts`. Legacy/unused code to
+  be aware of: `NEXT_PUBLIC_SUPABASE_*` env vars and stray 'Supabase' comments are historical…" would
+  read straight. Pure prose, no factual error.
+- `ignoreDependencies` covering `@sentry/browser` and `@better-auth/utils` suppresses knip's
+  "Unlisted dependencies" signal for those two names permanently, including for any *future*
+  undeclared import of them. The right fix is declaring them (already logged as a follow-up); when
+  that lands, the two entries should come back out of `knip.json` rather than being left behind.
+- Once the seven redundant `export` keywords noted in the log are dropped, `ignoreExportsUsedInFile`
+  could be turned off and `knip --production` added, making the gate strictly stricter. Follow-up
+  only; the current config is the right call for this task.
+
+## [RH-22] Remover codigo morto do projeto — 2026-09-03
+
+- **Duplicate `## [RH-22]` section in `docs/suggestions-log.md`.** The identical
+  heading `## [RH-22] Remover codigo morto do projeto — 2026-09-03` appears twice
+  (lines 1290 and 1324), and the two bodies partly restate each other — the second
+  section's first bullet re-reports the `vitest.config.ts` / `sonar-project.properties`
+  dangling references that the first section already logged as N2, and says so
+  explicitly ("already logged as N2"). Merging the two into one section would make
+  the log easier to triage later. Non-blocking: ER17 only requires the heading to
+  exist, and the content is accurate.
+
+- **Two inert dangling references to `src/lib/mongodb.ts` remain**, correctly left
+  outside this task's whitelist: `vitest.config.ts:62` (`coverage.exclude`) and
+  `sonar-project.properties:8` (`sonar.coverage.exclusions`) both still name a file
+  that no longer exists. Harmless (a glob matching nothing costs nothing) and
+  already self-reported in the suggestions log, but worth a one-line follow-up task
+  so no config keeps naming a deleted path.
+
+- **Consider `knip --production` as a future gate.** The current `lint:dead` script
+  is plain `knip`, which is already clean. Running the stricter production-mode
+  entry-point analysis in a follow-up would catch dead code reachable only from
+  test files. Deliberately out of scope here — the current configuration meets ER7
+  and ER8 exactly as specified.
+
+- **`knip.json` `ignoreDependencies` is doing real work and is worth a comment.**
+  `kysely` and `webpack` are ignored for the documented reasons captured in ER5
+  (string reference in `serverExternalPackages`; keeping `npm ci` green per 7360bfd),
+  but `@sentry/browser` and `@better-auth/utils` carry no such rationale anywhere in
+  the repo. JSON has no comments, so a short note in `AGENTS.md` next to the existing
+  knip bullet would prevent a future cleanup from removing them by mistake.
+
