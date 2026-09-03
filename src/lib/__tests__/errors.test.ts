@@ -334,13 +334,15 @@ describe("Supabase Error Handling", () => {
 
   describe("bands.server.ts errors", () => {
     it("getBandByInviteCodeServer throws on DB error", async () => {
-      await expect(getBandByInviteCodeServer("some-code")).rejects.toThrow();
+      await expect(getBandByInviteCodeServer("some-code")).rejects.toThrow(
+        "Failed to fetch band by invite code: Mocked Database Error",
+      );
     });
 
     it("joinBandByInviteServer throws on DB error", async () => {
       await expect(
         joinBandByInviteServer("mock-user-id", "some-code"),
-      ).rejects.toThrow();
+      ).rejects.toThrow("Failed to join band by invite: Mocked Database Error");
     });
   });
 

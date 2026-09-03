@@ -1152,3 +1152,137 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   value would express the intent more directly and avoid any future foot-gun if
   someone adds a term containing a regex metacharacter (e.g. a `.` or `+`).
 
+
+## [RH-21] Padronizar tratamento de erros no projeto — 2026-09-03
+
+- **Expected result 6 can be satisfied by deleting the logging rather than
+  migrating it.** It only asserts that `console.error(` disappears from
+  `fast-view/page.tsx`, `api/spotify/search/route.ts` and `lib/auth.ts`. An
+  implementation that simply removes those four lines passes every current
+  result. Consider adding a companion assertion, e.g. that
+  `grep -c "logger.error(" src/app/songs/\[id\]/fast-view/page.tsx` prints `2`
+  and that `logger.error` appears in `src/app/api/spotify/search/route.ts` and
+  `src/lib/auth.ts`.
+- **No result pins the four user-facing fallback strings** that §1 enumerates
+  (`'An unexpected error occurred during upload'`, `'Failed to delete tablatura'`,
+  `'Failed to upload band cover image'`, `'Failed to upload tab'`). They are the
+  text a user actually sees, and expected result 10 protects only the fifth such
+  string. A single grep result covering all four would close the gap cheaply.
+- **Expected result 11 does not protect the `ROLLBACK`.** §2 site 15 says only
+  that `mergeGlobalSongs` gains a `logger.error` and a wrapped message, and the
+  scope section forbids any behaviour change beyond message text — but the
+  result itself never asserts that `await query('ROLLBACK')` still runs before
+  the throw, and the spec never states whether the `logger.error` goes before or
+  after it. Both orderings are defensible from the text. Pinning "the catch still
+  awaits `query('ROLLBACK')` before throwing" in the result would remove the
+  ambiguity and the regression window at once.
+- **§1's table names the wrong enclosing function for sites 5-10.** The column
+  says `addSongsToRepertoire`; the actual function in both
+  `sync/route.ts:121` and `import/route.ts:126` is `ensureInRepertoire`. The line
+  numbers are correct, so this is cosmetic, but it will read as a mismatch to the
+  implementer.
+- **§4's heading says "`console.error` in a catch body" but site 20
+  (`fast-view/page.tsx:298`) is inside a `.catch((e) => { … })` handler**, not a
+  `catch` block. The site is enumerated explicitly with its replacement, so it is
+  unambiguous in practice, and it is genuinely distinct from the
+  `.catch(console.error)` argument-position handlers the Out of Scope section
+  excludes — but a one-clause note would prevent an implementer from reading it
+  as out of scope.
+- **Expected result 1 does not exempt the new guard test file**, unlike the
+  guard test's own tree check (which excludes `SELF`). §6 already requires the
+  offending literal to be built by concatenation, but that instruction should be
+  read as covering `it(...)` descriptions and docblock prose as well, since
+  `grep` — unlike the detector — does not strip comments. Worth making explicit.
+- **Expected result 12 is prose-inspection rather than grep.** "whose body names
+  all of: …" is checkable by a reader but not by a command. Listing the exact
+  literals to grep for in `AGENTS.md` (e.g. `catch (x: any)`,
+  `errorHandlingStyle.test.ts`) would make it mechanical like the rest of the set.
+
+## [RH-21] Padronizar tratamento de erros no projeto — 2026-09-03
+
+- **Result 11 does not guard the `ROLLBACK` in `mergeGlobalSongs`.** The current
+  catch is `await query('ROLLBACK'); throw error`. §2 site 15 and the §Scope
+  clause ("Any change to behaviour other than the error message text") clearly
+  require the `ROLLBACK` to survive, but result 11 asserts only that the wrapped
+  message exists and that `logger.error` is called before throwing. Since QA
+  sees only the results, an implementation that dropped the `ROLLBACK` would
+  pass this gate while silently leaving an open transaction on the failure path.
+  Appending "and the `await query('ROLLBACK')` call is retained" to result 11
+  would close that gap at no cost. Not blocking — the spec itself is
+  unambiguous and code review reads the diff against it.
+
+- **No result asserts the new `bands.ts` wrapped message text.** Sites 12 and 13
+  get exact-string coverage through result 9 (`errors.test.ts`), and site 15
+  through result 11, but site 14's
+  `Failed to regenerate band invite code: ${err.message}` is only covered
+  indirectly, by result 5 observing that the bare `throw e` is gone. A
+  `grep -c "Failed to regenerate band invite code" src/lib/bands.ts` expecting
+  `2` (the restructure introduces two catch blocks, each logging and throwing
+  that prefix) would make it symmetric with the other three §2 sites.
+
+- **§A1's parenthetical is very slightly overstated.** Line 99-100 says the
+  `err instanceof Error ? err.message : undefined` form fires the fallback
+  "exactly as `err.message || fallback` did". That holds for `Error` throws and
+  for primitives, but not for a thrown non-`Error` object carrying a `.message`
+  property: the old code surfaced that message, the new code falls back. The new
+  behaviour is the safer one (the old form would also have thrown a `TypeError`
+  inside the catch on a `null`/`undefined` throw), and in practice these three
+  call sites only ever see `Error`s from `query` / `put` / `del` /
+  `getRequiredUserId`. Worth a half-sentence correction so the claim that the
+  `'Band not found'` message is "the only observable behaviour delta" stays
+  strictly true; no expected result depends on it.
+
+- **Result 8's `grep -cE … prints 0` exits with status 1.** `grep -c` returns 1
+  when the count is zero. The result says "prints `0`", which is the right
+  framing, but it is worth being aware of when scripting the check — unlike
+  result 1, which spells out "(exit status 1)" explicitly. Making result 8
+  equally explicit would remove any chance of a QA harness reading the non-zero
+  exit as a failure.
+
+- **The nextjs-agent-rules block is re-added by `next dev`.** AGENTS.md itself
+  notes (line 206) that the block is regenerated and that "removing it from a
+  diff only re-creates the uncommitted change". §8 already says not to touch it;
+  since `AGENTS.md` is whitelisted in result 15 either way, there is no risk to
+  the gate, but the implementer should expect `next dev` to have possibly
+  touched that region already and should not try to revert it.
+
+## [RH-21] Padronizar tratamento de erros no projeto — 2026-09-03
+
+1. **`src/lib/__tests__/errorHandlingStyle.test.ts:95-109` — the tree test re-implements the detector instead of calling it.** `findAnyTypedCatches` is exported and unit-tested, but the tree walk duplicates `stripComments(...).split('\n').forEach(...)` inline (because it needs line numbers). A drift between the two is possible: someone hardening the exported detector would not automatically harden the gate. Making the detector return `{ line, text }[]` and having both the unit tests and the tree test consume it would make the tested code and the enforcing code the same code. Non-blocking — today the two are byte-identical in behaviour.
+
+2. **Detector misses two shapes (`ANY_TYPED_CATCH`, `errorHandlingStyle.test.ts:26`).** Probed with the exact regex:
+   - multi-line clause `} catch (\n  err: any\n) {` → not flagged, because matching is per-line;
+   - union annotation `} catch (err: any | undefined) {` → not flagged, because the regex requires `any` to be immediately followed by `\s*\)`.
+   Both are caught by `@typescript-eslint/no-explicit-any` anyway, and neither is a shape prettier would produce, so this is defence-in-depth rather than a hole. Matching over the whole comment-stripped source (and deriving the line number from the match index) would close the first; `[^)]*\bany\b` would close the second at the cost of some precision.
+
+3. **`src/app/api/spotify/search/route.ts:132` drops non-`Error` payloads.** Before: `console.error('[spotify/search]', error instanceof Error ? error.message : error)` — a thrown string/object was printed. After: `logger.error('[spotify/search]', error instanceof Error ? error : undefined)` — for a non-`Error` throw, `logger.error` takes the `captureMessage` branch with `extra: { error: undefined }`, so the payload is gone. This is exactly the R1 form the spec prescribes and matches the sibling `playlists` / `tracks` routes, so it is a deliberate consistency trade, not a defect. If the information matters, `error instanceof Error ? error : new Error(String(error))` (the form used two files over in `disconnect/route.ts:21`) would keep it.
+
+4. **R1 is documented with one narrowing form and the sweep ships two.** `AGENTS.md` R1 shows `error instanceof Error ? error : undefined`; `src/app/api/auth/spotify/disconnect/route.ts:21` uses `error instanceof Error ? error : new Error(String(error))`. Both were mandated by the spec (§3 site 18 vs §4 site 21) and both are behaviour-preserving-or-better, but a future reader of AGENTS.md will find a route handler that does not match the documented snippet. Worth one clause in R1 saying either is acceptable, or normalising the two routes in a follow-up.
+
+5. **`src/lib/__tests__/bands.test.ts:145-174` still asserts bare `.rejects.toThrow()`.** The whole point of the `regenerateBandInviteCode` restructure is that `'Only band admins can regenerate the invite link'` survives verbatim to `src/app/bands/[id]/page.tsx:127`. Nothing in the suite pins that string; only a `grep -c` in the spec does. Passing the literal to `.rejects.toThrow(...)` in the two rejection tests would make the guarantee a test rather than a convention. (Not blocking: this is pre-existing test text the spec explicitly chose to leave alone, and no new logic is left untested — the restructured function is exercised by 3 of the 14 passing tests in that file.)
+
+6. **`src/lib/bands.ts:244` uses an un-annotated `let memberRes`.** It relies on TypeScript's evolving-`any` inference. `tsc --noEmit` is clean and eslint does not flag it (it is not an *explicit* `any`), and it is the shape the spec dictated, but `let memberRes: Awaited<ReturnType<typeof query>>` would state the intent instead of inferring it.
+
+---
+
+
+## [RH-21] Padronizar tratamento de erros no projeto — 2026-09-03
+
+- `docs/tasks/RH-21-spec.md` is **untracked** (`??` in `git status`), not staged. It is inside the
+  criterion-15 whitelist, so this is not a failure, but if the spec is meant to land with the task
+  it will be omitted from the commit the `work` skill creates from the staged set. Worth a
+  deliberate `git add` decision either way.
+- The 20th ESLint warning that consumes all the headroom under the "≤20 warnings" bar is
+  `coverage/block-navigation.js 1:1 Unused eslint-disable directive` — a lint finding inside a
+  generated coverage artifact, unrelated to this task. Adding `coverage/` to the ESLint ignore list
+  would remove a spurious warning and restore margin for future tasks measured against the same bar.
+- `errorHandlingStyle.test.ts` skips itself in the tree scan (`if (file === SELF) continue`). The
+  self-exemption is currently harmless because every sample in that file is built by concatenation
+  and so contains no literal violation, but the exemption means a real violation added to that one
+  file would be invisible to its own guard. Since the concatenation trick already keeps the file
+  clean, the `SELF` skip could be dropped, which would close the gap at no cost.
+- The guard only covers `catch (x: any)`. The neighbouring conventions the new AGENTS.md section
+  establishes — no `console.error` in catch bodies, no `error as Error`, no bare `throw err` outside
+  the documented L1a exception — are currently enforced only by the greps in this task's acceptance
+  criteria, which disappear once the task closes. Extending the same file with three more scans
+  would make the whole section self-enforcing rather than just its first bullet.

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { logger } from '@/lib/logger'
 
 export interface SpotifyTrack {
   id: string
@@ -128,7 +129,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(tracks)
   } catch (error) {
     // Fail safely — Spotify is optional, so we log and return an empty list
-    console.error('[spotify/search]', error instanceof Error ? error.message : error)
+    logger.error('[spotify/search]', error instanceof Error ? error : undefined)
     return NextResponse.json([])
   }
 }

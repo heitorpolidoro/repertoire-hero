@@ -18,7 +18,10 @@ export async function POST(): Promise<NextResponse> {
   try {
     await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userId])
   } catch (error) {
-    logger.error('Failed to disconnect Spotify', error as Error)
+    logger.error(
+      'Failed to disconnect Spotify',
+      error instanceof Error ? error : new Error(String(error)),
+    )
     return NextResponse.json({ error: 'Failed to disconnect Spotify', code: 500 }, { status: 500 })
   }
 

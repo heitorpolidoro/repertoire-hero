@@ -172,6 +172,78 @@ spec.md, SDS.md, plan.md, tasks.md
 - **Auto-Fetched Link Labels & oEmbed** — When adding external links (YouTube, Spotify, chord sites), link label input is optional. If left blank, `fetchUrlTitle` (`src/lib/linkFetcher.ts`) auto-fetches track/video/page titles via Spotify/YouTube oEmbed or HTML `<title>` parsing.
 - **Client-Side Image Compression** — Camera photos uploaded for Band covers or song art are compressed client-side (`compressImageIfNeeded` in `src/lib/imageCompressor.ts`) to max 1024x1024 JPEG (~100KB) prior to Server Action execution to prevent HTTP 413 body size errors.
 
+# Error Handling Conventions
+
+These are the patterns the codebase already follows. New code must match them; the
+`catch (x: any)` ban is enforced mechanically by `src/lib/__tests__/errorHandlingStyle.test.ts`,
+which walks every `.ts`/`.tsx` file under `src/`.
+
+- **Never `catch (x: any)`.** Narrow instead: `const err = error instanceof Error ? error : new Error(String(error))`. Never cast with `error as Error` either — the cast only lies to the type checker.
+- **Never `console.error` in a catch body.** Use `logger` (`@/lib/logger`), so the event reaches Sentry. (Two deliberate exceptions, documented at their call sites: the `console.log` dev echo of the password-reset URL in `src/lib/auth.ts`, which must not become a Sentry breadcrumb, and the module-load `console.warn` in `src/lib/db.ts`, which runs before Sentry is initialised.)
+
+**L1 — data-access / domain layer (`src/lib/*.ts`): log, then throw a prefixed message.**
+
+```ts
+} catch (error) {
+  const err = error instanceof Error ? error : new Error(String(error))
+  logger.error('Failed to fetch bands', err, { userId })
+  throw new Error(`Failed to fetch bands: ${err.message}`)
+}
+```
+
+The logged message and the thrown prefix are the same `Failed to <verb the thing>` phrase, and
+`logger.error` is called *before* throwing so the event is recorded even if a caller swallows it.
+Never re-throw the raw error.
+
+- **L1a — exception.** A domain/authorization error deliberately raised inside the same `try` is re-thrown unwrapped behind an explicit message check (`if (err.message.startsWith('Access denied')) throw err` — see `src/lib/moderation.ts`). A precondition that throws a *user-facing* message (e.g. `'Only band admins can regenerate the invite link'`) goes **outside** the wrapping `try`, so its text survives verbatim to the UI.
+
+**A1 — Server Actions returning a result envelope.**
+
+```ts
+} catch (err) {
+  const message = err instanceof Error ? err.message : undefined
+  return { error: message || 'Failed to save annotations' }
+}
+```
+
+`undefined` (not `String(err)`) is deliberate: it makes the `|| fallback` fire for non-`Error`
+throws *and* for an `Error` with an empty message.
+
+**A2 — thin Server Actions.** Actions that only resolve the session and delegate to `src/lib`
+(e.g. `src/app/actions/profile.ts`, `src/app/actions/moderation.ts`) have **no** `try/catch` — they
+let the L1 wrapped error propagate. Do not add catches to them.
+
+**R1 — route handlers (`src/app/api/**/route.ts`).** Log with the route path as the tag; return a
+fixed message plus `code`, never the raw exception text.
+
+```ts
+} catch (error) {
+  logger.error('[spotify/playlists]', error instanceof Error ? error : undefined, { id })
+  return NextResponse.json({ error: 'Unexpected error fetching Spotify playlists', code: 500 }, { status: 500 })
+}
+```
+
+**P1 — client pages / components.** Narrow with `instanceof Error`, surface the message through
+component state (inline banner or Toast), and log with `logger.error`.
+
+**S1 — deliberate swallow.** Use the binding-less form and carry a one-line comment saying why:
+
+```ts
+} catch {
+  // oEmbed is best-effort — fall through to the next strategy.
+}
+```
+
+**E1 — Postgres error-code checks.** Read the code through a scoped structural cast, not an
+`any`-typed binding:
+
+```ts
+} catch (err) {
+  // 23505 = unique_violation: the row is already there, which is not an error here.
+  if ((err as { code?: string }).code !== '23505') throw err
+}
+```
+
 # UI & UX Behavioral Directives
 
 - **NO Browser Alerts**: NEVER use browser `alert()` or `confirm()` dialogs. Always use floating Toast notifications (`showToast`), inline alert banners, or accessible modal overlays.

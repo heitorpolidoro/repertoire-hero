@@ -110,7 +110,8 @@ export async function uploadBandCoverAction(
     })
 
     return { coverUrl: blob.url }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to upload band cover image' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined
+    return { error: message || 'Failed to upload band cover image' }
   }
 }

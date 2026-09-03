@@ -18,7 +18,10 @@ export async function getSpotifyAccessToken(userId: string): Promise<string | nu
     if (res.rowCount === 0) return null
     tokenRow = res.rows[0]
   } catch (error) {
-    logger.error('Failed to query Spotify tokens', error as Error)
+    logger.error(
+      'Failed to query Spotify tokens',
+      error instanceof Error ? error : new Error(String(error)),
+    )
     return null
   }
 
@@ -87,7 +90,10 @@ export async function getSpotifyAccessToken(userId: string): Promise<string | nu
 
     return refreshJson.access_token
   } catch (error) {
-    logger.error('Failed to refresh Spotify token', error as Error)
+    logger.error(
+      'Failed to refresh Spotify token',
+      error instanceof Error ? error : new Error(String(error)),
+    )
     return null
   }
 }

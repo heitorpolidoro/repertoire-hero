@@ -130,8 +130,9 @@ async function ensureInRepertoire(songId: string, owner: { userId?: string; band
     if (bandRep.rowCount === 0) {
       try {
         await query('INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, \'unknown\')', [owner.bandId, songId])
-      } catch (err: any) {
-        if (err.code !== '23505') throw err
+      } catch (err) {
+        // 23505 = unique_violation: the row is already there, which is not an error here.
+        if ((err as { code?: string }).code !== '23505') throw err
       }
     }
 
@@ -145,8 +146,9 @@ async function ensureInRepertoire(songId: string, owner: { userId?: string; band
       if (memberRep.rowCount === 0) {
         try {
           await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [member.user_id, songId])
-        } catch (err: any) {
-          if (err.code !== '23505') throw err
+        } catch (err) {
+          // 23505 = unique_violation: the row is already there, which is not an error here.
+          if ((err as { code?: string }).code !== '23505') throw err
         }
       }
     }
@@ -156,8 +158,9 @@ async function ensureInRepertoire(songId: string, owner: { userId?: string; band
     if (userRep.rowCount === 0) {
       try {
         await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [owner.userId, songId])
-      } catch (err: any) {
-        if (err.code !== '23505') throw err
+      } catch (err) {
+        // 23505 = unique_violation: the row is already there, which is not an error here.
+        if ((err as { code?: string }).code !== '23505') throw err
       }
     }
   }

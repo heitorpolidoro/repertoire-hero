@@ -24,7 +24,9 @@ export async function fetchUrlTitle(url: string): Promise<string> {
         const data = (await res.json()) as { title?: string }
         if (data.title?.trim()) return data.title.trim()
       }
-    } catch {}
+    } catch {
+      // YouTube oEmbed is best-effort — fall through to noembed.
+    }
 
     try {
       const noembedRes = await fetch(
@@ -35,7 +37,9 @@ export async function fetchUrlTitle(url: string): Promise<string> {
         const data = (await noembedRes.json()) as { title?: string }
         if (data.title?.trim()) return data.title.trim()
       }
-    } catch {}
+    } catch {
+      // noembed.com is a best-effort fallback — fall through to the generic HTML fetch.
+    }
   }
 
   // 2. Spotify
@@ -49,7 +53,9 @@ export async function fetchUrlTitle(url: string): Promise<string> {
         const data = (await res.json()) as { title?: string }
         if (data.title?.trim()) return data.title.trim()
       }
-    } catch {}
+    } catch {
+      // Spotify oEmbed is best-effort — fall through to the generic HTML fetch.
+    }
   }
 
   // 3. Generic HTML Page <title> / og:title
@@ -82,7 +88,9 @@ export async function fetchUrlTitle(url: string): Promise<string> {
         if (parsedTitle) return parsedTitle
       }
     }
-  } catch {}
+  } catch {
+    // The page may be unreachable or non-HTML — fall through to the domain-name fallback.
+  }
 
   // Fallback to domain name
   try {

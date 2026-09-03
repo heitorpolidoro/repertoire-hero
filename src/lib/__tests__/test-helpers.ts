@@ -187,8 +187,9 @@ class SupabaseMockChain {
 
       const result = { data, error: null }
       return onfulfilled ? onfulfilled(result) : result
-    } catch (err: any) {
-      const result = { data: null, error: { message: err.message, code: err.code } }
+    } catch (err) {
+      const e = err as { message?: string; code?: string }
+      const result = { data: null, error: { message: e.message, code: e.code } }
       return onfulfilled ? onfulfilled(result) : result
     }
   }

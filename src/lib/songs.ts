@@ -438,6 +438,8 @@ export async function mergeGlobalSongs(primarySongId: string, secondarySongId: s
     await query('COMMIT')
   } catch (error) {
     await query('ROLLBACK')
-    throw error
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to merge global songs', err, { primarySongId, secondarySongId })
+    throw new Error(`Failed to merge global songs: ${err.message}`)
   }
 }

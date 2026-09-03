@@ -79,8 +79,9 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
 
     revalidatePath('/')
     return { data: rows[0] as RepertoireTab }
-  } catch (err: any) {
-    return { error: err.message || 'An unexpected error occurred during upload' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined
+    return { error: message || 'An unexpected error occurred during upload' }
   }
 }
 
@@ -112,8 +113,9 @@ export async function deleteTabAction(tabId: string, repertoireId: string): Prom
 
     revalidatePath('/')
     return { success: true }
-  } catch (err: any) {
-    return { error: err.message || 'Failed to delete tablatura' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined
+    return { error: message || 'Failed to delete tablatura' }
   }
 }
 

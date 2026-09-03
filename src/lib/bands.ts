@@ -241,10 +241,19 @@ export const regenerateBandInviteCode = async (
   bandId: string,
   userId: string,
 ): Promise<string> => {
-  const memberRes = await query(
-    `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2`,
-    [bandId, userId],
-  )
+  let memberRes
+  try {
+    memberRes = await query(
+      `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2`,
+      [bandId, userId],
+    )
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to regenerate band invite code', err, { bandId })
+    throw new Error(`Failed to regenerate band invite code: ${err.message}`)
+  }
+
+  // User-facing precondition — outside the wrapping catch so the text survives verbatim.
   if (memberRes.rowCount === 0 || memberRes.rows[0].role !== 'admin') {
     throw new Error('Only band admins can regenerate the invite link')
   }
@@ -263,11 +272,11 @@ export const regenerateBandInviteCode = async (
       if (res.rowCount === 0) throw new Error('Band not found')
       return res.rows[0].invite_code as string
     } catch (error) {
-      const err = error as { code?: string }
-      if (err.code === '23505' && attempt < MAX_ATTEMPTS - 1) continue // unique_violation, retry
-      const e = error instanceof Error ? error : new Error(String(error))
-      logger.error("Failed to regenerate band invite code", e)
-      throw e
+      // 23505 = unique_violation on invite_code — retry with a fresh code.
+      if ((error as { code?: string }).code === '23505' && attempt < MAX_ATTEMPTS - 1) continue
+      const err = error instanceof Error ? error : new Error(String(error))
+      logger.error('Failed to regenerate band invite code', err, { bandId })
+      throw new Error(`Failed to regenerate band invite code: ${err.message}`)
     }
   }
   throw new Error('Failed to regenerate invite code')

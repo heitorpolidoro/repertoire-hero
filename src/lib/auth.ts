@@ -1,5 +1,6 @@
 import { betterAuth } from 'better-auth'
 import { pool } from '@/lib/db'
+import { logger } from '@/lib/logger'
 import bcrypt from 'bcryptjs'
 import { hashPassword, verifyPassword } from '@better-auth/utils/password'
 import { randomUUID } from 'crypto'
@@ -56,7 +57,10 @@ export const auth = betterAuth({
           `
         })
       } catch (error) {
-        console.error('Failed to send password reset email:', error)
+        logger.error(
+          'Failed to send password reset email',
+          error instanceof Error ? error : new Error(String(error)),
+        )
       }
     },
     password: {

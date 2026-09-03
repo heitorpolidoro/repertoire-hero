@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
+import { logger } from '@/lib/logger'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
@@ -291,11 +292,11 @@ export default function FastViewPage() {
                       setPersonalTabs(pTabs)
                     }
                   } catch (e) {
-                    console.error('Failed to load personal tabs', e)
+                    logger.error('Failed to load personal tabs', e instanceof Error ? e : new Error(String(e)))
                   }
                 }
               }).catch((e) => {
-                console.error('Failed to load personal entry', e)
+                logger.error('Failed to load personal entry', e instanceof Error ? e : new Error(String(e)))
               }).finally(() => {
                 if (!cancelled) setLoadingPersonal(false)
               })
@@ -438,8 +439,9 @@ export default function FastViewPage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
-    } catch (err: any) {
-      setUploadError(err.message || 'Failed to upload tab')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : undefined
+      setUploadError(message || 'Failed to upload tab')
     } finally {
       setUploading(false)
       setShowUploadDestModal(false)

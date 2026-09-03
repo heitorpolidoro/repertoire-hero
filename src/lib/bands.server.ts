@@ -24,7 +24,7 @@ export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch band by invite code', err)
-    throw err
+    throw new Error(`Failed to fetch band by invite code: ${err.message}`)
   }
 }
 
@@ -45,6 +45,6 @@ export async function joinBandByInviteServer(
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to join band by invite', err)
-    throw err
+    throw new Error(`Failed to join band by invite: ${err.message}`)
   }
 }
