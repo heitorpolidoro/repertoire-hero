@@ -716,3 +716,201 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
 - `docs/suggestions-log.md` (+66 lines) is modified but **unstaged**, and `docs/tasks/RH-18-spec.md`
   is untracked. Neither is covered by the expected results, but if they are meant to ship with this
   task they need to be staged before the commit.
+
+## [RH-19] Hospedar o worker do pdf.js localmente em vez de CDN externa — 2026-09-03
+
+- **Expected result 12's version wording is loose.** "above `0.1.58` with a
+  `YYYYMMDDHHmm` suffix" — the current version is `0.1.58-202609030307`, so a
+  bump to `0.1.58-2026…` with a later timestamp is arguably "above 0.1.58"
+  while violating the AGENTS.md rule ("Increase the patch/bugfix version by
+  default"). Consider "`package.json` version is `0.1.59` or higher with a
+  `YYYYMMDDHHmm` suffix", which is unambiguous and matches the rule.
+
+- **Expected result 11 does not say which server to run.** It follows result 10
+  ("Against a production build"), so it is inferable, but QA holding only the
+  list may reach for `npm run dev` — which binds `--hostname 127.0.0.1` and, per
+  the spec's own Out of Scope section, is currently broken for other reasons.
+  Adding "with `npx next start` running" makes it self-contained. Consider also
+  asserting the `content-type` in the same curl, which would fold the
+  automatable half of result 10 into an executable check.
+
+- **Expected result 10 is not executable by an automated QA pass.** The spec is
+  honest about why (no Blob credentials in CI, needs an authenticated session
+  and a real PDF), and result 11 covers the part that matters most for the
+  regression this task introduces. Worth flagging in the result itself as a
+  manual step so QA does not silently treat it as unverifiable and skip it.
+
+- **`§7` case 1 (file exists) has no actionable failure message requirement**,
+  while case 2 does. If the reusable CI workflow ever installs with a
+  `node_modules` cache that skips `postinstall`, case 1 is the one that fires
+  first, and a bare "expected true to be false" would be a poor breadcrumb. Give
+  case 1 the same "run `node scripts/copy-pdf-worker.mjs`" message.
+
+- **`globalIgnores(["public/**"])` is broader than needed.** It is the right call
+  today (nothing in `public/` is first-party JS), but if a first-party script is
+  ever added there it will be silently unlinted. `public/pdf.worker.min.mjs`
+  alone would be tighter; the tradeoff is that a future copied artifact needs a
+  new entry. Either is defensible — worth one sentence of rationale in §5.
+
+- **§7 case 7 duplicates a concern with `src/lib/__tests__/proxy.test.ts`.** The
+  existing file already owns middleware behaviour. Putting a matcher assertion
+  in a new `pdfWorkerAsset` file is reasonable (it is about the asset, not the
+  middleware), but a cross-reference comment in one or both files would save the
+  next reader a search.
+
+- The "Alternatives considered and rejected" table is unusually good — the
+  rejection of `new URL(..., import.meta.url)` on dual-bundler grounds, and of
+  a direct `pdfjs-dist` dependency on nested-copy grounds, are both correct and
+  non-obvious. No change requested; noting it so a future round does not
+  relitigate them.
+
+## [RH-19] Hospedar o worker do pdf.js localmente em vez de CDN externa — 2026-09-03
+
+- **Expected result 11 is a human-only criterion inside an automated gate.**
+  It requires DevTools Network inspection *and* Stage Mode actually rendering a
+  PDF — which needs an authenticated session plus a real PDF in Vercel Blob, the
+  exact setup the spec's own Out of Scope section says CI cannot provide. The
+  spec resolves this ("the browser criterion stays a manual QA step"), but QA
+  never sees the Out of Scope section — it holds only the 15 results. Consider
+  opening the result with "Manual QA step:" so it is handed off rather than
+  failed for being unrunnable. The mechanical half of it is already covered by
+  results 1, 10 and 12.
+- **Expected result 14 drifts from the repo's version-bump phrasing.** It says
+  "version is above `0.1.58` with a `YYYYMMDDHHmm` suffix". Current
+  `package.json` is `0.1.58-202609030307`. Under semver `0.1.58-<ts>` sorts
+  *below* `0.1.58`, so the criterion does resolve — it demands `0.1.59-<ts>` —
+  but a QA agent comparing against the existing string could read a
+  timestamp-only bump as passing. Siblings are precise: RH-18 writes
+  "`0.1.58-<YYYYMMDDHHmm>` — strictly higher than the previous highest
+  `0.1.57-202609030245`"; RH-17 does the same. Match that form:
+  "`0.1.59-<YYYYMMDDHHmm>`, strictly greater than the previous highest
+  `0.1.58-202609030307`".
+- **Expected result 7 implicitly constrains test granularity.** 205 baseline
+  tests + "at least 210" requires ≥5 new test cases; §7 lists seven, but never
+  says one `it()` per case. An implementer who groups the seven assertions into
+  three `it()` blocks satisfies result 5 and fails result 7. Say "seven `it()`
+  cases" in §7.
+- **Expected results 2 and 5(2) name different paths for the same file.**
+  Result 2 hardcodes `node_modules/pdfjs-dist/build/pdf.worker.min.mjs` while
+  the script (§1) deliberately resolves through `react-pdf` precisely so it does
+  *not* trust the hoisted path. They are the same file at `36ee59b` (verified),
+  so this is harmless today, but result 2 quietly asserts the flat layout the
+  design refuses to assume.
+- **Expected result 12 does not say what server it is issued against.** Standing
+  alone, `curl -sI http://localhost:3000/pdf.worker.min.mjs` has no running
+  server; the context comes from the preceding result's `npx next start`. Note
+  that `npm run dev` binds `127.0.0.1` explicitly while `next start` defaults to
+  all interfaces, so the port-3000 assumption only holds for the production
+  path. Fold the server setup into the result text.
+- **Expected result 9's "files added or changed by this task"** is not resolvable
+  from the results list alone (QA has no base commit for that phrase). Other
+  results pin `36ee59b`; this one could too, e.g. "zero errors/warnings in the
+  files listed by `git diff --name-only 36ee59b`".
+- Minor: §1's rationale for resolving through `react-pdf` is sound and worth
+  keeping, but the spec could note that `pdfjs-dist` publishes no `exports` map
+  today — a future one restricting `./build/*` would break the resolution. A
+  one-line comment in the script pointing at that assumption would age well.
+
+
+## [RH-19] Hospedar o worker do pdf.js localmente em vez de CDN externa — 2026-09-03
+
+- **Version criterion is looser than this repo's own precedent.** Result 13
+  reads "`package.json` version is above `0.1.58` with a `YYYYMMDDHHmm`
+  suffix", but `HEAD`'s version is already `0.1.58-202609030307`. Under semver a
+  prerelease sorts *below* its base, so `0.1.58-<later timestamp>` is arguably
+  both "above 0.1.58-202609030307" and "not above 0.1.58" — two readings.
+  Sibling specs pin it tightly (e.g. RH-15: "version is `0.1.58-<YYYYMMDDHHmm>`
+  … strictly higher than the previous highest `0.1.57-202609030245`"). Wording
+  it as "`0.1.59-<YYYYMMDDHHmm>`, strictly greater than `0.1.58-202609030307`"
+  would remove the ambiguity. Not blocking: any conforming bump under AGENTS.md
+  line 185-187 (patch bump + timestamp) satisfies it under either reading.
+- **The header-comment rewrite in §3 has no expected result.** The stale comment
+  in `src/lib/pdfWorker.ts:1-14` still describes the CDN as a deliberate
+  dual-bundler decision. Result 6 case 3 forbids any `http://`/`https://` in
+  that file, which forces the URL out but not the misleading prose. Consider an
+  explicit result, e.g. "the file's header comment names
+  `scripts/copy-pdf-worker.mjs` and does not describe a CDN". Related trap worth
+  flagging to the implementer: that same case-3 assertion means the rewritten
+  comment must not contain a docs link either.
+- **The script's loud-failure behaviour is unverified.** §1 and §2.1 both lean
+  hard on "on resolution failure, exit non-zero" (it is the stated reason for
+  rejecting the `exit 0` mitigation), yet no expected result exercises it — an
+  implementation that swallowed the error would still pass all sixteen. The
+  SHA-256 guard limits the blast radius, so this is not blocking, but a result
+  such as "with `node_modules/react-pdf` temporarily renamed, the script exits
+  non-zero and its message names `react-pdf`/`pdfjs-dist`" would close the hole.
+- **`docker build --target deps .` may be slow or unavailable at QA time.**
+  There is no `.dockerignore`, so the build context includes `node_modules`,
+  `.next`, `.git` and `coverage` — hundreds of MB shipped to the daemon for a
+  stage that needs only `package.json`, the lockfile and `scripts/`. Adding a
+  `.dockerignore` is out of scope here, but worth its own task. If QA runs
+  without a Docker daemon, the line-placement half of result 4 is still
+  mechanically checkable on its own.
+- **`AGENTS.md:153` describes `scripts/` as "migrate.mjs (schema migration
+  runner), dev-seed (local data seeding)"** — already stale (it omits
+  `deduplicate-songs.mjs`) and this task adds a third entry. Not RH-19's to fix,
+  but a one-line refresh would keep the file map honest.
+
+## [RH-19] Hospedar o worker do pdf.js localmente em vez de CDN externa — 2026-09-03
+
+- **`src/proxy.ts:53` — the exclusion is a prefix, not an exact path.** The
+  negative lookahead alternative `pdf\\.worker\\.min\\.mjs` is not terminated by
+  `$` (unlike the sibling image-extension alternative), so *any* pathname
+  beginning with that literal is excluded from session gating. Verified
+  empirically: `/pdf.worker.min.mjs.map` and `/pdf.worker.min.mjsevil` are also
+  excluded. This is not exploitable today — no route or file with that prefix
+  exists, so those paths 404 at the static handler and carry no data — but
+  `pdf\\.worker\\.min\\.mjs$` would express the intent exactly and cost nothing.
+- **`Dockerfile:11` — `COPY scripts ./scripts` widens the deps-layer cache key.**
+  Any edit to `scripts/migrate.mjs` or `scripts/deduplicate-songs.mjs` (neither
+  of which the `deps` stage uses) now invalidates the layer and forces a full
+  `npm ci`. `COPY scripts/copy-pdf-worker.mjs ./scripts/` would keep the cache
+  tight. Counter-argument for leaving it as is: it silently breaks the day a
+  second script is wired into `postinstall`, and the spec chose the broad form
+  deliberately. Take it or leave it.
+- **`src/lib/__tests__/pdfWorkerAsset.test.ts:31` — `SELF` is a hardcoded path.**
+  Deriving it from `fileURLToPath(import.meta.url)` (already imported in the same
+  file for `createRequire`) would survive a rename. The current form matches the
+  repo precedent at `src/lib/__tests__/noBrowserDialogs.test.ts:23` and its
+  failure mode is loud (a renamed file reports itself as an offender), so this is
+  cosmetic consistency at most.
+- **`src/lib/__tests__/pdfWorkerAsset.test.ts:88` — redundant existence assertion.**
+  The `expect(fs.existsSync(PUBLIC_WORKER))` inside the SHA-256 case duplicates
+  the preceding `ships public/pdf.worker.min.mjs` case. It does buy a clearer
+  message when both would fail; harmless either way.
+- **Caching (informational, spec marks it out of scope).** Next serves `public/`
+  assets with a revalidating, non-immutable `Cache-Control`, so the 1 MB worker
+  is conditionally re-requested (304) rather than served from cache
+  unconditionally. `?v=` is therefore correctness insurance against a stale
+  worker after a `pdfjs-dist` bump — which is exactly what the code comment
+  claims — and not a performance win. No action; "Cache-Control tuning for
+  `public/`" is explicitly Out of Scope in the spec.
+
+---
+
+
+## [RH-19] Hospedar o worker do pdf.js localmente em vez de CDN externa — 2026-09-03
+
+- (Non-blocking, out of RH-19's scope) The inline tab preview on
+  `/songs/[id]/fast-view` (`page.tsx:997`) still embeds
+  `https://docs.google.com/gview?url=…&embedded=true`. Entering Stage Mode is
+  now fully first-party, as this task required, but the *preview* directly above
+  the Stage button pulled ~16 third-party requests
+  (`docs.google.com`, `gstatic.com`, `apis.google.com`, `content.googleapis.com`,
+  `play.google.com`) during my session, and it leaks the tab's blob URL to
+  Google. It has the same offline/venue-network and TWA-CSP consequences the
+  RH-19 rationale describes for the worker, and it is the obvious next domino
+  for RH-29. Worth its own task — reusing `TabDrawingStage` (or a read-only
+  react-pdf `<Document>`) for the inline preview would remove the last
+  third-party dependency from the tab path.
+- `scripts/copy-pdf-worker.mjs` is not covered by `npx eslint .` in the sense
+  that it is linted, but `scripts/` has no test of its own error path (the
+  `resolveWorker()` catch that exits 1). Not worth a test on its own; noting
+  only because the guard test covers the *output* of the script but never the
+  script's own failure branch.
+- `docker build --target deps .` remains unexercised anywhere I can see. If CI
+  does not already build the image, the `COPY scripts ./scripts` line has no
+  mechanical guard and a future Dockerfile edit could drop it silently — the
+  same class of drift `pdfWorkerAsset.test.ts` was written to prevent for the
+  worker copy.
+

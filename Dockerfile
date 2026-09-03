@@ -6,6 +6,9 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json* ./
+# Needed by the root package's postinstall hook (scripts/copy-pdf-worker.mjs);
+# without it `npm ci` aborts this stage.
+COPY scripts ./scripts
 RUN npm ci
 
 # Rebuild the source code only when needed

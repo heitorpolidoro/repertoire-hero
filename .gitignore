@@ -53,3 +53,6 @@ supabase/.temp/
 /test-results/
 /e2e/.auth/
 .meridian/
+
+# Build artifact: copied from node_modules by scripts/copy-pdf-worker.mjs
+/public/pdf.worker.min.mjs

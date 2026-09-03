@@ -87,22 +87,29 @@ Almost all of the complexity here — `visualViewport` measurement, `overscroll-
 
 Two gaps worth naming: `pointerType === 'pen'` is never inspected, so there is **no palm rejection and no Apple Pencil / S Pen differentiation**; and pressure (`e.pressure`) is unused, so stroke width is a constant `STROKE_WIDTH_PX = 3`.
 
-### 1.6 PDF handling — a hard external CDN dependency
+### 1.6 PDF handling — a hard external CDN dependency (**resolved by RH-19**)
 
-`src/lib/pdfWorker.ts:17`:
+> **Update — RH-19 is done.** The pdf.js worker is no longer fetched from a CDN.
+> `scripts/copy-pdf-worker.mjs` copies it out of `node_modules` into `public/`
+> on `postinstall` / `predev` / `prebuild`, and `src/lib/pdfWorker.ts` now sets
+> `workerSrc` to the same-origin path `` `/pdf.worker.min.mjs?v=${pdfjs.version}` ``.
+> Everything below describes the situation *before* that change and is kept as
+> the rationale for it.
+
+`src/lib/pdfWorker.ts:17`, at the time of this analysis:
 
 ```ts
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 ```
 
-The pdf.js worker is fetched from **unpkg at render time**. The file comment explains the reasoning (dual-bundler constraint: Webpack in dev, Turbopack in build). The consequences for mobile are severe:
+The pdf.js worker was fetched from **unpkg at render time**. The file comment explained the reasoning (dual-bundler constraint: Webpack in dev, Turbopack in build). The consequences for mobile were severe:
 
-- Stage Mode cannot render **any** PDF offline — this alone would defeat RH-29.
-- On a bad venue network (the exact scenario Stage Mode exists for), tabs fail to load.
+- Stage Mode could not render **any** PDF offline — this alone would defeat RH-29.
+- On a bad venue network (the exact scenario Stage Mode exists for), tabs failed to load.
 - A TWA or a hardened WebView with a restrictive CSP blocks the cross-origin worker.
 - App-store reviewers on throttled networks may see a broken core feature.
 
-**`RH-19` ("Hospedar o worker do pdf.js localmente em vez de CDN externa") already exists in the backlog and covers exactly this.** It is a prerequisite for every option here and for RH-29; it should not be re-scoped as a new task, it should be re-prioritised.
+**`RH-19` ("Hospedar o worker do pdf.js localmente em vez de CDN externa") covered exactly this and has shipped.** It was a prerequisite for every option here and for RH-29; that prerequisite is now met. RH-29 still has to add the service worker and offline storage — RH-19 only removed the third-party blocker.
 
 PDF files themselves live in **Vercel Blob** as public URLs (`src/app/actions/tabs.ts:65-70`), and `src/app/songs/[id]/fast-view/page.tsx:904` exposes them via `<a target="_blank" rel="noopener noreferrer">`. In a WebView, `target="_blank"` with no window-open delegate **does nothing** — the button is silently dead. Same for the external song links at line 1067 (YouTube, Spotify, chord sites). A shell must route these to the system browser explicitly.
 
@@ -290,7 +297,7 @@ For `versionCode`, the timestamp must be reduced to fit — e.g. *minutes elapse
 ## 6. Recommendation
 
 **Phase 0 — PWA hardening + prerequisites (effort S, ~1 week).**
-Fix `src/proxy.ts`, add manifest, viewport export, and a real icon set; land **RH-19** (local pdf.js worker). This is worth doing *even if no store app is ever shipped*: it makes the app installable, repairs the dead safe-area spacer in Stage Mode, and removes the CDN dependency that currently makes offline impossible. It is also an unavoidable prerequisite for every other option.
+Fix `src/proxy.ts`, add manifest, viewport export, and a real icon set; **RH-19** (local pdf.js worker) is already done. This is worth doing *even if no store app is ever shipped*: it makes the app installable, repairs the dead safe-area spacer in Stage Mode, and — via RH-19 — removes the CDN dependency that made offline impossible. It is also an unavoidable prerequisite for every other option.
 
 **Phase 1 — build the two blockers (effort M).**
 Account deletion (Apple 5.1.1(v), currently absent) and offline tab caching (**RH-29**). Both are required for an App Store submission to have any chance, and both are features the operator wants independently of packaging. Do these *before* touching Capacitor, so the shell is wrapping an app that can actually pass review.
@@ -316,8 +323,8 @@ Titles in Portuguese to match the existing backlog convention (RH-1…RH-29); ju
 3. **`Implementar exclusão de conta do usuário`**
    *Hard blocker for Apple Guideline 5.1.1(v); no deletion logic exists anywhere in application code, and the band-membership trigger makes the data model non-trivial.*
 
-4. **`(Re-priorizar RH-19) Hospedar o worker do pdf.js localmente`**
-   *Already in the backlog; the unpkg CDN worker in `src/lib/pdfWorker.ts:17` makes offline Stage Mode impossible and is a prerequisite for RH-29 and every mobile path.*
+4. ~~**`(Re-priorizar RH-19) Hospedar o worker do pdf.js localmente`**~~ — **resolved by RH-19.**
+   *The CDN worker that made offline Stage Mode impossible is gone: the worker is now copied into `public/` by `scripts/copy-pdf-worker.mjs` and served from the app's own origin. The prerequisite this item represented for RH-29 and every mobile path is satisfied.*
 
 5. **`Criar shell Capacitor apontando para a URL de produção`**
    *The only Capacitor variant compatible with `force-dynamic`, Server Actions and cookie-based Better Auth sessions; includes `trustedOrigins`, the Android back button, and routing `target="_blank"` links to the system browser.*

@@ -1,12 +1,18 @@
 /**
  * Client-only pdf.js worker initialization for react-pdf.
  *
- * Given the dual-bundler constraint (Webpack in dev via `next dev --webpack`,
- * Turbopack in `next build`), we deliberately avoid any bundler-specific
- * worker-asset wiring (e.g. Webpack's `new URL(...)` worker pattern) and
- * instead point `pdfjs-dist`'s `GlobalWorkerOptions.workerSrc` at a CDN URL
- * pinned to the exact installed `pdfjs-dist` version. This works identically
- * under both bundlers and needs no build-time asset copying.
+ * The worker is a build artifact: `scripts/copy-pdf-worker.mjs` copies it out
+ * of the `pdfjs-dist` that `react-pdf` resolves into `public/`, on
+ * `postinstall`, `predev` and `prebuild`. It is therefore served from the app's
+ * own origin as a plain static file, with no bundler-specific worker-asset
+ * wiring (e.g. Webpack's `new URL(...)` pattern) — which is what keeps it
+ * working identically under the Webpack dev server and the Turbopack build.
+ *
+ * The `?v=` query is cache-busting insurance: it comes from the same `pdfjs`
+ * object the API uses, so a browser holding a stale worker cannot trigger
+ * pdf.js's "worker version does not match API version" error after an upgrade.
+ * `src/lib/__tests__/pdfWorkerAsset.test.ts` guards the version coupling
+ * between the copy in `public/` and the installed `pdfjs-dist`.
  *
  * Import this module only from client components that render a PDF via
  * react-pdf (currently just `TabDrawingStage`), not at the app root — it has
@@ -14,4 +20,4 @@
  */
 import { pdfjs } from 'react-pdf'
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs?v=${pdfjs.version}`

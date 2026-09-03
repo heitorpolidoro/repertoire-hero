@@ -1,9 +1,12 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.58-202609030307",
+  "version": "0.1.59-202609030356",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/copy-pdf-worker.mjs",
+    "predev": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev --webpack --hostname 127.0.0.1",
+    "prebuild": "node scripts/copy-pdf-worker.mjs",
     "build": "node scripts/migrate.mjs && node scripts/deduplicate-songs.mjs && next build",
     "db:migrate": "node scripts/migrate.mjs",
     "start": "next start",
