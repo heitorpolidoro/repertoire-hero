@@ -1820,3 +1820,249 @@ Non-blocking only; none of these affects the verdict.
 - ER4's eslint budget is currently pinned at the inherited baseline of 12 errors / 18 warnings.
   Those are pre-existing and out of scope for RH-32, but the budget only ever ratchets if someone
   files the cleanup; worth a separate low-priority task so the number does not become permanent.
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — 2026-09-05
+
+- **ER11 silently forbids any lint debt in the new tests.** The cap is "at most 12
+  errors and at most 18 warnings", and I confirmed HEAD is exactly 12/18 — so all ten
+  new files must be lint-clean. §4 never says this. One sentence would save a
+  late surprise (`@typescript-eslint/no-explicit-any` in mock factories is the likely
+  tripwire).
+- **The source-text guards scan the new test files too.**
+  `errorHandlingStyle.test.ts` and `noBrowserDialogs.test.ts` walk the whole `src/`
+  tree and exempt only themselves (`const SELF = ...`). The ten new files under
+  `src/**/__tests__/` are inside that tree: no `console.error`, no `catch (x: any)`,
+  and nothing matching `(?:window\s*\.\s*)?(?:confirm|alert)\s*\(` outside a comment —
+  relevant for the `useBandAdmin` "removeMember confirm flow" and the `AlertBanner`
+  test. Worth a line in §4.2/§4.3.
+- **`functions: 78` is the tightest threshold.** It needs +40 covered functions out of
+  the ~70 uncovered ones in the targeted files, and ER7's floors are statement-based
+  only — a `useBandAdmin` test that hits 60% of statements may leave most of its 19
+  callbacks uncalled. Consider a per-file functions floor for `useBandAdmin.ts`, or at
+  least a note that the hook's handlers (not just its load paths) must be invoked.
+- **`jsdom (^29)` in D2 is stale**: the registry's latest is `30.0.1`. ER3 is
+  version-agnostic (it only names the three packages), so either drop the caret hint or
+  state the constraint explicitly, otherwise a plain `npm i -D jsdom` gives `^30` and
+  the spec looks violated when it is not.
+- **ER9's `npx js-yaml`** pulls a package that is not a devDependency, i.e. needs
+  network. The "or any YAML parser" escape hatch covers it, but naming an
+  already-available checker (e.g. `node -e` with the `yaml` package if present, or
+  `python3 -c 'import yaml,sys;yaml.safe_load(open(...))'`) makes the ER offline-safe.
+- **ER10's `80`, `65`, `78` literals are a weak check** — those digits can occur
+  anywhere in the section. Requiring `statements 80` / `branches 65` / `functions 78`
+  (or the exact sentence) would make the check say what it means.
+- **§4.5 vs the review pipeline in `docs/suggestions-log.md`.** Two writers touch that
+  file (the implementer, per §4.5, and the `work` skill appending reviewer suggestions
+  under an `## [RH-24] ...` heading, with periodic trimming to 30 entries). ER15 passes
+  on either, but naming in §4.5 that the *implementer* authors the deferred-items entry
+  removes the ambiguity.
+- Consider recording in §1 that the D1 coverage baseline was re-confirmed at `0f2833b`
+  (identical numbers), so the re-base of B2 does not cast doubt on the coverage
+  arithmetic.
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — 2026-09-05
+
+- **ER2's per-file floors are not readable from the command ER2 names.** I ran
+  `npx vitest run <two files>` and the default Vitest 4 reporter prints only the
+  aggregate (`Test Files 2 passed (2)` / `Tests 11 passed (11)`) — no per-file
+  `(N tests)` line for passing files. QA can still verify the floors by running
+  each file on its own, but ER2 should say so, or name
+  `--reporter=verbose` / a JSON reporter, rather than implying the aggregate
+  command surfaces them.
+- **ER1's "0 skipped" is verified by an absence.** Vitest prints no `skipped`
+  count when nothing is skipped, so QA confirms the condition by *not* finding a
+  line. Worth one clause so a QA agent does not go looking for a printed zero.
+- **`functions: 78` and `branches: 65` are not guaranteed by ER7.** ER7's floors
+  are statement-based, and they arithmetically guarantee only ER6's statement
+  and line thresholds. A per-file *functions* floor for `useBandAdmin.ts`, or a
+  note in §4.3 item 3 that the hook's handlers (not just its load paths) must be
+  invoked, would close the gap between the two ERs.
+- **§4.1's "Nothing else in `vitest.config.ts` changes" understates the
+  change.** ER5's seven-entry exclude list silently drops the current
+  `**/node_modules/**`, `**/.next/**`, `**/coverage/**`, `**/*.config.*` and
+  `**/*.d.ts` excludes. I verified this is harmless — the restrictive `include`
+  makes them redundant and the report stays clean — but saying so would stop a
+  careful implementer from re-adding them and failing ER5.
+- **`jsdom (^29)` in D2 is stale** (registry latest is 30.x). `^29` installs and
+  works — I used it — and ER3 is version-agnostic, so there is no conflict; but
+  a plain `npm i -D jsdom` yields `^30` and makes the spec look violated when it
+  is not. Either drop the caret hint or state it as a floor.
+- **ER12 has no escape valve for `knip.json`.** I confirmed none is needed
+  (knip exits 0 with the three deps installed), so this is belt-and-braces: if
+  knip's peer-resolution behaviour ever changes, ER11 and ER12 become jointly
+  unsatisfiable with no in-spec remedy.
+- **ER10's bare `80`, `65`, `78` literals are a weak check** — those digits can
+  appear anywhere in the section. `statements 80` / `branches 65` /
+  `functions 78` would make the assertion say what it means.
+- **ER9's `npx js-yaml` needs network** (not a devDependency). The "or any YAML
+  parser" escape hatch covers it, but naming an offline-safe checker (e.g.
+  `python3 -c 'import yaml,sys;yaml.safe_load(open(...))'`) would remove the
+  dependency on a live registry during QA.
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — 2026-09-05
+
+- **`package-lock.json` carries the *previous* version string.** Its `version` /
+  `packages[""].version` read `0.1.65-202609051646` while `package.json` is now
+  `0.1.66-202609051735`, i.e. the lock was regenerated before the version bump. I verified
+  `npm ci --dry-run` exits 0 regardless (npm validates dependency specs, not the version
+  field), so this is cosmetic — but a `npm install --package-lock-only` before committing
+  keeps the two in step and avoids a confusing diff next time.
+- **`AGENTS.md:90` says "six DB-backed files skip 51 tests".** That was the pre-RH-24
+  count; `profile.test.ts` alone gained 8 DB-gated tests in this diff, so the real number
+  is now higher. Either drop the figure or say "50+" — a stale number in a convention doc
+  ages badly.
+- **`docs/suggestions-log.md` is unstaged and, in its current form, does not satisfy
+  ER15.** Out of scope for this review per the dispatch, and I did not touch it — but the
+  two `[RH-24]` sections it contains are the planner's critique *of the spec*, not the
+  deferred-work items ER15 names (Spotify OAuth callback at 0% while handling OAuth
+  state/cookies, `src/app/api/**` outside the gate, `imageCompressor.ts` excluded for
+  canvas/`Image`). Flagging so it is staged and completed before QA rather than discovered
+  there.
+- **`useToast.test.tsx:83-92` is the weakest assertion in the set.** `expect(clearSpy)
+  .toHaveBeenCalled()` would also pass if React itself cleared some unrelated timeout
+  during unmount. Asserting `vi.getTimerCount()` drops to 0 after `unmount()`, or spying
+  on the specific timer id, would make the cleanup claim exact.
+- **`useBandAdmin.test.tsx:113-131` swaps the process-wide `unhandledRejection`
+  listeners.** It is well-commented and restores them in `finally`, and I could not make
+  it flake — but while the window is open any *other* unhandled rejection in a
+  concurrently-running worker would be swallowed, and the 60×5ms poll is a wall-clock
+  wait. If this ever gets noisy, consider narrowing the assertion to "the hook does not
+  set `error`" plus a source-level note, and dropping the listener surgery.
+- **Global overrides in `useBandAdmin.test.tsx` are not restored.**
+  `Object.defineProperty(navigator, 'clipboard', ...)` (`:226`) and the two
+  `URL.createObjectURL` redefinitions (`:263`, `:335`) persist for the remainder of the
+  file. Harmless today because each is only consumed by the test that installs it and
+  jsdom environments are per-file, but a `configurable: true` + explicit restore (or
+  `vi.stubGlobal`, which `vi.unstubAllGlobals()` reverses) would keep it that way.
+- **Tone tests assert raw Tailwind class strings.** `feedbackSurfaces.test.tsx:40` uses
+  `toBe('text-sm text-red-700')` on a full `className`, and `ConfirmPanel.test.tsx:113-121`
+  matches literal palettes. This is a legitimate way to pin tone→palette mapping, but an
+  exact-equality assertion on a className will fail on a purely cosmetic class reorder.
+  `toContain` on the semantic colour class alone (as the Toast case already does) would be
+  a touch less brittle.
+- **`repertoire.test.ts:290` reaches through `mock.calls[1][1]?.[0]`.** Positional indexing
+  into a mock's argument arrays is precise but hard to read when it breaks; a small named
+  helper (`lastUpdateLinksPayload()`) would make the failure message self-explanatory.
+  Same shape appears at `:250`, `:264-265` and `playlists.test.ts:166`.
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — 2026-09-05
+
+- `package-lock.json` still carries `"version": "0.1.65-202609051646"` in both its
+  top-level `version` and `packages[""].version`, while `package.json` is now
+  `0.1.66-202609051735` — the lock was regenerated before the version bump. This is
+  cosmetic (I ran the real `npm ci`, which exits 0 and installs correctly), but
+  `npm install --package-lock-only` before committing would keep the two in step and
+  avoid a confusing diff next time. Not blocking: no ER covers the lock's version field.
+
+- `AGENTS.md:90` states "Without them six DB-backed files skip 51 tests". That figure is
+  the pre-RH-24 count; the suite now runs 478 tests rather than the 332 the spec
+  projected, and `profile.test.ts` alone gained DB-gated tests in this change, so the
+  real skip count is higher. A stale absolute number in a conventions doc ages badly —
+  either drop the figure or write "50+". Not blocking: ER10 does not assert this number.
+
+- ER2's per-file floors are not readable from the command ER2 names. The default Vitest 4
+  reporter prints only the aggregate (`Test Files 10 passed (10)` / `Tests 172 passed
+  (172)`) with no per-file `(N tests)` line for passing files; I had to re-run with
+  `--reporter=verbose` to obtain them. Future specs of this shape should name
+  `--reporter=verbose` or a JSON reporter explicitly. Spec-quality note only.
+
+- ER1's "0 skipped" is verified by an absence: Vitest prints no `skipped` count when
+  nothing is skipped, so the condition is confirmed by *not* finding a line rather than
+  by reading a printed zero. Worth one clause in future specs so a QA agent does not go
+  hunting for a literal `0 skipped`.
+
+- ER9's `npx js-yaml` pulls a package that is not a devDependency and therefore needs
+  network access at QA time. It worked here, and the "or any YAML parser" escape hatch
+  covers it, but naming an offline-safe checker (e.g.
+  `python3 -c 'import yaml,sys;yaml.safe_load(open(...))'`) would make the ER
+  registry-independent.
+
+- ER10's bare `80`, `65`, `78` literals are a weak assertion — those digits could match
+  anywhere in the section. The doc does in fact say `statements **80**, branches **65**,
+  functions **78**`, so the intent is satisfied, but requiring the paired form would make
+  the check say what it means.
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — deferred items — 2026-09-05
+
+Work consciously left out of RH-24. Each item is deferred, not rejected — it should be
+picked up by a follow-up task.
+
+- **`src/app/api/auth/spotify/callback/route.ts` sits at 0% statement coverage.** This is
+  the highest-value gap left behind: the route handles the OAuth `state` parameter and
+  writes auth cookies, so a regression there is a security regression, not a cosmetic one.
+  It was deferred because covering it means standing up a `NextRequest`/`cookies()` harness
+  plus a fake Spotify token endpoint, which is a task-sized piece of work on its own; for
+  now the flow is exercised only by Playwright and manual QA.
+
+- **`src/app/api/**` remains outside the coverage gate.** `vitest.config.ts` scopes
+  `coverage.include` to `src/lib/**`, `src/app/actions/*.ts`, `src/hooks/**` and
+  `src/proxy.ts`, so route handlers neither raise nor lower the thresholds. Deferred
+  deliberately: pulling the whole `api/**` tree into the gate at once would drop the global
+  numbers below the 80/65/78 floors this task just established and force a large batch of
+  untargeted tests. The right move is to add route handlers to `include` one directory at a
+  time, starting with the Spotify callback above.
+
+- **`src/lib/imageCompressor.ts` is excluded from coverage because it needs `canvas`/`Image`.**
+  It is listed in `coverage.exclude` with that reason inline. The jsdom environment has no
+  real canvas, so testing it in-process would mean mocking `Image`, `createObjectURL` and
+  `canvas.toBlob` to the point where the test asserts the mock rather than the compression
+  behaviour. Deferred until either a browser-mode Vitest project or an e2e assertion on the
+  produced file size is available; today it is covered by e2e + manual QA only.
+
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — 2026-09-05
+
+- **"exercised only by Playwright and manual QA" overstates the e2e safety net.** The
+  Spotify-callback entry says the flow "is exercised only by Playwright and manual QA",
+  and the `imageCompressor` entry says it is "covered by e2e + manual QA today". Neither
+  is true of the current suite: `ls e2e/` is `auth.spec.ts`, `bands-confirm.spec.ts`,
+  `fast-view-mobile.spec.ts`, `songs-crud.spec.ts`, `ssr-smoke.spec.ts` (+ `helpers.ts`,
+  `global-setup.ts`), and `grep -ril spotify e2e/` returns nothing, while the only
+  image/upload/cover match in `e2e/` is the word "cover" in a docblock at
+  `e2e/songs-crud.spec.ts:4`. Both flows are in practice **manual QA only**. The wording
+  is inherited verbatim from the spec (`docs/tasks/RH-24-spec.md:148` "covered by manual
+  QA + e2e", §D4 at `:214-226`) and from the `vitest.config.ts:79` comment approved in
+  round 1, so this is a pre-existing spec-level inaccuracy the developer faithfully
+  mirrored, not a new error — hence non-blocking, and not worth a revision round for a
+  log entry. But if a follow-up task is filed from these items, it should say "manual QA
+  only", because "Playwright already covers it" is the kind of sentence that quietly
+  removes the urgency from an untested CSRF check.
+- **Optional precision on "0% statement coverage".** Because `src/app/api/**` is outside
+  `coverage.include`, the callback route does not appear in the coverage report at all —
+  its 0% is "no test exercises it", not "the reporter printed 0%". ER15 itself uses the
+  "0% statement coverage" phrasing so the entry is correct as specified, and item 2
+  immediately explains the exclusion, so a reader reaches the right conclusion. Purely a
+  wording nicety.
+- **Log length.** `docs/suggestions-log.md` is now 155 KB with 59 `## [` sections, four of
+  them for RH-24 alone. The 30-entry trim the `work` skill performs periodically is worth
+  running soon so the deferred-items entries stay findable.
+
+---
+
+**VERDICT: APPROVED** — ER15 is satisfied, the change is append-only, all three deferred
+items are factually accurate against `vitest.config.ts` and the callback route source, and
+insertion/deletion arithmetic plus mtimes confirm no other staged file moved since round 1.
+
+## [RH-24] Avaliar e melhorar cobertura de testes do projeto — 2026-09-05
+
+- **`docs/suggestions-log.md` has an unstaged tail beyond the staged deferred-items section.**
+  `git status` shows `MM docs/suggestions-log.md`: the index contains the deferred-items
+  section (ER15 satisfied), while the working tree has a further appended `## [RH-24] …`
+  block that is the round-2 peer-review write-up. This is the normal workflow shape (the
+  `work` skill stages review logs at commit time), so it is not a finding — just make sure
+  the commit picks up the working-tree version rather than only the index, otherwise that
+  review entry is silently dropped.
+- **The suite is well past the ER1/ER2 floors** (478 tests vs. the 332 the spec predicted,
+  172 vs. 51 in the ten named files). The floors are satisfied with wide margin, but the
+  arithmetic narrative baked into ER1/ER2 ("332 = 281 + 51") no longer describes reality;
+  worth a one-line correction in `docs/test-coverage-plan.md` so a future reader does not
+  treat 332 as the current expected count. The log itself already flags this at
+  `docs/suggestions-log.md:1958`.
+- **`docs/suggestions-log.md` is now ~155 KB with four RH-24 sections.** Running the periodic
+  30-entry trim soon would keep the newly added deferred-items entries findable — they are
+  the actionable output of this task and should not be buried.
+- **Vite config-loader warning on every run.** Every vitest invocation prints
+  "Your Vite config uses features that are unsupported by `configLoader: 'native'` …
+  (vitest.config.ts:1:1)". Harmless today, but it will become an error in a future Vite
+  major; renaming to `vitest.config.mts` is a one-line pre-emptive fix.
+

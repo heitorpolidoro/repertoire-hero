@@ -52,22 +52,34 @@ export default defineConfig({
       '**/postgres-data/**',
     ],
     coverage: {
+      // The gated universe: the code that is supposed to be unit-testable.
+      // Pages, components, the zustand stores and src/app/api/** route handlers
+      // are deliberately outside it — they are verified by Playwright + manual QA.
+      include: [
+        'src/lib/**/*.ts',
+        'src/app/actions/*.ts',
+        'src/hooks/**/*.ts',
+        'src/proxy.ts',
+      ],
       exclude: [
-        '**/node_modules/**',
-        '**/.next/**',
-        '**/coverage/**',
-        'src/app/**',
-        'src/lib/supabase/**',
-        'src/lib/spotify*.ts',
-        'src/lib/mongodb.ts',
+        '**/__tests__/**',
+        // better-auth wiring — configuration, not logic; exercised end-to-end by Playwright.
+        'src/lib/auth.ts',
+        'src/lib/auth-client.ts',
+        'src/lib/auth-session.ts',
+        // Sentry/console shim.
         'src/lib/logger.ts',
-        'src/store/**',
-        'src/components/**',
-        'src/types/**',
-        '**/*.config.*',
-        '**/*.d.ts',
-        'src/lib/__tests__/**',
-      ]
+        // Asset-path shim; guarded by src/lib/__tests__/pdfWorkerAsset.test.ts.
+        'src/lib/pdfWorker.ts',
+        // Needs canvas/Image; verified by e2e + manual QA (see docs/tasks/RH-24-spec.md D4).
+        'src/lib/imageCompressor.ts',
+      ],
+      thresholds: {
+        statements: 80,
+        branches: 65,
+        functions: 78,
+        lines: 80,
+      },
     }
   },
   resolve: {

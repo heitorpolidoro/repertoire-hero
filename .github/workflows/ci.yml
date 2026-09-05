@@ -99,6 +99,56 @@ jobs:
       - name: Knip
         run: npm run lint:dead
 
+  coverage:
+    name: "Coverage (vitest)"
+    runs-on: ubuntu-latest
+
+    # Six test files are gated on a live database via
+    # describe.skipIf(!process.env.SUPABASE_SERVICE_ROLE_KEY); without both the
+    # database and the key they skip and the coverage gate measures far less
+    # than it claims to. The service + env below mirror the e2e job's setup.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: repertoire_hero_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/repertoire_hero_test"
+      # Only used as the "the database is really there" switch for the
+      # integration describes — the app itself no longer talks to Supabase.
+      SUPABASE_SERVICE_ROLE_KEY: "ci-integration-tests-enabled" # pragma: allowlist secret
+      NEXT_PUBLIC_SENTRY_DSN: ""
+      SENTRY_DSN: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run database migrations
+        run: npm run db:migrate
+
+      - name: Vitest coverage (thresholds enforced by vitest.config.ts)
+        run: npm run test:coverage
+
   duplication:
     name: "Duplication (jscpd)"
     runs-on: ubuntu-latest

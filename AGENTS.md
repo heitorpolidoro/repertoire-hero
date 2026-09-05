@@ -80,7 +80,14 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 - `next/font` (Geist)
 
 **Testing & quality**
-- `vitest` (+ `@vitest/coverage-v8`, `@vitejs/plugin-react`) — unit/integration tests for `src/lib/*` domain logic (`src/lib/__tests__/`)
+- `vitest` (+ `@vitest/coverage-v8`, `@vitejs/plugin-react`) — unit/integration tests for `src/lib/*` domain logic (`src/lib/__tests__/`), the Server Actions (`src/app/actions/__tests__/`) and the shared hooks (`src/hooks/__tests__/`)
+- **Environments.** `vitest.config.ts` sets `environment: 'node'`, which is the default for every `*.test.ts`. A DOM test opts in **per file** with `// @vitest-environment jsdom` as the literal first line of the file — there is no `environmentMatchGlobs` (the option does not exist in Vitest 4) and no second test project.
+- **Component/hook tests** use `@testing-library/react` (with `jsdom` and its `@testing-library/dom` peer as devDependencies). Because `globals: false`, Testing Library's automatic cleanup does **not** self-register: every `*.test.tsx` must `import { cleanup } from '@testing-library/react'` and call `afterEach(cleanup)` explicitly.
+- **The React Compiler babel plugin (`reactCompiler: true` in `next.config.ts`) is not applied in vitest runs** — `@vitejs/plugin-react` compiles the sources plainly. A green DOM test is a statement about the source semantics, never about the compiled bundle.
+- **Coverage universe and gate.** `coverage.include` is `src/lib/**/*.ts`, `src/app/actions/*.ts`, `src/hooks/**/*.ts` and `src/proxy.ts`; excluded from it are `**/__tests__/**`, the better-auth wiring (`auth.ts`, `auth-client.ts`, `auth-session.ts`), the Sentry shim `logger.ts`, the asset-path shim `pdfWorker.ts` and `imageCompressor.ts` (needs canvas/`Image`). The thresholds are enforced, so a drop fails the run: statements **80**, branches **65**, functions **78**, lines **80**.
+- **Page-level components (`src/app/**/page.tsx`, `src/components/**`) and the `src/app/api/**` route handlers are deliberately outside the coverage gate and are verified by Playwright end-to-end specs plus manual QA** — pulling 11k lines of pages into the denominator would produce a number nobody can move. Extract the decisions out of a component (as `annotationMath.ts` / `stageInteraction.ts` / `bandAdminLoad.ts` do) and unit-test those instead.
+- `npm run test:coverage` (`vitest run --coverage`) is the gate command; the `Coverage (vitest)` CI job runs it against a `postgres:16` service after `npm run db:migrate`.
+- **Running the full suite locally needs a live Postgres** at `DATABASE_URL` (default `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, migrations applied) **and a non-empty `SUPABASE_SERVICE_ROLE_KEY`** in the environment or `.env.local`. Without them six DB-backed files skip 51 tests and the coverage number is meaningless.
 - `@playwright/test` — end-to-end tests (`/e2e`), covering auth, songs CRUD, and mobile Fast View
 - ESLint 9 (`eslint-config-next`)
 - `knip` — dead-code / unused-dependency detection (`npm run lint:dead`, config in `knip.json`), enforced by the `dead-code` CI job

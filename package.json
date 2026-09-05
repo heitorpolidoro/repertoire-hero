@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.65-202609051646",
+  "version": "0.1.66-202609051735",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -15,6 +15,7 @@
     "lint:dup": "jscpd",
     "seed": "bash scripts/dev-seed",
     "test": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report"
@@ -39,6 +40,8 @@
   "devDependencies": {
     "@playwright/test": "^1.51.1",
     "@tailwindcss/postcss": "^4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
@@ -49,6 +52,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
     "jscpd": "^5.1.2",
+    "jsdom": "^29.1.1",
     "knip": "6.34.0",
     "tailwindcss": "^4",
     "typescript": "^5",

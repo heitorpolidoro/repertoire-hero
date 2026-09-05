@@ -1,5 +1,25 @@
 # Test Coverage Plan
 
+> **⚠️ Superseded by `docs/tasks/RH-24-spec.md` (2026-09-05).**
+>
+> This document describes the *original* coverage strategy: an exclude-only
+> `vitest.config.ts` measured over a hand-picked denominator. It is kept for
+> historical context, and it is **stale in two ways**:
+>
+> 1. Its exclusion table still lists `src/lib/supabase/**` and `src/lib/mongodb.ts`,
+>    neither of which exists in the repository any more.
+> 2. The exclude-only approach it recommends has been replaced. RH-24 switched
+>    `vitest.config.ts` to an explicit `coverage.include` over the logic layer
+>    (`src/lib/**/*.ts`, `src/app/actions/*.ts`, `src/hooks/**/*.ts`, `src/proxy.ts`)
+>    with an *enforced* threshold gate (statements 80 / branches 65 / functions 78 /
+>    lines 80), run by `npm run test:coverage` and by the `Coverage (vitest)` CI job.
+>
+> For the live rules — the coverage universe, what deliberately sits outside it,
+> the jsdom docblock convention for `*.test.tsx`, and the live-Postgres +
+> `SUPABASE_SERVICE_ROLE_KEY` precondition — read the **"Testing & quality"**
+> section of `AGENTS.md`. Read `docs/tasks/RH-24-spec.md` for the measurements and
+> the reasoning behind them.
+
 ## Overview
 
 To satisfy the SonarCloud Quality Gate (≥ 100% coverage on New Code), the strategy
