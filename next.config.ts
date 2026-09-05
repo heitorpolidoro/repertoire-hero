@@ -15,7 +15,14 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '12mb',
     },
   },
-  serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],
+  // RH-32: `better-auth` MUST NOT be listed here. serverExternalPackages leaves a package
+  // unbundled, so `better-auth/react` would load its own copy of `react` at runtime instead of
+  // Next's vendored SSR React — the hook dispatcher is null in that copy and
+  // `authClient.useSession()` crashes every SSR render with
+  // "Cannot read properties of null (reading 'useRef')". Only Node-only packages with no React
+  // entrypoint belong in this list. Guarded by
+  // src/lib/__tests__/serverExternalPackages.test.ts.
+  serverExternalPackages: ["@better-auth/kysely-adapter", "kysely", "pg"],
   // Next.js 16 defaults to Turbopack. Our webpack config only suppresses
   // OpenTelemetry warnings (irrelevant in Turbopack). Declaring an empty
   // turbopack config silences the "webpack config without turbopack config" error.

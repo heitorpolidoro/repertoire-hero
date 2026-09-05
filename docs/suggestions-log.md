@@ -1696,3 +1696,127 @@ Non-blocking only; none of these affects the verdict.
    Both call sites take the default `1`; the parameter is exercised only by the unit
    test. Already self-reported in the suggestions log; independently confirmed here.
    Harmless, but it is speculative surface.
+
+## [RH-32] Corrigir 500 no SSR de / e /profile (Invalid hook call em AppLayout.useSession) — 2026-09-05
+
+- **ER6/ER7 would be stronger with a positive body marker.** They say "a real SSR body"; the
+  spec's §4 gives the concrete markers (absence of `id="__next_error__"`, presence of
+  `Repertoire Hero`). Promote those into the results so QA checks the same thing the e2e guard does.
+- **Correct the Postgres port in "Verification environment".** The spec says port 5432, but
+  `DATABASE_URL` in `.env.local` is `…@127.0.0.1:54322/postgres` and the compose db publishes
+  54322. Also worth noting that `docker compose up -d` (no service arg) may fail on the mailpit
+  container if `54324` is already bound — `docker compose up -d db` is the reliable command.
+- **Record why `better-auth` was externalized in the first place.** `git log -S'"better-auth"' -- next.config.ts`
+  points at `6aa3849 feat: replace Supabase Auth with Better Auth (#8)`, where it was added
+  alongside the genuinely Node-only `pg`/`kysely`. One sentence saying "it was never independently
+  required — it was grouped with the pg/kysely entries during the auth migration" would close the
+  last open question a reviewer naturally asks.
+- **Consider asserting `res.url()` in the signed-in HTTP check.** `request.get('/profile')` follows
+  redirects, so if the storage state ever silently stops applying, the probe would land on
+  `/login` and still return 200 with no error document. I confirmed the storage state *does* apply
+  today, so this is defensive only — `expect(res.url()).toContain('/profile')` would keep the test
+  from degrading into a tautology later.
+- **ER2's "genuinely fails when the bad config is restored" is excellent** and worth keeping as a
+  pattern for future guard tests — it is what distinguishes a real regression guard from a test
+  that merely happens to pass.
+- Consider adding `@vitest-environment node` as a docblock in the new guard file. The spec calls
+  it "a `node`-environment vitest file" but the snippet does not declare one; it passes under the
+  current default either way, so this is only future-proofing.
+
+---
+
+
+## [RH-32] Corrigir 500 no SSR de / e /profile (Invalid hook call em AppLayout.useSession) — 2026-09-05
+
+- ER8(b) inherits ER6/ER7's preconditions (docker Postgres on 5432, port 3000 free, the real
+  `BETTER_AUTH_SECRET`) only by proximity. QA reads the 13 results as a unit so this is not
+  blocking, but restating "with Postgres up and nothing else listening on 3000" inside ER8(b) would
+  make it self-contained on its own.
+- ER7 ends with `pkill -f 'next start -p 3000'`. If `next start` ever leaves a child holding the
+  socket, ER8(a)'s "nothing listening on port 3000" precondition silently breaks and Playwright
+  reuses the stale production server (`reuseExistingServer: !CI`). A confirmation step such as
+  `lsof -ti tcp:3000` printing nothing would close that gap.
+- ER6's fixed `sleep 8` is a timing guess; a short poll loop on
+  `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/` would be equally mechanical and
+  less machine-dependent.
+- ER10 compares versions "strictly greater than 0.1.64-202609031401". For the expected
+  `0.1.65-<ts>` a lexical comparison agrees with the semantic one, but it would stop agreeing at
+  `0.1.100`; naming the comparison (patch number first, then timestamp) would future-proof the
+  wording.
+- §4 describes test 3 as one test that also makes a browser check; ER8 asks for `N >= 3`, so either
+  reading passes. Splitting the raw-HTTP and browser halves into two named tests would make the
+  file's intent clearer to a later reader.
+- Non-blocking working-tree note for the implementer: `docs/tasks/RH-24-spec.md` is currently
+  untracked in this repo. It is absent from ER11's whitelist, so a blanket `git add -A` before
+  committing RH-32 would fail ER11.
+
+
+## [RH-32] Corrigir 500 no SSR de / e /profile (Invalid hook call em AppLayout.useSession) — 2026-09-05
+
+- **ER8 / §4 test 3: `request.get('/profile')` follows redirects by default.** If
+  the storage-state cookies ever fail to attach, `src/proxy.ts` bounces the request
+  307 → `/login`, which returns 200 — so the status assertion would pass on a
+  request that never reached `/profile`. Pinning it (`expect(res.url()).toContain('/profile')`,
+  or `{ maxRedirects: 0 }`) would remove a false-pass path. Non-blocking: ER7
+  already covers the same ground with an explicit cookie jar, and this only masks a
+  failure of the test harness, never of the fix.
+- **ER6's `grep -cE 'Invalid hook call|useRef'` over the whole server log is a
+  broad net.** `useRef` unanchored could in principle match unrelated future log
+  output. Narrowing to `Cannot read properties of null \(reading 'useRef'\)` would
+  target the actual signature. Non-blocking — nothing in the current server log
+  path emits it.
+- **ER10's "strictly greater than `0.1.64-202609031401`" does not name a comparison
+  method** (string vs. semver-with-prerelease). Both interpretations agree for any
+  `0.1.65-*`, so this is only a theoretical ambiguity, but naming semver would close
+  it.
+- **ER11 whitelists `package-lock.json` while ER10 requires it be unchanged.** Not
+  a contradiction — the whitelist is permissive and the spec flags the file as
+  "only if a dependency actually changes — none is expected" — but a QA agent
+  reading only the ER list sees the file in one place and forbidden in another. A
+  half-sentence in ER11 would make the relationship explicit.
+- **`vitest.config.ts` excludes `**/e2e/**`, which is what keeps ER3's count at
+  30.** Worth a one-line note in §4 so a future implementer who adds a second e2e
+  spec does not expect the vitest file count to move.
+
+## [RH-32] Corrigir 500 no SSR de / e /profile (Invalid hook call em AppLayout.useSession) — 2026-09-05
+
+- `src/lib/__tests__/serverExternalPackages.test.ts:26` — the general rule only probes the `/react`
+  subpath. A package that exports React hooks from its *main* entrypoint, or from a differently named
+  subpath (`/client`, `/hooks`), would pass the guard while reproducing the exact same bug. A broader
+  variant would read each externalized package's `package.json` and fail if `react` appears in its
+  `dependencies`/`peerDependencies` or if any `exports` key resolves to a module importing React. Not
+  worth blocking on — the current form catches the realistic regression (someone re-adding
+  `better-auth` or another `@better-auth/*`) and is cheap and readable, whereas the general form is
+  materially more code for a hypothetical.
+- `e2e/ssr-smoke.spec.ts:34` — `toHaveCount(0)` for the app-shell nav on signed-out `/` is asserting
+  a *post-hydration* state: per ER6 the signed-out SSR HTML for `/` does contain
+  `aria-label="Main navigation"` (the `isPending` loading branch), and it disappears only once
+  hydration resolves the session to signed-out. The assertion auto-retries within the 5 s expect
+  timeout so it is correct, but it reads as if the nav were never there. Asserting the landing-only
+  element visible *first*, then the count, would make the ordering intent explicit and remove any
+  dependence on hydration losing a race on a cold dev server.
+- `playwright.config.ts:58` — with `reuseExistingServer: !process.env.CI`, a `PLAYWRIGHT_WEB_SERVER`
+  override is silently ignored when something is already listening on 3000, so the "production build"
+  run can quietly become a dev-server run. The spec's verification notes already warn about this;
+  a one-line note in the config comment would put the warning where the reader is.
+- `src/lib/__tests__/serverExternalPackages.test.ts:14` — `require_` (trailing underscore to dodge the
+  `require` shadow) is slightly awkward; `resolveFrom` or `nodeRequire` would read better. Cosmetic.
+
+## [RH-32] Corrigir 500 no SSR de / e /profile (Invalid hook call em AppLayout.useSession) — 2026-09-05
+
+- `docs/tasks/RH-24-spec.md` is an untracked file belonging to another task sitting in the working
+  tree. It does not violate ER11 and is not staged, so it cannot leak into the RH-32 commit, but
+  whoever commits RH-32 should take care not to `git add -A`, and RH-24's spec should be moved into
+  its own branch or task workflow.
+- The test account `rh32-qa@example.com` exists in the local dev Postgres from an earlier run of
+  ER7 and was left in place (this verification did not create it, and no ER handles its cleanup).
+  Consider having the SSR smoke flow tear down its fixture user, or reuse the existing e2e
+  global-setup account, so repeated local verification runs do not accumulate rows in the `user`
+  and `profiles` tables.
+- `e2e/ssr-smoke.spec.ts` asserts the absence of the crash markers and the presence of the shell,
+  which is exactly right for this bug. A cheap addition would be asserting the `content-type`
+  header is `text/html` on the two `request`-fixture tests, which would also catch a future
+  regression that returns a 200 with a non-document body.
+- ER4's eslint budget is currently pinned at the inherited baseline of 12 errors / 18 warnings.
+  Those are pre-existing and out of scope for RH-32, but the budget only ever ratchets if someone
+  files the cleanup; worth a separate low-priority task so the number does not become permanent.

@@ -4,9 +4,11 @@ import { Analytics } from '@vercel/analytics/next';
 import "./globals.css";
 import ConditionalLayout from "@/components/layout/ConditionalLayout";
 
-// All routes require authentication — disable static prerendering globally.
-// Prevents "useRef null" crash when Next.js prerendering /_not-found while
-// better-auth/react hooks aren't available in the server context.
+// All routes require authentication, so there is nothing useful to prerender —
+// disable static prerendering globally.
+// (The "useRef of null" crash this comment used to blame was RH-32: `better-auth`
+// was listed in `serverExternalPackages`, which split React during SSR. Fixed in
+// next.config.ts; this directive is retained for the caching behaviour, not as a workaround.)
 export const dynamic = "force-dynamic";
 
 const geistSans = Geist({

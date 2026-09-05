@@ -49,9 +49,11 @@ export default defineConfig({
   /* Global setup: creates authenticated session state once */
   globalSetup: './e2e/global-setup.ts',
 
-  /* Start the Next.js dev server before tests (skipped if already running) */
+  /* Start the Next.js dev server before tests (skipped if already running).
+     PLAYWRIGHT_WEB_SERVER overrides the command so the same specs can be run against a
+     production build, e.g. `npx next start -p 3000 -H 127.0.0.1` (RH-32). */
   webServer: {
-    command: 'npm run dev',
+    command: process.env.PLAYWRIGHT_WEB_SERVER ?? 'npm run dev',
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
