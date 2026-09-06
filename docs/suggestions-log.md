@@ -2066,3 +2066,109 @@ insertion/deletion arithmetic plus mtimes confirm no other staged file moved sin
   (vitest.config.ts:1:1)". Harmless today, but it will become an error in a future Vite
   major; renaming to `vitest.config.mts` is a one-line pre-emptive fix.
 
+
+## [RH-25] Analisar codigo do projeto quanto a boas praticas, SOLID, DRY, KISS — 2026-09-05
+
+- Add a hand-off check to the spec generator: after writing `expected_results` through
+  the API, read them back and diff against the spec's §4 bullets. B1 is the second-order
+  cost of not doing this, and it is a three-line script.
+- Prefer ASCII throughout any string that an ER greps for. Meridian ASCII-folds on
+  write (visible in the task title losing its accents), so em dashes, curly quotes and
+  accented characters in prescribed heading strings will silently diverge between spec
+  and task.
+- Strengthen §1.4's guard against the eight-area quota: say explicitly that a `Low`
+  finding is the correct outcome for an area in good health, and that padding the
+  Typing or Naming rows to fill the table is a defect.
+- Clarify ER8's exclusion so it reads as being about the *subject* of a proposed task,
+  and note that a regression test named inside a security or correctness task's
+  remediation is not "a task about adding tests", nor is decomposing an oversized
+  component "de-duplicating clones".
+- Instruct the developer to write §3.7's `## [RH-25]` suggestions-log section before
+  the commit, so ER9's four-path diff is satisfied by the commit itself rather than by
+  a later pipeline append.
+- Fix the `src/lib/bands.ts:128` → `:129` line number in the §3.5 worked example.
+- Consider having ER5 quote M2 the way §3.2 will render it (or vice versa) as a single
+  source of truth, so the two can never drift again — the same class of defect as B1.
+
+## [RH-25] Analisar codigo do projeto quanto a boas praticas, SOLID, DRY, KISS — 2026-09-05
+
+- §3.5's heading template carries trailing `<- ...` annotations on the same lines as the
+  seven headings (e.g. `## 1. Method and Reproducibility     <- M1-M8 verbatim, ...`). The
+  intent is obvious and ER1 is authoritative, but moving those annotations into a following
+  prose list would remove any chance of a developer copying the arrow into the actual
+  heading and tripping ER1's exact-match grep.
+- ER9's closing clause, "docs/suggestions-log.md gained a section whose heading contains
+  RH-25", is already satisfied today: the work skill appended `## [RH-25] ...` at
+  `docs/suggestions-log.md:2070` while logging round-1 review suggestions. So that clause
+  does not in practice gate §3.7's requirement that the *developer* record deliberately
+  omitted observations and the `13da8b2` snapshot note. Not blocking — the substance of a
+  suggestions log is not mechanically checkable anyway, and §3.7 remains clear to the
+  developer — but the ER clause is weaker than it reads.
+- §1.3's "104 violations" and §1.4's counts are stated without noting that the sweep total
+  spans test files while the offenders list does not. The report itself will be clearer if
+  §2 ("Measured Baseline") says so explicitly; a reader comparing 104 against the eight-row
+  production list would otherwise wonder where the rest went.
+- Consider having the report's §1 note that the M2 command exits non-zero by design, so a
+  future re-runner does not read the exit status as a failed measurement. §3.2 says this to
+  the developer, but ER5 only requires the command text, not the caveat.
+
+## [RH-25] Analisar codigo do projeto quanto a boas praticas, SOLID, DRY, KISS — 2026-09-05
+
+- **F22 severity.** Rate it Low rather than Medium. The finding itself says the
+  `NODE_ENV` guard "caps the severity", and the report's own scale puts a
+  dev-only consistency deviation at Low. Its "gets copied into a non-dev route
+  later" argument justifies raising the finding, not its rank above F13 and F17.
+- **F3's "eight exported actions".** `resolveOwner` has nine call sites
+  (`repertoire.ts` lines 27, 32, 39, 46, 53, 64, 73, 91, 98); the ninth is
+  `updateLyricsAction`, which the report discusses separately under F8. The
+  understatement is harmless but "nine" is the reproducible number, and F3 is the
+  finding most likely to be turned into a task verbatim.
+- **F6's "5 `useEffect` blocks".** There are 4 `useEffect(` call sites; 5 is what
+  M6's `grep -c 'useEffect'` returns because it counts the import line. The
+  report is faithfully quoting its own prescribed measurement, so this is not an
+  error against method - but the sentence reads as a count of blocks. Either say
+  "4 `useEffect` blocks" or note that M6's counts include the import.
+- **Section 2.3 offender list is not exhaustive at its own cut-off.** It lists
+  nine production functions down to complexity 21 but omits two others at 21
+  (`src/app/bands/[id]/page.tsx:235` and `src/app/profile/page.tsx:196`). The
+  heading says "worst production offenders", not "all above 20", so this is not
+  wrong - but including them would cost two lines and remove the ambiguity.
+- **F15's scope sentence.** "every other route is `'use client'` and loads its
+  data from a `useEffect` calling a Server Action" is broader than the evidence:
+  `/login`, `/signup`, `/forgot-password` and `/reset-password` are client
+  components that do not fetch that way. The remediation already targets only the
+  read-only pages; tightening the sentence to match would close the gap.
+- **F11 needs a task that decomposes it.** T6 (add ESLint budgets) is a ratchet,
+  not a decomposition, yet it is the only task covering F11. Either extend T5 to
+  cover `PlaylistDetailPage` or add a T11 - and move F26's
+  `getPlaylistEntryIdsAction` half out of T5, where it does not belong.
+- **F25 block formatting.** Remove the blank line between the `### F25` heading
+  and its `**Location:**` line so all 26 blocks render identically.
+- **Suggestions log.** `docs/suggestions-log.md` is modified but unstaged. Out of
+  scope for this review per the dispatch, but ER9 requires it in the commit, so
+  it must be staged before the commit lands.
+
+## [RH-25] Analisar codigo do projeto quanto a boas praticas, SOLID, DRY, KISS — 2026-09-05
+
+- Carried forward from round 1, still non-blocking: several body-text references use
+  glob-ish backticked strings (`src/app/actions/*`, `src/components/fastview/*`,
+  `src/lib/*`). ER3 scopes its path-existence check to `**Location:**` lines only, so
+  these are outside the gate and harmless today. If a future QA script ever widens the
+  scan to all backticked strings, they would read as missing paths. Cheap to defuse by
+  dropping the backticks on prose globs, but not worth a revision round now.
+- F14's remediation names eight replacement commands. When the follow-up task (T8) is
+  specced, that list is a design proposal rather than a measured finding - worth
+  re-deriving from the two consumers' actual call sites rather than inheriting verbatim.
+
+## [RH-25] Analisar codigo do projeto quanto a boas praticas, SOLID, DRY, KISS — 2026-09-05
+
+- (Non-blocking) Section 2 is a point-in-time snapshot and the document already says so in its closing line.
+  Since T6 proposes moving the complexity budget into `eslint.config.mjs`, it may be worth having T6's spec
+  explicitly require updating section 2.3's numbers (or deleting them in favour of the CI output) at that point,
+  so the two do not silently diverge.
+- (Non-blocking) The M2 aggregation one-liner in section 1 writes to `/tmp/rh25-complexity.json` and the reader
+  must notice the "redirect its stdout" sentence between the two fences. Folding the redirect into the ESLint
+  fence itself would make the pair copy-pasteable as a unit — but note that would change the ESLint command's
+  verbatim text, which ER5 pins, so this is strictly a future-document suggestion, not a change to make now.
+- (Non-blocking) `docs/tasks/RH-25-spec.md` is currently untracked. It is one of the four paths ER9 enumerates,
+  so it needs to be `git add`-ed before the commit, otherwise the committed change set will be three paths, not four.
