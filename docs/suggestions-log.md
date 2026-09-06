@@ -2172,3 +2172,178 @@ insertion/deletion arithmetic plus mtimes confirm no other staged file moved sin
   verbatim text, which ER5 pins, so this is strictly a future-document suggestion, not a change to make now.
 - (Non-blocking) `docs/tasks/RH-25-spec.md` is currently untracked. It is one of the four paths ER9 enumerates,
   so it needs to be `git add`-ed before the commit, otherwise the committed change set will be three paths, not four.
+
+## [RH-33] Corrigir vulnerabilidades de dependencias (Dependabot / npm audit) — 2026-09-05
+
+- **ER7, eslint clause.** "`npx eslint .` ends with `30 problems (12 errors, 18 warnings)`"
+  is not literally the last line of output. Actual tail:
+
+  ```
+  ✖ 30 problems (12 errors, 18 warnings)
+    1 error and 0 warnings potentially fixable with the `--fix` option.
+  ```
+
+  The counts are exactly right; only "ends with" is imprecise. Suggest "its summary line
+  reads `✖ 30 problems (12 errors, 18 warnings)`" to remove any chance a strict reader
+  fails it on the trailing hint line.
+
+- **ER4 / a YAML-validity check.** The three greps confirm the strings are present but not
+  that `ci.yml` still parses or that the `audit` job is well-formed. Since the post-push
+  `gh run view` clause has to be deferred anyway, consider adding a QA-time structural
+  check, e.g.
+  `python3 -c "import yaml,sys; d=yaml.safe_load(open('.github/workflows/ci.yml')); j=d['jobs']['audit']; print(j['name'], len(j['steps']), any('npm ci' in str(s) for s in j['steps']))"`
+  printing `Dependency audit (npm audit) 3 False`. Risk is low (the spec hands over the
+  exact YAML block), which is why this is a suggestion rather than a finding.
+
+- **Approach §3 says "Add a fifth top-level job".** `ci.yml` already has five jobs
+  (`build`, `e2e`, `dead-code`, `coverage`, `duplication`), so `audit` is the sixth. No ER
+  depends on the count; it is just a wrong word in the prose.
+
+- **Spec file vs persisted ER10 wording.** The persisted ER10 carries a parenthetical the
+  spec file does not: `(git show 0f13814:AGENTS.md | grep -c 'audit', which prints 1)`, and
+  drops the markdown bold around **Testing & quality**. The check is substantively identical
+  and the annotation is correct (I verified the baseline count is exactly `1`), and QA sees
+  only the persisted list, so this is not blocking — but the spec file should be brought in
+  line so the two documents do not drift further. All other ERs are byte-equivalent modulo
+  whitespace/markdown; ER2's difference is only the heredoc-vs-prose rendering of the same
+  script, which I verified reconstructs and runs correctly (below).
+
+- **ER2's lockscope script, edge case.** `V()` maps each package key to `v.version`; an
+  entry that has no `version` field at all (link/workspace-style entries) would compare
+  `undefined === undefined` and be skipped, and an entry present in the base without a
+  version but with one afterwards would be misreported as `ADDED`. Neither case exists in
+  this lockfile — the script prints `LOCKFILE-SCOPE OK` on the real patched result and
+  correctly fails on tampering — so this is a latent nit, not a defect for this task.
+
+- **Investigation prose, "689 packages".** `npm audit fix` reports `audited 690 packages`
+  (689 dependencies + the root project) and `npm ci` reports `added 689 packages, and
+  audited 690 packages`. Both numbers are right, they just count different things; no ER
+  depends on either.
+
+---
+
+
+## [RH-33] Corrigir vulnerabilidades de dependencias (Dependabot / npm audit) — 2026-09-06
+
+- **ER4 / ER5 ordering.** ER4 asks for `npm run audit` to be verified "even with `node_modules`
+  absent" and, in the same ER, for `npx js-yaml .github/workflows/ci.yml` to exit 0. `js-yaml`'s bin
+  comes from `node_modules/.bin`; if QA deletes `node_modules` for the first clause and then runs the
+  second, `npx` falls back to a registry download, which makes the check network-dependent and slow.
+  Consider stating the intended order explicitly (run the YAML parse guard *before* removing
+  `node_modules`, or after ER5's `npm ci` restores it), or pin the guard to
+  `node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/ci.yml','utf8'))"`.
+- **ER2's flattened script in the task record.** The stored `expected_results` entry renders the
+  lockscope script with ` / ` standing in for newlines. It is reconstructable, but QA has to know to
+  translate the separator back. If the schema allows it, consider keeping the script in the spec only
+  and having ER2 reference it as "the lockscope script in the spec's ER2" — or accept the current form
+  knowingly, since QA does not read the spec.
+- **ER6's `478` is the one baseline I could not cheaply confirm** (it needs a live Postgres and a
+  service-role key). The file count `40` matches, and `AGENTS.md:88` warns that a missing DB silently
+  skips 51 tests across six files — which is precisely why ER6's "no `skipped` count in either line"
+  clause is well chosen. Worth a spot-check by whoever runs the suite first, so a stale `478` does not
+  read as a regression.
+- **ER7's eslint clause asserts output text but not exit status**, deliberately (12 baseline errors
+  mean `npx eslint .` exits 1). That asymmetry with the neighbouring "exits 0" clauses is easy to
+  misread as an omission; a half-sentence noting that eslint is expected to exit non-zero at baseline
+  would remove the doubt.
+- Non-blocking observation for the suggestions log, not for this task: the repo carries 12 eslint
+  errors on `master` with no CI job failing on them, while `knip`, `jscpd` and coverage all have
+  gates. Adding an `npm audit` gate here makes that gap slightly more conspicuous.
+
+## [RH-33] Corrigir vulnerabilidades de dependencias (Dependabot / npm audit) — 2026-09-06
+
+- **ER7 wording, `tsc`**: "prints no output and exits 0" is literally true for bare
+  `tsc --noEmit`, but this environment's rtk command proxy rewrites the invocation and
+  prints `TypeScript: No errors found` on success. A QA agent reading the clause
+  strictly could call that a mismatch. "reports no errors and exits 0" would be robust
+  to the wrapper. Same shape applies to `npm run lint:dead`, whose npm banner lines are
+  always printed.
+- **ER4 ordering**: the clause "`npm run audit` ... even with `node_modules` absent"
+  only bites if QA removes `node_modules` first, which is exactly what ER5 does. Saying
+  "run this in the same window as ER5, after `rm -rf node_modules` and before `npm ci`"
+  would remove the guesswork — and would also avoid the case where QA runs the ER4
+  `npx js-yaml` guard with no `node_modules`, forcing a registry fetch instead of using
+  the already-present `node_modules/.bin/js-yaml`.
+- **ER3 aggregate strictness**: the ER demands `"moderate":0,"low":0` while Out of Scope
+  forbids acting on moderate/low advisories. That is consistent *today* (verified: the
+  tree has zero moderate and zero low), but if a new moderate advisory lands between now
+  and QA, ER3 fails on a perfect implementation and the spec forbids the fix. Narrowing
+  the pass condition to `high` and `critical` being 0, while still printing the full
+  aggregate for the record, would make the ER stable over time.
+- **ER5 working directory**: `shasum -a 256 -c /tmp/rh33-lock-before.sha` resolves
+  `package-lock.json` relative to the current directory, so it silently depends on QA
+  standing in the repo root. ER7 says "from the repo root"; repeating that in ER5 (or
+  using an absolute path in the digest) would close the gap.
+- **ER2 inline script**: the task-side rendering uses ` / ` as a line separator, which a
+  QA agent must translate back into newlines before the file will parse. It is
+  unambiguous given the `;` separators, but a `\n`-escaped form would remove the
+  translation step entirely.
+
+### Implementation-time observation (developer, RH-33)
+
+- **ER9 has an undocumented environment precondition.** `npx next start` does not load `.env.local`
+  (only `next dev` does — the production server prints no `- Environments: .env.local` line), so
+  `src/lib/auth.ts`'s `secret: process.env.BETTER_AUTH_SECRET!` is `undefined` and Better Auth
+  throws `You are using the default secret`. `e2e/global-setup.ts` then fails sign-in with
+  `500` before a single spec runs. The fix is purely environmental — `set -a; . ./.env.local; set +a`
+  in the shell before the ER9 command, so the exported vars are inherited by the Playwright
+  `webServer` child — and needs no code change, but ER9 should say so the way ER6 already spells
+  out its Postgres/`SUPABASE_SERVICE_ROLE_KEY` precondition. Out of scope here: fixing it properly
+  would mean touching `playwright.config.ts`'s `webServer.env` or `e2e/`, both excluded by RH-33.
+
+## [RH-33] Corrigir vulnerabilidades de dependencias (Dependabot / npm audit) — 2026-09-06
+
+1. **The lockfile's own root `version` field is one bump behind `package.json`.**
+   `package-lock.json:3` and the `packages[""]` entry now read `0.1.67-202609052124`, while
+   `package.json:3` reads `0.1.68-202609060011`. This is an artifact of ordering: `npm audit fix`
+   rewrote the lockfile while `package.json` still said `0.1.67`, and the version bump landed
+   afterwards without a re-sync. It is harmless (`npm ci --dry-run` exits 0 and npm does not
+   validate the root `version` for sync) and it is the repo's pre-existing habit — at `0f13814`
+   the lockfile said `0.1.65-202609051646` against a `0.1.67` `package.json`, so this change
+   actually narrows the gap rather than widening it. If you want them to match, the cheap fix
+   is `npm install --package-lock-only` after the version bump, which touches only those two
+   lines. Not blocking, and explicitly outside ER2's check (its script filters the `""` root
+   entry out before comparing).
+
+2. **`AGENTS.md:95` is a single ~600-character bullet.** It is accurate and it satisfies ER10
+   (it names `npm run audit`, `--audit-level=high`, the `Dependency audit (npm audit)` CI job,
+   the full-tree-vs-`--omit=dev` rationale and the no-`npm ci` design), and neighbouring bullets
+   in the same section are also long, so it is stylistically consistent. A future editor may
+   want to split the "why full tree" clause into a nested sub-bullet the way the vitest entries
+   at lines 84-88 do. Purely cosmetic.
+
+3. **Nothing wires the new job into branch protection.** The job will run on every push/PR to
+   `master`/`main`, but whether it is a *required* check is a GitHub repo setting, not a file in
+   the diff. Correctly out of scope for this task; flagging only so the operator does not assume
+   the merge is mechanically blocked by a red audit job. The spec's post-merge check already
+   covers confirming the job goes green.
+
+---
+
+# What I reviewed and what I observed
+
+
+## [RH-33] Corrigir vulnerabilidades de dependencias (Dependabot / npm audit) — 2026-09-06
+
+- **(Non-blocking, process) A stale `/tmp/rh33-lockscope.mjs` was left on disk from development.** Because ER2
+  names a fixed absolute path, an independent verifier who follows the ER literally with a shell heredoc would
+  silently re-run the developer's copy instead of their own transcription. I caught this and overwrote the
+  file, and the leftover turned out to be semantically identical — so nothing is wrong with this change. But
+  future ERs that hand QA a script body would be more robustly independent if the path were
+  round-specific (e.g. `/tmp/rh33-lockscope.qa.mjs`) or if the ER instructed QA to delete any existing file
+  first.
+- **(Non-blocking, CI) The audit job pins `node-version: "24.x"` and sets `cache: "npm"` but never installs.**
+  The npm cache configuration is inert for a job with no `npm ci`, so the `cache: "npm"` line buys nothing and
+  may briefly confuse a future reader into thinking an install step was dropped by accident. Consider either
+  dropping `cache: "npm"` from this job or adding a short comment noting the omission of the install step is
+  deliberate. The AGENTS.md line 95 text already explains the rationale, so this is purely about the workflow
+  file being self-explanatory in isolation.
+- **(Non-blocking, coverage) The gate is `--audit-level=high`, but the tree is currently at zero across every
+  severity** (`{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}`). There is no urgency, but it
+  is worth noting that today the project could pass a stricter gate for free; if the team ever wants moderate
+  advisories to be actionable rather than merely reported, the cost of tightening is currently nil.
+- The suggestions log entries already filed by the implementer (ER7 "ends with" wording, ER4 YAML check, the
+  "fifth job" prose error, and the spec-file/persisted-ER10 divergence) are accurate. I independently
+  confirmed the ER7 eslint tail and the ER10 baseline count of `1`. Those are documentation nits in the
+  specification, not defects in the change under test.
+

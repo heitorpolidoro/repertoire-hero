@@ -92,6 +92,7 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 - ESLint 9 (`eslint-config-next`)
 - `knip` — dead-code / unused-dependency detection (`npm run lint:dead`, config in `knip.json`), enforced by the `dead-code` CI job
 - `jscpd` — copy/paste (duplication) detection (`npm run lint:dup`, config in `.jscpd.json`: `src`, `minTokens: 50`, `minLines: 8`, `threshold: 2`), enforced by the `Duplication (jscpd)` CI job
+- `npm audit` — dependency vulnerability gate (`npm run audit`, i.e. `npm audit --audit-level=high`), enforced by the `Dependency audit (npm audit)` CI job, which resolves the tree straight from `package-lock.json` and therefore runs with no `npm ci` step; it deliberately audits the **full dependency tree** rather than production-only (`--omit=dev`), because Dependabot alerts on the whole lockfile regardless of scope and CI actually executes the dev dependencies (`vitest`, `eslint`, `knip`, `jscpd`, `playwright`) — moderate and low advisories are reported but do not fail the build
 - SonarCloud (`sonar-project.properties`) and DeepSource (`.deepsource.toml`) for static analysis / code quality gates
 
 **Deployment**

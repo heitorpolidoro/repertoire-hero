@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.67-202609052124",
+  "version": "0.1.68-202609060011",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -13,6 +13,7 @@
     "lint": "eslint",
     "lint:dead": "knip",
     "lint:dup": "jscpd",
+    "audit": "npm audit --audit-level=high",
     "seed": "bash scripts/dev-seed",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
