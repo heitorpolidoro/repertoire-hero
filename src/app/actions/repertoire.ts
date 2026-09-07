@@ -13,14 +13,21 @@ import {
   getSongEntry,
   updateSong,
   createAndAddSong,
+  assertRepertoireAccess,
   type RepertoireOwner,
   type SongUpdateInput,
 } from '@/lib/songs'
+import { assertBandMember } from '@/lib/bands'
+import { submitGlobalSongEdit } from '@/lib/moderation'
 import type { Repertoire, SongLink, SongStatus } from '@/types/database'
 
 async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
   const userId = await getRequiredUserId()
-  return bandId ? { bandId } : { userId }
+  if (!bandId) return { userId }
+  // `bandId` comes from the caller's own band-context store, so a mismatch is
+  // never a legitimate navigation: throw rather than silently return nothing.
+  await assertBandMember(bandId, userId)
+  return { bandId }
 }
 
 export async function getRepertoireAction(bandId?: string | null) {
@@ -57,6 +64,7 @@ export async function removeSongAction(repertoireId: string, bandId?: string | n
 }
 
 export async function searchGlobalSongsAction(queryStr: string) {
+  await getRequiredUserId()
   return searchGlobalSongs(queryStr)
 }
 
@@ -111,6 +119,10 @@ export async function updateLyricsAction(repertoireId: string, lyrics: string, b
 }
 
 export async function fetchLyricsAction(artist: string, title: string): Promise<string | null> {
+  // Outside the try on purpose: the `catch { return null }` below would turn a
+  // missing session into a silent null, which is not failing closed.
+  await getRequiredUserId()
+
   try {
     const res = await fetch(
       `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
@@ -124,20 +136,22 @@ export async function fetchLyricsAction(artist: string, title: string): Promise<
   }
 }
 
-export async function updateSongLinksAction(repertoireIdOrSongId: string, links: SongLink[]): Promise<{ success: boolean }> {
-  let songId: string | null = null
+/**
+ * Writes to the shared `global_songs.links` catalog on behalf of a repertoire
+ * owner. Additive changes land directly (a musician adding a chords link
+ * mid-rehearsal needs to see it now); removing or rewriting an existing link is
+ * a correction to data everyone else sees, so it goes to the RH-15/RH-27
+ * moderation queue and returns `pending` instead of writing.
+ */
+export async function updateSongLinksAction(
+  repertoireId: string,
+  links: SongLink[],
+): Promise<{ success: boolean; pending?: boolean }> {
+  const userId = await getRequiredUserId()
+  const { song_id: songId } = await assertRepertoireAccess(repertoireId, userId)
 
-  const repRes = await query(`SELECT song_id FROM repertoire WHERE id = $1`, [repertoireIdOrSongId])
-  if (repRes.rowCount && repRes.rowCount > 0) {
-    songId = repRes.rows[0].song_id
-  } else {
-    const songRes = await query(`SELECT id FROM global_songs WHERE id = $1`, [repertoireIdOrSongId])
-    if (songRes.rowCount && songRes.rowCount > 0) {
-      songId = songRes.rows[0].id
-    }
-  }
-
-  if (!songId) {
+  const songRes = await query(`SELECT links FROM global_songs WHERE id = $1`, [songId])
+  if (songRes.rowCount === 0) {
     throw new Error('Song entry not found')
   }
 
@@ -152,6 +166,15 @@ export async function updateSongLinksAction(repertoireIdOrSongId: string, links:
       return l
     })
   )
+
+  const currentLinks = (songRes.rows[0].links ?? []) as SongLink[]
+  const submittedUrls = new Set(processedLinks.map((l) => l.url))
+  const isAdditive = currentLinks.every((l) => submittedUrls.has(l.url))
+
+  if (!isAdditive) {
+    await submitGlobalSongEdit(userId, songId, { links: processedLinks })
+    return { success: true, pending: true }
+  }
 
   await query(
     `UPDATE global_songs SET links = $1 WHERE id = $2`,
@@ -192,6 +215,7 @@ export async function getPersonalEntryForSongAction(songId: string): Promise<Rep
 }
 
 export async function fetchUrlTitleAction(url: string): Promise<string> {
+  await getRequiredUserId()
   const { fetchUrlTitle } = await import('@/lib/linkFetcher')
   return fetchUrlTitle(url)
 }

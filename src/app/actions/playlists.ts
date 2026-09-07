@@ -9,7 +9,9 @@ import {
   addSongToPlaylist,
   removeSongFromPlaylist,
   getPlaylistWithSongs,
+  assertPlaylistAccess,
 } from '@/lib/playlists'
+import { assertBandMember } from '@/lib/bands'
 import { query } from '@/lib/db'
 import type { Playlist } from '@/types/database'
 
@@ -35,24 +37,28 @@ export async function updatePlaylistAction(
     tags?: string[]
   }
 ): Promise<void> {
-  return updatePlaylist(id, data)
+  const userId = await getRequiredUserId()
+  return updatePlaylist(id, userId, data)
 }
 
 export async function deletePlaylistAction(id: string): Promise<void> {
-  return deletePlaylist(id)
+  const userId = await getRequiredUserId()
+  return deletePlaylist(id, userId)
 }
 
 export async function addSongToPlaylistAction(playlistId: string, songId: string): Promise<void> {
   const userId = await getRequiredUserId()
-  return addSongToPlaylist(userId, playlistId, songId)
+  return addSongToPlaylist(playlistId, userId, songId)
 }
 
 export async function removeSongFromPlaylistAction(playlistId: string, songId: string): Promise<void> {
-  return removeSongFromPlaylist(playlistId, songId)
+  const userId = await getRequiredUserId()
+  return removeSongFromPlaylist(playlistId, userId, songId)
 }
 
 export async function getPlaylistWithSongsAction(id: string) {
-  return getPlaylistWithSongs(id)
+  const userId = await getRequiredUserId()
+  return getPlaylistWithSongs(id, userId)
 }
 
 export async function getPlaylistDetailsWithEntriesAction(
@@ -63,6 +69,10 @@ export async function getPlaylistDetailsWithEntriesAction(
   entries: Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>
 }> {
   const userId = await getRequiredUserId()
+  // Both ids are client-supplied: the playlist must be one the caller may read,
+  // and the owner context it is read under must be a band they belong to.
+  await assertPlaylistAccess(playlistId, userId)
+  if (bandId) await assertBandMember(bandId, userId)
 
   const playlistRes = await query('SELECT name FROM playlists WHERE id = $1', [playlistId])
   const name = (playlistRes.rows[0]?.name as string) ?? 'Playlist'

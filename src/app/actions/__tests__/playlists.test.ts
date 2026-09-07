@@ -17,6 +17,11 @@ vi.mock('@/lib/playlists', () => ({
   addSongToPlaylist: vi.fn(),
   removeSongFromPlaylist: vi.fn(),
   getPlaylistWithSongs: vi.fn(),
+  assertPlaylistAccess: vi.fn(),
+}))
+
+vi.mock('@/lib/bands', () => ({
+  assertBandMember: vi.fn(),
 }))
 
 import {
@@ -40,7 +45,9 @@ import {
   addSongToPlaylist,
   removeSongFromPlaylist,
   getPlaylistWithSongs,
+  assertPlaylistAccess,
 } from '@/lib/playlists'
+import { assertBandMember } from '@/lib/bands'
 
 const USER_ID = 'user-1'
 const BAND_ID = 'band-1'
@@ -58,52 +65,52 @@ const LIB_MOCKS = [
   addSongToPlaylist,
   removeSongFromPlaylist,
   getPlaylistWithSongs,
+  assertPlaylistAccess,
+  assertBandMember,
 ]
 
-/** label → [invocation, expected @/lib/playlists arguments, resolves the session?] */
-const FORWARDS: Array<[string, () => Promise<unknown>, ReturnType<typeof vi.fn>, unknown[], boolean]> = [
-  ['getUserPlaylistsAction', () => getUserPlaylistsAction(), vi.mocked(getUserPlaylists), [USER_ID], true],
+/**
+ * label → [invocation, expected @/lib/playlists arguments]. Since RH-34 every
+ * row resolves the session, and the resolved id is threaded straight after the
+ * entity id it authorizes against.
+ */
+const FORWARDS: Array<[string, () => Promise<unknown>, ReturnType<typeof vi.fn>, unknown[]]> = [
+  ['getUserPlaylistsAction', () => getUserPlaylistsAction(), vi.mocked(getUserPlaylists), [USER_ID]],
   [
     'createPlaylistAction',
     () => createPlaylistAction(NEW_PLAYLIST),
     vi.mocked(createPlaylist),
     [USER_ID, NEW_PLAYLIST],
-    true,
   ],
   [
     'addSongToPlaylistAction',
     () => addSongToPlaylistAction(PLAYLIST_ID, SONG_ID),
     vi.mocked(addSongToPlaylist),
-    [USER_ID, PLAYLIST_ID, SONG_ID],
-    true,
+    [PLAYLIST_ID, USER_ID, SONG_ID],
   ],
   [
     'updatePlaylistAction',
     () => updatePlaylistAction(PLAYLIST_ID, PATCH),
     vi.mocked(updatePlaylist),
-    [PLAYLIST_ID, PATCH],
-    false,
+    [PLAYLIST_ID, USER_ID, PATCH],
   ],
   [
     'deletePlaylistAction',
     () => deletePlaylistAction(PLAYLIST_ID),
     vi.mocked(deletePlaylist),
-    [PLAYLIST_ID],
-    false,
+    [PLAYLIST_ID, USER_ID],
   ],
   [
     'removeSongFromPlaylistAction',
     () => removeSongFromPlaylistAction(PLAYLIST_ID, SONG_ID),
     vi.mocked(removeSongFromPlaylist),
-    [PLAYLIST_ID, SONG_ID],
-    false,
+    [PLAYLIST_ID, USER_ID, SONG_ID],
   ],
   [
     'getPlaylistWithSongsAction',
     () => getPlaylistWithSongsAction(PLAYLIST_ID),
     vi.mocked(getPlaylistWithSongs),
-    [PLAYLIST_ID],
-    false,
+    [PLAYLIST_ID, USER_ID],
   ],
 ]
 
@@ -123,17 +130,48 @@ beforeEach(() => {
 })
 
 describe('playlist action delegation', () => {
-  it.each(FORWARDS)('%s hands off to @/lib/playlists', async (_label, run, delegate, args, sessionBound) => {
+  it.each(FORWARDS)('%s hands off to @/lib/playlists', async (_label, run, delegate, args) => {
     delegate.mockResolvedValue('lib-result')
 
     await expect(run()).resolves.toBe('lib-result')
 
     expect(delegate).toHaveBeenCalledWith(...args)
-    expect(vi.mocked(getRequiredUserId).mock.calls.length > 0).toBe(sessionBound)
+    expect(getRequiredUserId).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('getPlaylistDetailsWithEntriesAction', () => {
+  it('authorizes the playlist and the band context before reading anything', async () => {
+    vi.mocked(query)
+      .mockResolvedValueOnce({ rows: [{ name: 'Gig night' }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+
+    await getPlaylistDetailsWithEntriesAction(PLAYLIST_ID, BAND_ID)
+
+    expect(assertPlaylistAccess).toHaveBeenCalledWith(PLAYLIST_ID, USER_ID)
+    expect(assertBandMember).toHaveBeenCalledWith(BAND_ID, USER_ID)
+  })
+
+  it('skips the band assertion for a personal owner context', async () => {
+    vi.mocked(query)
+      .mockResolvedValueOnce({ rows: [{ name: 'Personal' }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+
+    await getPlaylistDetailsWithEntriesAction(PLAYLIST_ID, null)
+
+    expect(assertPlaylistAccess).toHaveBeenCalledWith(PLAYLIST_ID, USER_ID)
+    expect(assertBandMember).not.toHaveBeenCalled()
+  })
+
+  it('propagates the playlist denial without reading the playlist', async () => {
+    vi.mocked(assertPlaylistAccess).mockRejectedValueOnce(
+      new Error('Access denied: not allowed on this playlist'),
+    )
+
+    await expect(getPlaylistDetailsWithEntriesAction(PLAYLIST_ID, null)).rejects.toThrow('Access denied')
+    expect(query).not.toHaveBeenCalled()
+  })
+
   it('returns the playlist name and its ordered entries scoped to a band', async () => {
     vi.mocked(query)
       .mockResolvedValueOnce({ rows: [{ name: 'Gig night' }] } as never)

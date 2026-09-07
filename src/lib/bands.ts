@@ -27,8 +27,42 @@ export const getBands = async (userId: string): Promise<Band[]> => {
   }
 }
 
+/**
+ * The caller's role in the band, or throws. Every band-scoped write authorizes
+ * through this (or `assertBandAdmin`) before touching a row — a Server Action
+ * is a public endpoint, so a client-supplied `bandId` proves nothing.
+ */
+export async function assertBandMember(
+  bandId: string,
+  userId: string,
+): Promise<'admin' | 'member'> {
+  let res
+  try {
+    res = await query(
+      `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2`,
+      [bandId, userId],
+    )
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to check band membership', err, { bandId })
+    throw new Error(`Failed to check band membership: ${err.message}`)
+  }
+
+  // User-facing authorization failure — outside any wrapping catch so the text
+  // survives verbatim to the UI (convention L1a).
+  if (res.rowCount === 0) throw new Error('Access denied: not a member of this band')
+  return res.rows[0].role as 'admin' | 'member'
+}
+
+/** Throws unless the caller is an admin of the band. */
+async function assertBandAdmin(bandId: string, userId: string): Promise<void> {
+  const role = await assertBandMember(bandId, userId)
+  if (role !== 'admin') throw new Error('Access denied: band admin required')
+}
+
 export const getBandWithMembers = async (
   bandId: string,
+  userId: string,
 ): Promise<Band | null> => {
   const sql = `
     SELECT b.*,
@@ -53,9 +87,14 @@ export const getBandWithMembers = async (
              ), '[]'::json) as members
     FROM bands b
     WHERE b.id = $1
+      AND EXISTS (
+        SELECT 1 FROM band_members me WHERE me.band_id = b.id AND me.user_id = $2
+      )
   `
   try {
-    const res = await query(sql, [bandId])
+    // Membership-scoped: a non-member gets exactly what they would get for a
+    // band id that does not exist, so existence is not leaked either.
+    const res = await query(sql, [bandId, userId])
     if (res.rowCount === 0) return null
     return res.rows[0] as Band
   } catch (error) {
@@ -93,6 +132,7 @@ export const createBand = async (
 
 export const updateBand = async (
   bandId: string,
+  userId: string,
   data: {
     name?: string;
     description?: string | null;
@@ -100,6 +140,8 @@ export const updateBand = async (
     color?: string | null;
   },
 ): Promise<void> => {
+  await assertBandAdmin(bandId, userId)
+
   try {
     const { setClauses, values, nextIndex: paramIndex } = buildUpdateSet(data, [
       'name',
@@ -126,7 +168,12 @@ export const updateBand = async (
   }
 }
 
-export const deleteBand = async (bandId: string): Promise<void> => {
+export const deleteBand = async (
+  bandId: string,
+  userId: string,
+): Promise<void> => {
+  await assertBandAdmin(bandId, userId)
+
   const sql = `DELETE FROM bands WHERE id = $1`
   try {
     const res = await query(sql, [bandId])
@@ -152,10 +199,28 @@ export const leaveBand = async (
   }
 }
 
-export const removeBandMember = async (memberId: string): Promise<void> => {
-  const sql = `DELETE FROM band_members WHERE id = $1`
+export const removeBandMember = async (
+  memberId: string,
+  userId: string,
+): Promise<void> => {
+  // The band is derived from the member row server-side rather than accepted
+  // from the client, so the admin check cannot be pointed at a different band.
+  let memberRes
   try {
-    await query(sql, [memberId])
+    memberRes = await query(`SELECT band_id FROM band_members WHERE id = $1`, [memberId])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error("Failed to remove band member", err)
+    throw new Error(`Failed to remove band member: ${err.message}`)
+  }
+
+  if (memberRes.rowCount === 0) throw new Error('Access denied: no such band member')
+  const bandId = memberRes.rows[0].band_id as string
+  await assertBandAdmin(bandId, userId)
+
+  const sql = `DELETE FROM band_members WHERE id = $1 AND band_id = $2`
+  try {
+    await query(sql, [memberId, bandId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to remove band member", err)
@@ -163,7 +228,10 @@ export const removeBandMember = async (memberId: string): Promise<void> => {
   }
 }
 
-export const getBandPlaylists = async (bandId: string): Promise<Playlist[]> => {
+export const getBandPlaylists = async (
+  bandId: string,
+  userId: string,
+): Promise<Playlist[]> => {
   const sql = `
     SELECT p.*,
            COALESCE(
@@ -177,10 +245,14 @@ export const getBandPlaylists = async (bandId: string): Promise<Playlist[]> => {
              ), '[]'::json) as songs
     FROM playlists p
     WHERE p.band_id = $1
+      AND EXISTS (
+        SELECT 1 FROM band_members me WHERE me.band_id = p.band_id AND me.user_id = $2
+      )
     ORDER BY p.created_at DESC
   `
   try {
-    const res = await query(sql, [bandId])
+    // Membership-scoped, like getBandWithMembers: a non-member gets [].
+    const res = await query(sql, [bandId, userId])
     return res.rows as Playlist[]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -191,8 +263,12 @@ export const getBandPlaylists = async (bandId: string): Promise<Playlist[]> => {
 
 export const createBandPlaylist = async (
   bandId: string,
+  userId: string,
   name: string,
 ): Promise<string> => {
+  // Any member may add a setlist — the UI's new-playlist form is not admin-gated.
+  await assertBandMember(bandId, userId)
+
   const sql = `
     INSERT INTO playlists (name, band_id, sync_with_spotify)
     VALUES ($1, $2, false)

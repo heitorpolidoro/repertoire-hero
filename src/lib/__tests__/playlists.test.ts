@@ -74,7 +74,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     createdPlaylists.push(playlist.id)
 
     // 2. Get playlist with songs (currently empty)
-    const playlistWithSongs = await getPlaylistWithSongs(playlist.id)
+    const playlistWithSongs = await getPlaylistWithSongs(playlist.id, userAId)
     expect(playlistWithSongs).not.toBeNull()
     expect(playlistWithSongs!.id).toBe(playlist.id)
     expect(playlistWithSongs!.name).toBe(playlistName)
@@ -92,7 +92,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // 4. Update playlist
     const newName = `Updated Playlist Name ${suffix}`
     const newDesc = `Updated description`
-    await updatePlaylist(playlist.id, {
+    await updatePlaylist(playlist.id, userAId, {
       name: newName,
       description: newDesc,
       sync_with_spotify: true,
@@ -100,7 +100,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     })
 
     // Fetch and verify update
-    const updatedPlaylist = await getPlaylistWithSongs(playlist.id)
+    const updatedPlaylist = await getPlaylistWithSongs(playlist.id, userAId)
     expect(updatedPlaylist).not.toBeNull()
     expect(updatedPlaylist!.name).toBe(newName)
     expect(updatedPlaylist!.description).toBe(newDesc)
@@ -108,10 +108,10 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(updatedPlaylist!.tags).toContain('rock')
 
     // 5. Delete playlist
-    await deletePlaylist(playlist.id)
+    await deletePlaylist(playlist.id, userAId)
 
     // Verify it is gone
-    const deletedPlaylist = await getPlaylistWithSongs(playlist.id)
+    const deletedPlaylist = await getPlaylistWithSongs(playlist.id, userAId)
     expect(deletedPlaylist).toBeNull()
 
     const playlistsAfterDelete = await getUserPlaylists(userAId)
@@ -143,10 +143,10 @@ describe.skipIf(skip)('playlists integration tests', () => {
     createdPlaylists.push(playlist.id)
 
     // 3. Add song to playlist
-    await addSongToPlaylist(userAId, playlist.id, songId)
+    await addSongToPlaylist(playlist.id, userAId, songId)
 
     // Verify song is added
-    const playlistWithSongs = await getPlaylistWithSongs(playlist.id)
+    const playlistWithSongs = await getPlaylistWithSongs(playlist.id, userAId)
     expect(playlistWithSongs).not.toBeNull()
     expect(playlistWithSongs!.songs).toBeDefined()
     expect(playlistWithSongs!.songs!.length).toBe(1)
@@ -157,10 +157,10 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(playlistWithSongs!.songs![0].song!.duration_seconds).toBe(240)
 
     // 4. Remove song from playlist
-    await removeSongFromPlaylist(playlist.id, songId)
+    await removeSongFromPlaylist(playlist.id, userAId, songId)
 
     // Verify song is removed
-    const playlistEmpty = await getPlaylistWithSongs(playlist.id)
+    const playlistEmpty = await getPlaylistWithSongs(playlist.id, userAId)
     expect(playlistEmpty).not.toBeNull()
     expect(playlistEmpty!.songs!.length).toBe(0)
   })
@@ -235,7 +235,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     createdSongs.push(songId)
 
     // 5. User A adds the song to the band playlist
-    await addSongToPlaylist(userAId, playlistId, songId)
+    await addSongToPlaylist(playlistId, userAId, songId)
 
     // 6. Verify that:
     // A. The song was added to the band repertoire
@@ -272,7 +272,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(userBRep).toBeNull()
 
     // D. The song is in the playlist songs list
-    const playlistWithSongs = await getPlaylistWithSongs(playlistId)
+    const playlistWithSongs = await getPlaylistWithSongs(playlistId, userAId)
     expect(playlistWithSongs).not.toBeNull()
     expect(playlistWithSongs!.songs).toBeDefined()
     expect(playlistWithSongs!.songs!.length).toBe(1)

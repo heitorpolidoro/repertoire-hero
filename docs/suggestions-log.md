@@ -2347,3 +2347,107 @@ insertion/deletion arithmetic plus mtimes confirm no other staged file moved sin
   confirmed the ER7 eslint tail and the ER10 baseline count of `1`. Those are documentation nits in the
   specification, not defects in the change under test.
 
+
+## [RH-34] Autorizacao fail-closed em toda Server Action — 2026-09-06
+
+
+- **ER1's eslint phrasing.** ER1 says the run "ends with exactly `✖ 30 problems (12 errors,
+  18 warnings)`". That line is present and exact, but it is not the last line — eslint then
+  prints "1 error and 0 warnings potentially fixable with the `--fix` option." Say "reports"
+  rather than "ends with" to keep a literal-minded QA from tripping.
+- **ER1's clone cap is stricter than the gate it protects.** `.jscpd.json` scans all of `src`
+  including `__tests__` (no test ignore) with `minTokens: 50 / minLines: 8`, and the gate is
+  the 2 % threshold, not a clone count. Five new test files with near-identical
+  `describe.skipIf` / `beforeAll` fixture blocks can plausibly add more than the 2 clones ER1
+  allows while the actual gate stays green at ~1.1 %. Consider expressing ER1 as "exits 0 and
+  duplication stays under 2 %", or raise the cap.
+- **Approach §2 says `resolveOwner` is "the one deliberate exception"** to "row reads return
+  the not-found value", but ER7 requires `getPlaylistDetailsWithEntriesAction` — a read — to
+  reject with `Access denied`. That is a second exception. ER7 is unambiguous so the
+  implementation is determined, but §2's narrative should acknowledge it. Relatedly, the
+  Approach never spells out how `getPlaylistDetailsWithEntriesAction` gets fixed (the
+  signature table in §3 omits it); a line saying it calls `assertPlaylistAccess` and, when
+  `bandId` is supplied, `assertBandMember`, would close the gap.
+- **ER9(e)/(f) say `proposed_data->'links'` equals "the submitted list".** Approach §5 step 5
+  submits `processedLinks`, i.e. after `fetchUrlTitle` fills in missing labels, so the two are
+  equal only if the test's input links already carry labels. Worth stating that the fixture
+  submits fully-labelled links, or comparing against the processed list.
+- **ER9's grep is noisy.** `grep -n "pending" "src/app/songs/[id]/fast-view/page.tsx"` already
+  matches ~8 pre-existing `pendingDelete` lines. Grepping for something like
+  `res.pending` or `\.pending` would make the check discriminating.
+- **ER10's `npx next build`** was not executed during this review (it would dirty the tree via
+  the Next-generated AGENTS.md block); the claim is standard and low-risk, but the developer
+  should confirm the baseline build is green before relying on it as an unchanged gate.
+
+## [RH-34] Autorizacao fail-closed em toda Server Action — 2026-09-06 (spec review 2)
+
+
+- ER9's final check, `grep -n "pending" "src/app/songs/[id]/fast-view/page.tsx"`, will also match the pre-existing `pendingDelete` state variable (used around lines 590–620), so the output is noisy. Grepping for `res.pending` or `.pending` would isolate the new branch and make the check a one-glance pass/fail.
+- ER3 pins only `statements` and `lines` on the `src/app/actions` row; `branches` (67.08) and `functions` (93.87) could regress there unnoticed, caught only if the global thresholds also dip. Adding those two lower bounds would close the gap at no cost.
+- ER5 leaves the `throws` vs `envelope` split to the implementer's table without naming which actions are which. Both modes are fail-closed and the test asserts the declared mode, so this is not a hole — but naming the six envelope-returning actions (the five in `tabs.ts` plus `uploadBandCoverAction`) would let QA sanity-check the table's shape without reading the action sources.
+- §2 changes `tabs.ts`'s thrown text from `Access denied` to `Access denied: not allowed on this repertoire entry`. Worth noting for code review that `src/app/admin/moderation/page.tsx:95` branches on `error.includes("Access denied")` (substring, so it still matches) and that the two exact-equality assertions at `src/app/actions/__tests__/tabs.test.ts:62,98` are the ones §2 already flags for update.
+- ER4's tamper check mutates the working tree; QA should be reminded (the ER does say "restore the line") to verify `git diff` is clean afterwards before running ER12.
+
+## [RH-34] Autorizacao fail-closed em toda Server Action — 2026-09-06 (code review 1)
+
+
+1. **`src/lib/songs.ts:242-279` — `updateSong` still writes `global_songs` on a
+   client-supplied `entry.song_id`.** `resolveOwner` now proves band membership, and the
+   `repertoire` half of the function is owner-scoped (`WHERE id = $4 AND band_id = $5`),
+   but the `global_songs` `UPDATE` at line 268 keys off `entry.song_id` taken verbatim from
+   the client with no check that the caller holds any repertoire entry for that song. The
+   blast radius is small — every column is fill-if-empty, so nothing existing can be
+   clobbered — and the global-catalog data model is explicitly out of scope here (F4,
+   per-owner links). Not blocking, but it is the same class of defect RH-34 exists to close,
+   and it is worth a line in `docs/suggestions-log.md` so it is not lost.
+
+2. **`src/app/songs/[id]/fast-view/page.tsx:550` — the add-link path ignores
+   `result.pending`.** `currentLinks` comes from the client's copy of `entry.song.links`.
+   If that copy is stale (another user contributed a link since load), the submitted list
+   silently drops that url, the server correctly classifies the "add" as destructive and
+   queues it, and the UI still optimistically shows the link and toasts "Link added" — the
+   user is told a write happened that did not. The delete path at line 608 already models
+   the fix; the add path needs the same three-line branch.
+
+3. **`src/app/actions/__tests__/actionScan.ts:46` — the scan only matches
+   `export async function`.** An action written as `export const fooAction = async () => …`
+   would be invisible to *both* guard suites, including the key-set equality test that is
+   supposed to make an unguarded action impossible to add. The current tree has no such
+   export, and the spec asked for exactly this shape, so this is not a defect in the
+   delivered work — but widening the regex to `export (?:async function|const) (\w+)` would
+   make the mechanical rule genuinely mechanical rather than mechanical-by-current-style.
+
+4. **`src/app/actions/__tests__/authzRepertoire.db.test.ts:275` —
+   `expect(edits.rowCount).toBe(1)` is tautological.** The query carries `LIMIT 1`, so
+   `rowCount` can never exceed 1 and the assertion cannot fail for the reason it appears to
+   be testing ("exactly one new row"). The suite already has `editCount()`; asserting
+   `expect(await editCount()).toBe(editsBefore + 1)` would test the intended property.
+
+5. **`src/app/actions/__tests__/authzPlaylists.db.test.ts:88-98` — fixture cleanup is
+   partly load-bearing on a passing test.** Personal playlist P and the `repertoire` row
+   created in `beforeAll` are removed by the final `deletePlaylistAction` test and the
+   `deleteTestUser` cascade rather than by `afterAll` itself. If an earlier test fails, the
+   suite leaks rows into the shared local database. `authzBands` and `authzRepertoire` both
+   delete their fixtures explicitly; matching that here would be more robust.
+
+6. **Deliberate near-duplication, noted so a future reader does not "fix" it.**
+   `assertPlaylistAccess` and `assertRepertoireAccess` share a predicate shape but live in
+   different domain modules, per the spec's instruction to keep them structurally distinct.
+   `lint:dup` is unmoved at 19 clones, so the choice cost nothing. No change wanted.
+
+## [RH-34] Autorizacao fail-closed em toda Server Action — 2026-09-06 (QA 1)
+
+
+- `actionScan.exportedActionBodies` only recognises `export async function` at
+  column 0 and ends a body at the first line that is exactly `}`. That is true of
+  every file in `src/app/actions` today, but an action written as
+  `export const fooAction = async (...) => {...}` would be invisible to both guard
+  suites, including the key-set assertion in `actionSessionGuard`. A cheap
+  hardening would be a third assertion that the scanned action count equals the
+  count of `export ` declarations in those files. Non-blocking: no such export
+  exists today, and ER4/ER5 are met as written.
+- `authzRepertoire.db.test.ts` ER9(e) proves "exactly one new row" via
+  `rowCount` on a `LIMIT 1` query plus the unchanged-count assertion in (d);
+  an explicit `count(*)` delta around the removal call would state the
+  intent more directly.
+

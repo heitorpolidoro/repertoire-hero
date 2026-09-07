@@ -27,6 +27,15 @@ vi.mock('@/lib/songs', () => ({
   getSongEntry: vi.fn(),
   updateSong: vi.fn(),
   createAndAddSong: vi.fn(),
+  assertRepertoireAccess: vi.fn(),
+}))
+
+vi.mock('@/lib/bands', () => ({
+  assertBandMember: vi.fn(),
+}))
+
+vi.mock('@/lib/moderation', () => ({
+  submitGlobalSongEdit: vi.fn(),
 }))
 
 import {
@@ -59,7 +68,10 @@ import {
   getSongEntry,
   updateSong,
   createAndAddSong,
+  assertRepertoireAccess,
 } from '@/lib/songs'
+import { assertBandMember } from '@/lib/bands'
+import { submitGlobalSongEdit } from '@/lib/moderation'
 import type { Repertoire, SongLink } from '@/types/database'
 
 const USER_ID = 'user-1'
@@ -143,6 +155,16 @@ beforeEach(() => {
   vi.mocked(fetchUrlTitle).mockReset()
   vi.mocked(getRequiredUserId).mockReset()
   vi.mocked(getRequiredUserId).mockResolvedValue(USER_ID)
+  vi.mocked(assertBandMember).mockReset()
+  vi.mocked(assertBandMember).mockResolvedValue('member')
+  vi.mocked(assertRepertoireAccess).mockReset()
+  vi.mocked(assertRepertoireAccess).mockResolvedValue({
+    id: REPERTOIRE_ID,
+    song_id: SONG_ID,
+    user_id: USER_ID,
+    band_id: null,
+  })
+  vi.mocked(submitGlobalSongEdit).mockReset()
   for (const delegation of DELEGATIONS) delegation.lib().mockReset()
 })
 
@@ -166,14 +188,23 @@ describe('owner resolution', () => {
       await run(null)
       expect(delegate).toHaveBeenLastCalledWith({ userId: USER_ID }, ...tail)
 
-      // The session is resolved on every call, band-owned or not.
+      // The session is resolved on every call, band-owned or not, and the band
+      // context is authorized against the caller exactly once (the band case).
       expect(vi.mocked(getRequiredUserId)).toHaveBeenCalledTimes(3)
+      expect(assertBandMember).toHaveBeenCalledExactlyOnceWith(BAND_ID, USER_ID)
       expect(vi.mocked(revalidatePath).mock.calls.length > 0).toBe(revalidates)
       if (revalidates) expect(revalidatePath).toHaveBeenCalledWith('/')
     },
   )
 
-  it('does not resolve a session for the ownerless catalog actions', async () => {
+  it.each(DELEGATIONS)('$label refuses a bandId the caller is not a member of', async ({ lib, run }) => {
+    vi.mocked(assertBandMember).mockRejectedValue(new Error('Access denied: not a member of this band'))
+
+    await expect(run(BAND_ID)).rejects.toThrow('Access denied')
+    expect(lib()).not.toHaveBeenCalled()
+  })
+
+  it('resolves a session for the ownerless catalog actions too', async () => {
     vi.mocked(searchGlobalSongs).mockResolvedValue(['hit'] as never)
     vi.mocked(fetchUrlTitle).mockResolvedValue('Some Title')
 
@@ -183,7 +214,7 @@ describe('owner resolution', () => {
     await expect(fetchUrlTitleAction('https://example.com')).resolves.toBe('Some Title')
     expect(fetchUrlTitle).toHaveBeenCalledWith('https://example.com')
 
-    expect(getRequiredUserId).not.toHaveBeenCalled()
+    expect(getRequiredUserId).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -238,39 +269,59 @@ describe('fetchLyricsAction', () => {
 })
 
 describe('updateSongLinksAction', () => {
-  const LABELLED: SongLink[] = [{ label: 'Chords', url: 'https://tabs.example/1' }]
+  const EXISTING: SongLink = { label: 'Chords', url: 'https://tabs.example/1' }
+  const ADDED: SongLink = { label: 'Video', url: 'https://youtu.be/abc' }
 
-  it('resolves the song id through the repertoire row first', async () => {
-    vi.mocked(query)
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ song_id: SONG_ID }] } as never)
-      .mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
+  /** The one read the action makes before deciding: the catalog's current links. */
+  const catalogLinks = (links: SongLink[]) =>
+    vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [{ links }] } as never)
 
-    await expect(updateSongLinksAction(REPERTOIRE_ID, LABELLED)).resolves.toEqual({ success: true })
+  it('writes an additive change straight to the shared catalog', async () => {
+    catalogLinks([EXISTING]).mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
 
+    await expect(updateSongLinksAction(REPERTOIRE_ID, [EXISTING, ADDED])).resolves.toEqual({
+      success: true,
+    })
+
+    expect(assertRepertoireAccess).toHaveBeenCalledWith(REPERTOIRE_ID, USER_ID)
     const [sql, params] = vi.mocked(query).mock.calls[1]
     expect(sql).toContain('UPDATE global_songs SET links = $1')
-    expect(params).toEqual([JSON.stringify(LABELLED), SONG_ID])
+    expect(params).toEqual([JSON.stringify([EXISTING, ADDED]), SONG_ID])
+    expect(submitGlobalSongEdit).not.toHaveBeenCalled()
     expect(fetchUrlTitle).not.toHaveBeenCalled()
     expect(revalidatePath).toHaveBeenCalledWith('/')
   })
 
-  it('falls back to global_songs when the id is not a repertoire entry', async () => {
-    vi.mocked(query)
-      .mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: SONG_ID }] } as never)
-      .mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
+  it.each([
+    ['a removed link', []],
+    ['a rewritten url', [{ label: 'Chords', url: 'https://tabs.example/2' }]],
+  ])('routes %s to the moderation queue instead of writing', async (_label, submitted) => {
+    catalogLinks([EXISTING])
 
-    await expect(updateSongLinksAction(SONG_ID, LABELLED)).resolves.toEqual({ success: true })
-    expect(vi.mocked(query).mock.calls[1][0]).toContain('SELECT id FROM global_songs')
-    expect(vi.mocked(query).mock.calls[2][1]).toEqual([JSON.stringify(LABELLED), SONG_ID])
+    await expect(updateSongLinksAction(REPERTOIRE_ID, submitted)).resolves.toEqual({
+      success: true,
+      pending: true,
+    })
+
+    expect(submitGlobalSongEdit).toHaveBeenCalledWith(USER_ID, SONG_ID, { links: submitted })
+    // Exactly one query ran: the read. The catalog itself was left alone.
+    expect(vi.mocked(query).mock.calls.length).toBe(1)
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
-  it('throws Song entry not found when neither lookup matches', async () => {
-    vi.mocked(query)
-      .mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
-      .mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
+  it('refuses a repertoire entry the caller may not act on, before any read', async () => {
+    vi.mocked(assertRepertoireAccess).mockRejectedValueOnce(
+      new Error('Access denied: not allowed on this repertoire entry'),
+    )
 
-    await expect(updateSongLinksAction('nope', LABELLED)).rejects.toThrow('Song entry not found')
+    await expect(updateSongLinksAction(REPERTOIRE_ID, [EXISTING])).rejects.toThrow('Access denied')
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('throws Song entry not found when the entry points at no catalog row', async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
+
+    await expect(updateSongLinksAction(REPERTOIRE_ID, [EXISTING])).rejects.toThrow('Song entry not found')
     expect(revalidatePath).not.toHaveBeenCalled()
   })
 
@@ -279,9 +330,7 @@ describe('updateSongLinksAction', () => {
     ['a whitespace-only label', '   ', 'Fetched Title', 'Fetched Title'],
     ['a blank label the fetcher cannot resolve', '', '', 'https://youtu.be/abc'],
   ])('auto-labels %s through fetchUrlTitle', async (_label, label, fetched, expected) => {
-    vi.mocked(query)
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ song_id: SONG_ID }] } as never)
-      .mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
+    catalogLinks([]).mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
     vi.mocked(fetchUrlTitle).mockResolvedValue(fetched)
 
     await updateSongLinksAction(REPERTOIRE_ID, [{ label, url: 'https://youtu.be/abc' }])

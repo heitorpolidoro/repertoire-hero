@@ -64,7 +64,7 @@ describe.skipIf(skip)('join_band_by_invite already_member semantics (real databa
 
     bandId = await createBand(userAId, BAND_NAME, 'RH-18 invite semantics fixture', null)
 
-    const band = await getBandWithMembers(bandId)
+    const band = await getBandWithMembers(bandId, userAId)
     expect(band).not.toBeNull()
     inviteCode = band!.invite_code
   })
@@ -72,7 +72,7 @@ describe.skipIf(skip)('join_band_by_invite already_member semantics (real databa
   afterAll(async () => {
     // Delete the band first: `deleteTestUser` cascades user -> profiles -> band_members,
     // but the `bands` table has no owner FK, so it must be removed explicitly.
-    if (bandId) await deleteBand(bandId)
+    if (bandId) await deleteBand(bandId, userAId)
     if (userAId) await deleteTestUser(admin, userAId)
     if (userBId) await deleteTestUser(admin, userBId)
   })
@@ -97,7 +97,7 @@ describe.skipIf(skip)('join_band_by_invite already_member semantics (real databa
     expect(await membershipCount(bandId, userBId)).toBe(1)
     expect(await membershipRole(bandId, userBId)).toBe('member')
 
-    const band = await getBandWithMembers(bandId)
+    const band = await getBandWithMembers(bandId, userAId)
     expect(band).not.toBeNull()
     const members = getBandMembers(band!)
     expect(members.length).toBe(2)

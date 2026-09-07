@@ -60,8 +60,37 @@ export async function createPlaylist(
   }
 }
 
+/**
+ * The playlist row the caller may act on, or throws. A playlist is reachable
+ * when the caller owns it personally or is a member of the band that owns it;
+ * a non-existent id throws the same message, so existence is not leaked.
+ */
+export async function assertPlaylistAccess(
+  playlistId: string,
+  userId: string,
+): Promise<{ id: string; user_id: string | null; band_id: string | null }> {
+  const sql = `
+    SELECT id, user_id, band_id
+    FROM playlists
+    WHERE id = $1
+      AND (user_id = $2 OR band_id IN (SELECT band_id FROM band_members WHERE user_id = $2))
+  `
+  let res
+  try {
+    res = await query(sql, [playlistId, userId])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to authorize playlist access', err, { playlistId })
+    throw new Error(`Failed to authorize playlist access: ${err.message}`)
+  }
+
+  if (res.rowCount === 0) throw new Error('Access denied: not allowed on this playlist')
+  return res.rows[0] as { id: string; user_id: string | null; band_id: string | null }
+}
+
 export async function updatePlaylist(
   id: string,
+  userId: string,
   data: {
     name?: string
     description?: string
@@ -69,6 +98,8 @@ export async function updatePlaylist(
     tags?: string[]
   }
 ): Promise<void> {
+  await assertPlaylistAccess(id, userId)
+
   try {
     // Dynamically build the update query to avoid overwriting omitted fields
     const { setClauses, values, nextIndex: paramIndex } = buildUpdateSet(data, [
@@ -98,7 +129,9 @@ export async function updatePlaylist(
   }
 }
 
-export async function deletePlaylist(id: string): Promise<void> {
+export async function deletePlaylist(id: string, userId: string): Promise<void> {
+  await assertPlaylistAccess(id, userId)
+
   const sql = `DELETE FROM playlists WHERE id = $1`
   try {
     const res = await query(sql, [id])
@@ -110,13 +143,11 @@ export async function deletePlaylist(id: string): Promise<void> {
   }
 }
 
-export async function addSongToPlaylist(userId: string, playlistId: string, songId: string): Promise<void> {
-  try {
-    // 1. Fetch playlist context
-    const playlistRes = await query('SELECT user_id, band_id FROM playlists WHERE id = $1', [playlistId])
-    if (playlistRes.rowCount === 0) throw new Error('Playlist not found')
-    const playlist = playlistRes.rows[0]
+export async function addSongToPlaylist(playlistId: string, userId: string, songId: string): Promise<void> {
+  // 1. Fetch playlist context — and refuse a playlist the caller cannot write to.
+  const playlist = await assertPlaylistAccess(playlistId, userId)
 
+  try {
     // 2. Ensure song exists in the appropriate repertoire
     if (playlist.band_id) {
       // Band Playlist: Ensure in band repertoire
@@ -152,7 +183,9 @@ export async function addSongToPlaylist(userId: string, playlistId: string, song
   }
 }
 
-export async function removeSongFromPlaylist(playlistId: string, songId: string): Promise<void> {
+export async function removeSongFromPlaylist(playlistId: string, userId: string, songId: string): Promise<void> {
+  await assertPlaylistAccess(playlistId, userId)
+
   const sql = `DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2`
   try {
     await query(sql, [playlistId, songId])
@@ -163,7 +196,7 @@ export async function removeSongFromPlaylist(playlistId: string, songId: string)
   }
 }
 
-export async function getPlaylistWithSongs(id: string): Promise<Playlist | null> {
+export async function getPlaylistWithSongs(id: string, userId: string): Promise<Playlist | null> {
   const sql = `
     SELECT p.*,
            COALESCE(
@@ -191,9 +224,12 @@ export async function getPlaylistWithSongs(id: string): Promise<Playlist | null>
              ), '[]'::json) as songs
     FROM playlists p
     WHERE p.id = $1
+      AND (p.user_id = $2 OR p.band_id IN (SELECT band_id FROM band_members WHERE user_id = $2))
   `
   try {
-    const res = await query(sql, [id])
+    // Access-scoped: an unrelated caller gets null, the same as for an id that
+    // does not exist — the UI already routes that to "playlist not found".
+    const res = await query(sql, [id, userId])
     if (res.rowCount === 0) return null
     return res.rows[0] as Playlist
   } catch (error) {

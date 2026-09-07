@@ -22,7 +22,8 @@ export async function getBandsAction(): Promise<Band[]> {
 }
 
 export async function getBandWithMembersAction(bandId: string): Promise<Band | null> {
-  return getBandWithMembers(bandId)
+  const userId = await getRequiredUserId()
+  return getBandWithMembers(bandId, userId)
 }
 
 export async function createBandAction(
@@ -44,11 +45,13 @@ export async function updateBandAction(
     color?: string | null
   },
 ): Promise<void> {
-  return updateBand(bandId, data)
+  const userId = await getRequiredUserId()
+  return updateBand(bandId, userId, data)
 }
 
 export async function deleteBandAction(bandId: string): Promise<void> {
-  return deleteBand(bandId)
+  const userId = await getRequiredUserId()
+  return deleteBand(bandId, userId)
 }
 
 export async function leaveBandAction(bandId: string): Promise<void> {
@@ -57,15 +60,18 @@ export async function leaveBandAction(bandId: string): Promise<void> {
 }
 
 export async function removeBandMemberAction(memberId: string): Promise<void> {
-  return removeBandMember(memberId)
+  const userId = await getRequiredUserId()
+  return removeBandMember(memberId, userId)
 }
 
 export async function getBandPlaylistsAction(bandId: string): Promise<Playlist[]> {
-  return getBandPlaylists(bandId)
+  const userId = await getRequiredUserId()
+  return getBandPlaylists(bandId, userId)
 }
 
 export async function createBandPlaylistAction(bandId: string, name: string): Promise<string> {
-  return createBandPlaylist(bandId, name)
+  const userId = await getRequiredUserId()
+  return createBandPlaylist(bandId, userId, name)
 }
 
 export async function regenerateBandInviteCodeAction(bandId: string): Promise<string> {

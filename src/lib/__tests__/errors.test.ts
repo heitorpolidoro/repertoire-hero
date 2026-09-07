@@ -19,6 +19,7 @@ import {
   getSongEntry,
   updateSong,
   createAndAddSong,
+  assertRepertoireAccess,
 } from "../songs";
 import {
   getBands,
@@ -78,7 +79,11 @@ beforeEach(() => {
       return { rowCount: 0, rows: [] };
     }
 
-    // 1. playlists lookup
+    // 1. playlists lookup — also serves the RH-34 assertPlaylistAccess read,
+    // which is why the guarded statements below need it to succeed.
+    if (normalizedSql.includes("delete from playlists")) {
+      throw mockError;
+    }
     if (normalizedSql.includes("from playlists")) {
       if (failPlaylistLookup) {
         throw mockError;
@@ -101,6 +106,19 @@ beforeEach(() => {
       }
       // Return 0 rows when check succeeds so that it proceeds to insert, or 1 row if we wanted it to be a duplicate
       return { rowCount: 0, rows: [] };
+    }
+
+    // 3b. band membership — the RH-34 band helpers read exactly
+    // `... FROM band_members WHERE ...` (no alias, unlike the aggregate
+    // subqueries in getBands / getBandWithMembers, which stay on the failing
+    // default). Reads resolve to an admin membership so the statement under
+    // test is the one that fails; the DELETE keeps failing, which is what
+    // leaveBand and removeBandMember assert on.
+    if (normalizedSql.includes("delete from band_members")) {
+      throw mockError;
+    }
+    if (normalizedSql.includes("from band_members where")) {
+      return { rowCount: 1, rows: [{ band_id: "mock-band-id", role: "admin" }] };
     }
 
     // 4. repertoire insert
@@ -139,13 +157,15 @@ describe("Supabase Error Handling", () => {
     });
 
     it("updatePlaylist throws on DB error", async () => {
-      await expect(updatePlaylist("1", { name: "Test" })).rejects.toThrow(
+      failPlaylistLookup = false;
+      await expect(updatePlaylist("1", "mock-user-id", { name: "Test" })).rejects.toThrow(
         "Failed to update playlist: Mocked Database Error",
       );
     });
 
     it("deletePlaylist throws on DB error", async () => {
-      await expect(deletePlaylist("1")).rejects.toThrow(
+      failPlaylistLookup = false;
+      await expect(deletePlaylist("1", "mock-user-id")).rejects.toThrow(
         "Failed to delete playlist: Mocked Database Error",
       );
     });
@@ -154,7 +174,7 @@ describe("Supabase Error Handling", () => {
       failPlaylistLookup = false;
       failRepertoireCheck = false;
       failRepertoireInsert = false;
-      await expect(addSongToPlaylist("mock-user-id", "1", "2")).rejects.toThrow(
+      await expect(addSongToPlaylist("1", "mock-user-id", "2")).rejects.toThrow(
         "Failed to add song to playlist: Mocked Database Error",
       );
     });
@@ -165,20 +185,40 @@ describe("Supabase Error Handling", () => {
       failRepertoireInsert = false;
       failCountCheck = false;
       // The select query count will succeed (mocked above) but the subsequent insert will fail through the default fallback
-      await expect(addSongToPlaylist("mock-user-id", "1", "2")).rejects.toThrow(
+      await expect(addSongToPlaylist("1", "mock-user-id", "2")).rejects.toThrow(
         "Failed to add song to playlist: Mocked Database Error",
       );
     });
 
     it("removeSongFromPlaylist throws on DB error", async () => {
-      await expect(removeSongFromPlaylist("1", "2")).rejects.toThrow(
+      failPlaylistLookup = false;
+      await expect(removeSongFromPlaylist("1", "mock-user-id", "2")).rejects.toThrow(
         "Failed to remove song from playlist: Mocked Database Error",
       );
     });
 
     it("getPlaylistWithSongs throws on DB error", async () => {
-      await expect(getPlaylistWithSongs("1")).rejects.toThrow(
+      await expect(getPlaylistWithSongs("1", "mock-user-id")).rejects.toThrow(
         "Failed to fetch playlist with songs: Mocked Database Error",
+      );
+    });
+
+    it.each([
+      ["updatePlaylist", () => updatePlaylist("1", "mock-user-id", { name: "Test" })],
+      ["deletePlaylist", () => deletePlaylist("1", "mock-user-id")],
+      ["addSongToPlaylist", () => addSongToPlaylist("1", "mock-user-id", "2")],
+      ["removeSongFromPlaylist", () => removeSongFromPlaylist("1", "mock-user-id", "2")],
+    ])("%s refuses a playlist the caller has no access to", async (_label, run) => {
+      failPlaylistLookup = false;
+      // The access lookup matches nothing: not the owner, no band membership.
+      vi.mocked(query).mockImplementationOnce(async () => ({ rowCount: 0, rows: [] }) as never);
+
+      await expect(run()).rejects.toThrow("Access denied: not allowed on this playlist");
+    });
+
+    it("reports a playlist access lookup failure as an L1 error", async () => {
+      await expect(updatePlaylist("1", "mock-user-id", { name: "Test" })).rejects.toThrow(
+        "Failed to authorize playlist access: Mocked Database Error",
       );
     });
   });
@@ -240,6 +280,20 @@ describe("Supabase Error Handling", () => {
       );
     });
 
+    it("assertRepertoireAccess reports a lookup failure as an L1 error", async () => {
+      await expect(assertRepertoireAccess("1", "mock-user-id")).rejects.toThrow(
+        "Failed to authorize repertoire access: Mocked Database Error",
+      );
+    });
+
+    it("assertRepertoireAccess denies an entry that is neither the caller's nor their band's", async () => {
+      failRepertoireCheck = false;
+      // The mocked repertoire lookup resolves to zero rows.
+      await expect(assertRepertoireAccess("1", "mock-user-id")).rejects.toThrow(
+        "Access denied: not allowed on this repertoire entry",
+      );
+    });
+
     it("createAndAddSong throws on DB error during lookup", async () => {
       failLookup = true;
       await expect(
@@ -278,7 +332,7 @@ describe("Supabase Error Handling", () => {
     });
 
     it("getBandWithMembers throws on DB error", async () => {
-      await expect(getBandWithMembers("1")).rejects.toThrow(
+      await expect(getBandWithMembers("1", "mock-user-id")).rejects.toThrow(
         "Failed to fetch band: Mocked Database Error",
       );
     });
@@ -290,13 +344,13 @@ describe("Supabase Error Handling", () => {
     });
 
     it("updateBand throws on DB error", async () => {
-      await expect(updateBand("1", { name: "Test" })).rejects.toThrow(
+      await expect(updateBand("1", "mock-user-id", { name: "Test" })).rejects.toThrow(
         "Failed to update band: Mocked Database Error",
       );
     });
 
     it("deleteBand throws on DB error", async () => {
-      await expect(deleteBand("1")).rejects.toThrow(
+      await expect(deleteBand("1", "mock-user-id")).rejects.toThrow(
         "Failed to delete band: Mocked Database Error",
       );
     });
@@ -308,20 +362,53 @@ describe("Supabase Error Handling", () => {
     });
 
     it("removeBandMember throws on DB error", async () => {
-      await expect(removeBandMember("1")).rejects.toThrow(
+      await expect(removeBandMember("1", "mock-user-id")).rejects.toThrow(
         "Failed to remove band member: Mocked Database Error",
       );
     });
 
     it("getBandPlaylists throws on DB error", async () => {
-      await expect(getBandPlaylists("1")).rejects.toThrow(
+      await expect(getBandPlaylists("1", "mock-user-id")).rejects.toThrow(
         "Failed to fetch band playlists: Mocked Database Error",
       );
     });
 
     it("createBandPlaylist throws on DB error", async () => {
-      await expect(createBandPlaylist("1", "Test")).rejects.toThrow(
+      await expect(createBandPlaylist("1", "mock-user-id", "Test")).rejects.toThrow(
         "Failed to create band playlist: Mocked Database Error",
+      );
+    });
+
+    it.each([
+      ["updateBand", () => updateBand("1", "mock-user-id", { name: "Test" })],
+      ["deleteBand", () => deleteBand("1", "mock-user-id")],
+      ["removeBandMember", () => removeBandMember("1", "mock-user-id")],
+      ["createBandPlaylist", () => createBandPlaylist("1", "mock-user-id", "Test")],
+    ])("%s refuses a caller with no membership in the band", async (_label, run) => {
+      vi.mocked(query).mockImplementation(async () => ({ rowCount: 0, rows: [] }) as never);
+
+      await expect(run()).rejects.toThrow("Access denied");
+    });
+
+    it.each([
+      ["updateBand", () => updateBand("1", "mock-user-id", { name: "Test" })],
+      ["deleteBand", () => deleteBand("1", "mock-user-id")],
+      ["removeBandMember", () => removeBandMember("1", "mock-user-id")],
+    ])("%s refuses a plain member (admin required)", async (_label, run) => {
+      vi.mocked(query).mockImplementation(
+        async () => ({ rowCount: 1, rows: [{ band_id: "mock-band-id", role: "member" }] }) as never,
+      );
+
+      await expect(run()).rejects.toThrow("Access denied: band admin required");
+    });
+
+    it("reports a membership lookup failure as an L1 error", async () => {
+      vi.mocked(query).mockImplementation(async () => {
+        throw mockError;
+      });
+
+      await expect(createBandPlaylist("1", "mock-user-id", "Test")).rejects.toThrow(
+        "Failed to check band membership: Mocked Database Error",
       );
     });
 

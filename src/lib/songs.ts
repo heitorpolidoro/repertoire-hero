@@ -4,6 +4,34 @@ import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/datab
 
 export type RepertoireOwner = { userId: string } | { bandId: string }
 
+/**
+ * The repertoire row the caller may act on, or throws. Reachable when the row
+ * is the caller's own or belongs to a band they are a member of; a
+ * non-existent id throws the same message, so existence is not leaked.
+ */
+export async function assertRepertoireAccess(
+  repertoireId: string,
+  userId: string,
+): Promise<{ id: string; song_id: string; user_id: string | null; band_id: string | null }> {
+  const sql = `
+    SELECT id, song_id, user_id, band_id
+    FROM repertoire
+    WHERE id = $1
+      AND (user_id = $2 OR band_id IN (SELECT band_id FROM band_members WHERE user_id = $2))
+  `
+  let res
+  try {
+    res = await query(sql, [repertoireId, userId])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to authorize repertoire access', err, { repertoireId })
+    throw new Error(`Failed to authorize repertoire access: ${err.message}`)
+  }
+
+  if (res.rowCount === 0) throw new Error('Access denied: not allowed on this repertoire entry')
+  return res.rows[0] as { id: string; song_id: string; user_id: string | null; band_id: string | null }
+}
+
 export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[]> {
   const isBand = 'bandId' in owner
   const id = isBand ? owner.bandId : owner.userId

@@ -602,18 +602,25 @@ export default function FastViewPage() {
         const updatedLinks = currentLinks.filter(link => link.url !== pendingDelete.url)
 
         try {
-          await updateSongLinksAction(entry.id, updatedLinks)
-          setEntry(prev => {
-            if (!prev || !prev.song) return prev
-            return {
-              ...prev,
-              song: {
-                ...prev.song,
-                links: updatedLinks
+          // Removing a link rewrites the shared catalog for everyone, so it is
+          // submitted for review instead of applied: keep the link on screen
+          // until an admin approves the removal.
+          const result = await updateSongLinksAction(entry.id, updatedLinks)
+          if (result.pending) {
+            showToast('Link removal submitted for review. It stays visible until an admin approves it.', 'warning')
+          } else {
+            setEntry(prev => {
+              if (!prev || !prev.song) return prev
+              return {
+                ...prev,
+                song: {
+                  ...prev.song,
+                  links: updatedLinks
+                }
               }
-            }
-          })
-          showToast('Link deleted.', 'info')
+            })
+            showToast('Link deleted.', 'info')
+          }
         } catch {
           showToast('Failed to delete link.', 'error')
         }

@@ -65,7 +65,7 @@ describe.skipIf(skip)("bands integration tests", () => {
   });
 
   it("should allow User A to get band with members", async () => {
-    const band = await getBandWithMembers(bandId);
+    const band = await getBandWithMembers(bandId, userAId);
     expect(band).not.toBeNull();
     expect(band!.name).toBe(`Test Band ${suffix}`);
     expect(band!.invite_code).toBeDefined();
@@ -84,7 +84,7 @@ describe.skipIf(skip)("bands integration tests", () => {
   });
 
   it("should show User B as a member when fetching the band", async () => {
-    const band = await getBandWithMembers(bandId);
+    const band = await getBandWithMembers(bandId, userAId);
     expect(band).not.toBeNull();
 
     const members = (band as any).members;
@@ -96,30 +96,30 @@ describe.skipIf(skip)("bands integration tests", () => {
   });
 
   it("should allow creating and fetching band playlists", async () => {
-    playlistId = await createBandPlaylist(bandId, "Rock Anthems");
+    playlistId = await createBandPlaylist(bandId, userAId, "Rock Anthems");
     expect(playlistId).toBeDefined();
 
-    const playlists = await getBandPlaylists(bandId);
+    const playlists = await getBandPlaylists(bandId, userAId);
     expect(playlists).toBeDefined();
     expect(playlists.some((p) => p.id === playlistId)).toBe(true);
   });
 
   it("should allow updating the band", async () => {
-    await updateBand(bandId, { name: `Updated Name ${suffix}` });
+    await updateBand(bandId, userAId, { name: `Updated Name ${suffix}` });
 
-    const band = await getBandWithMembers(bandId);
+    const band = await getBandWithMembers(bandId, userAId);
     expect(band!.name).toBe(`Updated Name ${suffix}`);
   });
 
   it("should allow removing a band member", async () => {
-    const bandBefore = await getBandWithMembers(bandId);
+    const bandBefore = await getBandWithMembers(bandId, userAId);
     const membersBefore = (bandBefore as any).members;
     const memberB = membersBefore.find((m: any) => m.user_id === userBId);
     expect(memberB).toBeDefined();
 
-    await removeBandMember(memberB.id);
+    await removeBandMember(memberB.id, userAId);
 
-    const bandAfter = await getBandWithMembers(bandId);
+    const bandAfter = await getBandWithMembers(bandId, userAId);
     const membersAfter = (bandAfter as any).members;
     expect(membersAfter.length).toBe(1);
     expect(membersAfter.some((m: any) => m.user_id === userBId)).toBe(false);
@@ -130,27 +130,27 @@ describe.skipIf(skip)("bands integration tests", () => {
     const joinedBandId = await joinBandByInviteClient(userBId, inviteCode);
     expect(joinedBandId).toBe(bandId);
 
-    const bandBefore = await getBandWithMembers(bandId);
+    const bandBefore = await getBandWithMembers(bandId, userAId);
     expect((bandBefore as any).members.length).toBe(2);
 
     // Leave the band
     await leaveBand(bandId, userBId);
 
-    const bandAfter = await getBandWithMembers(bandId);
+    const bandAfter = await getBandWithMembers(bandId, userAId);
     const membersAfter = (bandAfter as any).members;
     expect(membersAfter.length).toBe(1);
     expect(membersAfter.some((m: any) => m.user_id === userBId)).toBe(false);
   });
 
   it("should reject non-member from regenerating the invite code and leave it unchanged", async () => {
-    const bandBefore = await getBandWithMembers(bandId);
+    const bandBefore = await getBandWithMembers(bandId, userAId);
     const codeBefore = bandBefore!.invite_code;
 
     await expect(
       regenerateBandInviteCode(bandId, userBId),
     ).rejects.toThrow();
 
-    const bandAfter = await getBandWithMembers(bandId);
+    const bandAfter = await getBandWithMembers(bandId, userAId);
     expect(bandAfter!.invite_code).toBe(codeBefore);
   });
 
@@ -159,14 +159,14 @@ describe.skipIf(skip)("bands integration tests", () => {
     const joinedBandId = await joinBandByInviteClient(userBId, inviteCode);
     expect(joinedBandId).toBe(bandId);
 
-    const bandBefore = await getBandWithMembers(bandId);
+    const bandBefore = await getBandWithMembers(bandId, userAId);
     const codeBefore = bandBefore!.invite_code;
 
     await expect(
       regenerateBandInviteCode(bandId, userBId),
     ).rejects.toThrow();
 
-    const bandAfter = await getBandWithMembers(bandId);
+    const bandAfter = await getBandWithMembers(bandId, userAId);
     expect(bandAfter!.invite_code).toBe(codeBefore);
 
     // Clean up: leave the band again so state matches later tests' expectations
@@ -174,7 +174,7 @@ describe.skipIf(skip)("bands integration tests", () => {
   });
 
   it("should allow the admin to regenerate the invite code and invalidate the old one", async () => {
-    const bandBefore = await getBandWithMembers(bandId);
+    const bandBefore = await getBandWithMembers(bandId, userAId);
     const oldCode = bandBefore!.invite_code;
 
     const newCode = await regenerateBandInviteCode(bandId, userAId);
@@ -184,7 +184,7 @@ describe.skipIf(skip)("bands integration tests", () => {
     expect(newCode).toMatch(/^[0-9a-f]{12}$/);
     expect(newCode).not.toBe(oldCode);
 
-    const bandAfter = await getBandWithMembers(bandId);
+    const bandAfter = await getBandWithMembers(bandId, userAId);
     expect(bandAfter!.invite_code).toBe(newCode);
 
     // Old code no longer resolves to the band
@@ -201,9 +201,9 @@ describe.skipIf(skip)("bands integration tests", () => {
   });
 
   it("should allow deleting the band", async () => {
-    await deleteBand(bandId);
+    await deleteBand(bandId, userAId);
 
-    const band = await getBandWithMembers(bandId);
+    const band = await getBandWithMembers(bandId, userAId);
     expect(band).toBeNull();
   });
 

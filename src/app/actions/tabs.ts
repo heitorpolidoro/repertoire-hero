@@ -2,28 +2,12 @@
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import { query } from '@/lib/db'
+import { assertRepertoireAccess } from '@/lib/songs'
 import { put, del } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
 import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
 
 export type { Stroke, TabAnnotations }
-
-async function checkAccess(userId: string, repertoireId: string) {
-  const sql = `
-    SELECT r.id 
-    FROM repertoire r
-    WHERE r.id = $1 AND (
-      r.user_id = $2 OR 
-      r.band_id IN (
-        SELECT band_id FROM band_members WHERE user_id = $2
-      )
-    )
-  `
-  const { rows } = await query(sql, [repertoireId, userId])
-  if (rows.length === 0) {
-    throw new Error('Access denied')
-  }
-}
 
 export async function uploadTabAction(formData: FormData): Promise<{ data?: RepertoireTab; error?: string }> {
   try {
@@ -36,7 +20,7 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
       return { error: 'Missing required fields' }
     }
 
-    await checkAccess(userId, repertoireId)
+    await assertRepertoireAccess(repertoireId, userId)
 
     // Max 10MB
     if (file.size > 10 * 1024 * 1024) {
@@ -88,7 +72,7 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
 export async function deleteTabAction(tabId: string, repertoireId: string): Promise<{ success?: boolean; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    await checkAccess(userId, repertoireId)
+    await assertRepertoireAccess(repertoireId, userId)
 
     // Get tab details to retrieve the file URL
     const { rows: tabRows } = await query(
@@ -125,7 +109,7 @@ export async function getTabAnnotationsAction(
 ): Promise<{ data?: TabAnnotations; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    await checkAccess(userId, repertoireId)
+    await assertRepertoireAccess(repertoireId, userId)
     const { rows } = await query(
       'SELECT annotations FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
       [tabId, repertoireId]
@@ -146,7 +130,7 @@ export async function saveTabAnnotationsAction(
 ): Promise<{ success?: boolean; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    await checkAccess(userId, repertoireId)
+    await assertRepertoireAccess(repertoireId, userId)
     // Defensive validation: pageNumber gets folded directly into the
     // jsonb_set path below, so reject anything that isn't a positive
     // integer before it reaches SQL (avoids an opaque Postgres error on
@@ -177,7 +161,7 @@ export async function saveTabAnnotationsAction(
 
 export async function getTabsAction(repertoireId: string) {
   const userId = await getRequiredUserId()
-  await checkAccess(userId, repertoireId)
+  await assertRepertoireAccess(repertoireId, userId)
 
   const { rows } = await query(
     `SELECT id, repertoire_id, title, file_url, created_at::text as created_at

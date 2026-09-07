@@ -54,86 +54,75 @@ const BAND_ID = 'band-1'
 const MEMBER_ID = 'member-1'
 
 /**
- * Each action is either "session-bound" (it resolves the signed-in user id and
- * threads it into `@/lib/bands`) or a bare pass-through. The table pins which,
- * and the exact argument order the lib call receives.
+ * Every action resolves the signed-in user id and threads it into `@/lib/bands`
+ * (RH-34: no action reaches the data layer without one). The table pins the
+ * exact argument order each lib call receives.
  */
 const DELEGATIONS: Array<{
   label: string
   lib: () => ReturnType<typeof vi.fn>
   run: () => Promise<unknown>
   args: unknown[]
-  sessionBound: boolean
 }> = [
   {
     label: 'getBandsAction',
     lib: () => vi.mocked(getBands),
     run: () => getBandsAction(),
     args: [USER_ID],
-    sessionBound: true,
   },
   {
     label: 'createBandAction',
     lib: () => vi.mocked(createBand),
     run: () => createBandAction('The Band', 'desc', 'https://cdn/x.jpg', '#1d4ed8'),
     args: [USER_ID, 'The Band', 'desc', 'https://cdn/x.jpg', '#1d4ed8'],
-    sessionBound: true,
   },
   {
     label: 'leaveBandAction',
     lib: () => vi.mocked(leaveBand),
     run: () => leaveBandAction(BAND_ID),
     args: [BAND_ID, USER_ID],
-    sessionBound: true,
   },
   {
     label: 'regenerateBandInviteCodeAction',
     lib: () => vi.mocked(regenerateBandInviteCode),
     run: () => regenerateBandInviteCodeAction(BAND_ID),
     args: [BAND_ID, USER_ID],
-    sessionBound: true,
   },
   {
     label: 'getBandWithMembersAction',
     lib: () => vi.mocked(getBandWithMembers),
     run: () => getBandWithMembersAction(BAND_ID),
-    args: [BAND_ID],
-    sessionBound: false,
+    args: [BAND_ID, USER_ID],
   },
   {
     label: 'updateBandAction',
     lib: () => vi.mocked(updateBand),
     run: () => updateBandAction(BAND_ID, { name: 'Renamed' }),
-    args: [BAND_ID, { name: 'Renamed' }],
-    sessionBound: false,
+    args: [BAND_ID, USER_ID, { name: 'Renamed' }],
   },
   {
     label: 'deleteBandAction',
     lib: () => vi.mocked(deleteBand),
     run: () => deleteBandAction(BAND_ID),
-    args: [BAND_ID],
-    sessionBound: false,
+    args: [BAND_ID, USER_ID],
   },
   {
     label: 'removeBandMemberAction',
     lib: () => vi.mocked(removeBandMember),
     run: () => removeBandMemberAction(MEMBER_ID),
-    args: [MEMBER_ID],
-    sessionBound: false,
+    args: [MEMBER_ID, USER_ID],
   },
   {
     label: 'getBandPlaylistsAction',
     lib: () => vi.mocked(getBandPlaylists),
     run: () => getBandPlaylistsAction(BAND_ID),
-    args: [BAND_ID],
-    sessionBound: false,
+    args: [BAND_ID, USER_ID],
   },
   {
     label: 'createBandPlaylistAction',
     lib: () => vi.mocked(createBandPlaylist),
     run: () => createBandPlaylistAction(BAND_ID, 'Setlist'),
-    args: [BAND_ID, 'Setlist'],
-    sessionBound: false,
+    args: [BAND_ID, USER_ID, 'Setlist'],
   },
 ]
 
@@ -161,14 +150,14 @@ beforeEach(() => {
 describe('band action delegation', () => {
   it.each(DELEGATIONS)(
     '$label forwards to @/lib/bands and returns its result',
-    async ({ lib, run, args, sessionBound }) => {
+    async ({ lib, run, args }) => {
       const delegate = lib()
       delegate.mockResolvedValue('lib-result')
 
       await expect(run()).resolves.toBe('lib-result')
 
       expect(delegate).toHaveBeenCalledWith(...args)
-      expect(vi.mocked(getRequiredUserId).mock.calls.length > 0).toBe(sessionBound)
+      expect(getRequiredUserId).toHaveBeenCalledTimes(1)
     },
   )
 

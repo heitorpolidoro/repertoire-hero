@@ -133,7 +133,7 @@ describe('Supabase Edge Cases', () => {
   describe('playlists.ts edge cases', () => {
     it('addSongToPlaylist handles null count in playlist_songs', async () => {
       mockCount = null
-      await expect(addSongToPlaylist('mock-user-id', '1', '2')).resolves.not.toThrow()
+      await expect(addSongToPlaylist('1', 'mock-user-id', '2')).resolves.not.toThrow()
     })
   })
 
@@ -198,7 +198,7 @@ describe('Supabase Edge Cases', () => {
 
     it('getBandPlaylists returns empty list if data is null', async () => {
       mockData = null
-      const playlists = await getBandPlaylists('1')
+      const playlists = await getBandPlaylists('1', 'mock-user-id')
       expect(playlists).toEqual([])
     })
   })
