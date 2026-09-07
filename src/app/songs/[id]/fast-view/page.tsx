@@ -5,11 +5,10 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { Repertoire, SongStatus, SongLink } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { logger } from '@/lib/logger'
-import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
+import { getSongEntryAction as getSongEntry, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
 import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/hooks/useToast'
-import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
 import { slideOutClassName } from '@/lib/playlistNav'
 import { usePlaylistNav } from '@/hooks/usePlaylistNav'
 import { PLAYLIST_NAV_ACTIONS } from '@/app/fastViewNavActions'
@@ -26,18 +25,10 @@ import { TabLibrarySection } from '@/components/fastview/TabLibrarySection'
 import { TabDestinationModal } from '@/components/fastview/TabDestinationModal'
 import { TabDeleteConfirm } from '@/components/fastview/TabDeleteConfirm'
 import { PdfStageOverlay } from '@/components/fastview/PdfStageOverlay'
-
-function parseLyricsMarkdown(text: string) {
-  let html = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([\s\S]*?)\*/g, '<em>$1</em>')
-    .replace(/__([\s\S]*?)__/g, '<u>$1</u>')
-    .replace(/\[(.*?)\]/g, '<strong class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all">$1</strong>')
-  return html
-}
+import { useLyricsEditor } from '@/hooks/useLyricsEditor'
+import { LYRICS_EDITOR_ACTIONS } from '@/app/fastViewLyricsActions'
+import { LyricsSection } from '@/components/fastview/LyricsSection'
+import { LyricsStageOverlay } from '@/components/fastview/LyricsStageOverlay'
 
 function getLinkIcon(url: string) {
   const lowercaseUrl = url.toLowerCase()
@@ -109,12 +100,6 @@ export default function FastViewPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
-  // Lyrics state
-  const [isEditingLyrics, setIsEditingLyrics] = useState(false)
-  const [lyricsText, setLyricsText] = useState('')
-  const [savingLyrics, setSavingLyrics] = useState(false)
-  const [fetchingLyrics, setFetchingLyrics] = useState(false)
-
   // Status changing state
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -132,15 +117,9 @@ export default function FastViewPage() {
   const [newLinkUrl, setNewLinkUrl] = useState('')
   const [savingLink, setSavingLink] = useState(false)
 
-  // Stage mode states
-  const [isStageMode, setIsStageMode] = useState(false)
-  const [lyricsFontSize, setLyricsFontSize] = useState(18)
-  const [isStageDarkMode, setIsStageDarkMode] = useState(false)
-
   // Band vs Personal aggregation states
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
   const [loadingPersonal, setLoadingPersonal] = useState(false)
-  const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)
 
   // Tab library: the two tab fetches, the active tab, the upload with its
   // destination choice and the tab delete confirmation live in this controller
@@ -175,30 +154,20 @@ export default function FastViewPage() {
     navigateBack: () => router.back(),
   })
 
-  // Mobile back button intercept for the lyrics Stage Mode. PDF Stage Mode owns
-  // the mirror image of this effect inside `usePdfStage`; both push the same
-  // marker, from `@/lib/stageHistory`.
-  useEffect(() => {
-    if (!isStageMode) return
-
-    window.history.pushState(stageHistoryState(), '')
-
-    const handlePopState = () => {
-      setIsStageMode(false)
-    }
-
-    window.addEventListener('popstate', handlePopState)
-    return () => {
-      window.removeEventListener('popstate', handlePopState)
-    }
-  }, [isStageMode])
-
-  const closeStageMode = () => {
-    setIsStageMode(false)
-    if (isStageHistoryEntry(window.history.state)) {
-      window.history.back()
-    }
-  }
+  // Lyrics: the edit draft with its save and online auto-import, the band vs
+  // personal version switch and the lyrics Stage Mode (its font size, its dark
+  // mode and its back-button intercept) live in this controller (RH-51).
+  const lyrics = useLyricsEditor({
+    entry,
+    personalEntry,
+    songTitle: entry?.song?.title ?? '(untitled)',
+    artist: entry?.song?.artist ?? '',
+    actions: LYRICS_EDITOR_ACTIONS,
+    onEntryLyricsSaved: (saved) => setEntry(prev => prev ? { ...prev, lyrics: saved } : null),
+    onPersonalLyricsSaved: (saved) => setPersonalEntry(prev => prev ? { ...prev, lyrics: saved } : null),
+    onPersonalEntryCreated: setPersonalEntry,
+    notify: showToast,
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -212,7 +181,6 @@ export default function FastViewPage() {
             setNotFound(true)
           } else {
             setEntry(data)
-            setLyricsText(data.lyrics ?? '')
 
             // If we are in band context, fetch the personal entry in background
             if (queryBandId && data.song_id) {
@@ -268,66 +236,6 @@ export default function FastViewPage() {
   const key = entry.personal_key ?? entry.song?.standard_key
   const cfg = STATUS_CONFIG[entry.status]
   const links = entry.song?.links ?? []
-
-  const hasDifferentPersonalLyrics = !!(entry.band_id && personalEntry && personalEntry.lyrics && personalEntry.lyrics !== entry.lyrics)
-  const displayedLyrics = (entry.band_id && showPersonalLyrics && personalEntry) ? personalEntry.lyrics : entry.lyrics
-
-  // Handler for saving lyrics
-  async function handleSaveLyrics() {
-    if (!entry) return
-    try {
-      setSavingLyrics(true)
-      
-      let targetId = entry.id
-      let targetBandId = entry.band_id
-
-      if (entry.band_id && showPersonalLyrics) {
-        let pEntry = personalEntry
-        if (!pEntry) {
-          pEntry = await addSongAction(entry.song_id)
-          setPersonalEntry(pEntry)
-        }
-        targetId = pEntry.id
-        targetBandId = null
-      }
-
-      await updateLyricsAction(targetId, lyricsText, targetBandId)
-
-      if (entry.band_id && showPersonalLyrics) {
-        setPersonalEntry(prev => prev ? { ...prev, lyrics: lyricsText } : null)
-      } else {
-        setEntry(prev => prev ? { ...prev, lyrics: lyricsText } : null)
-      }
-      setIsEditingLyrics(false)
-      showToast('Lyrics saved successfully!', 'success')
-    } catch {
-      showToast('Failed to save lyrics', 'error')
-    } finally {
-      setSavingLyrics(false)
-    }
-  }
-
-  // Handler for auto-importing lyrics from Web API
-  async function handleAutoImportLyrics() {
-    if (!artist) {
-      showToast('Artist name is required to search for lyrics.', 'warning')
-      return
-    }
-    try {
-      setFetchingLyrics(true)
-      const lyrics = await fetchLyricsAction(artist, title)
-      if (lyrics) {
-        setLyricsText(lyrics)
-        showToast('Lyrics imported online!', 'success')
-      } else {
-        showToast(`Lyrics not found online for "${title}" by "${artist}". You can still paste them below.`, 'warning')
-      }
-    } catch {
-      showToast('Failed to import lyrics from web. You can still paste them below.', 'error')
-    } finally {
-      setFetchingLyrics(false)
-    }
-  }
 
   // Handler for changing song status/mastery level
   async function handleStatusChange(newStatus: SongStatus) {
@@ -663,143 +571,7 @@ export default function FastViewPage() {
       </section>
 
       {/* Lyrics Section */}
-      <section aria-label="Lyrics" className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Lyrics</h2>
-            {entry.band_id && (
-              showPersonalLyrics ? (
-                <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  👤 Personal
-                </span>
-              ) : (
-                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  👥 Band
-                </span>
-              )
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {displayedLyrics && !isEditingLyrics && (
-              <button
-                type="button"
-                onClick={() => setIsStageMode(true)}
-                className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors flex items-center gap-1 focus:outline-none"
-              >
-                <span>🔍 Stage Mode</span>
-              </button>
-            )}
-            {!isEditingLyrics && (
-              <button
-                type="button"
-                onClick={() => {
-                  setLyricsText(displayedLyrics ?? '')
-                  setIsEditingLyrics(true)
-                }}
-                className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none"
-              >
-                {displayedLyrics ? 'Edit' : 'Add'}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Lyrics version switcher banner (only in band mode if personal differs) */}
-        {hasDifferentPersonalLyrics && !isEditingLyrics && (
-          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 shadow-sm text-xs text-blue-700">
-            <span className="font-medium">💡 You have a different personal lyrics version for this song.</span>
-            <button
-              type="button"
-              onClick={() => setShowPersonalLyrics(!showPersonalLyrics)}
-              className="font-bold underline hover:text-blue-900 transition-colors focus:outline-none shrink-0"
-            >
-              {showPersonalLyrics ? 'View Band lyrics (👥)' : 'View my lyrics (👤)'}
-            </button>
-          </div>
-        )}
-
-        {isEditingLyrics ? (
-          <div className="flex flex-col gap-3">
-            <textarea
-              className="w-full min-h-[250px] p-4 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-sans resize-y leading-relaxed text-gray-800"
-              value={lyricsText}
-              onChange={(e) => setLyricsText(e.target.value)}
-              placeholder="Paste or type the lyrics here..."
-              disabled={savingLyrics}
-            />
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={handleAutoImportLyrics}
-                disabled={fetchingLyrics || savingLyrics}
-                className="px-3 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
-              >
-                {fetchingLyrics ? (
-                  <>
-                    <svg className="animate-spin h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Importing...
-                  </>
-                ) : (
-                  <>
-                    <span>✨ Auto-import</span>
-                  </>
-                )}
-              </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLyricsText(displayedLyrics ?? '')
-                    setIsEditingLyrics(false)
-                  }}
-                  disabled={savingLyrics}
-                  className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveLyrics}
-                  disabled={savingLyrics}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 shadow-sm"
-                >
-                  {savingLyrics ? (
-                    <>
-                      <svg className="animate-spin h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Saving...
-                    </>
-                  ) : (
-                    'Save'
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-            {displayedLyrics ? (
-              <div
-                className="text-gray-800 text-sm font-sans leading-relaxed select-text whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(displayedLyrics) }}
-              />
-            ) : loadingPersonal ? (
-              <div className="flex flex-col gap-2 animate-pulse" aria-busy="true" aria-label="Loading lyrics...">
-                {[1, 2, 3, 4, 5].map(i => (
-                  <div key={i} className={`h-3 rounded bg-gray-200 ${i % 3 === 0 ? 'max-w-[55%]' : i % 2 === 0 ? 'max-w-[80%]' : 'max-w-full'}`} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-2">No lyrics added yet.</p>
-            )}
-          </div>
-        )}
-      </section>
+      <LyricsSection controller={lyrics} loadingPersonal={loadingPersonal} />
 
       {/* Tags Section */}
       {entry.tags.length > 0 && (
@@ -831,85 +603,7 @@ export default function FastViewPage() {
     />
   </div>
     {/* Stage Mode (Full Screen Lyrics) */}
-    {isStageMode && displayedLyrics && (
-      <div
-        className={`fixed inset-0 z-50 overflow-y-auto px-6 py-8 flex flex-col gap-6 transition-colors duration-300 ${
-          isStageDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-white text-gray-900'
-        }`}
-        style={{ fontSize: `${lyricsFontSize}px` }}
-      >
-        {/* Header Controls */}
-        <div className="sticky top-0 z-10 py-3 flex items-center justify-between border-b backdrop-blur-md bg-opacity-70 pr-2 border-gray-200/20">
-          <div className="flex flex-col min-w-0">
-            <h2 className={`text-lg font-bold truncate ${isStageDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-              {title}
-            </h2>
-            {key && (
-              <span className="text-xs opacity-75">Tom: {key}</span>
-            )}
-          </div>
-          
-          {/* Control Panel */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            {/* Dark Mode Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsStageDarkMode(prev => !prev)}
-              className={`p-2 rounded-lg text-xs font-semibold transition-colors focus:outline-none ${
-                isStageDarkMode 
-                  ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' 
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-              title="Alternar Modo Escuro"
-            >
-              {isStageDarkMode ? '☀️ Claro' : '🌙 Escuro'}
-            </button>
-            
-            {/* Font Size decrease */}
-            <button
-              type="button"
-              onClick={() => setLyricsFontSize(prev => Math.max(12, prev - 2))}
-              className={`w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-colors focus:outline-none ${
-                isStageDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-              title="Diminuir Fonte"
-            >
-              A-
-            </button>
-            
-            {/* Font Size increase */}
-            <button
-              type="button"
-              onClick={() => setLyricsFontSize(prev => Math.min(36, prev + 2))}
-              className={`w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-colors focus:outline-none ${
-                isStageDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-              title="Aumentar Fonte"
-            >
-              A+
-            </button>
-            
-            {/* Close Button */}
-            <button
-              type="button"
-              onClick={closeStageMode}
-              className="ml-2 w-9 h-9 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center transition-colors focus:outline-none shadow-sm"
-              title="Fechar Modo Palco"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        
-        {/* Scrollable Lyrics Container */}
-        <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text">
-          <div
-            className="font-mono leading-relaxed tracking-wide whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(displayedLyrics) }}
-          />
-        </div>
-      </div>
-    )}
+    <LyricsStageOverlay controller={lyrics} songTitle={title} songKey={key} />
 
     {/* PDF Stage Mode Overlay */}
     <PdfStageOverlay

@@ -3423,3 +3423,65 @@ addition with an obvious test. Out of scope here.
   `.meridian/tasks.json`, both of which ER12 permits. Not a defect; noted only
   so a future reader does not read the whitelist as a required set.
 
+
+## [RH-51] Fast View parte 4/5: extrair letras, editor, auto-import e Stage Mode de letra — 2026-09-07 (spec review 1)
+
+
+- **§8 prose vs its own code block.** "`songTitle` / `artist` are passed as already-resolved strings …
+  the same `title` / `artist` values the page computes at lines 266-267" reads as if the page passes the
+  `title`/`artist` *variables*, but the hook is called above the `if (loading)` early return while those
+  constants are declared at 266-267 *after* it, so they are not in scope. The code block gets it right by
+  inlining `entry?.song?.title ?? '(untitled)'`, which yields an identical value. Reword the prose to
+  "the same expressions", so an implementer does not try to hoist the constants.
+- **ER10's `All files` floors are loose.** Current coverage is 96.86 / 83.59 / 99.26 / 97.35; the ER
+  floors are 90 / 74 / 92 / 90, so branches could regress ~9 points and still pass. Consider raising them
+  to just under the current run.
+- **ER6's `grep -c "popstate" … = 2` is brittle.** It is achievable (`usePdfStage` is exactly 2 today),
+  but any doc comment in the new hook that mentions `popstate` would fail a correct implementation.
+  Matching `addEventListener('popstate'` / `removeEventListener('popstate'` — or asserting `>= 2` — would
+  be equally informative and not hostage to a comment.
+- **Mirror `useTabLibrary`'s catch comment.** Its binding-less `catch` carries a one-line note on why the
+  reason never reaches the user beyond the Toast. Adding the same to the two moved catches would keep the
+  S1/P1 rationale visible in the new file.
+- **`LyricsSection` sits at ~13 against ER7's ceiling of 15.** Worth flagging to the implementer so an
+  extra ternary is not casually added while transcribing.
+- **ER1's parenthetical is slightly overstated.** "the check matches import specifiers only, so naming
+  the identifier in a doc comment is never a match" — the pattern `from '@/hooks/useLyricsEditor'` would
+  match that literal text in a comment too. Harmless as written, since no planned file contains it.
+
+## [RH-51] Fast View parte 4/5: extrair letras, editor, auto-import e Stage Mode de letra — 2026-09-07 (code review 1)
+
+
+- `src/app/songs/[id]/fast-view/page.tsx:160-171` — the four callbacks
+  (`onEntryLyricsSaved`, `onPersonalLyricsSaved`, `onPersonalEntryCreated` is fine,
+  `notify`) are inline arrows recreated every render, so the `useCallback` around
+  `save` (and `autoImport`, via `notify`) never actually preserves an identity. It is
+  harmless today because no effect depends on those functions and no child is
+  memoised, but if a `React.memo` ever lands on `LyricsEditorPanel` the memoisation
+  will silently be a no-op. Wrapping the two save callbacks in `useCallback` on the
+  page (or dropping the `useCallback` on `save`) would make the intent honest.
+- `src/hooks/__tests__/useLyricsEditor.test.tsx:168,209,225` — `actions as unknown as
+  LyricsEditorActions` appears three times; having `makeActions()` return
+  `LyricsEditorActions & ActionSpies` would remove the double cast and keep the spy
+  types.
+- `src/components/fastview/__tests__/LyricsStageOverlay.test.tsx:13-42` builds its
+  controller fixture through an `editingMembers()` helper while
+  `LyricsSection.test.tsx:11-37` builds a flat one. Two shapes for the same fixture is
+  a small readability cost; a single shared `makeLyricsController` helper (e.g. under
+  `src/components/fastview/__tests__/`) would do for both — non-blocking, and note the
+  duplication budget is currently comfortable (18 clones, 0.73%).
+
+## [RH-51] Fast View parte 4/5: extrair letras, editor, auto-import e Stage Mode de letra — 2026-09-07 (QA 1)
+
+
+- ER5's `LyricsSection.test.tsx` also carries a fourteenth test that the ER does
+  not name (`LyricsSection renders the editor panel instead of the viewer while
+  editing`). That is extra coverage above the floor, not a defect — noted only so
+  the count difference (13 required, 13 present after excluding it, 14 total) is
+  not mistaken for drift later.
+- `src/lib/lyricsMarkdown.ts` line 24 is a single 200+ character `.replace(...)`
+  holding the chord-badge class string inline; the test file already duplicates
+  the same string as a `CHORD_CLASS` constant. Exporting that constant from the
+  module and interpolating it would remove the duplication and make a Tailwind
+  class change a one-place edit. Non-blocking.
+
