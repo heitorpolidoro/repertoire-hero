@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
-import { resolveSpotifyRouteAccess } from '@/lib/spotifyRouteAuth'
+import { resolveSpotifyRouteAccess, resolveBandOwnership } from '@/lib/spotifyRouteAuth'
 import {
   fetchAllSpotifyTracks,
   findOrCreateGlobalSong,
@@ -21,6 +21,11 @@ import type { Playlist } from '@/types/database'
 //  4. Create a local playlist with spotify_playlist_id set
 //  5. Add all songs to playlist_songs
 //  6. Optionally mark sync_with_spotify and last_synced_at
+//
+// [id] is a SPOTIFY playlist id — there is no local playlist yet, this route
+// creates one. What needs authorizing is the `band_id` in the body: without a
+// check, any caller could create a playlist owned by a band they know the id
+// of and seed a repertoire row for that band and every one of its members.
 // ---------------------------------------------------------------------------
 export async function POST(
   request: NextRequest,
@@ -40,6 +45,12 @@ export async function POST(
     bandId = body.band_id ?? null
   } catch {
     // Body is optional — default to no sync
+  }
+
+  // Before the first outbound call, so a refused import generates no traffic.
+  if (bandId) {
+    const bandAccess = await resolveBandOwnership(bandId, userId)
+    if (!bandAccess.ok) return bandAccess.response
   }
 
   try {

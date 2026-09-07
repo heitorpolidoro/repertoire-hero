@@ -2451,3 +2451,111 @@ insertion/deletion arithmetic plus mtimes confirm no other staged file moved sin
   an explicit `count(*)` delta around the removal call would state the
   intent more directly.
 
+
+## [RH-35] Autorizar os route handlers de playlist do Spotify contra as playlists do chamador — 2026-09-06 (spec review 1)
+
+
+- **ER3 row identification.** The console coverage reporter truncates the file column: the
+  row prints as `...yRouteAuth.ts`, so no row literally "ends in `spotifyRouteAuth.ts`".
+  Reword to "the row for `src/lib/spotifyRouteAuth.ts`, printed truncated as
+  `...yRouteAuth.ts`" so QA does not fail on a string match.
+- **ER5 under-specifies PB.** ER9 needs the PB sync to return 200, which requires
+  `spotify_playlist_id` to be set on PB (otherwise `sync/route.ts:49` answers 400
+  "Playlist is not linked to a Spotify playlist"). The Approach sets
+  `spotify_playlist_id = 'rh35-spotify-pb'`, but ER5's fixture paragraph — the only one QA
+  sees — describes PB as merely "band playlist PB owned by band Y". Add the field.
+- **ER5/ER9 ordering.** ER5 requires `count(*) FROM playlist_songs WHERE playlist_id = PB`
+  to be 0 and ER9 requires it to be 1; that only works if the negative cases run first.
+  State that the negative cases precede the positive ones in the file.
+- **ER9's `last_synced_at` comparison.** "strictly greater than the value read before the
+  call" is only well-defined if the fixture gives P a non-null `last_synced_at`; ER5 does
+  not say it has one. Either set it in the fixture or say "was null before and is non-null
+  after".
+- **ER4's mirrored band case.** "The same four assertions hold for `resolveBandOwnership`"
+  literally carries over the message `Failed to authorize playlist access: boom`; the real
+  helper throws `Failed to check band membership: ...`. Harmless with a mock, but name the
+  band-side message and confirm the `[spotify/playlists/authz]` tag is expected on that path
+  too.
+- **Approach §5 wording.** "This file is inside `coverage.include` (`src/lib/**/*.ts`)" is
+  wrong for the test file itself — `vitest.config.ts:65` excludes `**/__tests__/**`. It is
+  `src/lib/spotifyRouteAuth.ts` that is inside the gated universe. Note also that
+  `src/app/api/**` route handlers are outside `coverage.include`, so the three route edits
+  are not coverage-gated at all — worth saying, since it is why ER3 only names one row.
+- **ER2 arithmetic.** 601 + ER4's minimum 8 = 609, so ER2's `M >= 612` silently requires the
+  db suite to contain at least 3 tests. ER5-ER10 describe well over that, but stating a
+  minimum test count for the db file would make ER2 self-contained.
+- **Out-of-scope note worth recording.** `sync/route.ts:176-178` returns the raw
+  `error.message` in its 500 body, which contradicts convention R1 (AGENTS.md:228). The spec
+  correctly keeps it byte-identical for scope reasons; consider logging it as a follow-up
+  suggestion rather than leaving it unmentioned.
+
+## [RH-35] Autorizar os route handlers de playlist do Spotify contra as playlists do chamador — 2026-09-06 (spec review 2)
+
+
+- ER5, ER6, ER8 and ER9 assert absolute database values for the same rows (`playlist_songs`
+  of P is "exactly one row, S1 at position 1"; `playlist_songs` of PB is "still 0"), while
+  ER9 deliberately rewrites both. The file therefore only passes if the negative cases run
+  before the positive ones, or if each test re-seeds. The spec never says so. Worth one
+  sentence in section 5 ("negative cases first, or re-seed P and PB in `beforeEach`") so the
+  implementer does not discover the ordering constraint by a red run.
+- Same for the fetch spy: ER5/ER6/ER7 require "0 calls to any URL containing
+  api.spotify.com", which only holds if the spy's call log is cleared per test. Say
+  `beforeEach` clears it.
+- ER9 asserts P's `last_synced_at` is "strictly greater than the value read before the
+  call", but the fixture leaves `last_synced_at` unset for P, so the pre-value is `NULL` and
+  the comparison degenerates. Either seed `last_synced_at` in the fixture or phrase the
+  assertion as "was NULL before and is non-null after".
+- ER3's branch floor of 85 on `spotifyRouteAuth.ts` leaves little slack: with the ten
+  mandated cases, any additional defensive narrowing inside the guards (an
+  `error instanceof Error ? … : undefined` whose false side is never driven) costs a couple
+  of points. Add one case rejecting with a non-`Error` value, or note that the guards should
+  narrow once at the top.
+- `AGENTS.md` is on the ER12 whitelist but no Approach step changes it. Either drop it or
+  say what would be recorded there (e.g. a line about the new route-authorization prologue
+  under the conventions section).
+- ER4 says "the same four assertions hold for `resolveBandOwnership` over
+  `assertBandMember`" without quoting the two rejection messages it should be driven with
+  (`Access denied: not a member of this band` and `Failed to check band membership: boom`).
+  The guard keys on the `Access denied` prefix so any message works, but quoting them would
+  make the result as self-contained as its playlist twin.
+
+## [RH-35] Autorizar os route handlers de playlist do Spotify contra as playlists do chamador — 2026-09-06 (code review 1)
+
+
+1. `src/app/api/spotify/playlists/[id]/sync/route.ts:48,54,61` — the guard already read the
+   playlist row, and the handler now issues a second `SELECT` purely for
+   `spotify_playlist_id`, then indexes `linkRes.rows[0]` without a presence check. It is safe
+   as written (the guard proved the row existed), but if the row is deleted between the two
+   statements the property access throws and lands in the catch-all, which returns
+   `error.message` verbatim (line 180) — i.e. a "Cannot read properties of undefined" string
+   reaches the client. Cheapest future fix is to widen `assertPlaylistAccess`'s projection to
+   include `spotify_playlist_id` (out of scope here, `src/lib/playlists.ts` is off-limits for
+   this task) and drop the second read entirely.
+
+2. `src/app/api/spotify/playlists/[id]/sync/route.ts:179-182` and
+   `import/route.ts:122-125` — both catch-alls still return the raw `error.message`, which is
+   the one place in these files that does not follow AGENTS.md convention R1. Pre-existing at
+   `1c04a20` and untouched by this diff, so not a finding against RH-35; worth a suggestions-log
+   entry so it is not lost.
+
+3. `src/app/api/spotify/playlists/[id]/import/route.ts:51` — `if (bandId)` treats
+   `band_id: ""` as "no band", which then reaches the insert as an empty string and fails as a
+   Postgres cast error rather than the guard's clean 404. Not exploitable (an empty string
+   owns nothing), but `if (bandId != null)` or trimming the body value would keep every
+   malformed band id on the single 404 path the guard was built to own.
+
+4. `src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts:305-328` — the positive "owner still
+   pulls" case mutates playlist P's contents (S1 is replaced by the mocked track), so the
+   negative cases above it are order-dependent on running first. They do today (Vitest runs
+   declarations in order, and I confirmed the file passes standalone and inside the full run),
+   but re-seeding P inside that test, or using a separate playlist for the positive case, would
+   remove the ordering assumption.
+
+## [RH-35] Autorizar os route handlers de playlist do Spotify contra as playlists do chamador — 2026-09-07 (QA 1)
+
+
+None. (Two observations, neither actionable and neither a defect: the
+`spotifyRouteAuth.test.ts` non-Error-rejection case and the extra pinned
+`entriesBefore` / `bandEntriesBefore` absolute assertions in the db test go
+beyond what the ERs require, which is a strength rather than a gap.)
+

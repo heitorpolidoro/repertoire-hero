@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
-import { resolveSpotifyRouteAccess } from '@/lib/spotifyRouteAuth'
+import { resolveSpotifyRouteAccess, resolveOwnedPlaylist } from '@/lib/spotifyRouteAuth'
 import {
   fetchAllSpotifyTracks,
   findOrCreateGlobalSong,
@@ -15,6 +15,11 @@ import {
 //
 // pull — fetch current Spotify tracks → add missing songs to local playlist
 // push — read local playlist songs → replace Spotify playlist track list
+//
+// [id] is a LOCAL playlists.id, and both directions are destructive to it, so
+// resolveOwnedPlaylist() runs before any read, write or outbound call: a pull
+// replaces the whole track list and seeds every band member's repertoire, a
+// push exfiltrates the local setlist into a Spotify playlist the caller picked.
 // ---------------------------------------------------------------------------
 export async function POST(
   request: NextRequest,
@@ -26,6 +31,10 @@ export async function POST(
   if (!access.ok) return access.response
   const { userId, accessToken } = access
 
+  const playlistAccess = await resolveOwnedPlaylist(localPlaylistId, userId)
+  if (!playlistAccess.ok) return playlistAccess.response
+  const { playlist } = playlistAccess
+
   let direction: 'pull' | 'push' = 'pull'
   try {
     const body = (await request.json()) as { direction?: 'pull' | 'push' }
@@ -35,34 +44,28 @@ export async function POST(
   }
 
   try {
-    // Fetch local playlist metadata
-    const playlistRes = await query('SELECT * FROM playlists WHERE id = $1', [localPlaylistId])
-    if (playlistRes.rowCount === 0) {
-      return NextResponse.json({ error: 'Playlist not found', code: 404 }, { status: 404 })
-    }
-    const playlist = playlistRes.rows[0]
+    // The row itself came from the guard; only the Spotify link is still needed.
+    const linkRes = await query('SELECT spotify_playlist_id FROM playlists WHERE id = $1', [localPlaylistId])
 
     // Fetch existing songs in the playlist
     const songsRes = await query('SELECT song_id FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
     const localEntries = songsRes.rows
 
-    if (!playlist.spotify_playlist_id) {
+    if (!linkRes.rows[0].spotify_playlist_id) {
       return NextResponse.json(
         { error: 'Playlist is not linked to a Spotify playlist', code: 400 },
         { status: 400 }
       )
     }
 
-    const spotifyPlaylistId = playlist.spotify_playlist_id as string
+    const spotifyPlaylistId = linkRes.rows[0].spotify_playlist_id as string
     let added = 0
     let removed = 0
 
     if (direction === 'pull') {
       const spotifyTracks = await fetchAllSpotifyTracks(spotifyPlaylistId, accessToken)
 
-      const owner = playlist.band_id
-        ? { bandId: playlist.band_id as string }
-        : { userId: userId }
+      const owner = playlist.band_id ? { bandId: playlist.band_id } : { userId: userId }
 
       const existingSongIds = new Set(localEntries.map((e) => e.song_id as string))
       const spotifySongIdsInOrder: string[] = []

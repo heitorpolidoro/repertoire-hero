@@ -15,6 +15,13 @@ export interface SpotifyTrackItem {
 // ---------------------------------------------------------------------------
 // GET /api/spotify/playlists/[id]/tracks
 // Returns all tracks for a Spotify playlist (handles pagination internally).
+//
+// [id] here is a SPOTIFY playlist id, not a local playlists.id. Authorization is
+// Spotify's: the id is forwarded with the caller's own access token, so this route
+// grants nothing the caller could not obtain by calling api.spotify.com directly.
+// There is therefore no local row to authorize — and this handler must stay that way.
+// If it ever starts resolving a local playlist row by this id, the guard to add first
+// is resolveOwnedPlaylist() in src/lib/spotifyRouteAuth.ts.
 // ---------------------------------------------------------------------------
 export async function GET(
   _request: NextRequest,
