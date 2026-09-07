@@ -1,4 +1,4 @@
-import { query } from '@/lib/db'
+import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { buildUpdateSet } from '@/lib/sqlUpdate'
 import type { Playlist } from '@/types/database'
@@ -148,34 +148,39 @@ export async function addSongToPlaylist(playlistId: string, userId: string, song
   const playlist = await assertPlaylistAccess(playlistId, userId)
 
   try {
-    // 2. Ensure song exists in the appropriate repertoire
-    if (playlist.band_id) {
-      // Band Playlist: Ensure in band repertoire
-      const bandRep = await query('SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2', [playlist.band_id, songId])
-      if (bandRep.rowCount === 0) {
-        await query('INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, \'unknown\')', [playlist.band_id, songId])
+    // 2. One transaction for the whole write: the song must not end up in a
+    //    repertoire without landing in the playlist. Expected duplicates go
+    //    through ON CONFLICT DO NOTHING — a caught 23505 would leave the
+    //    transaction aborted (see AGENTS.md, "Transactions").
+    await withTransaction(async (client) => {
+      if (playlist.band_id) {
+        // Band playlist: the band's repertoire and the caller's own.
+        await client.query(
+          "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+          [playlist.band_id, songId],
+        )
+        await client.query(
+          "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+          [userId, songId],
+        )
+      } else if (playlist.user_id) {
+        await client.query(
+          "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+          [playlist.user_id, songId],
+        )
       }
 
-      // Ensure in current user repertoire
-      const userRep = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [userId, songId])
-      if (userRep.rowCount === 0) {
-        await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [userId, songId])
-      }
-    } else if (playlist.user_id) {
-      // Personal Playlist: Ensure in personal repertoire
-      const userRep = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [playlist.user_id, songId])
-      if (userRep.rowCount === 0) {
-        await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [playlist.user_id, songId])
-      }
-    }
-
-    // 3. Count existing songs for position
-    const countRes = await query('SELECT COUNT(*) as count FROM playlist_songs WHERE playlist_id = $1', [playlistId])
-    const count = Number(countRes.rows[0].count)
-    const position = count + 1
-
-    // 4. Insert into playlist_songs
-    await query('INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, $3)', [playlistId, songId, position])
+      // 3. Position is computed in the insert itself. MAX + 1 (not COUNT + 1)
+      //    tolerates the gaps `removeSongFromPlaylist` leaves behind, and
+      //    `uq_playlist_song_position` is what actually serialises two
+      //    concurrent adds: the loser fails with 23505 instead of silently
+      //    writing a duplicate position.
+      await client.query(
+        `INSERT INTO playlist_songs (playlist_id, song_id, position)
+         SELECT $1, $2, COALESCE(MAX(position), 0) + 1 FROM playlist_songs WHERE playlist_id = $1`,
+        [playlistId, songId],
+      )
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to add song to playlist', err, { playlistId, songId })

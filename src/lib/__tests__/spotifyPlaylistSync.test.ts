@@ -2,14 +2,20 @@
  * RH-23 — The Spotify playlist import/sync helpers, extracted verbatim out of
  * `api/spotify/playlists/[id]/import/route.ts` so import, sync and tracks all
  * share one copy. These tests pin the behaviour the routes relied on:
- * pagination, sanitized find-or-create, the 23505 swallow, and the positional
- * `playlist_songs` insert.
+ * pagination, sanitized find-or-create, the set-based repertoire seeding
+ * (RH-36 replaced the per-member check-then-insert and its 23505 swallow with
+ * `ON CONFLICT DO NOTHING`), and the positional `playlist_songs` insert.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Mock } from 'vitest'
 
-vi.mock('@/lib/db', () => ({ query: vi.fn() }))
+// `pool` is the default `Queryable` of `ensureInRepertoire`, and it is the same
+// mock as the `query` export, so both call shapes land on one recorder.
+vi.mock('@/lib/db', () => {
+  const query = vi.fn()
+  return { query, pool: { query } }
+})
 
 import { query } from '@/lib/db'
 import {
@@ -169,51 +175,46 @@ describe('findOrCreateGlobalSong', () => {
 })
 
 describe('ensureInRepertoire', () => {
-  it('inserts the band row and one row per band member', async () => {
-    mockedQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // band repertoire lookup
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // band repertoire insert
-      .mockResolvedValueOnce({ rows: [{ user_id: 'u1' }, { user_id: 'u2' }], rowCount: 2 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // u1 lookup
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // u1 insert
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // u2 lookup
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // u2 insert
+  it('issues exactly two statements for a band owner regardless of member count', async () => {
+    // No lookups, no per-member fan-out: the member rows are seeded by one
+    // INSERT … SELECT, so the statement count no longer depends on the band.
+    mockedQuery.mockResolvedValue({ rows: [], rowCount: 0 })
 
     await ensureInRepertoire('song-1', { bandId: 'band-1' })
 
-    const inserts = mockedQuery.mock.calls.filter(([sql]) =>
-      String(sql).startsWith('INSERT INTO repertoire (user_id'),
-    )
-    expect(inserts.map(([, values]) => values)).toEqual([
-      ['u1', 'song-1'],
-      ['u2', 'song-1'],
-    ])
+    expect(mockedQuery).toHaveBeenCalledTimes(2)
+
+    const [bandSql, bandValues] = mockedQuery.mock.calls[0]
+    expect(String(bandSql)).toContain('INSERT INTO repertoire (band_id, song_id, status)')
+    expect(String(bandSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
+    expect(bandValues).toEqual(['band-1', 'song-1'])
+
+    const [membersSql, memberValues] = mockedQuery.mock.calls[1]
+    expect(String(membersSql)).toContain('INSERT INTO repertoire (user_id, song_id, status)')
+    expect(String(membersSql)).toContain('FROM band_members')
+    expect(String(membersSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
+    expect(memberValues).toEqual(['song-1', 'band-1'])
   })
 
-  it('inserts a single personal row for a user owner', async () => {
-    mockedQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+  it('issues exactly one statement for a personal owner', async () => {
+    mockedQuery.mockResolvedValue({ rows: [], rowCount: 0 })
 
     await ensureInRepertoire('song-1', { userId: 'u1' })
 
-    expect(mockedQuery).toHaveBeenCalledTimes(2)
-    expect(mockedQuery.mock.calls[1][1]).toEqual(['u1', 'song-1'])
+    expect(mockedQuery).toHaveBeenCalledTimes(1)
+    const [sql, values] = mockedQuery.mock.calls[0]
+    expect(String(sql)).toContain('INSERT INTO repertoire (user_id, song_id, status)')
+    expect(String(sql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
+    expect(values).toEqual(['u1', 'song-1'])
   })
 
-  it('swallows a 23505 unique violation but re-throws any other Postgres code', async () => {
-    mockedQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' }))
+  it('runs on the client it is handed so it can join a caller transaction', async () => {
+    const clientQuery = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 })
 
-    await expect(ensureInRepertoire('song-1', { userId: 'u1' })).resolves.toBeUndefined()
+    await ensureInRepertoire('song-1', { userId: 'u1' }, { query: clientQuery })
 
-    mockedQuery.mockReset()
-    mockedQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockRejectedValueOnce(Object.assign(new Error('fk'), { code: '23503' }))
-
-    await expect(ensureInRepertoire('song-1', { userId: 'u1' })).rejects.toThrow('fk')
+    expect(clientQuery).toHaveBeenCalledTimes(1)
+    expect(mockedQuery).not.toHaveBeenCalled()
   })
 
   it('does nothing when the owner carries neither a band nor a user', async () => {

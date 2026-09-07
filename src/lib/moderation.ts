@@ -1,4 +1,4 @@
-import { query } from '@/lib/db'
+import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
 import type { GlobalSongEdit } from '@/types/database'
@@ -156,14 +156,15 @@ export async function reviewGlobalSongEdit(
       )
     }
 
-    await query('BEGIN')
-    try {
+    // Applying the edit and marking it reviewed are one unit: a catalog rewrite
+    // whose edit stays `pending` gets applied twice by the next admin.
+    return await withTransaction(async (client) => {
       if (setClauses.length > 0) {
         values.push(edit.song_id)
         const updateSongSql = `UPDATE global_songs SET ${setClauses.join(
           ', '
         )} WHERE id = $${paramIndex}`
-        await query(updateSongSql, values)
+        await client.query(updateSongSql, values)
       }
 
       const updateEditSql = `
@@ -172,13 +173,9 @@ export async function reviewGlobalSongEdit(
         WHERE id = $2
         RETURNING *
       `
-      const res = await query(updateEditSql, [adminUserId, editId])
-      await query('COMMIT')
+      const res = await client.query(updateEditSql, [adminUserId, editId])
       return res.rows[0] as GlobalSongEdit
-    } catch (err) {
-      await query('ROLLBACK')
-      throw err
-    }
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     if (

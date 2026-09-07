@@ -256,6 +256,10 @@ component state (inline banner or Toast), and log with `logger.error`.
 }
 ```
 
+# Transactions
+
+Every multi-statement write that must be atomic goes through `withTransaction` from `@/lib/db`, which checks a single client out of the pool, issues `BEGIN`, runs the callback against that client, issues `COMMIT`, and on failure rolls back and rethrows the original error unwrapped (so the `L1` log-then-wrap at the call site still produces its usual message) while always releasing the connection. `query()` is `pool.query()` — it hands back an arbitrary idle connection per call, so `BEGIN`, `COMMIT` or `ROLLBACK` issued through it lands on a connection the other statements never see and leaks the one that opened the transaction idle in transaction; passing any of those three to `query()` is forbidden everywhere except `src/lib/db.ts` and is enforced mechanically by `src/lib/__tests__/transactionGuard.test.ts`. Inside a transaction an expected duplicate is absorbed with `ON CONFLICT DO NOTHING` and never by catching `23505` (the `E1` pattern), because a caught `23505` leaves the transaction aborted and every later statement fails with `25P02` instead of the intended no-op.
+
 # UI & UX Behavioral Directives
 
 - **NO Browser Alerts**: NEVER use browser `alert()` or `confirm()` dialogs. Always use floating Toast notifications (`showToast`), inline alert banners, or accessible modal overlays.

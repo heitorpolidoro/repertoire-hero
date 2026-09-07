@@ -2559,3 +2559,158 @@ None. (Two observations, neither actionable and neither a defect: the
 `entriesBefore` / `bandEntriesBefore` absolute assertions in the db test go
 beyond what the ERs require, which is a strength rather than a gap.)
 
+
+## [RH-36] Introduzir helper de transacao real e tornar escritas multi-statement atomicas — 2026-09-07 (spec review 1)
+
+
+- ER3(d) counts `idle in transaction` connections database-wide. Under ER8's
+  full-suite run, other vitest workers legitimately sit idle in transaction for
+  the few milliseconds between statements of their own `withTransaction`
+  (`playlists.test.ts`, `songs.test.ts` and `profile.test.ts` all hit converted
+  paths). The 20 × 100 ms poll makes an all-nonzero sample unlikely, but the
+  assertion would be sharper — and unflakeable — if it filtered for a *leaked*
+  connection rather than any open transaction, e.g. adding
+  `AND state_change < now() - interval '2 seconds'` or `AND pid <> pg_backend_pid()`.
+- `.jscpd.json` has `"path": ["src"]` and no test ignore, so the two new
+  `*.db.test.ts` files are scanned, while ER9 allows only +2 clones (19 → 21).
+  The spec tells the implementer to mirror the mocks and the fixture shape of
+  `spotifyPlaylistRouteAuthz.db.test.ts`, which is a duplication risk at
+  `minLines: 8` / `minTokens: 50`. Worth saying explicitly in Approach §9 that
+  shared fixture setup goes into `src/lib/__tests__/test-helpers.ts` (already
+  whitelisted in ER13).
+- Approach §9's mock snippet `withTransaction: async (fn) => fn({ query })`
+  does not typecheck under the repo's strict `tsconfig` — `fn` is an implicit
+  `any` — and ER9 requires `npx tsc --noEmit` to exit 0 and print nothing. Give
+  the annotated form in the spec.
+- ER7 says the test asserts "the mocked `query` is called exactly twice", but
+  after the rewrite `ensureInRepertoire` calls `db.query` where `db` defaults to
+  the module's `pool`; the exported `query` helper is called zero times. Word it
+  as "the mocked pool's `query`" so QA inspects the right spy.
+- ER3 and ER4 combine "at least" with an exact vitest literal ("at least
+  `Tests  6 passed (6)`"). If the file ends up with seven tests, the quoted line
+  never appears verbatim. Prefer "the `Tests` line shows at least 6 passed, 0
+  failed, 0 skipped".
+- ER3 describes all four tests as "each injecting the failure with a `BEFORE
+  UPDATE` trigger", but (d) injects nothing — it reads the aftermath of
+  (a)–(c). Minor wording, but it is the kind of thing a QA run will trip on.
+- `src/lib/__tests__/spotify.test.ts` is a real-database suite that drives both
+  `sync/route.ts` and `import/route.ts` and is *not* on ER13's whitelist. I
+  checked its assertions: they are outcome-based (repertoire rows via the
+  Supabase admin client, response bodies), so the set-based `ensureInRepertoire`
+  and the wrapped resync should leave it green. Worth a sentence in Approach §9
+  so the implementer does not discover it during ER8 and reach for a whitelist
+  violation.
+- ER5's `Migration successful` / probe-database recipe aside (see blocking
+  finding 2), the whole probe sequence works verbatim — no other change needed
+  there.
+
+## [RH-36] Introduzir helper de transacao real e tornar escritas multi-statement atomicas — 2026-09-07 (spec review 2)
+
+
+- The renumber `UPDATE` in `0007` is safe only because the planner happens to
+  drive the join from the `renumbered` CTE, whose window function forces a sort
+  by `(playlist_id, position, id)` — so rows move to lower positions in ascending
+  order and each target slot is already vacated. Postgres does raise
+  `23505` mid-statement for multi-row updates in the wrong order; I confirmed
+  that on this engine (`UPDATE ps2 SET position = position + 1` on a table with
+  `UNIQUE (playlist_id, position)` fails with `duplicate key ... Key
+  (playlist_id, "position")=(1, 2) already exists`). The first application is
+  never at risk (the constraint does not exist yet), and the ER5 re-apply worked
+  in every arrangement I could produce, but the migration would be robust to any
+  plan if the renumber went through a temporary non-colliding offset (for
+  example set `position = -rn` first, then `position = -position`), or if it
+  restricted itself to playlists that actually need renumbering.
+- ER5's re-apply step runs against the shared test database and will silently
+  renumber whatever gapped playlists earlier ER runs left behind (ER6(a)
+  deliberately leaves 2, 3, 4). Harmless — later runs build fresh fixtures — but
+  worth a sentence in ER5 so a QA agent does not read the mutation as a defect.
+- ER3(d) asserts `idle in transaction` is 0 across the whole database. Other
+  vitest workers share that database and a suite unrelated to this task could
+  hold a connection in that state for a moment; scoping the count to
+  `application_name` or to connections opened by this suite would make the
+  assertion immune to the parallel workers the spec itself flags elsewhere.
+
+## [RH-36] Introduzir helper de transacao real e tornar escritas multi-statement atomicas — 2026-09-07 (spec review 3)
+
+
+- `vitest.config.ts` sets no `testTimeout`, so the default 5 000 ms is exactly
+  the ER6(b) poll bound (50 × 100 ms). On the fixed code the poll succeeds in the
+  first or second iteration, so this never bites in the green case; but if the
+  poll ever does exhaust, vitest's timeout and the ER's "explicit assertion" race,
+  and the readable diagnosis can lose. Giving that one test an explicit
+  `{ timeout: 15000 }` (as the round-3 generator report itself suggests) would
+  guarantee the assertion wins. Not required by any ER.
+- Step (2) of ER6(b) starts the second `withTransaction` without awaiting it, and
+  the rejection handler is only attached at the end. Vitest fails a file on an
+  unhandled rejection, so the implementer should attach the
+  `expect(...).rejects` handler (or a `.catch` sink) immediately at creation
+  rather than after `await`ing the first transaction. I saw no unhandled
+  rejection in three probe runs, so this is a robustness note, not an observed
+  flake.
+- Worth having the poll-exhaustion message carry the pid and the last observed
+  count: a count of 0 there means the second transaction never blocked, which is
+  precisely the regression step (3) exists to catch, and the message should say
+  so rather than just "timed out waiting".
+- Carried forward, still unaddressed and still non-blocking (round 2): ER3(d)'s
+  `idle in transaction` count is database-wide and could be tripped by an
+  unrelated parallel worker — the same hazard ER6(b) now carefully scopes away by
+  pid. Scoping it by `application_name` would make it immune. Likewise the
+  renumber `UPDATE` in migration `0007` is order-dependent on the planner driving
+  the join from the `renumbered` CTE; a temporary negative-offset pass would make
+  it plan-independent.
+
+## [RH-36] Introduzir helper de transacao real e tornar escritas multi-statement atomicas — 2026-09-07 (code review 1)
+
+
+1. `src/lib/db.ts:56-60` — on the path where `ROLLBACK` itself rejects, the
+   comment says `release()` discards the connection, but a bare `release()`
+   returns the client to the pool; node-postgres only destroys it if the client
+   emitted an `error` event (usually true for a dead socket, but not guaranteed
+   for every `ROLLBACK` failure). `client.release(error)` in that inner catch
+   would make the intent explicit and unconditional. Non-blocking: the current
+   form is what the spec asked for and the realistic failure mode does emit the
+   error event.
+
+2. `src/lib/__tests__/edge_cases.test.ts:86-88` and
+   `src/lib/__tests__/errors.test.ts:136-138` — the
+   `count(*) as count from playlist_songs` dispatcher branch is now unreachable,
+   and with it `edge_cases.test.ts:138-141`
+   (`addSongToPlaylist handles null count in playlist_songs`) no longer exercises
+   anything: `mockCount` feeds only the dead branch, so the test now just asserts
+   that a fully-mocked add resolves. Either delete both, or rename the test to
+   what it actually covers now (the wrapped write issues its statements and
+   resolves). Leaving it as-is is a small false-coverage signal for the next
+   reader. Same for the `begin`/`commit`/`rollback` short-circuit at
+   `edge_cases.test.ts:50-59`, which no production path can reach any more.
+
+3. `src/lib/playlists.ts:158-171` vs `src/lib/spotifyPlaylistSync.ts:141-162` —
+   the personal-owner repertoire insert is now byte-identical in both modules,
+   and `ensureInRepertoire` already accepts a `Queryable`, so
+   `await ensureInRepertoire(songId, { userId: playlist.user_id }, client)`
+   would remove the copy. The band branch genuinely differs (band row + caller,
+   versus band row + all members), so only the personal branch is reusable —
+   which is why this is a suggestion rather than a finding.
+
+4. `src/lib/__tests__/transactionAtomicity.db.test.ts:664-680` — the
+   idle-in-transaction test depends on the three preceding tests having run
+   (declaration order). Vitest guarantees that within a file, so it passes, but
+   a one-line comment at the assertion, or triggering one failure inline, would
+   make it robust against future reordering or `.only`.
+
+5. `src/lib/__tests__/transactionAtomicity.db.test.ts:700-768` — the extra
+   playlist created inside the concurrency test is deleted on the success path
+   only; an early failure leaks it until the owning user is torn down. Moving
+   the id into the file-level cleanup list would make the teardown
+   failure-proof.
+
+6. Observation, not a defect: on the Spotify pull, `ensureInRepertoire` runs
+   outside the resync transaction, so a rolled-back re-insert still leaves the
+   newly seeded repertoire rows behind. That matches the spec (only the
+   destructive pair is wrapped) and is not data loss, but it is the one place
+   where the pull is not end-to-end atomic; worth a line in the follow-up log if
+   anyone later expects it to be.
+
+## [RH-36] Introduzir helper de transacao real e tornar escritas multi-statement atomicas — 2026-09-07 (QA 1)
+
+
+None.

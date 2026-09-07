@@ -7,12 +7,11 @@ import {
 import { query } from '@/lib/db'
 
 vi.mock('@/lib/db', () => {
-  return {
-    query: vi.fn(),
-    pool: {
-      query: vi.fn(),
-    },
-  }
+  const query = vi.fn()
+  // RH-36: the transaction runs on a client whose `query` is this same mock, so
+  // the per-statement expectations below stay statement-for-statement.
+  const withTransaction = (fn: (client: { query: typeof query }) => unknown) => fn({ query })
+  return { query, pool: { query: vi.fn() }, withTransaction }
 })
 
 describe('moderation domain module', () => {
@@ -251,10 +250,9 @@ describe('moderation domain module', () => {
         ],
       } as any)
 
-      // Transaction queries:
-      // 3. BEGIN
-      vi.mocked(query).mockResolvedValueOnce({} as any)
-      // 4. UPDATE global_songs
+      // Transaction statements (RH-36: no BEGIN/COMMIT through the mock any
+      // more — `withTransaction` owns them on its own client):
+      // 3. UPDATE global_songs
       vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [] } as any)
 
       const approvedEdit = {
@@ -274,17 +272,15 @@ describe('moderation domain module', () => {
         updated_at: '2026-08-31T12:05:00Z',
       }
 
-      // 5. UPDATE global_song_edits
+      // 4. UPDATE global_song_edits
       vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [approvedEdit] } as any)
-      // 6. COMMIT
-      vi.mocked(query).mockResolvedValueOnce({} as any)
 
       const result = await reviewGlobalSongEdit('admin-1', 'edit-1', 'approve')
 
       expect(result).toEqual(approvedEdit)
 
       // Check title was sanitized to 'Plush' and album to 'Core' in global_songs update query
-      expect(query).toHaveBeenNthCalledWith(4, expect.stringContaining('UPDATE global_songs'), expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1']))
+      expect(query).toHaveBeenNthCalledWith(3, expect.stringContaining('UPDATE global_songs'), expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1']))
     })
   })
 })

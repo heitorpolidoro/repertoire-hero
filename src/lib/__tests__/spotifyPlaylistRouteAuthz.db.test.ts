@@ -5,9 +5,10 @@
  * Only the session, the Spotify token and `fetch` are mocked: every refusal is
  * asserted together with a read-back of the rows the call would have written,
  * and with the fetch spy proving no outbound Spotify traffic happened either.
- * There is no transaction around the sync resync (finding F4 / RH-36), so
- * "nothing was written" is only true if the refusal happens *before* the first
- * statement — which is exactly what these read-backs pin.
+ * The sync resync is now atomic (RH-36 wrapped its delete-then-insert in
+ * `withTransaction`), but atomicity is not authorization: a refusal must still
+ * happen *before* the first statement, which is exactly what these read-backs
+ * pin. `transactionAtomicity.db.test.ts` covers the rollback behaviour itself.
  *
  * Fixture: users A, B, C; band Y with A as admin and B as member; band Z with C
  * alone; personal playlist P owned by A (one song, linked to Spotify); band

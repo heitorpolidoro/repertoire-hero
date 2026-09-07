@@ -1,4 +1,4 @@
-import { query } from '@/lib/db'
+import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
 
@@ -248,8 +248,6 @@ export async function updateSong(
   const ownerId = isBand ? owner.bandId : owner.userId
 
   try {
-    await query('BEGIN')
-
     // global_songs is a shared catalog: fields that already have a value
     // are left untouched so an edit from one repertoire owner can't
     // clobber good data for everyone else who has the same song. Only
@@ -267,16 +265,6 @@ export async function updateSong(
           links = CASE WHEN links IS NULL OR links = '[]'::jsonb THEN $7::jsonb ELSE links END
       WHERE id = $8
     `
-    await query(songSql, [
-      data.title,
-      data.artist,
-      data.album ?? null,
-      data.key,
-      data.cover_url ?? null,
-      data.duration_seconds ?? null,
-      JSON.stringify(data.links),
-      entry.song_id,
-    ])
 
     const repSql = `
       UPDATE repertoire
@@ -285,17 +273,30 @@ export async function updateSong(
           personal_key = $3
       WHERE id = $4 AND ${isBand ? 'band_id = $5' : 'user_id = $5'}
     `
-    await query(repSql, [
-      data.status,
-      data.tags,
-      data.key,
-      entry.id,
-      ownerId,
-    ])
 
-    await query('COMMIT')
+    // Both updates or neither: a shared catalog row filled in from an edit the
+    // owner's own repertoire row never received is worse than no edit at all.
+    await withTransaction(async (client) => {
+      await client.query(songSql, [
+        data.title,
+        data.artist,
+        data.album ?? null,
+        data.key,
+        data.cover_url ?? null,
+        data.duration_seconds ?? null,
+        JSON.stringify(data.links),
+        entry.song_id,
+      ])
+
+      await client.query(repSql, [
+        data.status,
+        data.tags,
+        data.key,
+        entry.id,
+        ownerId,
+      ])
+    })
   } catch (error) {
-    await query('ROLLBACK')
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update song', err, { songId: entry.song_id })
     throw new Error(`Failed to update song: ${err.message}`)

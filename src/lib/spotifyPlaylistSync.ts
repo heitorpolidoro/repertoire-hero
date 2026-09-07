@@ -9,7 +9,7 @@
  * answers with a fixed, user-facing message.
  */
 
-import { query } from '@/lib/db'
+import { pool, query, type Queryable } from '@/lib/db'
 import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
 
 export interface SpotifyRawTrack {
@@ -127,47 +127,38 @@ export async function findOrCreateGlobalSong(track: SpotifyRawTrack): Promise<st
 
 // ---------------------------------------------------------------------------
 // Ensures the song is in the owner's repertoire. Safe to call multiple times.
+//
+// Set-based on purpose (RH-36, finding F19): the previous shape ran a lookup
+// and possibly an insert per band member — 3 + 2N statements per track, inside
+// the per-track loop of the sync and import routes, on a pool capped at 10.
+// The duplicates are absorbed by `ON CONFLICT DO NOTHING` (the bare form, which
+// covers the partial unique indexes `uq_repertoire_user_song` and
+// `uq_repertoire_band_song`) rather than by catching 23505: inside a
+// transaction a caught 23505 leaves the transaction aborted, so every later
+// statement fails with 25P02.
+//
+// `db` defaults to the pool; pass a transaction client to make the seeding part
+// of a caller's transaction.
 // ---------------------------------------------------------------------------
-export async function ensureInRepertoire(songId: string, owner: { userId?: string; bandId?: string }): Promise<void> {
+export async function ensureInRepertoire(
+  songId: string,
+  owner: { userId?: string; bandId?: string },
+  db: Queryable = pool,
+): Promise<void> {
   if (owner.bandId) {
-    // 1. Ensure in Band Repertoire
-    const bandRep = await query('SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2', [owner.bandId, songId])
-    if (bandRep.rowCount === 0) {
-      try {
-        await query('INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, \'unknown\')', [owner.bandId, songId])
-      } catch (err) {
-        // 23505 = unique_violation: the row is already there, which is not an error here.
-        if ((err as { code?: string }).code !== '23505') throw err
-      }
-    }
-
-    // 2. Fetch all members of the band
-    const membersRes = await query('SELECT user_id FROM band_members WHERE band_id = $1', [owner.bandId])
-    const members = membersRes.rows
-
-    // 3. Ensure for each member of the band
-    for (const member of members) {
-      const memberRep = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [member.user_id, songId])
-      if (memberRep.rowCount === 0) {
-        try {
-          await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [member.user_id, songId])
-        } catch (err) {
-          // 23505 = unique_violation: the row is already there, which is not an error here.
-          if ((err as { code?: string }).code !== '23505') throw err
-        }
-      }
-    }
+    await db.query(
+      "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+      [owner.bandId, songId],
+    )
+    await db.query(
+      "INSERT INTO repertoire (user_id, song_id, status) SELECT bm.user_id, $1, 'unknown' FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING",
+      [songId, owner.bandId],
+    )
   } else if (owner.userId) {
-    // Personal Repertoire
-    const userRep = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [owner.userId, songId])
-    if (userRep.rowCount === 0) {
-      try {
-        await query('INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, \'unknown\')', [owner.userId, songId])
-      } catch (err) {
-        // 23505 = unique_violation: the row is already there, which is not an error here.
-        if ((err as { code?: string }).code !== '23505') throw err
-      }
-    }
+    await db.query(
+      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+      [owner.userId, songId],
+    )
   }
 }
 

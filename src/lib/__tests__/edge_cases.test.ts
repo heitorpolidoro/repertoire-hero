@@ -15,11 +15,15 @@ import { query } from '@/lib/db'
 
 // Mock the db module
 vi.mock('@/lib/db', () => {
+  const query = vi.fn()
   return {
-    query: vi.fn(),
+    query,
     pool: {
       query: vi.fn(),
     },
+    // RH-36: the transaction runs on a client whose `query` is the same mock,
+    // so the dispatcher below still sees every statement of a wrapped write.
+    withTransaction: (fn: (client: { query: typeof query }) => unknown) => fn({ query }),
   }
 })
 

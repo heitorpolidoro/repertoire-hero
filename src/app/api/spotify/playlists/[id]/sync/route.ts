@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db'
+import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { resolveSpotifyRouteAccess, resolveOwnedPlaylist } from '@/lib/spotifyRouteAuth'
 import {
@@ -92,13 +92,20 @@ export async function POST(
         }
       }
 
-      // Re-order and sync local playlist song entries to match Spotify track order exactly
-      await query('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
+      // Re-order and sync local playlist song entries to match Spotify track
+      // order exactly. Both statements share one transaction (RH-36, finding
+      // F9): a failing re-insert used to leave the playlist permanently empty,
+      // with no record of what it held. Deletes precede inserts inside the
+      // transaction, so `uq_playlist_song_position` is never transiently
+      // violated and does not need to be deferrable.
+      await withTransaction(async (client) => {
+        await client.query('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
 
-      if (spotifySongIdsInOrder.length > 0) {
-        const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifySongIdsInOrder)
-        await query(sql, values)
-      }
+        if (spotifySongIdsInOrder.length > 0) {
+          const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifySongIdsInOrder)
+          await client.query(sql, values)
+        }
+      })
     } else {
       // Push local playlist to Spotify
       const playlistSongsRes = await query(`
