@@ -1,17 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { Repertoire, SongStatus, SongLink, Stroke, TabAnnotations } from '@/types/database'
+import type { Repertoire, SongStatus, SongLink } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { logger } from '@/lib/logger'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
-import { getTabAnnotationsAction, saveTabAnnotationsAction } from '@/app/actions/tabs'
-import TabDrawingStage from '@/components/tabs/TabDrawingStage'
 import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/hooks/useToast'
-import { stageViewportHeight, isStableViewportMeasurement } from '@/lib/stageInteraction'
+import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
 import { slideOutClassName } from '@/lib/playlistNav'
 import { usePlaylistNav } from '@/hooks/usePlaylistNav'
 import { PLAYLIST_NAV_ACTIONS } from '@/app/fastViewNavActions'
@@ -22,10 +20,12 @@ import { SetlistPill } from '@/components/fastview/SetlistPill'
 import { PlaylistPrevArrow } from '@/components/fastview/PlaylistPrevArrow'
 import { SwipeHint } from '@/components/fastview/SwipeHint'
 import { useTabLibrary } from '@/hooks/useTabLibrary'
-import { TAB_LIBRARY_ACTIONS } from '@/app/fastViewTabActions'
+import { usePdfStage } from '@/hooks/usePdfStage'
+import { PDF_STAGE_ACTIONS, TAB_LIBRARY_ACTIONS } from '@/app/fastViewTabActions'
 import { TabLibrarySection } from '@/components/fastview/TabLibrarySection'
 import { TabDestinationModal } from '@/components/fastview/TabDestinationModal'
 import { TabDeleteConfirm } from '@/components/fastview/TabDeleteConfirm'
+import { PdfStageOverlay } from '@/components/fastview/PdfStageOverlay'
 
 function parseLyricsMarkdown(text: string) {
   let html = text
@@ -83,21 +83,6 @@ function getLinkIcon(url: string) {
 }
 
 /**
- * Nearest scrollable DOM ancestor of `node`, resolved by computed overflow
- * rather than by tag name: this page contains two <main> elements — the app
- * shell's (AppLayout, `flex-1 overflow-y-auto`, which really scrolls) and the
- * page's own (`min-h-screen`, which never does) — and only the former may be
- * scroll-locked while PDF Stage Mode is open.
- */
-function findScrollHost(node: HTMLElement | null): HTMLElement | null {
-  for (let el = node?.parentElement ?? null; el; el = el.parentElement) {
-    const oy = getComputedStyle(el).overflowY
-    if (oy === 'auto' || oy === 'scroll') return el
-  }
-  return null
-}
-
-/**
  * The tab-library inputs the two entry states supply. Read through a helper so
  * the page component itself carries no extra branches for state that is null
  * until the entry (and, in a band, the member's own entry) has loaded.
@@ -151,9 +136,6 @@ export default function FastViewPage() {
   const [isStageMode, setIsStageMode] = useState(false)
   const [lyricsFontSize, setLyricsFontSize] = useState(18)
   const [isStageDarkMode, setIsStageDarkMode] = useState(false)
-  const [isPdfStageMode, setIsPdfStageMode] = useState(false)
-  const pdfStageOverlayRef = useRef<HTMLDivElement>(null)
-  const [pdfStageHeight, setPdfStageHeight] = useState<number | null>(null)
 
   // Band vs Personal aggregation states
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
@@ -173,6 +155,15 @@ export default function FastViewPage() {
   })
   const { activeTabId, activeTabRepertoireId, activeTabUrl, activeTabTitle } = tabLibrary
 
+  // PDF Stage Mode: the overlay's open state, its visual-viewport measurement,
+  // the scroll-host lock, the back-button intercept and the annotation
+  // load/save live in this controller (RH-50).
+  const pdfStage = usePdfStage({
+    tabId: activeTabId,
+    repertoireId: activeTabRepertoireId,
+    actions: PDF_STAGE_ACTIONS,
+  })
+
   // Playlist navigation: the setlist fetch, the drawer, the slide-out and every
   // router push the setlist UI can trigger live in this controller (RH-48).
   const playlist = usePlaylistNav({
@@ -184,121 +175,30 @@ export default function FastViewPage() {
     navigateBack: () => router.back(),
   })
 
-  // Mobile back button intercept for Stage Mode (lyrics or PDF)
+  // Mobile back button intercept for the lyrics Stage Mode. PDF Stage Mode owns
+  // the mirror image of this effect inside `usePdfStage`; both push the same
+  // marker, from `@/lib/stageHistory`.
   useEffect(() => {
-    if (!isStageMode && !isPdfStageMode) return
+    if (!isStageMode) return
 
-    window.history.pushState({ stageMode: true }, '')
+    window.history.pushState(stageHistoryState(), '')
 
     const handlePopState = () => {
       setIsStageMode(false)
-      setIsPdfStageMode(false)
     }
 
     window.addEventListener('popstate', handlePopState)
     return () => {
       window.removeEventListener('popstate', handlePopState)
     }
-  }, [isStageMode, isPdfStageMode])
-
-  // Size the PDF Stage Mode overlay to the *visual* viewport. `100vh` /
-  // `inset-0` resolve against the large viewport on iOS/iPadOS Safari and
-  // Android Chrome, i.e. the size the page has with the browser chrome
-  // collapsed; while the chrome is expanded the bottom strip of the overlay —
-  // exactly the toolbar — is laid out below the visible area, which is the
-  // reported "toolbar flashes then is unreachable" bug on tablets.
-  useEffect(() => {
-    if (!isPdfStageMode) return
-
-    const vv = typeof window !== 'undefined' ? window.visualViewport : undefined
-
-    const measure = () => {
-      // A pinch-zoomed visual viewport reports a fraction of the layout
-      // viewport, which is not the box a fixed overlay occupies — keep the last
-      // stable height instead of shrinking the overlay (and pushing the toolbar
-      // off screen again).
-      if (!isStableViewportMeasurement(vv?.scale)) return
-      setPdfStageHeight(stageViewportHeight(vv?.height, window.innerHeight))
-    }
-
-    measure()
-    // iOS Safari fires only `scroll` (not `resize`) for some chrome
-    // expand/collapse transitions, hence both subscriptions.
-    vv?.addEventListener('resize', measure)
-    vv?.addEventListener('scroll', measure)
-    window.addEventListener('resize', measure)
-    window.addEventListener('orientationchange', measure)
-    return () => {
-      vv?.removeEventListener('resize', measure)
-      vv?.removeEventListener('scroll', measure)
-      window.removeEventListener('resize', measure)
-      window.removeEventListener('orientationchange', measure)
-      setPdfStageHeight(null)
-    }
-  }, [isPdfStageMode])
-
-  // Scroll-lock the page's real scroll container while PDF Stage Mode is open.
-  // That container is the app shell's <main> (AppLayout, `flex-1
-  // overflow-y-auto`) — not `body`, which never scrolls in a `flex h-screen`
-  // shell — and it is also the overlay's nearest scrollable ancestor, i.e. the
-  // element a vertical drag on the overlay header would otherwise chain to.
-  useEffect(() => {
-    if (!isPdfStageMode) return
-    const host = findScrollHost(pdfStageOverlayRef.current)
-    if (!host) return
-    const previousOverflow = host.style.overflow
-    host.style.overflow = 'hidden'
-    return () => {
-      // Restored verbatim, so an element that had no inline overflow goes back
-      // to having none (computing to `auto`) rather than being frozen.
-      host.style.overflow = previousOverflow
-    }
-  }, [isPdfStageMode])
+  }, [isStageMode])
 
   const closeStageMode = () => {
     setIsStageMode(false)
-    if (window.history.state?.stageMode) {
+    if (isStageHistoryEntry(window.history.state)) {
       window.history.back()
     }
   }
-
-  const closePdfStageMode = () => {
-    setIsPdfStageMode(false)
-    if (window.history.state?.stageMode) {
-      window.history.back()
-    }
-  }
-
-  // ---- Stage Mode annotations: fetched here, handed to TabDrawingStage as props (RH-46) ----
-  // The payload is keyed by the tab it was loaded for, so reopening the stage
-  // for a different tab renders the loading state (a null annotations prop)
-  // until that tab's own fetch resolves — a stale payload can never be shown.
-  const [stageAnnotations, setStageAnnotations] = useState<
-    { tabId: string; data: TabAnnotations; error: string | null } | null
-  >(null)
-
-  useEffect(() => {
-    if (!isPdfStageMode || !activeTabId || !activeTabRepertoireId) return
-    let cancelled = false
-    getTabAnnotationsAction(activeTabId, activeTabRepertoireId).then((res) => {
-      if (cancelled) return
-      setStageAnnotations({ tabId: activeTabId, data: res.data ?? {}, error: res.error ?? null })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [isPdfStageMode, activeTabId, activeTabRepertoireId])
-
-  const stageAnnotationsForTab =
-    stageAnnotations && stageAnnotations.tabId === activeTabId ? stageAnnotations : null
-
-  const handleSaveStageAnnotations = useCallback(
-    async (pageNumber: number, strokes: Stroke[]): Promise<{ success?: boolean; error?: string }> => {
-      if (!activeTabId || !activeTabRepertoireId) return { error: 'Tab not found' }
-      return saveTabAnnotationsAction(activeTabId, activeTabRepertoireId, pageNumber, strokes)
-    },
-    [activeTabId, activeTabRepertoireId],
-  )
 
   useEffect(() => {
     let cancelled = false
@@ -656,7 +556,7 @@ export default function FastViewPage() {
       <TabLibrarySection
         library={tabLibrary}
         loadingPersonal={loadingPersonal}
-        onOpenStage={() => setIsPdfStageMode(true)}
+        onOpenStage={pdfStage.open}
       />
 
       {/* Links Section */}
@@ -1012,47 +912,20 @@ export default function FastViewPage() {
     )}
 
     {/* PDF Stage Mode Overlay */}
-    {isPdfStageMode && activeTabUrl && activeTabId && activeTabRepertoireId && (
-      <div
-        ref={pdfStageOverlayRef}
-        className="fixed inset-x-0 top-0 z-50 bg-black flex flex-col"
-        style={{
-          // Measured visual-viewport height is authoritative (correct in every
-          // mobile browser); `100dvh` is only the pre-measurement fallback.
-          height: pdfStageHeight ? `${pdfStageHeight}px` : '100dvh',
-          // Removes browser pinch-zoom from the whole overlay subtree,
-          // react-pdf's own DOM included — it is incompatible with sizing the
-          // overlay from the visual viewport. In-app zoom controls remain.
-          touchAction: 'pan-x pan-y',
-          // Makes the overlay root a (non-scrollable) scroll container so
-          // `overscroll-behavior` applies and no drag inside it chains out.
-          overflow: 'hidden',
-          overscrollBehavior: 'contain',
-        }}
-      >
-        <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white border-b border-gray-800 shrink-0">
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-bold truncate">{activeTabTitle || 'PDF Tab'}</span>
-            <span className="text-xs text-gray-400 truncate">{title} {key ? `• ${key}` : ''}</span>
-          </div>
-          <button
-            type="button"
-            onClick={closePdfStageMode}
-            className="w-8 h-8 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center transition-colors focus:outline-none"
-            title="Close PDF Stage Mode"
-          >
-            ✕
-          </button>
-        </div>
-        <TabDrawingStage
-          key={activeTabId}
-          fileUrl={activeTabUrl}
-          annotations={stageAnnotationsForTab?.data ?? null}
-          annotationsError={stageAnnotationsForTab?.error ?? null}
-          onSaveAnnotations={handleSaveStageAnnotations}
-        />
-      </div>
-    )}
+    <PdfStageOverlay
+      open={pdfStage.isOpen}
+      overlayRef={pdfStage.overlayRef}
+      height={pdfStage.height}
+      tabId={activeTabId}
+      fileUrl={activeTabUrl}
+      tabTitle={activeTabTitle}
+      songTitle={title}
+      songKey={key}
+      annotations={pdfStage.annotations}
+      annotationsError={pdfStage.annotationsError}
+      onSaveAnnotations={pdfStage.saveAnnotations}
+      onClose={pdfStage.close}
+    />
 
     {/* Upload Destination Choice Modal (Only in band mode) */}
     <TabDestinationModal

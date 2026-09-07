@@ -3358,3 +3358,68 @@ addition with an obvious test. Out of scope here.
   extracting it the way the tab library was extracted here would be the natural
   next slice.
 
+
+## [RH-50] Fast View parte 3/5: extrair o overlay do Stage Mode de PDF — 2026-09-07 (spec review 1)
+
+
+- **Audit-table transcription error (spec L68).** The table renders the header's
+  key separator as `` key ? `* ${key}` : '' `` (ASCII `*`), but page L1036 is
+  `` key ? `• ${key}` : '' `` (U+2022). The normative instruction is "moved
+  verbatim" in both the table's Destination column and Approach §4, so the page
+  is the authority and a copy-paste implementation is correct — but no ER pins
+  the separator, so typing it from the table would silently change on-screen copy.
+  Fixing the one character in the table removes the trap.
+- **Approach §6 under-lists the page's import cleanup.** After the move,
+  `useCallback` and `useRef` (page L3) and `Stroke` / `TabAnnotations` (page L5)
+  have no remaining use — their only uses today are L295, L155, L296 and L277.
+  Leaving them would add four `@typescript-eslint/no-unused-vars` warnings and
+  break ER7's `26 problems (12 errors, 14 warnings)` and the page's `2 problems`.
+  ER7 forces the right outcome, so this is not a contradiction, but §6 should say
+  "narrow the `react` and `@/types/database` imports" alongside "drops the imports
+  at lines 9, 10 and 14".
+- **`key={tabId}` on `TabDrawingStage` is not pinned by any ER.** It is what makes
+  a tab switch remount the stage instead of showing another tab's strokes (RH-46).
+  The verbatim-move instruction covers it, but a one-line grep
+  (`grep -c "key={tabId}" src/components/fastview/PdfStageOverlay.tsx`) or an
+  assertion inside the existing "hands the annotations … to the drawing stage"
+  test would make the guarantee mechanical.
+- **Nothing pins that the page actually renders `<PdfStageOverlay>`.** ER1 pins the
+  imports and ER5 pins the removals; the only net that catches "hook wired, overlay
+  never rendered" is knip in ER7 reporting an unused file. A
+  `grep -c "PdfStageOverlay" "src/app/songs/[id]/fast-view/page.tsx"` clause in ER5
+  would close it directly. Same for `onOpenStage={pdfStage.open}`.
+- **Export style for `PdfStageOverlay` is unstated.** Every other component under
+  `src/components/fastview` uses a named export while `TabDrawingStage` is a
+  default export; naming the choice avoids a pointless round-trip.
+- **ER6's `< 400` line bound covers the 15-test hook test.** The comparable
+  `src/hooks/__tests__/useTabLibrary.test.tsx` is 389 lines for 20 tests
+  (~19.5 lines/test), so ~330 lines is the expectation here — the margin is real
+  but not large given this file's extra fakes (viewport, history, scroll host).
+  Worth keeping in mind rather than changing.
+
+## [RH-50] Fast View parte 3/5: extrair o overlay do Stage Mode de PDF — 2026-09-07 (code review 1)
+
+
+1. `src/components/fastview/__tests__/PdfStageOverlay.test.tsx` — no test pins `key={tabId}` on
+   `TabDrawingStage`. It is the mechanism that remounts the stage (and drops the previous tab's
+   canvas) when the active tab changes, and a silent removal would not fail any test here. A rerender
+   with a different `tabId` asserting the stub instance was replaced would close that gap.
+2. `src/hooks/__tests__/usePdfStage.test.tsx` — the scroll-lock test covers `close()`; unmount with
+   the stage still open (leaving the route) is not asserted. React guarantees the cleanup, so this is
+   only about locking the guarantee in; one `unmount()` assertion on `host.style.overflow` would do.
+3. `src/hooks/usePdfStage.ts:38` — the `getViewport` doc comment says "Test seam"; it may be worth
+   adding that passing an inline arrow makes the measurement effect restart on every render (harmless
+   because the state converges, but surprising to a future caller who is not a test).
+
+## [RH-50] Fast View parte 3/5: extrair o overlay do Stage Mode de PDF — 2026-09-07 (QA 1)
+
+
+- `src/hooks/usePdfStage.ts` line 66 is the only uncovered branch in the new
+  code (`typeof window !== 'undefined'` inside `WINDOW_VIEWPORT`, the SSR guard).
+  The hook's last test covers the truthy side; the falsy side is unreachable in
+  jsdom. Non-blocking — branch coverage there is 97.22%, well above the ER10
+  floor of 70.
+- `git diff --name-only 6b30ddb` does not list `AGENTS.md` or
+  `.meridian/tasks.json`, both of which ER12 permits. Not a defect; noted only
+  so a future reader does not read the whitelist as a required set.
+
