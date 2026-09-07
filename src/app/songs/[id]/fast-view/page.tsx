@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { Repertoire, RepertoireTab, SongStatus, SongLink, Stroke, TabAnnotations } from '@/types/database'
+import type { Repertoire, SongStatus, SongLink, Stroke, TabAnnotations } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { logger } from '@/lib/logger'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
-import { getTabsAction, uploadTabAction, deleteTabAction, getTabAnnotationsAction, saveTabAnnotationsAction } from '@/app/actions/tabs'
+import { getTabAnnotationsAction, saveTabAnnotationsAction } from '@/app/actions/tabs'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
 import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import { Toast } from '@/components/ui/Toast'
@@ -21,6 +21,11 @@ import { SetlistSelect } from '@/components/fastview/SetlistSelect'
 import { SetlistPill } from '@/components/fastview/SetlistPill'
 import { PlaylistPrevArrow } from '@/components/fastview/PlaylistPrevArrow'
 import { SwipeHint } from '@/components/fastview/SwipeHint'
+import { useTabLibrary } from '@/hooks/useTabLibrary'
+import { TAB_LIBRARY_ACTIONS } from '@/app/fastViewTabActions'
+import { TabLibrarySection } from '@/components/fastview/TabLibrarySection'
+import { TabDestinationModal } from '@/components/fastview/TabDestinationModal'
+import { TabDeleteConfirm } from '@/components/fastview/TabDeleteConfirm'
 
 function parseLyricsMarkdown(text: string) {
   let html = text
@@ -92,10 +97,21 @@ function findScrollHost(node: HTMLElement | null): HTMLElement | null {
   return null
 }
 
+/**
+ * The tab-library inputs the two entry states supply. Read through a helper so
+ * the page component itself carries no extra branches for state that is null
+ * until the entry (and, in a band, the member's own entry) has loaded.
+ */
+function tabLibraryEntryInputs(entry: Repertoire | null, personalEntry: Repertoire | null) {
+  return {
+    entryBandId: entry?.band_id ?? null,
+    songId: entry?.song_id ?? null,
+    personalRepertoireId: personalEntry?.id ?? null,
+  }
+}
+
 /** A destructive delete awaiting in-page confirmation. */
-type PendingDelete =
-  | { kind: 'tab'; tabId: string; origin: 'band' | 'personal'; targetId: string }
-  | { kind: 'link'; url: string }
+type PendingDelete = { kind: 'link'; url: string }
 
 export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()
@@ -107,20 +123,6 @@ export default function FastViewPage() {
   const [entry, setEntry] = useState<Repertoire | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
-
-  // Tabs state
-  const [tabs, setTabs] = useState<RepertoireTab[]>([])
-  const [uploadTitle, setUploadTitle] = useState('')
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // PDF Viewer state
-  const [activeTabUrl, setActiveTabUrl] = useState<string | null>(null)
-  const [activeTabTitle, setActiveTabTitle] = useState('')
-  const [activeTabId, setActiveTabId] = useState<string | null>(null)
-  const [activeTabRepertoireId, setActiveTabRepertoireId] = useState<string | null>(null)
 
   // Lyrics state
   const [isEditingLyrics, setIsEditingLyrics] = useState(false)
@@ -155,11 +157,21 @@ export default function FastViewPage() {
 
   // Band vs Personal aggregation states
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
-  const [personalTabs, setPersonalTabs] = useState<RepertoireTab[]>([])
   const [loadingPersonal, setLoadingPersonal] = useState(false)
   const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)
-  const [uploadDestination, setUploadDestination] = useState<'band' | 'personal'>('band')
-  const [showUploadDestModal, setShowUploadDestModal] = useState(false)
+
+  // Tab library: the two tab fetches, the active tab, the upload with its
+  // destination choice and the tab delete confirmation live in this controller
+  // (RH-49). PDF Stage Mode still reads the active tab from it.
+  const tabLibrary = useTabLibrary({
+    repertoireId: id,
+    ...tabLibraryEntryInputs(entry, personalEntry),
+    actions: TAB_LIBRARY_ACTIONS,
+    onPersonalEntryCreated: setPersonalEntry,
+    notify: showToast,
+    onDeleteRequested: () => setPendingDelete(null),
+  })
+  const { activeTabId, activeTabRepertoireId, activeTabUrl, activeTabTitle } = tabLibrary
 
   // Playlist navigation: the setlist fetch, the drawer, the slide-out and every
   // router push the setlist UI can trigger live in this controller (RH-48).
@@ -293,33 +305,21 @@ export default function FastViewPage() {
 
     async function load() {
       try {
-        const [data, tabData] = await Promise.all([
-          getSongEntry(id, queryBandId),
-          getTabsAction(id).catch(() => [] as RepertoireTab[]),
-        ])
+        const data = await getSongEntry(id, queryBandId)
 
         if (!cancelled) {
           if (!data) {
             setNotFound(true)
           } else {
             setEntry(data)
-            setTabs(tabData)
             setLyricsText(data.lyrics ?? '')
 
-            // If we are in band context, fetch personal entry and tabs in background
+            // If we are in band context, fetch the personal entry in background
             if (queryBandId && data.song_id) {
               setLoadingPersonal(true)
-              getPersonalEntryForSongAction(data.song_id).then(async (pEntry) => {
+              getPersonalEntryForSongAction(data.song_id).then((pEntry) => {
                 if (pEntry && !cancelled) {
                   setPersonalEntry(pEntry)
-                  try {
-                    const pTabs = await getTabsAction(pEntry.id)
-                    if (!cancelled) {
-                      setPersonalTabs(pTabs)
-                    }
-                  } catch (e) {
-                    logger.error('Failed to load personal tabs', e instanceof Error ? e : new Error(String(e)))
-                  }
                 }
               }).catch((e) => {
                 logger.error('Failed to load personal entry', e instanceof Error ? e : new Error(String(e)))
@@ -369,95 +369,8 @@ export default function FastViewPage() {
   const cfg = STATUS_CONFIG[entry.status]
   const links = entry.song?.links ?? []
 
-  const tabsOrigin = entry.band_id ? ('band' as const) : ('personal' as const)
-  const mergedTabs = [
-    ...tabs.map(t => ({ ...t, origin: tabsOrigin })),
-    ...personalTabs.map(t => ({ ...t, origin: 'personal' as const }))
-  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
   const hasDifferentPersonalLyrics = !!(entry.band_id && personalEntry && personalEntry.lyrics && personalEntry.lyrics !== entry.lyrics)
   const displayedLyrics = (entry.band_id && showPersonalLyrics && personalEntry) ? personalEntry.lyrics : entry.lyrics
-
-  // Trigger upload click to decide destination (personal vs band)
-  function handleUploadClick(e: React.FormEvent) {
-    e.preventDefault()
-    if (!entry || !uploadFile) return
-
-    if (entry.band_id) {
-      setShowUploadDestModal(true)
-    } else {
-      triggerUpload('personal')
-    }
-  }
-
-  // Real upload function
-  async function triggerUpload(destination: 'band' | 'personal') {
-    if (!entry || !uploadFile) return
-
-    if (uploadFile.size > 10 * 1024 * 1024) {
-      setUploadError('File size exceeds the 10MB limit')
-      return
-    }
-
-    try {
-      setUploading(true)
-      setUploadError(null)
-
-      let targetRepertoireId = entry.id
-      let isPersonal = destination === 'personal'
-
-      if (entry.band_id) {
-        if (isPersonal) {
-          let pEntry = personalEntry
-          if (!pEntry) {
-            // Auto-create personal repertoire entry if not present
-            pEntry = await addSongAction(entry.song_id)
-            setPersonalEntry(pEntry)
-          }
-          targetRepertoireId = pEntry.id
-        }
-      } else {
-        isPersonal = true
-      }
-
-      const finalTitle = uploadTitle.trim() || uploadFile.name.replace(/\.[^/.]+$/, "")
-      const formData = new FormData()
-      formData.append('repertoireId', targetRepertoireId)
-      formData.append('title', finalTitle)
-      formData.append('file', uploadFile)
-
-      const res = await uploadTabAction(formData)
-      if (res.error) {
-        setUploadError(res.error)
-        return
-      }
-      if (res.data) {
-        if (isPersonal) {
-          setPersonalTabs(prev => [res.data!, ...prev])
-        } else {
-          setTabs(prev => [res.data!, ...prev])
-        }
-      }
-      setUploadTitle('')
-      setUploadFile(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : undefined
-      setUploadError(message || 'Failed to upload tab')
-    } finally {
-      setUploading(false)
-      setShowUploadDestModal(false)
-    }
-  }
-
-  // Handler for deleting tab — opens the in-page confirmation
-  function handleDeleteTab(tabId: string, origin: 'band' | 'personal') {
-    const targetId = origin === 'personal' && personalEntry ? personalEntry.id : entry?.id
-    if (!targetId) return
-    setPendingDelete({ kind: 'tab', tabId, origin, targetId })
-  }
 
   // Handler for saving lyrics
   async function handleSaveLyrics() {
@@ -584,6 +497,8 @@ export default function FastViewPage() {
   // Handler for deleting a song link — opens the in-page confirmation
   function handleDeleteLink(urlToDelete: string) {
     if (!entry || !entry.song) return
+    // Mirror of the hook's `onDeleteRequested`: never two confirmations at once.
+    tabLibrary.cancelDelete()
     setPendingDelete({ kind: 'link', url: urlToDelete })
   }
 
@@ -592,24 +507,7 @@ export default function FastViewPage() {
     if (!pendingDelete) return
     setDeleteBusy(true)
     try {
-      if (pendingDelete.kind === 'tab') {
-        const { tabId, origin, targetId } = pendingDelete
-        try {
-          const res = await deleteTabAction(tabId, targetId)
-          if (res.error) {
-            showToast(res.error, 'error')
-          } else {
-            if (origin === 'personal') {
-              setPersonalTabs(prev => prev.filter(t => t.id !== tabId))
-            } else {
-              setTabs(prev => prev.filter(t => t.id !== tabId))
-            }
-            showToast('Tab deleted.', 'info')
-          }
-        } catch {
-          showToast('Failed to delete tab', 'error')
-        }
-      } else if (entry?.song) {
+      if (entry?.song) {
         const currentLinks = entry.song.links ?? []
         const updatedLinks = currentLinks.filter(link => link.url !== pendingDelete.url)
 
@@ -755,206 +653,11 @@ export default function FastViewPage() {
       </section>
 
       {/* Tabs (PDF) Section */}
-      <section aria-label="Tabs" className="flex flex-col gap-4">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tabs (PDF)</h2>
-        
-        {/* Tab List */}
-        {mergedTabs.length > 0 ? (
-          <div className="flex flex-col gap-4">
-            <ul className="flex flex-col gap-2">
-              {mergedTabs.map((tab) => {
-                const isActive = activeTabUrl === tab.file_url
-                return (
-                  <li
-                    key={tab.id}
-                    className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
-                      isActive
-                        ? 'bg-emerald-50/60 border-emerald-300 shadow-sm'
-                        : 'bg-white border-gray-200 hover:border-emerald-100 shadow-sm'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isActive) {
-                          setActiveTabUrl(null)
-                          setActiveTabTitle('')
-                          setActiveTabId(null)
-                          setActiveTabRepertoireId(null)
-                        } else {
-                          setActiveTabUrl(tab.file_url)
-                          setActiveTabTitle(tab.title)
-                          setActiveTabId(tab.id)
-                          setActiveTabRepertoireId(tab.repertoire_id)
-                        }
-                      }}
-                      className="flex flex-1 items-center gap-3 text-left text-gray-700 hover:text-emerald-600 font-medium transition-colors focus:outline-none min-w-0"
-                    >
-                      {/* PDF Icon */}
-                      <svg className="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                      </svg>
-                      <span className="truncate text-sm mr-1.5">{tab.title}</span>
-                      
-                      {/* Origin Badge */}
-                      {tab.origin === 'band' ? (
-                        <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Shared with the whole band">
-                          👥 Band
-                        </span>
-                      ) : (
-                        <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Private study file">
-                          👤 Personal
-                        </span>
-                      )}
-
-                      {isActive && (
-                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-105 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 ml-1">
-                          Viewing
-                        </span>
-                      )}
-                    </button>
-                    
-                    <div className="flex items-center gap-1 shrink-0">
-                      {/* External Link Button */}
-                      <a
-                        href={tab.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-gray-400 hover:text-emerald-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                        title="Open in new tab / download"
-                      >
-                        <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </a>
-                      
-                      {/* Delete Button */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isActive) {
-                            setActiveTabUrl(null)
-                            setActiveTabTitle('')
-                            setActiveTabId(null)
-                            setActiveTabRepertoireId(null)
-                          }
-                          handleDeleteTab(tab.id, tab.origin)
-                        }}
-                        className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                        aria-label="Delete tab"
-                      >
-                        <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-
-            {/* Embedded PDF Viewer */}
-            {activeTabUrl && (
-              <div className="flex flex-col gap-2 bg-white border border-emerald-200 rounded-xl p-3 shadow-sm transition-all duration-300">
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-xs font-semibold text-gray-700 truncate max-w-[200px] sm:max-w-[280px]">
-                    Viewing: {activeTabTitle}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsPdfStageMode(true)}
-                      className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 transition-colors flex items-center gap-1"
-                    >
-                      <span>⛶</span> Stage
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTabUrl(null)
-                        setActiveTabTitle('')
-                        setActiveTabId(null)
-                        setActiveTabRepertoireId(null)
-                      }}
-                      className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-                <iframe
-                  src={`https://docs.google.com/gview?url=${encodeURIComponent(activeTabUrl)}&embedded=true`}
-                  className="w-full h-[550px] rounded-lg border border-gray-150"
-                  title={activeTabTitle}
-                />
-              </div>
-            )}
-          </div>
-        ) : loadingPersonal ? (
-          <div className="flex flex-col gap-2 animate-pulse" aria-busy="true" aria-label="Loading tabs...">
-            {[1, 2].map(i => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm">
-                <div className="w-5 h-5 rounded bg-gray-200 shrink-0" />
-                <div className="h-3.5 rounded bg-gray-200 flex-1 max-w-[180px]" />
-                <div className="h-4 w-14 rounded-full bg-gray-200 ml-auto" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500 bg-gray-100/60 border border-gray-200/50 rounded-xl p-4 text-center">No PDFs uploaded yet.</p>
-        )}
-
-        {/* Upload Form */}
-        <form onSubmit={handleUploadClick} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-          <h3 className="text-xs font-semibold text-gray-700">Upload New Tab</h3>
-
-          <div className="flex flex-col gap-2">
-            <input
-              type="text"
-              placeholder="Tab Title (e.g. Guitar Solo, Bass)"
-              value={uploadTitle}
-              onChange={(e) => setUploadTitle(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-              disabled={uploading}
-            />
-            <input
-              type="file"
-              accept="application/pdf"
-              ref={fileInputRef}
-              onChange={(e) => {
-                const file = e.target.files?.[0] || null
-                setUploadFile(file)
-                if (file && !uploadTitle.trim()) {
-                  const defaultTitle = file.name.replace(/\.[^/.]+$/, "")
-                  setUploadTitle(defaultTitle)
-                }
-              }}
-              className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
-              disabled={uploading}
-            />
-          </div>
-          {uploadError && (
-            <p className="text-xs text-red-600 font-medium">{uploadError}</p>
-          )}
-          <button
-            type="submit"
-            disabled={uploading || !uploadFile}
-            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-medium text-sm rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5"
-          >
-            {uploading ? (
-              <>
-                <svg className="animate-spin h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Uploading...
-              </>
-            ) : (
-              'Upload PDF'
-            )}
-          </button>
-        </form>
-      </section>
+      <TabLibrarySection
+        library={tabLibrary}
+        loadingPersonal={loadingPersonal}
+        onOpenStage={() => setIsPdfStageMode(true)}
+      />
 
       {/* Links Section */}
       <section aria-label="Links" className="flex flex-col gap-3">
@@ -1352,65 +1055,26 @@ export default function FastViewPage() {
     )}
 
     {/* Upload Destination Choice Modal (Only in band mode) */}
-    {showUploadDestModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-        <div className="bg-white rounded-2xl border border-gray-150 shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
-          <div>
-            <h3 className="text-base font-bold text-gray-900">Upload Destination</h3>
-            <p className="text-xs text-gray-500 mt-1">Where would you like to save this PDF?</p>
-          </div>
-          
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={() => triggerUpload('personal')}
-              disabled={uploading}
-              className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50/20 text-left transition-all group focus:outline-none"
-            >
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold text-gray-800 group-hover:text-blue-700 transition-colors">👤 Personal studies</span>
-                <span className="text-[10px] text-gray-400">Private only to you</span>
-              </div>
-              <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">Private</span>
-            </button>
-            
-            <button
-              type="button"
-              onClick={() => triggerUpload('band')}
-              disabled={uploading}
-              className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/20 text-left transition-all group focus:outline-none"
-            >
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold text-gray-800 group-hover:text-emerald-700 transition-colors">👥 Band files</span>
-                <span className="text-[10px] text-gray-400">Shared with all members</span>
-              </div>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Shared</span>
-            </button>
-          </div>
-          
-          <div className="flex items-center justify-end gap-2 mt-2">
-            <button
-              type="button"
-              onClick={() => setShowUploadDestModal(false)}
-              disabled={uploading}
-              className="px-4 py-2 border border-gray-200 hover:bg-gray-50 text-xs font-semibold rounded-lg text-gray-600 transition-colors focus:outline-none"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
+    <TabDestinationModal
+      open={tabLibrary.isDestinationModalOpen}
+      uploading={tabLibrary.uploading}
+      onChoose={tabLibrary.chooseDestination}
+      onCancel={tabLibrary.cancelDestination}
+    />
+
+    {/* Tab delete confirmation — same anchor as the link one below */}
+    <TabDeleteConfirm
+      pending={tabLibrary.pendingDelete !== null}
+      busy={tabLibrary.deleteBusy}
+      onConfirm={tabLibrary.confirmDelete}
+      onCancel={tabLibrary.cancelDelete}
+    />
 
     {/* In-page delete confirmation — anchored above the Toast so they never overlap */}
     {pendingDelete && (
       <ConfirmPanel
         className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-sm shadow-xl"
-        message={
-          pendingDelete.kind === 'tab'
-            ? "Delete this tab? This can't be undone."
-            : "Delete this link? This can't be undone."
-        }
+        message="Delete this link? This can't be undone."
         confirmLabel="Delete"
         busy={deleteBusy}
         onConfirm={confirmPendingDelete}

@@ -3275,3 +3275,86 @@ addition with an obvious test. Out of scope here.
 - `npm run lint:dup` reports exactly 18 clones against a ceiling of 18, and the `All files` branch coverage is 82.07 % against a floor of 78 %. Both are comfortable but the clone count in particular has zero headroom.
 - `src/app/songs/[id]/fast-view/page.tsx` still carries a `prefer-const` error, a `no-explicit-any` error and two `no-unused-vars` warnings (`uploadDestination`, `setUploadDestination`). These are pre-existing and explicitly permitted by ER7, but the unused upload-destination state pair looks like genuinely dead code that could be dropped in a follow-up.
 
+
+## [RH-49] Fast View parte 2/5: extrair biblioteca de tabs, tab ativa e upload — 2026-09-07 (spec review 1)
+
+
+- **S1 — ER7's duplication bound has zero margin.** `Found 18 clones.` / 230 lines / 0.82% is exactly today's measurement, and the task adds six components with near-identical Tailwind blocks (the two destination buttons) plus five test files with the usual `// @vitest-environment jsdom` + `afterEach(cleanup)` + render-helper boilerplate. A single new clone that represents no real regression would fail the ER. Consider `N` at most 19 and at most 0.90%.
+- **S2 — ER5 omits `activeTabTitle` from the stage-contract grep.** The "Boundary with RH-50" contract names four bindings and the still-inline overlay header reads `activeTabTitle` (page line 1332), but ER5 only greps `activeTabId\|activeTabRepertoireId\|activeTabUrl`. Add the fourth name so QA verifies the whole contract.
+- **S3 — ER12's whitelist lists `AGENTS.md`, which the Approach never edits.** Nothing in sections 1-6 touches it; drop it to keep the closed set tight. `.meridian/tasks.json`, `docs/tasks/RH-49-spec.md` and `docs/suggestions-log.md` are legitimately in the set (task state, the spec itself, the two preserved warts the Out of Scope section defers there).
+- **S4 — `wc -l <file>` prints `N <path>`, not a bare number.** ER6 says the command "prints a number strictly less than 400" / "prints a number strictly less than 1150"; phrase it as the first field of the output so a literal reading cannot fail.
+- **S5 — section 5 could say explicitly that `addSongAction` stays imported.** It is still used by `handleSaveLyrics` (page line 474) after `triggerUpload` is deleted; an implementer following "line 9 becomes …, drop `RepertoireTab` if unused" might prune it too and break the lyrics save.
+- **S6 — the delete-button active-tab clear changes its key.** Today the row clears the active tab when `activeTabUrl === tab.file_url` (page lines 834-841); the hook's `requestDelete` clears it when `activeTabId === tabId`. Equivalent except when two rows share a `file_url`. Worth one sentence in §2 so it reads as deliberate.
+- **S7 — page bounds are well justified.** The removed regions add up to roughly 380 lines against roughly 15 added, matching the probe's 1063 lines against the `< 1150` bound; the removed page-body decision points (the `tabsOrigin` ternary, the list/skeleton/empty chain, the viewer `&&`, the modal `&&`, the `ConfirmPanel` message ternary) are consistent with 76 → 67 against the `<= 69` bound. No change needed.
+
+## [RH-49] Fast View parte 2/5: extrair biblioteca de tabs, tab ativa e upload — 2026-09-07 (spec review 2)
+
+
+- ER2 carries the same comment-trap shape one step removed: it requires
+  `grep -rn "application/pdf\|Only PDF files are allowed" src/lib/tabLibrary.ts
+  src/hooks/useTabLibrary.ts` to print nothing, while section 1 spends a paragraph
+  explaining why no client type check exists — a natural thing for an implementer to
+  restate as a comment next to `validateTabFile`, which would fail the grep. Worth an
+  explicit "not even in a comment; keep the rationale in the spec" note next to the helper.
+- ER9's floor of "at least 843 tests passed" is one below the 791 + 53 = 844 the spec's own
+  arithmetic predicts. Harmless slack, but 844 would catch a silently dropped test.
+- ER1 checks `grep -c "@/lib/tabLibrary"` only on `TabLibrarySection.tsx`. `TabList.tsx`,
+  `TabViewer.tsx`, `TabUploadForm.tsx`, `TabDestinationModal.tsx` and `TabDeleteConfirm.tsx`
+  also consume `MergedTab` / `TabOrigin` from the lib; extending that grep to the directory
+  would pin the whole component layer's type source rather than one file's.
+- The section 4 table cites absolute line numbers from the `a49a295` page (764-854, 857-891,
+  908-956, 1355-1403). They are correct today and the task is pinned to that baseline, so
+  this is only a durability note: quoting an anchor string alongside each range would keep
+  the table readable if the baseline ever moves.
+
+## [RH-49] Fast View parte 2/5: extrair biblioteca de tabs, tab ativa e upload — 2026-09-07 (spec review 3)
+
+
+- Approach section 6 does not say how `src/hooks/__tests__/useTabLibrary.test.tsx`
+  imports the hook, and the closest precedent points the other way: the RH-48
+  model file `src/hooks/__tests__/usePlaylistNav.test.tsx` imports its hook
+  relatively (`from '../usePlaylistNav'`). An implementer following that sibling
+  convention would produce a correct test that nonetheless fails ER1's first
+  grep, since only two of the three paths would match. ER1 is normative and
+  enumerates the test file, so this is not ambiguous, but one clause in section 6
+  ("the test imports the hook as `from '@/hooks/useTabLibrary'`, not relatively,
+  so it satisfies ER1") would remove the trap entirely.
+- Approach sections 1 and 4 say "mentioning the name `useTabLibrary` in a comment
+  is not restricted; only the import is". That is true of grep 1 but not of grep
+  2, which matches the bare path `@/hooks/useTabLibrary` anywhere under
+  `src/components` or `src/lib`, comments included. Narrowing the wording to "the
+  identifier `useTabLibrary`, never the module path" would keep the two sections
+  and ER1 in exact agreement.
+
+## [RH-49] Fast View parte 2/5: extrair biblioteca de tabs, tab ativa e upload — 2026-09-07 (code review 1)
+
+
+1. `src/hooks/useTabLibrary.ts:94` — `.catch(onError)` is outside the `cancelled` guard, so
+   a personal-tabs rejection that lands after unmount still logs. This matches the previous
+   page behaviour exactly (the old `catch` also logged regardless of `cancelled`), so it is
+   correctly *preserved*; worth tightening whenever RH-52 revisits the load path.
+2. `src/app/songs/[id]/fast-view/page.tsx:114` — `PendingDelete` is now a one-member union
+   and its `kind: 'link'` discriminant is written but never read. The spec prescribes this
+   shape and RH-52 will likely re-widen it, so leaving it is defensible; if RH-52 ends up
+   not adding a second arm, drop the field.
+3. `src/hooks/useTabLibrary.ts:120-121` — `entryTabs` / `personalTabs` are not reset when
+   `repertoireId` changes, so an in-place Fast View navigation briefly merges the previous
+   song's personal tabs. This is pre-existing (the old page never reset `personalTabs`
+   either) and out of this slice; a note for RH-52, which owns the entry load.
+4. `src/components/fastview/TabLibrarySection.tsx:37-46` — the skeleton stays inline as
+   planned; if RH-50/51 need the same two-row pulse, it is the natural first extraction.
+
+## [RH-49] Fast View parte 2/5: extrair biblioteca de tabs, tab ativa e upload — 2026-09-07 (QA 1)
+
+
+- `npx eslint .` still ends at `26 problems (12 errors, 14 warnings)`, the same
+  ceiling as the baseline. The two errors that remain in
+  `src/app/songs/[id]/fast-view/page.tsx` (`prefer-const` on `let html` in
+  `parseLyricsMarkdown`, and `handleStatusChange(statusKey as any)`) are both
+  one-line fixes untouched by this refactor and would be cheap to clear in a
+  follow-up.
+- `FastViewPage` complexity is now 67, down from 76 but still far above the
+  default gate of 15. The Stage Mode / annotation block is the remaining bulk;
+  extracting it the way the tab library was extracted here would be the natural
+  next slice.
+
