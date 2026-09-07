@@ -301,6 +301,8 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** Medium
 **Effort:** M
 **Remediation:** Move each statement into the matching `src/lib` module (`updateLyrics` into `songs.ts`; the whole tab data-access set plus `checkAccess` into a new `src/lib/tabs.ts`; the playlist-entry query into `playlists.ts`), leaving the actions as session resolution plus delegation plus `revalidatePath`. The moved code then falls inside the RH-24 coverage universe automatically.
+**Correction (RH-37):** The counts above were accurate at this document's pinned baseline `13da8b2` and had drifted before the remediation started. At `059d4c3`, the commit RH-45 branched from, the count was thirteen, not fifteen (`repertoire.ts` 5, `tabs.ts` 6, `playlists.ts` 2), and the `checkAccess` helper described above no longer existed: RH-34 had already replaced it with `assertRepertoireAccess` in `src/lib/songs.ts`, which every tab action already called, so no authorization helper had to be re-homed.
+**Status:** Resolved by RH-45 (`a493731`). Every statement now lives in `src/lib` (`tabs.ts`, `songs.ts`, `playlists.ts`, `devProfiles.ts`) and the actions are session resolution plus delegation plus `revalidatePath`; at `201a090`, `grep -c "query(" src/app/actions/*.ts` prints `0` for all six files and `grep -rn "@/lib/db" src/app/actions/*.ts` prints nothing. Re-entry is blocked by `src/app/actions/__tests__/actionDataAccessGuard.test.ts`.
 
 ### F9 - The Spotify pull resync deletes every playlist row before re-inserting, outside a transaction
 
@@ -405,6 +407,8 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** Medium
 **Effort:** S
 **Remediation:** Invert both: have the parent (the page or a hook it owns) fetch and pass `annotations`/`onSaveAnnotations` and `bands` down as props, leaving the components pure. Once done, add an ESLint `no-restricted-imports` rule banning `@/app/*` from `src/components`, `src/lib` and `src/hooks` so the direction is enforced rather than remembered.
+**Correction (RH-37):** There were five inward dependencies, not two. The M4 command quoted in section 2.5 greps for `from '@/app` with a single quote, so it missed the double-quoted imports at `src/components/songs/SongForm.tsx:16`, `src/components/songs/CorrectionModal.tsx:5` and `src/hooks/useBandAdmin.ts:11`, all three of which were already present at `13da8b2`.
+**Status:** Resolved by RH-46 (`51151d7`) and RH-47 (`201a090`). All five now receive their server calls as props or as one injected actions object, and at `201a090`, `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing. The rule this remediation asks for is the `no-restricted-imports` block in `eslint.config.mjs`, banning `@/app/*` and `@/app/**` under `src/components/**`, `src/lib/**` and `src/hooks/**` with `**/__tests__/**` exempt.
 
 ### F22 - A route handler opens its own Postgres client instead of using the shared pool
 
@@ -413,6 +417,7 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** Medium
 **Effort:** S
 **Remediation:** Use `query()` from `src/lib/db.ts` and move the statement into a `src/lib` function (e.g. `listDevProfiles()`), keeping the `NODE_ENV` guard in the route. If a separate connection is genuinely wanted so dev tooling cannot exhaust the app pool, say so in a comment at the call site.
+**Status:** Resolved by RH-45 (`a493731`). The route now calls `listDevProfiles()` from `src/lib/devProfiles.ts`, which uses the shared pool through `query()`, and keeps its `NODE_ENV` 404 guard; at `201a090`, `grep -rln "new Client" src` prints nothing.
 
 ### F23 - src/lib is split between two export styles, with one module the outlier
 
@@ -515,6 +520,7 @@ implementation detail.
 **Justification:** Fifteen SQL statements live in `src/app/actions/*`, restating ownership predicates the domain layer already owns and hiding an authorization helper inside a `'use server'` file; the same inversion has presentational components reaching up into the App Router tree and a route handler opening its own database client.
 **Priority:** high
 **Covers:** F8, F21, F22
+**Status:** Delivered by RH-45 (`a493731`), RH-46 (`51151d7`) and RH-47 (`201a090`); integrated and verified by RH-37. All three findings it covers are closed.
 
 ### T5 - Decompose the Fast View page
 

@@ -3077,3 +3077,52 @@ None.
   correctly left alone, but it is the only lint error in this task's file set and
   is worth its own task eventually.
 
+
+## [RH-37] Mover acesso a dados das Server Actions para src/lib — 2026-09-07 (spec review 2, integration spec)
+
+
+- ER8 refers to the AGENTS.md paragraph as `` `A2 - thin Server Actions` `` with
+  a hyphen, but the file writes `**A2 — thin Server Actions.**` with an em dash.
+  A QA agent grepping the backticked string literally finds nothing. Quoting a
+  dash-free substring (`thin Server Actions`) would make that clause
+  grep-checkable as written. Not blocking: the load-bearing part of ER8 is the
+  whitelist diff, and the paragraph is trivially findable by name.
+- The spec's State section says `checkAccess` is called at L39, L91, L128 and
+  L149 at `13da8b2`; there is a fifth call at L180. Spec-internal prose only -
+  the line actually appended to the review document does not repeat the call
+  sites, so nothing shipped is wrong.
+- ER7 does not state its preconditions the way ER3 and ER4 do. The playwright
+  config auto-starts `npm run dev` on 127.0.0.1:3000 and `e2e/global-setup.ts`
+  builds an authenticated session, so a QA run on a machine with something else
+  on port 3000, or without the database, could go red for reasons outside the
+  task. A one-clause precondition note would remove that ambiguity.
+- ER6's `6	0` assumes each appended line stays a single physical line. The
+  Approach says so explicitly and ER6 would catch a hard-wrapped edit, so this
+  is only a note for the implementer: do not let an editor reflow those four
+  blocks.
+
+## [RH-37] Mover acesso a dados das Server Actions para src/lib — 2026-09-07 (code review 1)
+
+
+1. Non-blocking, and explicitly out of scope for this task: section 2.5's M4
+   result line (`docs/plans/code-quality-review.md:201`, "two, at ...") still
+   states the undercount, and a reader who stops at section 2.5 will not see the
+   correction that lives in F21 at L410. The spec deliberately freezes section 2
+   as a dated measurement, which I agree with, so this is not a change to make
+   here. If a future document sweep happens, a one-line pointer from L201 to the
+   F21 correction would close the loop without rewriting the measurement. The
+   spec's own "Post-merge checks" already carries the durable half of this lesson
+   (grep both quote styles next time).
+2. Non-blocking: the F8 correction attributes the `checkAccess` ->
+   `assertRepertoireAccess` replacement to RH-34. I verified the end state at
+   `059d4c3` but not the specific commit that performed it. If cheap, confirming
+   that id would make the correction fully self-verifying like the rest of the
+   line; if not, the sentence is still true with the task id dropped.
+
+
+## [RH-37] Mover acesso a dados das Server Actions para src/lib — 2026-09-07 (QA 1)
+
+
+None. The change is documentation-only and every gate reproduces the `201a090`
+baseline exactly.
+
