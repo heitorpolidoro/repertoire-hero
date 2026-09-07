@@ -94,6 +94,7 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 - `jscpd` — copy/paste (duplication) detection (`npm run lint:dup`, config in `.jscpd.json`: `src`, `minTokens: 50`, `minLines: 8`, `threshold: 2`), enforced by the `Duplication (jscpd)` CI job
 - `npm audit` — dependency vulnerability gate (`npm run audit`, i.e. `npm audit --audit-level=high`), enforced by the `Dependency audit (npm audit)` CI job, which resolves the tree straight from `package-lock.json` and therefore runs with no `npm ci` step; it deliberately audits the **full dependency tree** rather than production-only (`--omit=dev`), because Dependabot alerts on the whole lockfile regardless of scope and CI actually executes the dev dependencies (`vitest`, `eslint`, `knip`, `jscpd`, `playwright`) — moderate and low advisories are reported but do not fail the build
 - SonarCloud (`sonar-project.properties`) and DeepSource (`.deepsource.toml`) for static analysis / code quality gates
+- **Import direction (F21).** Nothing under `src/components`, `src/hooks` or `src/lib` may import from `@/app/*`; a page or a wrapper under `src/app` owns the Server Action and passes it down as a prop or an injected dependency (`src/app/bandAdminActions.ts` is the pattern). Enforced by the `no-restricted-imports` block in `eslint.config.mjs`, which exempts `__tests__` because a route-handler test has to import the handler.
 
 **Deployment**
 - Vercel (`vercel.json`, `.vercel/`) is the target platform

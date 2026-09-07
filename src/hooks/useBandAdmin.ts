@@ -1,14 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  getBandWithMembersAction as getBandWithMembers,
-  updateBandAction as updateBand,
-  deleteBandAction as deleteBand,
-  leaveBandAction as leaveBand,
-  removeBandMemberAction as removeBandMember,
-  getBandPlaylistsAction as getBandPlaylists,
-  createBandPlaylistAction as createBandPlaylist,
-  uploadBandCoverAction,
-} from "@/app/actions/bands";
 import { authClient } from "@/lib/auth-client";
 import { useBandContextStore } from "@/store/bandContextStore";
 import { compressImageFile } from "@/lib/imageCompressor";
@@ -23,6 +13,30 @@ export type PendingAction =
   | { kind: "leaveBand" }
   | { kind: "removeMember"; member: BandMember };
 
+/**
+ * The eight band Server Actions the controller calls. Injected rather than
+ * imported, so `src/hooks` never points back into the App Router tree (F21).
+ * Required and never defaulted — a default would have to import `@/app`.
+ */
+export interface BandAdminActions {
+  getBandWithMembers: (bandId: string) => Promise<Band | null>;
+  getBandPlaylists: (bandId: string) => Promise<Playlist[]>;
+  updateBand: (
+    bandId: string,
+    data: {
+      name?: string;
+      description?: string | null;
+      cover_url?: string | null;
+      color?: string | null;
+    },
+  ) => Promise<void>;
+  deleteBand: (bandId: string) => Promise<void>;
+  leaveBand: (bandId: string) => Promise<void>;
+  removeBandMember: (memberId: string) => Promise<void>;
+  createBandPlaylist: (bandId: string, name: string) => Promise<string>;
+  uploadBandCover: (formData: FormData) => Promise<{ coverUrl?: string; error?: string }>;
+}
+
 // Error messages that were already identical on both surfaces.
 const DELETE_ERROR = "Failed to delete band";
 const LEAVE_ERROR = "Failed to leave band";
@@ -31,6 +45,8 @@ const CREATE_PLAYLIST_ERROR = "Failed to create playlist";
 
 export interface UseBandAdminOptions {
   bandId: string;
+  /** Required, never defaulted — see `src/app/bandAdminActions.ts`. */
+  actions: BandAdminActions;
   showToast: (message: string, tone?: ToastTone) => void;
   /** bands page: `router.replace('/bands')`; profile: `setError('Band not found.')`. */
   onNotFound: () => void;
@@ -56,6 +72,7 @@ export interface UseBandAdminOptions {
  */
 export function useBandAdmin({
   bandId,
+  actions,
   showToast,
   onNotFound,
   loadPolicy,
@@ -100,11 +117,19 @@ export function useBandAdmin({
     onNotFoundRef.current = onNotFound;
   });
 
+  // `load` reads the actions through a ref so `actions` can stay out of its
+  // dependency array; a caller that rebuilds the object every render must not
+  // be able to restart the load effect.
+  const actionsRef = useRef(actions);
+  useEffect(() => {
+    actionsRef.current = actions;
+  });
+
   const load = useCallback(async () => {
     const runLoad = async () => {
       const [bandData, playlistData] = await Promise.all([
-        getBandWithMembers(bandId),
-        getBandPlaylists(bandId),
+        actionsRef.current.getBandWithMembers(bandId),
+        actionsRef.current.getBandPlaylists(bandId),
       ]);
 
       if (!bandData) {
@@ -179,7 +204,7 @@ export function useBandAdmin({
       if (editCoverFile) {
         const formData = new FormData();
         formData.append("file", editCoverFile);
-        const uploadRes = await uploadBandCoverAction(formData);
+        const uploadRes = await actions.uploadBandCover(formData);
         if (uploadRes.error) {
           setError(uploadRes.error);
           setSaving(false);
@@ -188,7 +213,7 @@ export function useBandAdmin({
         cover_url = uploadRes.coverUrl ?? null;
       }
 
-      await updateBand(bandId, {
+      await actions.updateBand(bandId, {
         name: editName.trim(),
         description: editDesc.trim() || null,
         cover_url,
@@ -243,7 +268,7 @@ export function useBandAdmin({
       switch (pendingAction.kind) {
         case "deleteBand":
           try {
-            await deleteBand(bandId);
+            await actions.deleteBand(bandId);
             setPendingAction(null);
             // No toast: the view unmounts immediately, navigation is the feedback.
             onGone();
@@ -253,7 +278,7 @@ export function useBandAdmin({
           break;
         case "leaveBand":
           try {
-            await leaveBand(bandId);
+            await actions.leaveBand(bandId);
             setPendingAction(null);
             onGone();
           } catch (err) {
@@ -263,7 +288,7 @@ export function useBandAdmin({
         case "removeMember": {
           const { member } = pendingAction;
           try {
-            await removeBandMember(member.id);
+            await actions.removeBandMember(member.id);
             setBand((prev) =>
               prev
                 ? {
@@ -293,7 +318,7 @@ export function useBandAdmin({
     if (!newPlaylistName.trim() || !currentUserId) return;
     setCreatingPlaylist(true);
     try {
-      const playlistId = await createBandPlaylist(bandId, newPlaylistName.trim());
+      const playlistId = await actions.createBandPlaylist(bandId, newPlaylistName.trim());
       onNavigateToPlaylist(playlistId);
     } catch (err) {
       setError(err instanceof Error ? err.message : CREATE_PLAYLIST_ERROR);

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { regenerateBandInviteCodeAction } from "@/app/actions/bands";
+import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
@@ -63,6 +64,7 @@ export default function BandDetailPage() {
     handleCreatePlaylist,
   } = useBandAdmin({
     bandId,
+    actions: BAND_ADMIN_ACTIONS,
     showToast,
     onNotFound: () => router.replace("/bands"),
     loadPolicy: BANDS_PAGE_LOAD_POLICY,

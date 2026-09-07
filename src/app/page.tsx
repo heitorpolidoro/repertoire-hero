@@ -11,12 +11,16 @@ import {
   createAndAddSongAction as createAndAddSong,
   addSongAction as addSongToRepertoire,
   searchGlobalSongsAction as searchGlobalSongs,
+  updateSongAction,
+  updateSongStatusAction,
+  updateSongTagsAction,
 } from "@/app/actions/repertoire";
+import { submitGlobalSongEditAction } from "@/app/actions/moderation";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import type { GlobalSong } from "@/types/database";
 import { authClient } from "@/lib/auth-client";
 import LandingPage from "@/components/landing/LandingPage";
-import SongForm from "@/components/songs/SongForm";
+import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
 
 // ---------------------------------------------------------------------------
 // SongResultItem — shared row for catalog and Spotify search results
@@ -95,6 +99,15 @@ const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
 ];
 
 const SPOTIFY_DEBOUNCE_MS = 500;
+
+/** Module-level so the object identity is stable across renders (RH-47). */
+const SONG_FORM_ACTIONS: SongFormActions = {
+  createAndAddSong,
+  updateSong: updateSongAction,
+  updateSongStatus: updateSongStatusAction,
+  updateSongTags: updateSongTagsAction,
+  submitGlobalSongEdit: submitGlobalSongEditAction,
+};
 
 function RepertoireDashboard() {
   const {
@@ -601,6 +614,7 @@ function RepertoireDashboard() {
           song={modal.song}
           onClose={closeModal}
           onSuccess={handleSuccess}
+          actions={SONG_FORM_ACTIONS}
         />
       )}
     </div>

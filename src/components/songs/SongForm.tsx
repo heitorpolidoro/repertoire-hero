@@ -8,19 +8,48 @@ import type {
   Repertoire,
 } from "@/types/database";
 import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
-import {
-  createAndAddSongAction as createAndAddSong,
-  updateSongAction as updateSong,
-  updateSongStatusAction as updateSongStatus,
-  updateSongTagsAction as updateSongTags,
-} from "@/app/actions/repertoire";
 import { useRepertoireStore } from "@/store/repertoireStore";
-import { CorrectionModal } from "./CorrectionModal";
+import { CorrectionModal, type CorrectionModalProps } from "./CorrectionModal";
+
+type SongFormCreateInput = {
+  title: string;
+  artist: string;
+  album?: string;
+  standard_key?: string;
+  cover_url?: string;
+  duration_seconds?: number;
+  links?: SongLink[];
+};
+
+type SongFormEditInput = {
+  title: string;
+  artist: string;
+  album?: string | null;
+  key: string | null;
+  status: SongStatus;
+  tags: string[];
+  links: SongLink[];
+  cover_url?: string | null;
+  duration_seconds?: number | null;
+};
+
+/**
+ * The Server Actions the form and its correction modal call. Injected rather
+ * than imported, so `src/components` never points back into `src/app` (F21).
+ */
+export interface SongFormActions {
+  createAndAddSong: (data: SongFormCreateInput) => Promise<Repertoire>;
+  updateSong: (entry: Repertoire, data: SongFormEditInput) => Promise<void>;
+  updateSongStatus: (repertoireId: string, status: SongStatus) => Promise<void>;
+  updateSongTags: (repertoireId: string, tags: string[]) => Promise<void>;
+  submitGlobalSongEdit: CorrectionModalProps["onSubmitCorrection"];
+}
 
 interface SongFormProps {
   song?: Repertoire;
   onClose: () => void;
   onSuccess: () => void;
+  actions: SongFormActions;
 }
 
 interface FormState {
@@ -122,7 +151,12 @@ const buildInitialState = (song?: Repertoire): FormState => {
   return stateMap[key]();
 };
 
-export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
+export default function SongForm({
+  song,
+  onClose,
+  onSuccess,
+  actions,
+}: SongFormProps) {
   const isEditMode = Boolean(song);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const { loadSongs } = useRepertoireStore();
@@ -207,7 +241,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
         : null;
 
       if (isEditMode && song) {
-        await updateSong(song, {
+        await actions.updateSong(song, {
           title: form.title.trim(),
           artist: form.artist.trim(),
           album: form.album.trim() || null,
@@ -219,7 +253,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
           links,
         });
       } else {
-        const entry = await createAndAddSong({
+        const entry = await actions.createAndAddSong({
           title: form.title.trim(),
           artist: form.artist.trim(),
           album: form.album.trim() || undefined,
@@ -231,9 +265,11 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
         // Apply status and tags after creation
         await Promise.all([
           form.status !== "unknown"
-            ? updateSongStatus(entry.id, form.status)
+            ? actions.updateSongStatus(entry.id, form.status)
             : Promise.resolve(),
-          tags.length > 0 ? updateSongTags(entry.id, tags) : Promise.resolve(),
+          tags.length > 0
+            ? actions.updateSongTags(entry.id, tags)
+            : Promise.resolve(),
         ]);
       }
 
@@ -557,6 +593,7 @@ export default function SongForm({ song, onClose, onSuccess }: SongFormProps) {
       {showCorrectionModal && song?.song && (
         <CorrectionModal
           song={song.song}
+          onSubmitCorrection={actions.submitGlobalSongEdit}
           onClose={() => setShowCorrectionModal(false)}
           onSuccess={() => {
             setToastMessage("Correction request submitted for admin review!");

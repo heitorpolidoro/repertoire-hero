@@ -2,18 +2,33 @@
 
 import { useState } from "react";
 import type { GlobalSong } from "@/types/database";
-import { submitGlobalSongEditAction } from "@/app/actions/moderation";
 
-interface CorrectionModalProps {
+/**
+ * The correction payload. A `type` alias, not an `interface`: only an alias gets
+ * an implicit index signature, and without one it cannot be passed to a
+ * `Record<string, unknown>` parameter (see the action's signature).
+ */
+export type GlobalSongCorrectionInput = {
+  title: string;
+  artist: string;
+  album: string | null;
+  standard_key: string | null;
+  reason: string | null;
+};
+
+export interface CorrectionModalProps {
   song: GlobalSong;
   onClose: () => void;
   onSuccess: () => void;
+  /** The injected global-song-edit Server Action — `src/components` never imports `@/app` (F21). */
+  onSubmitCorrection: (songId: string, data: GlobalSongCorrectionInput) => Promise<unknown>;
 }
 
 export function CorrectionModal({
   song,
   onClose,
   onSuccess,
+  onSubmitCorrection,
 }: CorrectionModalProps) {
   const [title, setTitle] = useState(song.title);
   const [artist, setArtist] = useState(song.artist);
@@ -34,7 +49,7 @@ export function CorrectionModal({
     setError(null);
 
     try {
-      await submitGlobalSongEditAction(song.id, {
+      await onSubmitCorrection(song.id, {
         title: title.trim(),
         artist: artist.trim(),
         album: album.trim() || null,

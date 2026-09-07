@@ -2990,3 +2990,90 @@ None.
 
 None.
 
+
+## [RH-47] Inverter SongForm, CorrectionModal e useBandAdmin e proibir @/app/* no ESLint — 2026-09-07 (spec review 1)
+
+
+1. **ER10's quoted baseline is off by a digit on functions and wrong on lines.**
+   The ER says "the baseline at `51151d7` was 98.55 / 78.08 / 94.74 / 98.55". The
+   actual `npm run test:coverage` text-table row at `51151d7` is
+   `useBandAdmin.ts | 98.55 | 78.08 | 94.73 | 99.23` — functions is 94.73, not
+   94.74, and lines is 99.23, not 98.55 (the spec appears to have repeated the
+   statements figure for lines). This is not blocking: ER10's operative assertion
+   is the floor set (≥95 / ≥75 / ≥90 / ≥95), which the true numbers clear
+   comfortably, and the ER explicitly frames the quoted figures as context ("so
+   this is a floor, not a target"). Correct them anyway so a later task does not
+   inherit a wrong baseline.
+2. **ER11 states no web-server or build precondition, unlike ER9 and ER10.** The
+   Playwright config defaults `webServer.command` to `npm run dev`. ER9 and ER10
+   spell out their Postgres and `SUPABASE_SERVICE_ROLE_KEY` preconditions; ER11
+   should say the same for its own — a running Postgres, `.env.local` loaded, and
+   either `npm run dev` or `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H
+   127.0.0.1"` after `npx next build`. Without it, QA on a cold machine may read a
+   web-server timeout as a task failure.
+3. **The Approach's rationale for not exporting `SongFormCreateInput` /
+   `SongFormEditInput` is stale.** It says "knip reports unused exports", but
+   `knip.json` sets `"ignoreExportsUsedInFile": true`, so an export consumed by
+   `SongFormActions` in the same file would not be flagged. The decision to keep
+   them module-private is still fine; only the stated reason is wrong. Harmless,
+   but it is the kind of half-true constraint that gets copied into the next spec.
+4. **Consider naming the exported type import in Approach 4.** `SongForm.tsx`
+   currently does `import { CorrectionModal } from "./CorrectionModal"`, and
+   Approach 4 relies on `CorrectionModalProps["onSubmitCorrection"]`. The spec says
+   the type "must therefore be exported" but never shows the import line changing.
+   `tsc` will catch it immediately, so this costs one round trip at most.
+5. **`docs/plans/code-quality-review.md` is deliberately absent from ER12's
+   whitelist**, and the F21 close-out is correctly deferred to the "Post-merge
+   checks (orchestrator)" section. Flagging only so the implementer does not
+   helpfully update the review document and trip ER12's exact-subset assertion.
+
+
+## [RH-47] Inverter SongForm, CorrectionModal e useBandAdmin e proibir @/app/* no ESLint — 2026-09-07 (spec review 2)
+
+
+1. **ER11 still states no build/web-server precondition, unlike ER9 and ER10.** Both
+   playwright clauses need whatever `playwright.config.ts` starts (and `ssr-smoke` needs a
+   build to exist), while ER9 and ER10 spell their preconditions out. Carried over from
+   round 1, still non-blocking: an implementer who cannot start the server sees a hard
+   failure, not a false pass.
+2. **ER10's quoted baseline still reads `98.55 / 78.08 / 94.74 / 98.55`** while the audit
+   at L192-L194 derives only three ratios (statements 136/138, branches 57/73, functions
+   18/19). The fourth figure is inferred rather than measured. Harmless, because ER10's
+   actual gate is the floor (95 / 75 / 90 / 95), not the quoted baseline - but the prose
+   presents a derived number as an observed one.
+3. **ER4's phrasing "`grep -c "=> Promise<" ...` counts at least 8 members"** conflates a
+   line count with a member count. The check is still decidable (the printed number must
+   be >= 8), so this is wording, not a gate defect.
+4. **RH-44 has now forced two specs in this decomposition to route around
+   `e2e/songs-crud.spec.ts`.** Whoever picks it up should start at `e2e/helpers.ts` (the
+   dialog-closed wait at L57 and the song-list visibility wait at L27) rather than the
+   three test bodies; one helper fix plausibly turns all three green.
+5. **The `git status --porcelain` scoping trap is generic to this repo.** QA runs before
+   the commit, so any spec asserting "the tree is clean" trips over the task's own
+   untracked spec file and the modified suggestions log. Worth one line in AGENTS.md under
+   Testing & quality - deliberately not added here, since ER12 pins this task's AGENTS.md
+   footprint to exactly one bullet.
+
+## [RH-47] Inverter SongForm, CorrectionModal e useBandAdmin e proibir @/app/* no ESLint — 2026-09-07 (code review 1)
+
+
+1. **The `grep -n "vi.mock"` ER shaped the test file.** ER8 counts `vi.mock` as a bare substring, which also matches `vi.mocked(...)`, so a perfectly good typed idiom had to be swapped for `as unknown as Mock` aliases to make the count come out right. Harmless here, but future specs should write the pattern as `grep -c "vi\.mock("` (or `^vi\.mock`) so the ER measures module mocks rather than incidental substrings, and the test author is free to use `vi.mocked`.
+2. **`src/store/repertoireStore.ts` still imports `@/app/actions/repertoire`.** `SongForm` no longer imports the App Router tree directly, but it still reaches it transitively through `useRepertoireStore().loadSongs`. The spec is explicit that `src/store` is out of the rule's `files` list and that inverting a store four pages share is a different change; worth carrying forward as a follow-up rather than losing, since F21's spirit is not fully satisfied while that edge exists.
+3. **The rule does not cover relative escapes.** `no-restricted-imports` `patterns` only matches the `@/app/*` alias form; `import { x } from "../../app/actions/bands"` inside `src/lib` would pass. I verified none exists today, so this is hardening, not a gap. If it is ever added, `["**/app/actions/**", "**/app/api/**"]` as an extra group would cover it without touching the existing entry.
+4. **`CorrectionModal`'s labels have no `htmlFor` and do not wrap their inputs.** That is what forced the new suite onto `getByDisplayValue` instead of `getByLabelText`, and it is a real accessibility gap for screen-reader users, not just a test inconvenience. Pre-existing and correctly out of scope here, but a small, contained fix worth logging.
+
+## [RH-47] Inverter SongForm, CorrectionModal e useBandAdmin e proibir @/app/* no ESLint — 2026-09-07 (QA 1)
+
+
+- ER3's tamper check is worded for a merge commit (`git status --porcelain -- src`
+  "prints nothing"). When the change under review is staged rather than
+  committed, that command necessarily lists the task's own staged files. A
+  future ER of this shape would be sharper as
+  `git status --porcelain -- src | grep rh47RuleProbe` printing nothing, which
+  states the actual property (no probe trace) independently of whether the change
+  is committed.
+- `src/app/profile/page.tsx` still carries the pre-existing
+  `react-hooks/set-state-in-effect` error at line 672. Out of scope for RH-47 and
+  correctly left alone, but it is the only lint error in this task's file set and
+  is worth its own task eventually.
+

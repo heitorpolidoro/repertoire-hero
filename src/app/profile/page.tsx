@@ -17,6 +17,7 @@ import { AlertBanner } from "@/components/ui/AlertBanner";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
 import { Toast } from "@/components/ui/Toast";
 import { useToast } from "@/hooks/useToast";
+import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";
 import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BAND_PROFILE_LOAD_POLICY } from "@/lib/bandAdminLoad";
 import type { Profile } from "@/types/database";
@@ -37,6 +38,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
 
   const bandAdmin = useBandAdmin({
     bandId,
+    actions: BAND_ADMIN_ACTIONS,
     showToast,
     onNotFound: () => setError("Band not found."),
     loadPolicy: BAND_PROFILE_LOAD_POLICY,
