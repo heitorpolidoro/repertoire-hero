@@ -25,8 +25,7 @@ const SESSION_RESOLVING_HELPERS: Record<string, string> = {
   resolveOwner: 'src/app/actions/repertoire.ts',
   // playlists.ts — an exported action that itself calls getRequiredUserId()
   // before delegating to getPlaylistDetailsWithEntries(), which is where both
-  // authorization checks now live (RH-45); getPlaylistEntryIdsAction is a thin
-  // delegate to it.
+  // authorization checks now live (RH-45).
   getPlaylistDetailsWithEntriesAction: 'src/app/actions/playlists.ts',
 }
 

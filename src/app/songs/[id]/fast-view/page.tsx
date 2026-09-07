@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { Repertoire, RepertoireTab, SongStatus, SongLink, Stroke, TabAnnotations } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { logger } from '@/lib/logger'
@@ -12,7 +12,15 @@ import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/hooks/useToast'
 import { stageViewportHeight, isStableViewportMeasurement } from '@/lib/stageInteraction'
-import { getPlaylistEntryIdsAction, getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
+import { slideOutClassName } from '@/lib/playlistNav'
+import { usePlaylistNav } from '@/hooks/usePlaylistNav'
+import { PLAYLIST_NAV_ACTIONS } from '@/app/fastViewNavActions'
+import { SetlistDrawer } from '@/components/fastview/SetlistDrawer'
+import { SetlistSidebar } from '@/components/fastview/SetlistSidebar'
+import { SetlistSelect } from '@/components/fastview/SetlistSelect'
+import { SetlistPill } from '@/components/fastview/SetlistPill'
+import { PlaylistPrevArrow } from '@/components/fastview/PlaylistPrevArrow'
+import { SwipeHint } from '@/components/fastview/SwipeHint'
 
 function parseLyricsMarkdown(text: string) {
   let html = text
@@ -92,6 +100,9 @@ type PendingDelete =
 export default function FastViewPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
+  const queryBandId = searchParams.get('bandId')
 
   const [entry, setEntry] = useState<Repertoire | null>(null)
   const [loading, setLoading] = useState(true)
@@ -150,21 +161,16 @@ export default function FastViewPage() {
   const [uploadDestination, setUploadDestination] = useState<'band' | 'personal'>('band')
   const [showUploadDestModal, setShowUploadDestModal] = useState(false)
 
-  // Playlist navigation state
-  const [playlistNav, setPlaylistNav] = useState<{
-    prevId: string | null
-    nextId: string | null
-    position: number
-    total: number
-    playlistId: string
-    playlistName: string
-  } | null>(null)
-  const [playlistEntries, setPlaylistEntries] = useState<
-    Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>
-  >([])
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const touchStartX = useRef<number | null>(null)
-  const [slideOut, setSlideOut] = useState<'left' | 'right' | null>(null)
+  // Playlist navigation: the setlist fetch, the drawer, the slide-out and every
+  // router push the setlist UI can trigger live in this controller (RH-48).
+  const playlist = usePlaylistNav({
+    currentRepertoireId: id,
+    returnTo,
+    bandId: queryBandId,
+    actions: PLAYLIST_NAV_ACTIONS,
+    navigate: (href) => router.push(href),
+    navigateBack: () => router.back(),
+  })
 
   // Mobile back button intercept for Stage Mode (lyrics or PDF)
   useEffect(() => {
@@ -287,9 +293,6 @@ export default function FastViewPage() {
 
     async function load() {
       try {
-        const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-        const queryBandId = params ? params.get('bandId') : null
-
         const [data, tabData] = await Promise.all([
           getSongEntry(id, queryBandId),
           getTabsAction(id).catch(() => [] as RepertoireTab[]),
@@ -324,28 +327,6 @@ export default function FastViewPage() {
                 if (!cancelled) setLoadingPersonal(false)
               })
             }
-
-            // Fetch playlist navigation if returnTo is a playlist
-            const params2 = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-            const returnTo = params2?.get('returnTo') ?? null
-            const playlistMatch = returnTo?.match(/^\/playlists\/([\w-]+)$/)
-            if (playlistMatch) {
-              const playlistId = playlistMatch[1]
-              getPlaylistDetailsWithEntriesAction(playlistId, queryBandId).then((details) => {
-                if (cancelled || details.entries.length === 0) return
-                setPlaylistEntries(details.entries)
-                const idx = details.entries.findIndex((e) => e.repertoireId === id)
-                if (idx === -1) return
-                setPlaylistNav({
-                  prevId: idx > 0 ? details.entries[idx - 1].repertoireId : null,
-                  nextId: idx < details.entries.length - 1 ? details.entries[idx + 1].repertoireId : null,
-                  position: idx + 1,
-                  total: details.entries.length,
-                  playlistId,
-                  playlistName: details.name,
-                })
-              }).catch(() => { /* nav is optional, ignore errors */ })
-            }
           }
         }
       } catch {
@@ -357,7 +338,7 @@ export default function FastViewPage() {
 
     load()
     return () => { cancelled = true }
-  }, [id])
+  }, [id, queryBandId])
 
   if (loading) {
     return (
@@ -662,174 +643,50 @@ export default function FastViewPage() {
     }
   }
 
-  // Playlist navigation helper
-  function navigateTo(repertoireId: string, direction: 'left' | 'right') {
-    const params = new URLSearchParams(window.location.search)
-    const returnTo = params.get('returnTo') ?? ''
-    const bandId = params.get('bandId') ?? ''
-    const qs = new URLSearchParams()
-    if (returnTo) qs.set('returnTo', returnTo)
-    if (bandId) qs.set('bandId', bandId)
-    setSlideOut(direction)
-    setTimeout(() => {
-      router.push(`/songs/${repertoireId}/fast-view?${qs.toString()}`)
-    }, 220)
-  }
-
   return (
     <>
       {/* Mobile Setlist Bottom Sheet Modal */}
-      {isDrawerOpen && playlistNav && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden">
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
-            onClick={() => setIsDrawerOpen(false)}
-          />
-          <div className="relative z-10 bg-white rounded-t-2xl max-h-[80vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2 min-w-0 pr-2">
-                <span className="text-base shrink-0">🎵</span>
-                <h3 className="font-bold text-gray-900 text-sm truncate" title={playlistNav.playlistName}>
-                  {playlistNav.playlistName}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsDrawerOpen(false)}
-                className="text-gray-400 hover:text-gray-600 text-sm font-bold p-1"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
-              {playlistEntries.map((item, idx) => {
-                const isCurrent = item.repertoireId === id
-                return (
-                  <button
-                    key={item.repertoireId}
-                    type="button"
-                    onClick={() => {
-                      setIsDrawerOpen(false)
-                      if (!isCurrent) {
-                        const targetIndex = idx
-                        const currentIndex = playlistEntries.findIndex((e) => e.repertoireId === id)
-                        const direction = targetIndex > currentIndex ? 'left' : 'right'
-                        navigateTo(item.repertoireId, direction)
-                      }
-                    }}
-                    className={`w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border ${
-                      isCurrent
-                        ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-xs'
-                        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className={`w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}`}>
-                        {idx + 1}.
-                      </span>
-                      <div className="min-w-0 truncate">
-                        <p className="truncate font-medium">{item.title}</p>
-                        {item.artist && <p className="text-[11px] text-gray-400 truncate">{item.artist}</p>}
-                      </div>
-                    </div>
-                    {isCurrent && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
-                        ▶ NOW
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      <SetlistDrawer
+        open={playlist.isDrawerOpen}
+        nav={playlist.nav}
+        entries={playlist.entries}
+        currentRepertoireId={id}
+        onClose={playlist.closeDrawer}
+        onSelect={playlist.selectEntry}
+      />
 
-      {/* Desktop: Side Arrow Navigation Buttons */}
-      {playlistNav?.prevId && (
-        <button
-          type="button"
-          onClick={() => navigateTo(playlistNav.prevId!, 'right')}
-          className="fixed left-4 top-1/2 -translate-y-1/2 z-30 hidden lg:flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-lg text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:shadow-emerald-100 transition-all focus:outline-none"
-          aria-label="Previous song"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      )}
+      {/* Desktop: Side Arrow Navigation Button (previous only, by design) */}
+      <PlaylistPrevArrow prevId={playlist.nav?.prevId ?? null} onNavigate={playlist.goPrev} />
 
       {/* Two-Column Desktop / One-Column Mobile Layout */}
       <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
         <div className="flex-1 overflow-x-hidden min-w-0">
           <main
-            className={`min-h-screen px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out ${
-              slideOut === 'left' ? '-translate-x-full' : slideOut === 'right' ? 'translate-x-full' : 'translate-x-0'
-            }`}
-            onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
-            onTouchEnd={(e) => {
-              if (touchStartX.current === null) return
-              const delta = touchStartX.current - e.changedTouches[0].clientX
-              touchStartX.current = null
-              if (Math.abs(delta) < 60) return
-              if (delta > 0 && playlistNav?.nextId) navigateTo(playlistNav.nextId, 'left')
-              if (delta < 0 && playlistNav?.prevId) navigateTo(playlistNav.prevId, 'right')
-            }}
+            className={slideOutClassName(playlist.slideOut)}
+            onTouchStart={(e) => playlist.onTouchStart(e.touches[0].clientX)}
+            onTouchEnd={(e) => playlist.onTouchEnd(e.changedTouches[0].clientX)}
           >
             {/* Back button + mobile setlist trigger pill */}
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  const params = new URLSearchParams(window.location.search)
-                  const returnTo = params.get('returnTo')
-                  if (returnTo) {
-                    router.push(returnTo)
-                  } else {
-                    router.back()
-                  }
-                }}
+                onClick={playlist.goBack}
                 className="text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
                 aria-label="Back"
               >
                 &larr; Back
               </button>
 
-              {playlistNav && (
-                <button
-                  type="button"
-                  onClick={() => setIsDrawerOpen(true)}
-                  className="lg:hidden flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                >
-                  <span>🎵</span>
-                  <span>Setlist ({playlistNav.position}/{playlistNav.total})</span>
-                </button>
-              )}
+              <SetlistPill nav={playlist.nav} onOpen={playlist.openDrawer} />
             </div>
 
       {/* Mobile / Tablet Select dropdown for fast playlist navigation */}
-      {playlistNav && playlistEntries.length > 0 && (
-        <div className="lg:hidden">
-          <select
-            value={id}
-            onChange={(e) => {
-              const targetId = e.target.value
-              if (targetId === id) return
-              const targetIndex = playlistEntries.findIndex((item) => item.repertoireId === targetId)
-              const currentIndex = playlistEntries.findIndex((item) => item.repertoireId === id)
-              const direction = targetIndex > currentIndex ? 'left' : 'right'
-              navigateTo(targetId, direction)
-            }}
-            className="w-full text-xs font-semibold bg-white text-gray-700 border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-xs truncate"
-          >
-            {playlistEntries.map((item, idx) => (
-              <option key={item.repertoireId} value={item.repertoireId}>
-                {idx + 1}. {item.title} {item.artist ? `- ${item.artist}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <SetlistSelect
+        nav={playlist.nav}
+        entries={playlist.entries}
+        currentRepertoireId={id}
+        onSelect={playlist.selectEntry}
+      />
 
       {/* Song identity */}
       <section aria-label="Song details" className="flex flex-col gap-3">
@@ -1358,72 +1215,17 @@ export default function FastViewPage() {
         </section>
       )}
       {/* Mobile / Tablet: Swipe hint strip (only when in a playlist) */}
-      {playlistNav && (
-        <div className="lg:hidden flex items-center justify-between px-1 text-[10px] text-gray-400 select-none pb-2">
-          <span>{playlistNav.prevId ? '← prev' : ''}</span>
-          <span className="font-semibold">{playlistNav.position} / {playlistNav.total}</span>
-          <span>{playlistNav.nextId ? 'next →' : ''}</span>
-        </div>
-      )}
+      <SwipeHint nav={playlist.nav} />
       </main>
     </div>
 
     {/* Dedicated Right Setlist Sidebar on Desktop (`lg:flex`) */}
-    {playlistNav && playlistEntries.length > 0 && (
-      <aside className="w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen overflow-y-auto hidden lg:flex flex-col z-20">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white z-10 shadow-2xs">
-              <div className="flex items-center gap-2 min-w-0 pr-2">
-                <span className="text-base shrink-0">🎵</span>
-                <h3 className="font-bold text-gray-900 text-sm truncate" title={playlistNav.playlistName}>
-                  {playlistNav.playlistName}
-                </h3>
-              </div>
-          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-            {playlistNav.position} / {playlistNav.total}
-          </span>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
-          {playlistEntries.map((item, idx) => {
-            const isCurrent = item.repertoireId === id
-            return (
-              <button
-                key={item.repertoireId}
-                type="button"
-                onClick={() => {
-                  if (!isCurrent) {
-                    const targetIndex = idx
-                    const currentIndex = playlistEntries.findIndex((e) => e.repertoireId === id)
-                    const direction = targetIndex > currentIndex ? 'left' : 'right'
-                    navigateTo(item.repertoireId, direction)
-                  }
-                }}
-                className={`w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border ${
-                  isCurrent
-                    ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-xs ring-1 ring-emerald-400/20'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100 hover:border-gray-200'
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className={`w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}`}>
-                    {idx + 1}.
-                  </span>
-                  <div className="min-w-0 truncate">
-                    <p className="truncate font-medium">{item.title}</p>
-                    {item.artist && <p className="text-[11px] text-gray-400 truncate">{item.artist}</p>}
-                  </div>
-                </div>
-                {isCurrent && (
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
-                    ▶ NOW
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </aside>
-    )}
+    <SetlistSidebar
+      nav={playlist.nav}
+      entries={playlist.entries}
+      currentRepertoireId={id}
+      onSelect={playlist.selectEntry}
+    />
   </div>
     {/* Stage Mode (Full Screen Lyrics) */}
     {isStageMode && displayedLyrics && (

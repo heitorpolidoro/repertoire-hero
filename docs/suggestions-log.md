@@ -3126,3 +3126,152 @@ None.
 None. The change is documentation-only and every gate reproduces the `201a090`
 baseline exactly.
 
+
+## [RH-48] Fast View parte 1/5: extrair navegacao de playlist e UI de setlist — 2026-09-07 (spec review 1)
+
+
+1. **ER5's `export async function` count is stated relative to the baseline** ("prints
+   exactly one less than it printed at `c8665cd`"). It is verifiable (`git show
+   c8665cd:src/app/actions/playlists.ts | grep -c …`), but the absolute number is known
+   today: the file has **9** exported async functions, so the ER can simply say `8`.
+   Same for ER6's complexity clause, which already pins its absolute bound correctly.
+2. **ER10 and the coverage table's name truncation.** The v8 text reporter caps the File
+   column at ~15 characters (`spotifyPlaylistSync.ts` currently renders as
+   `...aylistSync.ts`). `playlistNav.ts` (14 chars) will render in full, but
+   `usePlaylistNav.ts` is 17 characters and will render truncated — a QA grepping the
+   table for the literal string `usePlaylistNav.ts` finds nothing. Either note the
+   truncated form in the ER or assert against
+   `npx vitest run --coverage --coverage.reporter=json-summary` (or `text` scoped with
+   `--coverage.include`), which prints untruncated paths.
+3. **ER7's jscpd bound is correct but tight.** 19 clones today, one of them inside the
+   page, and the extraction genuinely removes that pair (the drawer and sidebar rows both
+   become `SetlistRow` via `SetlistPanel`), so 18 is reachable. But jscpd runs over `src`
+   including `__tests__` at `minLines: 8` / `minTokens: 50`, and this task adds six new
+   test files whose fixtures (the entries array + the `PlaylistNav` object) are the exact
+   shape that trips it. Worth one sentence in the Approach telling the implementer to
+   share those fixtures rather than copy them, so the ER is not failed by test setup.
+   The "no reported clone whose two locations are both inside the page" half of the ER is
+   the substantive check and is well drafted.
+4. **ER11 writes the route marker as `f`**; `npx next build` prints `ƒ` (U+0192). The spec
+   body gets this right. Use the same glyph in the ER, or say "marked Dynamic
+   (server-rendered on demand)".
+5. **ER12's whitelist lists `.meridian/tasks.json`, which is gitignored** (`.gitignore:55`
+   is `.meridian/`), so it can never appear in `git diff --name-only`. Harmless in a
+   whitelist, but it invites the reader to think the task writes it. `AGENTS.md` is in the
+   same position: the Approach never edits it, and the Directory Structure block already
+   omits `src/components/tabs/`, `bands/` and `landing/`, so adding
+   `src/components/fastview/` without touching AGENTS.md is consistent with current
+   practice. Either drop both entries or say explicitly that AGENTS.md may optionally gain
+   the new directory row.
+6. **ER4 names one assertion without naming its test** ("a `SetlistPill` test asserting the
+   rendered label text matches `Setlist \(\d+/\d+\)`"). Every other assertion in ER2-ER4 is
+   anchored to an exact test name; giving this one a name too would keep the whole gate
+   greppable.
+7. **The `navigate` / `navigateBack` identity is unspecified.** Approach §5 passes fresh
+   arrow functions (`navigate: (href) => router.push(href)`) into `usePlaylistNav`, while §3
+   is explicit about why the *actions* object is module-level. `react-hooks/exhaustive-deps`
+   is on (via `eslint-config-next/core-web-vitals`) and ER6 requires the hook to lint
+   completely silently, so the hook must keep those callbacks out of its effect deps (a ref,
+   as `useBandAdmin` does). One line in §2 would remove the ambiguity.
+8. The spec says `grep -rn "getPlaylistEntryIdsAction" src` "returns five hits"; the raw
+   grep returns eight lines across five locations. Cosmetic, and ER5 asserts the
+   post-condition (`prints nothing`, exit 1) correctly.
+
+
+## [RH-48] Fast View parte 1/5: extrair navegacao de playlist e UI de setlist — 2026-09-07 (spec review 2)
+
+
+- `src/components/fastview/SetlistPanel.tsx` is the only one of the eleven new files with no dedicated test file in ER4; it is guarded solely by ER10's aggregate coverage floors. A short `SetlistPanel.test.tsx` would make the shared header/scroll-container extraction — which is half the point of removing the jscpd clone — explicit rather than incidental.
+- ER5's `grep -c "mode: '"` is coupled to the single-quote formatting convention in `actionSessionGuard.test.ts`. It holds for all 45 entries today, but a future reformat to double quotes would silently break the assertion rather than fail loudly. Worth a one-line note in the spec body so a later round does not have to rediscover why the quote is in the pattern.
+- ER7's parenthetical "(its line number shifts, because the page gains net new import lines above it)" is an explanation, not an assertion, and the enumerated rule + function name already pins the finding. Softening it to "its line number may shift" would avoid the parenthetical reading as wrong in the unlikely case the import edits net to zero lines, without weakening the gate.
+- The post-merge checks section is well aimed; consider also recording the post-RH-48 `grep -c "mode: '"` value in the RH-38 tracking notes, since RH-49..RH-52 have no further action deletions and any drift there would signal an out-of-scope edit.
+
+## [RH-48] Fast View parte 1/5: extrair navegacao de playlist e UI de setlist — 2026-09-07 (code review 1)
+
+
+### S1 — the drawer no longer closes when you tap the current ("▶ NOW") row
+
+`src/components/fastview/SetlistRow.tsx:34-36` fires `onSelect` only when
+`!isCurrent`, and `src/components/fastview/SetlistDrawer.tsx:48-51` puts
+`onClose()` *inside* that `onSelect` wrapper. The pre-RH-48 page did the
+opposite: the row's `onClick` called `setIsDrawerOpen(false)` unconditionally and
+only then guarded the navigation on `!isCurrent`
+(`page.tsx@c8665cd:713-722`). So on mobile, tapping the highlighted current song
+in the bottom sheet used to dismiss the sheet and now does nothing; the reader
+must use ✕ or the backdrop.
+
+This is exactly what the spec asks for (§4: `SetlistRow` "Calls
+`onSelect(entry.repertoireId)` only when `!isCurrent`"; `SetlistDrawer` "A row
+click calls `onClose()` and then `onSelect(id)`"), so it is not a defect against
+the specification and I am not blocking on it. If the intent was pure behaviour
+preservation, the minimal fix is to give the drawer's `SetlistPanel` a row-level
+close — e.g. have `SetlistRow` always invoke a callback and let the drawer decide
+— rather than routing the close through the `!isCurrent`-guarded `onSelect`.
+`SetlistDrawer.test.tsx` currently has no test for clicking the current row, so
+either behaviour would pass today.
+
+### S2 — the setlist fetch is now unconditional, where it used to depend on the song load
+
+At `c8665cd` the playlist fetch lived inside `load()`, in the `else` branch of
+`if (!data)`: no song entry, no nav request. `usePlaylistNav`'s effect
+(`src/hooks/usePlaylistNav.ts:80-100`) now runs in parallel with the entry load
+and independently of its outcome. The consequences are benign and arguably
+better — the nav resolves sooner, and on a not-found song the page early-returns
+before any setlist component renders (`page.tsx:343+`), so nothing extra is
+shown. Recording it because it is a real difference from the removed region, not
+because it needs changing.
+
+### S3 — the `useCallback`s in the hook are defeated by the page's inline `navigate`
+
+`page.tsx:171-172` passes `navigate: (href) => router.push(href)` and
+`navigateBack: () => router.back()` as fresh closures on every render. They are
+dependencies of `slideAwayTo` (`usePlaylistNav.ts:117`) and `goBack`
+(`:158`), which transitively re-creates `selectEntry`, `goPrev` and `onTouchEnd`
+on every render, so the memoization buys nothing today.
+
+Importantly this is *not* a correctness problem and there is **no refetch loop**:
+the load effect's dependency array is `[actions, bandId, currentRepertoireId,
+returnTo]` and `actions` is the module-level `PLAYLIST_NAV_ACTIONS`
+(`src/app/fastViewNavActions.ts:10-12`, the `bandAdminActions.ts` pattern
+verbatim), none of which changes per render. Wrapping the two callbacks in
+`useCallback` in the page — or defaulting them from a `useRouter` ref — would
+make the memoization real. Non-blocking; RH-52 owns that part of the page shell.
+
+### S4 — note for QA on ER10's per-file coverage rows
+
+`npm run test:coverage` passes (exit 0, no threshold error) with `All files` at
+statements 96.52, branches 82.07, functions 99.07, lines 96.97 — comfortably over
+ER10's 95 / 78 / 97 / 95. But the text reporter in this repo only prints rows for
+files below 100%, so **`playlistNav.ts` has no row at all** and ER10 cannot be
+read literally off the table. Verified instead from
+`coverage/coverage-final.json`: `src/lib/playlistNav.ts` is statements 100,
+branches 100, functions 100, lines 100. `src/hooks/usePlaylistNav.ts` does print
+a row: `98.27 | 93.75 | 100 | 100`, uncovered line 88 (the `if (cancelled)
+return` guard inside the resolved fetch).
+
+### S5 — AGENTS.md source map not extended
+
+The tree at `AGENTS.md:126-133` lists `src/components/{layout,profile,songs,ui}`
+and `src/hooks/{useToast,useBandAdmin}`; it now omits `src/components/fastview/`
+and `src/hooks/usePlaylistNav.ts`. This is pre-existing drift (`src/components/
+tabs/` is missing too) and ER12 does not require the edit — `AGENTS.md` is merely
+*permitted* in the changed-file set. Worth two lines when RH-38 integrates the
+five parts.
+
+### S6 — pre-existing open-redirect surface, unchanged
+
+`backTarget` (`src/lib/playlistNav.ts:134-138`) returns whatever `returnTo` the
+query string carries and the page hands it straight to `router.push`. That is
+byte-for-byte the pre-RH-48 behaviour, so this task introduces nothing; but now
+that the decision is a named, tested pure function, a same-origin check
+(`returnTo.startsWith('/') && !returnTo.startsWith('//')`) would be a two-line
+addition with an obvious test. Out of scope here.
+
+
+## [RH-48] Fast View parte 1/5: extrair navegacao de playlist e UI de setlist — 2026-09-07 (QA 1)
+
+
+- ER4's per-file minimums are met exactly at the floor for three of the four component test files (SetlistRow 5/5, SetlistDrawer 5/5, SetlistControls 10/10) and the total is exactly 24/24. Any future test removal in `src/components/fastview/__tests__/` drops below the contract with no margin; worth keeping in mind if these files are refactored.
+- `npm run lint:dup` reports exactly 18 clones against a ceiling of 18, and the `All files` branch coverage is 82.07 % against a floor of 78 %. Both are comfortable but the clone count in particular has zero headroom.
+- `src/app/songs/[id]/fast-view/page.tsx` still carries a `prefer-const` error, a `no-explicit-any` error and two `no-unused-vars` warnings (`uploadDestination`, `setUploadDestination`). These are pre-existing and explicitly permitted by ER7, but the unused upload-destination state pair looks like genuinely dead code that could be dropped in a follow-up.
+

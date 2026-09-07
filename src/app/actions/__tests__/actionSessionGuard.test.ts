@@ -69,7 +69,6 @@ import {
   removeSongFromPlaylistAction,
   getPlaylistWithSongsAction,
   getPlaylistDetailsWithEntriesAction,
-  getPlaylistEntryIdsAction,
 } from '../playlists'
 import { getProfileAction, updateProfileAction, updateEmailAction } from '../profile'
 import {
@@ -153,7 +152,6 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   removeSongFromPlaylistAction: { run: () => removeSongFromPlaylistAction(PLAYLIST_ID, SONG_ID), mode: 'throws' },
   getPlaylistWithSongsAction: { run: () => getPlaylistWithSongsAction(PLAYLIST_ID), mode: 'throws' },
   getPlaylistDetailsWithEntriesAction: { run: () => getPlaylistDetailsWithEntriesAction(PLAYLIST_ID, null), mode: 'throws' },
-  getPlaylistEntryIdsAction: { run: () => getPlaylistEntryIdsAction(PLAYLIST_ID, null), mode: 'throws' },
 
   // --- profile.ts ---
   getProfileAction: { run: () => getProfileAction(), mode: 'throws' },

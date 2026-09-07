@@ -33,7 +33,6 @@ import {
   removeSongFromPlaylistAction,
   getPlaylistWithSongsAction,
   getPlaylistDetailsWithEntriesAction,
-  getPlaylistEntryIdsAction,
 } from '../playlists'
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
@@ -174,13 +173,5 @@ describe('getPlaylistDetailsWithEntriesAction', () => {
     await expect(getPlaylistDetailsWithEntriesAction(PLAYLIST_ID, null)).rejects.toThrow(
       'Access denied',
     )
-  })
-})
-
-describe('getPlaylistEntryIdsAction', () => {
-  it('returns just the entries of the details payload, dropping the name', async () => {
-    vi.mocked(getPlaylistDetailsWithEntries).mockResolvedValue(DETAILS)
-
-    await expect(getPlaylistEntryIdsAction(PLAYLIST_ID, BAND_ID)).resolves.toEqual(DETAILS.entries)
   })
 })

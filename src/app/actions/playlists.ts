@@ -69,15 +69,3 @@ export async function getPlaylistDetailsWithEntriesAction(
   // same order: the playlist first, then the band owner context.
   return getPlaylistDetailsWithEntries(playlistId, userId, bandId)
 }
-
-/**
- * Returns an ordered list of repertoire entry IDs for a playlist,
- * matched against the given owner context (bandId or the current user).
- */
-export async function getPlaylistEntryIdsAction(
-  playlistId: string,
-  bandId?: string | null
-): Promise<PlaylistEntrySummary[]> {
-  const details = await getPlaylistDetailsWithEntriesAction(playlistId, bandId)
-  return details.entries
-}
