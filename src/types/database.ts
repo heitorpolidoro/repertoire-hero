@@ -90,6 +90,13 @@ export interface Band {
   members?: BandMember[];
 }
 
+/** The minimal band shape the app chrome's context switcher renders (RH-46). */
+export interface BandOption {
+  id: string;
+  name: string;
+  color?: string | null;
+}
+
 export interface BandMember {
   id: string;
   band_id: string;

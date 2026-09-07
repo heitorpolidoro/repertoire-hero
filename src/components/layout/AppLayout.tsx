@@ -5,17 +5,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
-import { getBandsAction } from '@/app/actions/bands';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
 import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
-
-interface Band {
-  id: string;
-  name: string;
-  role: 'admin' | 'member';
-  color?: string | null;
-}
+import type { BandOption } from '@/types/database';
 
 interface NavItem {
   label: string;
@@ -33,13 +26,15 @@ const NAV_ITEMS: NavItem[] = [
 
 interface AppLayoutProps {
   children: React.ReactNode;
+  bands: BandOption[];
 }
 
 interface ContextSwitcherProps {
   isBandMode: boolean;
+  bands: BandOption[];
 }
 
-function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
+function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
   const router = useRouter();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -47,28 +42,10 @@ function ContextSwitcherComponent({ isBandMode }: ContextSwitcherProps) {
   const loadSongs = useRepertoireStore((s) => s.loadSongs);
 
   const [mounted, setMounted] = useState(false);
-  const [bands, setBands] = useState<Band[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
-
-  useEffect(() => {
-    getBandsAction().then((b) => {
-      const fetchedBands = b as unknown as Band[];
-      setBands(fetchedBands);
-      const currentCtx = useBandContextStore.getState().context;
-      if (currentCtx.type === 'band') {
-        const activeBand = fetchedBands.find((x) => x.id === currentCtx.id);
-        if (activeBand) {
-          const dbColor = activeBand.color ?? DEFAULT_BAND_COLOR;
-          if (currentCtx.color !== dbColor || currentCtx.name !== activeBand.name) {
-            useBandContextStore.getState().setBandContext(activeBand.id, activeBand.name, dbColor);
-          }
-        }
-      }
-    });
-  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -159,7 +136,7 @@ const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent),
   ssr: false,
 });
 
-export default function AppLayout({ children }: AppLayoutProps) {
+export default function AppLayout({ children, bands }: AppLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const context = useBandContextStore((s) => s.context);
@@ -232,7 +209,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           )}
         </div>
 
-        <ContextSwitcher isBandMode={isBandMode} />
+        <ContextSwitcher isBandMode={isBandMode} bands={bands} />
 
         <ul className="flex-1 flex flex-col gap-1 px-3 py-4" role="list">
           {NAV_ITEMS.map((item) => (

@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import type { Repertoire, RepertoireTab, SongStatus, SongLink } from '@/types/database'
+import type { Repertoire, RepertoireTab, SongStatus, SongLink, Stroke, TabAnnotations } from '@/types/database'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { logger } from '@/lib/logger'
 import { getSongEntryAction as getSongEntry, updateLyricsAction, fetchLyricsAction, updateSongStatusAction, updateSongLinksAction, getPersonalEntryForSongAction, addSongAction, fetchUrlTitleAction } from '@/app/actions/repertoire'
-import { getTabsAction, uploadTabAction, deleteTabAction } from '@/app/actions/tabs'
+import { getTabsAction, uploadTabAction, deleteTabAction, getTabAnnotationsAction, saveTabAnnotationsAction } from '@/app/actions/tabs'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
 import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import { Toast } from '@/components/ui/Toast'
@@ -250,6 +250,37 @@ export default function FastViewPage() {
       window.history.back()
     }
   }
+
+  // ---- Stage Mode annotations: fetched here, handed to TabDrawingStage as props (RH-46) ----
+  // The payload is keyed by the tab it was loaded for, so reopening the stage
+  // for a different tab renders the loading state (a null annotations prop)
+  // until that tab's own fetch resolves — a stale payload can never be shown.
+  const [stageAnnotations, setStageAnnotations] = useState<
+    { tabId: string; data: TabAnnotations; error: string | null } | null
+  >(null)
+
+  useEffect(() => {
+    if (!isPdfStageMode || !activeTabId || !activeTabRepertoireId) return
+    let cancelled = false
+    getTabAnnotationsAction(activeTabId, activeTabRepertoireId).then((res) => {
+      if (cancelled) return
+      setStageAnnotations({ tabId: activeTabId, data: res.data ?? {}, error: res.error ?? null })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isPdfStageMode, activeTabId, activeTabRepertoireId])
+
+  const stageAnnotationsForTab =
+    stageAnnotations && stageAnnotations.tabId === activeTabId ? stageAnnotations : null
+
+  const handleSaveStageAnnotations = useCallback(
+    async (pageNumber: number, strokes: Stroke[]): Promise<{ success?: boolean; error?: string }> => {
+      if (!activeTabId || !activeTabRepertoireId) return { error: 'Tab not found' }
+      return saveTabAnnotationsAction(activeTabId, activeTabRepertoireId, pageNumber, strokes)
+    },
+    [activeTabId, activeTabRepertoireId],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -1510,9 +1541,10 @@ export default function FastViewPage() {
         </div>
         <TabDrawingStage
           key={activeTabId}
-          tabId={activeTabId}
-          repertoireId={activeTabRepertoireId}
           fileUrl={activeTabUrl}
+          annotations={stageAnnotationsForTab?.data ?? null}
+          annotationsError={stageAnnotationsForTab?.error ?? null}
+          onSaveAnnotations={handleSaveStageAnnotations}
         />
       </div>
     )}

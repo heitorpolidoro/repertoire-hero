@@ -2867,3 +2867,126 @@ None.
   and out of this task's whitelist (`vitest.config.ts` must not be touched here),
   but a candidate for a future chore.
 
+
+## [RH-46] Inverter TabDrawingStage e AppLayout para receber dados por props — 2026-09-07 (spec review 1)
+
+
+- ER4's `--include=*.tsx --include=*.ts` are unquoted globs. Under `zsh` — this repo's
+  interactive shell — the command aborts with `no matches found: --include=*.tsx` before
+  `grep` ever runs. Under `sh`/`bash` with default `nullglob` off it works, so QA is
+  probably fine, but quoting them (`--include='*.tsx'`) removes the shell dependency for
+  free while ER4 is being rewritten anyway.
+- ER5's tests 3 and 4 wait on an 800 ms real-timer debounce, and Testing Library's
+  `waitFor` defaults to a 1000 ms timeout — a 200 ms margin on a loaded CI box. Have the
+  spec call for `waitFor(..., { timeout: 2000 })` (or fake timers) so ER5 does not become
+  an intermittent failure.
+- ER5's sixth clause says the test asserts "`1` and the remaining strokes after
+  `unmount()`". "The remaining strokes" has no antecedent inside ER5 — QA sees only the
+  ERs, not the Approach's fixture. Spell it out the way the third clause does ("an array
+  holding exactly the first of the two stroke objects passed in through `annotations`").
+- ER7 leans on `grep -c "vi.mock"` without pinning the counts. State them (2 for the stage
+  suite, 3 for the layout suite); it costs a word and makes the check decidable without the
+  follow-up manual read.
+- `AppShell`'s `getBandsAction().then(...)` has no `.catch()`. This matches today's
+  `ContextSwitcher` behaviour so it is not a regression, but a client session that has
+  outlived its server session now produces an unhandled rejection from a *new* file. A
+  one-line `.catch(() => {})` (or a comment saying it is deliberate) would keep the new
+  code from inheriting the old smell.
+- After the rewrite, `saveState` can never be `'loading'` (initial is `'saved'` and nothing
+  assigns `'loading'`), so the `saveState === 'loading' ? 'Loading…'` arm of the existing
+  ternary at `TabDrawingStage.tsx:541` becomes dead, and `'loading'` becomes a dead member
+  of the `SaveState` union. Neither `tsc` nor eslint will complain; worth telling the
+  implementer to drop both rather than leave a misleading union.
+- `annotationsRef.current = annotations` followed by `annotationsRef.current[page] = next`
+  mutates, in place, the object the fast-view page holds in `stageAnnotations.data` state.
+  Behaviourally identical to today (nothing re-reads it, and the identity is stable so the
+  seeding effect will not re-fire), but a shallow copy in the seeding effect would make the
+  ownership honest for the same cost.
+- Post-merge note for the orchestrator, already anticipated by the spec: whatever ER4
+  becomes must be carried into RH-47's dispatch prompt, since `src/app/bands/page.tsx` will
+  still hold a `getBandsAction` import after RH-47 too — that page is App Router code and
+  is *supposed* to import an action.
+
+## [RH-46] Inverter TabDrawingStage e AppLayout para receber dados por props — 2026-09-07 (spec review 2)
+
+
+- ER4 pipes through `sort` and then lists the three paths in C-collation order
+  (`AppShell.tsx` before `actions/bands.ts`, because uppercase `A` sorts before lowercase
+  `a`). This environment has `LC_COLLATE=C`, so the listed order is what QA will see here,
+  but under a UTF-8 locale `sort` collates case-insensitively and would put
+  `src/app/actions/bands.ts` first. ER2 defuses the same hazard with an explicit
+  "(order is not significant)"; ER4 could either borrow that parenthetical or pin
+  `LC_ALL=C sort`. Not blocking — "prints exactly these three paths and nothing else"
+  reads as a set assertion, and the set is order-independent.
+- `grep -c` counts matching *lines*, not occurrences, so the expected `2` for
+  `src/app/AppShell.tsx` is really a claim about the shape in Approach §2 (single-line
+  import plus one call) rather than about a property of the file. It holds for the code
+  block as written; an implementer who split the import across lines would still get `2`,
+  but one who added a second call site would fail a check that is not really about call
+  sites. Consider phrasing it as "at least 1, and the only two mentions are the import and
+  the fetch call" if the exactness ever bites.
+- ER4 establishes `AppLayout.tsx`'s absence only negatively, via the `-rl` path list. An
+  explicit `grep -c "getBandsAction" src/components/layout/AppLayout.tsx` exiting 1 would
+  state the task's central outcome directly rather than by omission. Redundant with ER2's
+  `@/app/` grep, so purely cosmetic.
+
+## [RH-46] Inverter TabDrawingStage e AppLayout para receber dados por props — 2026-09-07 (code review 1)
+
+
+1. **`SaveState`'s `'loading'` member is now dead.**
+   `src/components/tabs/TabDrawingStage.tsx:34` still declares
+   `type SaveState = 'loading' | 'saving' | 'saved' | 'error'`, but no site calls
+   `setSaveState('loading')` any more — loading is now expressed by the derived
+   `annotationsLoaded`. That leaves the `saveState === 'loading' ? 'Loading…'` arm of the
+   `saveLabel` ternary at `src/components/tabs/TabDrawingStage.tsx:539` unreachable.
+   Dropping the union member and that arm would shorten an already-long ternary. Left as a
+   suggestion because removing it edits a line the eslint baseline is pinned against and
+   the gain is cosmetic.
+
+2. **The child mutates an object the parent holds in state.**
+   `src/components/tabs/TabDrawingStage.tsx:138` assigns the `annotations` prop object
+   itself into `annotationsRef.current`, and the stroke mutators then write
+   `annotationsRef.current[String(pageNumber)] = next` (L301, L315, L325) — which mutates
+   `stageAnnotations.data` inside the parent's state object in place. It is not a bug
+   today (the parent only ever reads `data` to pass it back down, and identity never
+   changes, so nothing re-renders off it), and the pre-image had the same aliasing
+   locally. But a future parent that memoises or diffs on `data` would silently see
+   mutated state. A shallow copy — `annotationsRef.current = { ...annotations }` — would
+   cost nothing and close it.
+
+3. **`bands` is not cleared when the session ends.**
+   `src/app/AppShell.tsx:35` returns early when `userId` is null without resetting the
+   `bands` state, so the previous user's band list survives a sign-out in memory until the
+   next user's fetch resolves. It is not observable — `AppLayout.tsx:156` renders only
+   children when there is no session, and `ContextSwitcher` is not mounted — and the old
+   mount-once effect was strictly worse here. Still, `else setBands([])` would make the
+   invariant local rather than depending on a guard two components away.
+
+4. **`stageAnnotations` is never cleared when Stage Mode closes.**
+   `src/app/songs/[id]/fast-view/page.tsx:258` keeps the payload after
+   `closePdfStageMode`, so reopening the *same* tab renders the previous payload
+   immediately rather than the loading state (the spec's prose at L366-368 claims null for
+   "the same tab after a close"). The observable result is better than the spec describes —
+   the user sees their own strokes instantly instead of a flash of "Loading…", and the
+   refetch still lands — so I would not change it, but the comment at L255-257 slightly
+   oversells the invariant and could say "a payload from a *different* tab can never be
+   shown".
+
+5. **Test-name precision.** `renders the page toolbar from props alone, with no annotation
+   fetch` (`src/components/tabs/__tests__/TabDrawingStage.test.tsx:83`) does not assert the
+   absence of a fetch; the absence is structural (no action module is imported, and a real
+   one would throw under jsdom). The ER pins this name verbatim so it should stay, but the
+   guarantee is worth a one-line comment in the test body for the next reader.
+
+6. **No test covers the band-context reconciliation now in `AppShell`.** The spec scopes
+   this out with a defensible rationale (verbatim move, outside the coverage universe,
+   equally untested inside `ContextSwitcher` before, covered end to end by
+   `e2e/ssr-smoke.spec.ts`), and I accept it. Noting it only because that reconciliation is
+   the one piece of real logic in the new file, and it would be cheap to pin once
+   `AppShell` ever grows a second concern.
+
+## [RH-46] Inverter TabDrawingStage e AppLayout para receber dados por props — 2026-09-07 (QA 1)
+
+
+None.
+

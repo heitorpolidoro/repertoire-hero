@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from '@vercel/analytics/next';
 import "./globals.css";
-import ConditionalLayout from "@/components/layout/ConditionalLayout";
+import AppShell from "@/app/AppShell";
 
 // All routes require authentication, so there is nothing useful to prerender —
 // disable static prerendering globally.
@@ -36,9 +36,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ConditionalLayout>
+        <AppShell>
           {children}
-        </ConditionalLayout>
+        </AppShell>
         <Analytics />
       </body>
     </html>

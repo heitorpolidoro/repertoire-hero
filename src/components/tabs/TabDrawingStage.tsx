@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Document, Page } from 'react-pdf'
 import '@/lib/pdfWorker'
-import { getTabAnnotationsAction, saveTabAnnotationsAction } from '@/app/actions/tabs'
 import type { Stroke, TabAnnotations } from '@/types/database'
 import {
   normalizePoint,
@@ -20,9 +19,15 @@ import {
 } from '@/lib/stageInteraction'
 
 interface TabDrawingStageProps {
-  tabId: string
-  repertoireId: string
   fileUrl: string
+  /** `null` while the parent is still loading them; `{}` for a tab with none. */
+  annotations: TabAnnotations | null
+  /** Load-failure message from the parent, rendered in the stage's own error panel. */
+  annotationsError?: string | null
+  onSaveAnnotations: (
+    pageNumber: number,
+    strokes: Stroke[],
+  ) => Promise<{ success?: boolean; error?: string }>
 }
 
 type Mode = 'pen' | 'erase' | 'pan'
@@ -55,7 +60,12 @@ interface PinchState {
   initialScrollTop: number
 }
 
-export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDrawingStageProps) {
+export default function TabDrawingStage({
+  fileUrl,
+  annotations,
+  annotationsError,
+  onSaveAnnotations,
+}: TabDrawingStageProps) {
   const stageContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -75,13 +85,18 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   const colorInputRef = useRef<HTMLInputElement>(null)
 
   const [strokes, setStrokes] = useState<Stroke[]>([])
-  const [saveState, setSaveState] = useState<SaveState>('loading')
+  const [saveState, setSaveState] = useState<SaveState>('saved')
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [localToast, setLocalToast] = useState<{ message: string } | null>(null)
 
-  const annotationsRef = useRef<TabAnnotations>({})
-  const annotationsLoadedRef = useRef(false)
-  const [annotationsLoaded, setAnnotationsLoaded] = useState(false)
+  const annotationsRef = useRef<TabAnnotations>(annotations ?? {})
+  const annotationsLoaded = annotations !== null
+
+  // The save callback is read through a ref at every call site so it never has
+  // to appear in a dependency array: a parent that re-creates it on each render
+  // must not restart the unmount-flush effect (which would fire a save early).
+  const onSaveRef = useRef(onSaveAnnotations)
+  useEffect(() => { onSaveRef.current = onSaveAnnotations }, [onSaveAnnotations])
 
   // Refs kept in sync purely so the final flush-on-unmount effect (whose
   // cleanup closure is captured once, at mount) can read the latest values
@@ -116,26 +131,12 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
     return () => clearTimeout(t)
   }, [localToast])
 
-  // ---- Load stored annotations once on mount ----
+  // ---- Seed the persistent model from the annotations the parent loaded ----
+  // Declared *before* the page-sync effect below so that on the commit where
+  // `annotations` first arrives, the ref is filled before `setStrokes` reads it.
   useEffect(() => {
-    let cancelled = false
-    getTabAnnotationsAction(tabId, repertoireId).then((res) => {
-      if (cancelled) return
-      if (res.data) {
-        annotationsRef.current = res.data
-      } else if (res.error) {
-        showLocalToast(res.error)
-      }
-      annotationsLoadedRef.current = true
-      setAnnotationsLoaded(true)
-      setSaveState('saved')
-    })
-    return () => {
-      cancelled = true
-    }
-    // Intentionally only depends on tabId/repertoireId — this loads the
-    // whole tab's annotations once, not per-page.
-  }, [tabId, repertoireId])
+    if (annotations !== null) annotationsRef.current = annotations
+  }, [annotations])
 
   // Sync the current page's strokes from the loaded annotations whenever
   // the page changes (or once loading completes for the initial page).
@@ -184,10 +185,10 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
         saveTimeoutRef.current = null
       }
       if (pendingSaveRef.current) {
-        void saveTabAnnotationsAction(tabId, repertoireId, pageNumberRef.current, strokesRef.current)
+        void onSaveRef.current(pageNumberRef.current, strokesRef.current)
       }
     }
-  }, [tabId, repertoireId])
+  }, [])
 
   function redraw() {
     const canvas = canvasRef.current
@@ -238,7 +239,7 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   // ---- Autosave: debounced, coalescing rapid consecutive strokes/erasures into one save ----
   function performSave(page: number, strokesToSave: Stroke[]) {
     setSaveState('saving')
-    saveTabAnnotationsAction(tabId, repertoireId, page, strokesToSave).then((res) => {
+    onSaveRef.current(page, strokesToSave).then((res) => {
       pendingSaveRef.current = false
       if (res.error) {
         setSaveState('error')
@@ -538,7 +539,7 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
   }
 
   const renderWidth = baseFitWidth > 0 ? baseFitWidth * zoomLevel : undefined
-  const saveLabel = saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : saveState === 'loading' ? 'Loading…' : 'Saved'
+  const saveLabel = !annotationsLoaded ? 'Loading…' : saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : saveState === 'loading' ? 'Loading…' : 'Saved'
 
   // The stage root below is the common ancestor of BOTH the drawing area and
   // the toolbar, and touch-action composes as the intersection down the
@@ -804,11 +805,12 @@ export default function TabDrawingStage({ tabId, repertoireId, fileUrl }: TabDra
         </div>
       )}
 
-      {/* Local error toast */}
-      {localToast && (
+      {/* Local error panel — a save failure (self-dismissing after 4 s) or the
+          parent's annotation load failure (which stays until it is resolved). */}
+      {(localToast || annotationsError) && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 w-[90%] max-w-sm pointer-events-none">
           <div className="rounded-xl px-4 py-3 shadow-xl border bg-red-950/90 text-red-100 border-red-800 text-xs font-semibold backdrop-blur-md">
-            {localToast.message}
+            {localToast?.message ?? annotationsError}
           </div>
         </div>
       )}
