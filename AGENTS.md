@@ -223,7 +223,10 @@ throws *and* for an `Error` with an empty message.
 
 **A2 — thin Server Actions.** Actions that only resolve the session and delegate to `src/lib`
 (e.g. `src/app/actions/profile.ts`, `src/app/actions/moderation.ts`) have **no** `try/catch` — they
-let the L1 wrapped error propagate. Do not add catches to them.
+let the L1 wrapped error propagate. Do not add catches to them. That the action layer holds no data
+access at all — no `query()` call and no `@/lib/db` import under `src/app/actions/*.ts`, and no
+hand-rolled `pg` client anywhere under `src/` outside `src/lib/db.ts` — is enforced mechanically by
+`src/app/actions/__tests__/actionDataAccessGuard.test.ts`.
 
 **R1 — route handlers (`src/app/api/**/route.ts`).** Log with the route path as the tag; return a
 fixed message plus `code`, never the raw exception text.

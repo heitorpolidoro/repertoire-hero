@@ -9,10 +9,9 @@ import {
   addSongToPlaylist,
   removeSongFromPlaylist,
   getPlaylistWithSongs,
-  assertPlaylistAccess,
+  getPlaylistDetailsWithEntries,
+  type PlaylistEntrySummary,
 } from '@/lib/playlists'
-import { assertBandMember } from '@/lib/bands'
-import { query } from '@/lib/db'
 import type { Playlist } from '@/types/database'
 
 export async function getUserPlaylistsAction(): Promise<Playlist[]> {
@@ -64,41 +63,11 @@ export async function getPlaylistWithSongsAction(id: string) {
 export async function getPlaylistDetailsWithEntriesAction(
   playlistId: string,
   bandId?: string | null
-): Promise<{
-  name: string
-  entries: Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>
-}> {
+): Promise<{ name: string; entries: PlaylistEntrySummary[] }> {
   const userId = await getRequiredUserId()
-  // Both ids are client-supplied: the playlist must be one the caller may read,
-  // and the owner context it is read under must be a band they belong to.
-  await assertPlaylistAccess(playlistId, userId)
-  if (bandId) await assertBandMember(bandId, userId)
-
-  const playlistRes = await query('SELECT name FROM playlists WHERE id = $1', [playlistId])
-  const name = (playlistRes.rows[0]?.name as string) ?? 'Playlist'
-
-  const sql = `
-    SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist
-    FROM playlist_songs ps
-    JOIN global_songs s ON s.id = ps.song_id
-    JOIN repertoire r ON r.song_id = ps.song_id
-      AND (
-        ($1::uuid IS NOT NULL AND r.band_id = $1::uuid)
-        OR
-        ($1::uuid IS NULL AND r.user_id = $2::uuid)
-      )
-    WHERE ps.playlist_id = $3
-    ORDER BY ps.position ASC
-  `
-  const res = await query(sql, [bandId ?? null, userId, playlistId])
-  const entries = res.rows.map((row) => ({
-    repertoireId: row.repertoire_id as string,
-    songId: row.song_id as string,
-    title: row.title as string,
-    artist: row.artist as string | null,
-  }))
-
-  return { name, entries }
+  // Both client-supplied ids are authorized inside the lib function, in the
+  // same order: the playlist first, then the band owner context.
+  return getPlaylistDetailsWithEntries(playlistId, userId, bandId)
 }
 
 /**
@@ -108,7 +77,7 @@ export async function getPlaylistDetailsWithEntriesAction(
 export async function getPlaylistEntryIdsAction(
   playlistId: string,
   bandId?: string | null
-): Promise<Array<{ repertoireId: string; songId: string; title: string; artist: string | null }>> {
+): Promise<PlaylistEntrySummary[]> {
   const details = await getPlaylistDetailsWithEntriesAction(playlistId, bandId)
   return details.entries
 }

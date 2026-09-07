@@ -1,8 +1,15 @@
 'use server'
 
 import { getRequiredUserId } from '@/lib/auth-session'
-import { query } from '@/lib/db'
 import { assertRepertoireAccess } from '@/lib/songs'
+import {
+  createTab,
+  getTabFileUrl,
+  deleteTab,
+  getTabAnnotations,
+  saveTabAnnotations,
+  listTabs,
+} from '@/lib/tabs'
 import { put, del } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
 import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
@@ -20,6 +27,8 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
       return { error: 'Missing required fields' }
     }
 
+    // Asserted here as well as inside `createTab`: without it the blob upload
+    // below would happen before the caller is known to be entitled to it.
     await assertRepertoireAccess(repertoireId, userId)
 
     // Max 10MB
@@ -51,18 +60,10 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
       contentType: 'application/pdf',
     })
 
-    const publicUrl = blob.url
-
-    // Save to Database
-    const { rows } = await query(
-      `INSERT INTO repertoire_tabs (repertoire_id, title, file_url)
-       VALUES ($1, $2, $3)
-       RETURNING id, repertoire_id, title, file_url, created_at::text as created_at`,
-      [repertoireId, title, publicUrl]
-    )
+    const tab = await createTab(repertoireId, userId, title, blob.url)
 
     revalidatePath('/')
-    return { data: rows[0] as RepertoireTab }
+    return { data: tab }
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined
     return { error: message || 'An unexpected error occurred during upload' }
@@ -72,28 +73,19 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
 export async function deleteTabAction(tabId: string, repertoireId: string): Promise<{ success?: boolean; error?: string }> {
   try {
     const userId = await getRequiredUserId()
+    // Same reason as the upload: the blob deletion below must not precede the
+    // authorization check.
     await assertRepertoireAccess(repertoireId, userId)
 
-    // Get tab details to retrieve the file URL
-    const { rows: tabRows } = await query(
-      'SELECT file_url FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
-      [tabId, repertoireId]
-    )
-
-    if (tabRows.length === 0) {
+    const fileUrl = await getTabFileUrl(tabId, repertoireId, userId)
+    if (fileUrl === null) {
       return { error: 'Tab not found' }
     }
 
-    const fileUrl = tabRows[0].file_url
-    
     // Delete physical file from Vercel Blob directly using its public URL
     await del(fileUrl)
 
-    // Delete from DB
-    await query(
-      'DELETE FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
-      [tabId, repertoireId]
-    )
+    await deleteTab(tabId, repertoireId, userId)
 
     revalidatePath('/')
     return { success: true }
@@ -109,13 +101,9 @@ export async function getTabAnnotationsAction(
 ): Promise<{ data?: TabAnnotations; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    await assertRepertoireAccess(repertoireId, userId)
-    const { rows } = await query(
-      'SELECT annotations FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
-      [tabId, repertoireId]
-    )
-    if (rows.length === 0) return { error: 'Tab not found' }
-    return { data: rows[0].annotations as TabAnnotations }
+    const annotations = await getTabAnnotations(tabId, repertoireId, userId)
+    if (annotations === null) return { error: 'Tab not found' }
+    return { data: annotations }
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined
     return { error: message || 'Failed to load annotations' }
@@ -130,28 +118,8 @@ export async function saveTabAnnotationsAction(
 ): Promise<{ success?: boolean; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    await assertRepertoireAccess(repertoireId, userId)
-    // Defensive validation: pageNumber gets folded directly into the
-    // jsonb_set path below, so reject anything that isn't a positive
-    // integer before it reaches SQL (avoids an opaque Postgres error on
-    // bad input, e.g. a stale/tampered client sending pageNumber: 0 or NaN).
-    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
-      return { error: 'Invalid page number' }
-    }
-    // jsonb_set writes/overwrites only this page's key, leaving every
-    // other page's strokes in the same row untouched.
-    // RETURNING id is required so the affected row count can be checked
-    // below — without it a non-matching tabId/repertoireId pair would
-    // silently no-op and this action would still report { success: true },
-    // masking a not-found case.
-    const { rows } = await query(
-      `UPDATE repertoire_tabs
-       SET annotations = jsonb_set(annotations, $3, $4::jsonb, true)
-       WHERE id = $1 AND repertoire_id = $2
-       RETURNING id`,
-      [tabId, repertoireId, `{${pageNumber}}`, JSON.stringify(strokes)]
-    )
-    if (rows.length === 0) return { error: 'Tab not found' }
+    const saved = await saveTabAnnotations(tabId, repertoireId, userId, pageNumber, strokes)
+    if (!saved) return { error: 'Tab not found' }
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined
@@ -161,15 +129,5 @@ export async function saveTabAnnotationsAction(
 
 export async function getTabsAction(repertoireId: string) {
   const userId = await getRequiredUserId()
-  await assertRepertoireAccess(repertoireId, userId)
-
-  const { rows } = await query(
-    `SELECT id, repertoire_id, title, file_url, created_at::text as created_at
-     FROM repertoire_tabs
-     WHERE repertoire_id = $1
-     ORDER BY created_at DESC`,
-    [repertoireId]
-  )
-
-  return rows as RepertoireTab[]
+  return listTabs(repertoireId, userId)
 }

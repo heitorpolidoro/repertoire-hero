@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 import { getRequiredUserId } from '@/lib/auth-session'
-import { query } from '@/lib/db'
 import {
   getRepertoire,
   addSongToRepertoire,
@@ -14,11 +13,13 @@ import {
   updateSong,
   createAndAddSong,
   assertRepertoireAccess,
+  updateLyrics,
+  applySongLinkUpdate,
+  getPersonalEntryForSong,
   type RepertoireOwner,
   type SongUpdateInput,
 } from '@/lib/songs'
 import { assertBandMember } from '@/lib/bands'
-import { submitGlobalSongEdit } from '@/lib/moderation'
 import type { Repertoire, SongLink, SongStatus } from '@/types/database'
 
 async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
@@ -104,17 +105,7 @@ export async function createAndAddSongAction(
 
 export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  if ('bandId' in owner) {
-    await query(
-      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND band_id = $3',
-      [lyrics, repertoireId, owner.bandId]
-    )
-  } else {
-    await query(
-      'UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND user_id = $3',
-      [lyrics, repertoireId, owner.userId]
-    )
-  }
+  await updateLyrics(owner, repertoireId, lyrics)
   revalidatePath('/')
 }
 
@@ -138,10 +129,9 @@ export async function fetchLyricsAction(artist: string, title: string): Promise<
 
 /**
  * Writes to the shared `global_songs.links` catalog on behalf of a repertoire
- * owner. Additive changes land directly (a musician adding a chords link
- * mid-rehearsal needs to see it now); removing or rewriting an existing link is
- * a correction to data everyone else sees, so it goes to the RH-15/RH-27
- * moderation queue and returns `pending` instead of writing.
+ * owner. The entry is what resolves the song id and what authorizes the caller,
+ * so `assertRepertoireAccess` stays here; the additive-vs-moderated decision
+ * and both statements live in `applySongLinkUpdate`.
  */
 export async function updateSongLinksAction(
   repertoireId: string,
@@ -150,65 +140,16 @@ export async function updateSongLinksAction(
   const userId = await getRequiredUserId()
   const { song_id: songId } = await assertRepertoireAccess(repertoireId, userId)
 
-  const songRes = await query(`SELECT links FROM global_songs WHERE id = $1`, [songId])
-  if (songRes.rowCount === 0) {
-    throw new Error('Song entry not found')
-  }
-
-  const { fetchUrlTitle } = await import('@/lib/linkFetcher')
-
-  const processedLinks = await Promise.all(
-    links.map(async (l) => {
-      if (!l.label || !l.label.trim()) {
-        const fetchedTitle = await fetchUrlTitle(l.url)
-        return { label: fetchedTitle || l.url, url: l.url }
-      }
-      return l
-    })
-  )
-
-  const currentLinks = (songRes.rows[0].links ?? []) as SongLink[]
-  const submittedUrls = new Set(processedLinks.map((l) => l.url))
-  const isAdditive = currentLinks.every((l) => submittedUrls.has(l.url))
-
-  if (!isAdditive) {
-    await submitGlobalSongEdit(userId, songId, { links: processedLinks })
-    return { success: true, pending: true }
-  }
-
-  await query(
-    `UPDATE global_songs SET links = $1 WHERE id = $2`,
-    [JSON.stringify(processedLinks), songId]
-  )
-
-  revalidatePath('/')
-  return { success: true }
+  const result = await applySongLinkUpdate(userId, songId, links)
+  // A queued edit changes nothing anyone can see yet, so nothing to revalidate.
+  if (!result.pending) revalidatePath('/')
+  return result
 }
 
 export async function getPersonalEntryForSongAction(songId: string): Promise<Repertoire | null> {
   try {
     const userId = await getRequiredUserId()
-    const res = await query(
-      `SELECT r.*,
-              json_build_object(
-                'id', s.id,
-                'contributor_id', s.contributor_id,
-                'title', s.title,
-                'artist', s.artist,
-                'album', s.album,
-                'standard_key', s.standard_key,
-                'cover_url', s.cover_url,
-                'duration_seconds', s.duration_seconds,
-                'links', s.links,
-                'created_at', s.created_at
-              ) as song
-       FROM repertoire r
-       JOIN global_songs s ON r.song_id = s.id
-       WHERE r.song_id = $1 AND r.user_id = $2`,
-      [songId, userId]
-    )
-    if (res.rowCount === 0) return null
-    return res.rows[0] as Repertoire
+    return await getPersonalEntryForSong(songId, userId)
   } catch {
     return null
   }

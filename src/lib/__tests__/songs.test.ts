@@ -8,8 +8,13 @@
  * and deletes all created resources in afterAll.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
+
+// RH-45 — `applySongLinkUpdate` auto-labels a blank link label through
+// `fetchUrlTitle`; the network is never touched from a test.
+vi.mock('@/lib/linkFetcher', () => ({ fetchUrlTitle: vi.fn() }))
+
 import {
   getRepertoire,
   addSongToRepertoire,
@@ -21,8 +26,17 @@ import {
   getSongEntry,
   updateSong,
   createAndAddSong,
+  updateLyrics,
+  applySongLinkUpdate,
+  getPersonalEntryForSong,
 } from '../songs'
-import type { SongStatus } from '@/types/database'
+import { createBand } from '../bands'
+import { fetchUrlTitle } from '@/lib/linkFetcher'
+import { query } from '@/lib/db'
+import type { SongLink, SongStatus } from '@/types/database'
+
+/** An id that is syntactically valid but matches nothing. */
+const MISSING_ID = '00000000-0000-0000-0000-000000000000'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 const skip = !SERVICE_ROLE_KEY
@@ -35,13 +49,21 @@ describe.skipIf(skip)('songs service integration tests', () => {
   const TEST_USER = { email: `test-songs-${suffix}@example.com` }
 
   let userId: string
+  // RH-45 — the band half of the `RepertoireOwner` fork `updateLyrics` takes.
+  let bandId: string
   const createdGlobalSongIds = new Set<string>()
 
   beforeAll(async () => {
     userId = await createTestUser(admin, { email: TEST_USER.email })
+    bandId = await createBand(userId, `Songs Band ${suffix}`, null, null)
+  })
+
+  beforeEach(() => {
+    vi.mocked(fetchUrlTitle).mockReset()
   })
 
   afterAll(async () => {
+    if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
     if (userId) {
       // Global songs first (contributor_id FK), then deleteTestUser cascades the rest
       if (createdGlobalSongIds.size > 0) {
@@ -354,5 +376,158 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(updated!.song!.cover_url).toBe(updateData.cover_url)
     expect(updated!.song!.duration_seconds).toBe(updateData.duration_seconds)
     expect(updated!.song!.links).toEqual(updateData.links)
+  })
+
+  // -------------------------------------------------------------------------
+  // RH-45 — the three statements moved out of src/app/actions/repertoire.ts.
+  // -------------------------------------------------------------------------
+
+  describe('updateLyrics', () => {
+    it('writes the lyrics of a personal entry', async () => {
+      const entry = await createAndAddSong(
+        { userId },
+        { title: `Lyrics Personal_${suffix}`, artist: 'Lyrics Artist' },
+      )
+      createdGlobalSongIds.add(entry.song_id)
+
+      await updateLyrics({ userId }, entry.id, 'verse one\nverse two')
+
+      const updated = await getSongEntry({ userId }, entry.id)
+      expect(updated!.lyrics).toBe('verse one\nverse two')
+    })
+
+    it('writes the lyrics of a band entry through the band_id branch', async () => {
+      const personalEntry = await createAndAddSong(
+        { userId },
+        { title: `Lyrics Band_${suffix}`, artist: 'Lyrics Artist' },
+      )
+      createdGlobalSongIds.add(personalEntry.song_id)
+
+      const bandEntry = await addSongToRepertoire({ bandId }, personalEntry.song_id)
+
+      await updateLyrics({ bandId }, bandEntry.id, 'band lyrics')
+
+      const updated = await getSongEntry({ bandId }, bandEntry.id)
+      expect(updated!.lyrics).toBe('band lyrics')
+      // The personal entry for the same song is untouched: the fork is real.
+      const personal = await getSongEntry({ userId }, personalEntry.id)
+      expect(personal!.lyrics).toBeNull()
+    })
+
+    it('silently no-ops on an id the owner does not match, as it always has', async () => {
+      await expect(updateLyrics({ userId }, MISSING_ID, 'nobody sees this')).resolves.toBeUndefined()
+    })
+  })
+
+  describe('getPersonalEntryForSong', () => {
+    it('returns the personal entry joined with its catalog song', async () => {
+      const entry = await createAndAddSong(
+        { userId },
+        { title: `Personal Entry_${suffix}`, artist: 'Entry Artist' },
+      )
+      createdGlobalSongIds.add(entry.song_id)
+
+      const found = await getPersonalEntryForSong(entry.song_id, userId)
+
+      expect(found).not.toBeNull()
+      expect(found!.id).toBe(entry.id)
+      expect(found!.song!.title).toBe(`Personal Entry_${suffix}`)
+    })
+
+    it('returns null when the user holds no personal entry for the song', async () => {
+      await expect(getPersonalEntryForSong(MISSING_ID, userId)).resolves.toBeNull()
+    })
+  })
+
+  describe('applySongLinkUpdate', () => {
+    const ORIGINAL: SongLink = { label: 'Chords', url: 'https://tabs.example/rh45' }
+    const ADDED: SongLink = { label: 'Video', url: 'https://youtu.be/rh45' }
+
+    /** A catalog song carrying `ORIGINAL`, tracked for cleanup. */
+    const songWithOriginalLink = async (label: string): Promise<string> => {
+      const entry = await createAndAddSong(
+        { userId },
+        { title: `${label}_${suffix}`, artist: 'Links Artist', links: [ORIGINAL] },
+      )
+      createdGlobalSongIds.add(entry.song_id)
+      return entry.song_id
+    }
+
+    const catalogLinks = async (songId: string): Promise<SongLink[]> => {
+      const res = await query('SELECT links FROM global_songs WHERE id = $1', [songId])
+      return res.rows[0].links as SongLink[]
+    }
+
+    const pendingEdits = async (songId: string) => {
+      const res = await query(
+        "SELECT proposed_data FROM global_song_edits WHERE song_id = $1 AND status = 'pending'",
+        [songId],
+      )
+      return res.rows
+    }
+
+    it('writes an additive change straight to the shared catalog', async () => {
+      const songId = await songWithOriginalLink('Links Additive')
+
+      await expect(applySongLinkUpdate(userId, songId, [ORIGINAL, ADDED])).resolves.toEqual({
+        success: true,
+      })
+
+      expect(await catalogLinks(songId)).toEqual([ORIGINAL, ADDED])
+      expect(await pendingEdits(songId)).toEqual([])
+    })
+
+    it('routes a removed link to the moderation queue and leaves the catalog alone', async () => {
+      const songId = await songWithOriginalLink('Links Removal')
+
+      await expect(applySongLinkUpdate(userId, songId, [])).resolves.toEqual({
+        success: true,
+        pending: true,
+      })
+
+      expect(await catalogLinks(songId)).toEqual([ORIGINAL])
+      expect(await pendingEdits(songId)).toEqual([{ proposed_data: { links: [] } }])
+    })
+
+    it('routes a rewritten url to the moderation queue too', async () => {
+      const songId = await songWithOriginalLink('Links Rewrite')
+      const rewritten: SongLink = { label: 'Chords', url: 'https://tabs.example/rh45-moved' }
+
+      await expect(applySongLinkUpdate(userId, songId, [rewritten])).resolves.toEqual({
+        success: true,
+        pending: true,
+      })
+
+      expect(await catalogLinks(songId)).toEqual([ORIGINAL])
+      expect(await pendingEdits(songId)).toEqual([{ proposed_data: { links: [rewritten] } }])
+    })
+
+    it('throws Song entry not found when the id matches no catalog row', async () => {
+      await expect(applySongLinkUpdate(userId, MISSING_ID, [ADDED])).rejects.toThrow(
+        'Song entry not found',
+      )
+    })
+
+    it.each([
+      ['a blank label', '', 'Fetched Title', 'Fetched Title'],
+      ['a whitespace-only label', '   ', 'Fetched Title', 'Fetched Title'],
+      ['a blank label the fetcher cannot resolve', '', '', ADDED.url],
+    ])('auto-labels %s through fetchUrlTitle', async (label, submitted, fetched, expected) => {
+      const songId = await songWithOriginalLink(`Links Autolabel ${label}`)
+      vi.mocked(fetchUrlTitle).mockResolvedValue(fetched)
+
+      await applySongLinkUpdate(userId, songId, [ORIGINAL, { label: submitted, url: ADDED.url }])
+
+      expect(fetchUrlTitle).toHaveBeenCalledWith(ADDED.url)
+      expect(await catalogLinks(songId)).toEqual([ORIGINAL, { label: expected, url: ADDED.url }])
+    })
+
+    it('leaves an already-labelled link alone instead of fetching a title for it', async () => {
+      const songId = await songWithOriginalLink('Links Labelled')
+
+      await applySongLinkUpdate(userId, songId, [ORIGINAL, ADDED])
+
+      expect(fetchUrlTitle).not.toHaveBeenCalled()
+    })
   })
 })

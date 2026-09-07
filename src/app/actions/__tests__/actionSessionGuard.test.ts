@@ -8,7 +8,10 @@
  * impossible to add an action without deciding how it fails closed.
  *
  * `@/lib/db` is mocked to throw: reaching the database at all without a session
- * is itself a failure, whatever the action returns afterwards.
+ * is itself a failure, whatever the action returns afterwards. Since RH-45 the
+ * actions reach `query` transitively, through `src/lib/*` — this mock
+ * intercepts that just the same, which is why it is the one action suite that
+ * still mocks the database module.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'

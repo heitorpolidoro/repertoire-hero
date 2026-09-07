@@ -23,8 +23,10 @@ const SESSION_RESOLVING_HELPERS: Record<string, string> = {
   // repertoire.ts — calls getRequiredUserId() and then assertBandMember() for
   // the band case; the nine repertoire actions all funnel through it.
   resolveOwner: 'src/app/actions/repertoire.ts',
-  // playlists.ts — an exported action that itself calls getRequiredUserId() and
-  // assertPlaylistAccess(); getPlaylistEntryIdsAction is a thin delegate to it.
+  // playlists.ts — an exported action that itself calls getRequiredUserId()
+  // before delegating to getPlaylistDetailsWithEntries(), which is where both
+  // authorization checks now live (RH-45); getPlaylistEntryIdsAction is a thin
+  // delegate to it.
   getPlaylistDetailsWithEntriesAction: 'src/app/actions/playlists.ts',
 }
 

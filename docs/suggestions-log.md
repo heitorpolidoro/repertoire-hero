@@ -2714,3 +2714,156 @@ beyond what the ERs require, which is a strength rather than a gap.)
 
 
 None.
+
+## [RH-45] Mover SQL das Server Actions para src/lib e usar o pool compartilhado na rota dev — 2026-09-07 (spec review 1)
+
+
+1. **ER5's import-line grep is over-specified.**
+   `grep -c "^import { assertRepertoireAccess } from '@/lib/songs'" src/lib/tabs.ts`
+   pins the exact import statement. Any legitimate variation (a second symbol
+   imported from `@/lib/songs`, a `type` modifier, a reformat) fails it while the
+   layering is still correct. `grep -c "assertRepertoireAccess.*@/lib/songs" src/lib/tabs.ts`
+   would be as strong for the same purpose.
+
+2. **ER9 asks for `listDevProfiles` to be stubbed inside the file that unit-tests
+   the real `listDevProfiles`.** ER9 wants the 200 case proven "when
+   `listDevProfiles` is stubbed to return that single row", while §8 wants the same
+   file to unit-test row mapping, empty result and the L1 wrapper on the real
+   function. That is solvable (`vi.mock` with `importOriginal`, or `vi.doMock` plus
+   a dynamic import of the route), but it is an avoidable constraint: the route's
+   delegation and the `{ id, email, full_name }` shape are equally provable by
+   stubbing `@/lib/db` underneath. Consider relaxing ER9 to "when the data source
+   `listDevProfiles` reads is stubbed to yield that single row".
+
+3. **ER2 and the guard disagree about comments.** ER2 greps the raw file, so a
+   comment in an action file that merely mentions `query(` fails ER2 while the new
+   guard (which strips comments first, §7) passes. Worth one sentence in §2/§4/§5
+   telling the implementer not to leave `query(` in a comment, or worth relaxing
+   ER2 to match the guard.
+
+4. **ER1's jscpd budget is tight and its percentage clause is ambiguous.** "at
+   most 21 clones" is +2 over the verified baseline of 19, for a change that adds
+   six near-identical lib functions and five test files — and `.jscpd.json` has
+   `path: ["src"]`, so the new test suites count. §1 already tells the implementer
+   how to avoid it (`runTabQuery`), but the budget deserves the same warning for
+   the *test* files. Separately, "a duplication percentage below 2 %" does not say
+   which of the five percentages the console table prints (css / json / tsx /
+   typescript / Total); today they are 0 / 0 / 1.29 / 0.71 / 0.96, so name the
+   `Total` row.
+
+5. **ER13's `git diff --name-only 059d4c3` does not list untracked files.** A new
+   file that is added but never `git add`-ed passes the blast-radius check
+   silently. Pairing it with `git status --porcelain` (or requiring the work to be
+   committed first) would close that hole. This weakens the gate; it does not fail
+   a correct implementation.
+
+6. **ER13's `0.1.72` pin assumes RH-45 merges before RH-46/RH-47.** As a child of
+   RH-37 (part 1 of 3) that is the intended order, but the "strictly greater than
+   `0.1.71-202609070848`" clause already does the work; the literal `0.1.72` prefix
+   only adds a way to fail. Same for the `git diff --name-only 059d4c3` baseline if
+   a sibling lands first.
+
+7. **The rationale given for `actionSessionGuard.test.ts` is wrong (harmlessly).**
+   §"Tests that break when the SQL moves" says its `@/lib/db` mock "keeps working
+   unchanged: the actions now reach `query` transitively through `src/lib/*`, and
+   `vi.mock('@/lib/db')` intercepts that too". In fact that suite mocks
+   `getRequiredUserId` to reject *unconditionally*, so the database is never
+   reached at all — the `@/lib/db` mock is a belt-and-braces assertion, not the
+   mechanism. The conclusion (no functional change needed) is right; only the
+   reason is.
+
+8. **`/api/dev/profiles` has two consumers, not one.** ER9 and §6 speak only of
+   "the login page". `src/app/login/page.tsx:27` **and**
+   `src/components/landing/LandingPage.tsx:28` both fetch it, each with its own
+   locally declared `DevProfile` interface. The payload is unchanged so neither
+   needs editing (and ER13 rightly forbids touching `src/components/`), but naming
+   both keeps the implementer from assuming a single call site.
+
+9. **`src/lib/__tests__/songs.test.ts` is a real-database integration suite.** §8
+   files the new `updateLyrics` (both owner branches) and `applySongLinkUpdate`
+   (five cases) tests there. Those are unit-shaped tests landing in a
+   `describe.skipIf(!SERVICE_ROLE_KEY)` file, which is what makes finding 2 bite on
+   ER11. If the intent is unit tests, a separate ungated file would be cleaner —
+   but it would need adding to the ER13 whitelist.
+
+10. **`updateSongLinksAction`'s declared return type narrows.** Today it is
+    annotated `Promise<{ success: boolean; pending?: boolean }>`; §4's snippet drops
+    the annotation and §3 types `applySongLinkUpdate` as
+    `Promise<{ success: true; pending?: true }>`. The narrowing is assignable so
+    `tsc` stays green and no caller breaks, but the spec claims "does not change
+    any action signature" — either keep the existing annotation on the action or
+    say the narrowing is intended.
+
+## [RH-45] Mover SQL das Server Actions para src/lib e usar o pool compartilhado na rota dev — 2026-09-07 (spec review 2)
+
+
+- ER1's per-file eslint list is now load-bearing for the pin. If a later task in
+  the RH-37 series changes lint output in any of those 13 files, this spec's pin
+  goes stale silently. A one-line note in the Post-merge checks section telling
+  the orchestrator to re-measure `npx eslint .` before starting RH-46/RH-47
+  would keep the sibling specs from inheriting a stale baseline.
+- ER8's phrase "without their assertions being weakened" is the only expected
+  result in the set that needs a human diff read rather than a command. It is
+  well scoped (three named existing cases in two named files), but stating it as
+  "`git diff 059d4c3 -- src/app/actions/__tests__/authzRepertoire.db.test.ts
+  src/app/actions/__tests__/authzPlaylists.db.test.ts` prints nothing" would
+  make it purely mechanical, if the implementation really does leave both files
+  untouched — note that neither file is in the ER13 whitelist today, which
+  suggests it does.
+- Approach 1's jscpd contingency ("factor the wrapper into one local
+  `runTabQuery` helper") is good, but ER1 pins "at most 21 clones" without
+  saying what the baseline clone count is. Quoting the baseline number the way
+  the eslint pin now quotes its baseline would let a verifier tell a genuine
+  regression from headroom being consumed.
+
+## [RH-45] Mover SQL das Server Actions para src/lib e usar o pool compartilhado na rota dev — 2026-09-07 (code review 1)
+
+
+1. `src/lib/tabs.ts:30` — `return await query(sql, params as never)`. `params` is
+   declared `unknown[]` and then cast through `never` to satisfy `query`'s
+   `any[]`. `never` is the widest possible lie here; `params: unknown[]` +
+   `params as unknown[] as any[]` is no better, so consider just typing the
+   helper parameter as the same `any[]` the module boundary already uses (with
+   the existing `eslint-disable-next-line @typescript-eslint/no-explicit-any`
+   pattern from `src/lib/db.ts:22`), or waiting for RH-40's typed helper. Purely
+   cosmetic — no runtime effect.
+2. `src/lib/songs.ts:449-457` and `src/lib/songs.ts:486-495` — `applySongLinkUpdate`
+   carries two byte-identical `catch` blocks (`Failed to update song links`).
+   They cannot be merged into one `try` without pulling `submitGlobalSongEdit`
+   inside the wrapper (which would break L1a), but a two-line local
+   `wrapLinkFailure(error): never` would state the message once. jscpd does not
+   flag it at the current min-token setting.
+3. `src/app/actions/__tests__/actionDataAccessGuard.test.ts:33` — `NEW_CLIENT`
+   is `/new Client\s*\(/`. It does not match `new pg.Client(`, `new  Client(`
+   (two spaces) or a namespaced re-export. `new\s+(?:\w+\.)?Client\s*\(` closes
+   those without weakening the concatenation trick that keeps the guard from
+   flagging itself.
+4. `src/lib/playlists.ts:302-305` — `getPlaylistDetailsWithEntries` gained an L1
+   wrapper (`Failed to fetch playlist details: <driver text>`) that the baseline
+   action did not have. This is correct per the `src/lib` convention and the
+   spec's Approach 5 implies it, but the spec's Approach 1 claims the tab
+   envelopes carry "the only user-visible text change in this task". Two further
+   text deltas exist for the same (good) reason: `Failed to update lyrics:` and
+   `Failed to fetch personal entry for song:`. Worth one line in the changelog /
+   post-merge note so the claim in the spec is not carried forward verbatim. No
+   caller matches on any of these strings (`grep` over `src/**` outside tests
+   finds no comparison against them), and `getPersonalEntryForSongAction` still
+   swallows everything into `null`, so nothing user-facing regresses.
+
+
+## [RH-45] Mover SQL das Server Actions para src/lib e usar o pool compartilhado na rota dev — 2026-09-07 (QA 1)
+
+
+- `npx next build` emits eight
+  `[Error [BetterAuthError]: You are using the default secret. Please set BETTER_AUTH_SECRET ...]`
+  lines during prerender. This is a pre-existing local-environment artifact: Next
+  loads `.env.production.local` ahead of `.env.local` for a production build, and
+  the secret is only set in the latter. It is unrelated to this change (no
+  auth-related file appears in `git diff --name-only 059d4c3`) and the build still
+  exits 0. Worth setting `BETTER_AUTH_SECRET` in `.env.production.local` so
+  future ER12-style checks read cleanly.
+- `vitest` prints a Vite config-loader deprecation warning on every run
+  (`ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1)`). Pre-existing
+  and out of this task's whitelist (`vitest.config.ts` must not be touched here),
+  but a candidate for a future chore.
+

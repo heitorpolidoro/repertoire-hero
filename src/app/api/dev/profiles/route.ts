@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { Client } from 'pg'
+import { listDevProfiles } from '@/lib/devProfiles'
+import { logger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,19 +17,13 @@ export async function GET() {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL })
   try {
-    await client.connect()
-    const { rows } = await client.query<{ id: string; email: string; name: string | null }>(
-      `SELECT id, email, name FROM "user" ORDER BY name`
-    )
+    return NextResponse.json(await listDevProfiles())
+  } catch (error) {
+    logger.error('[dev/profiles]', error instanceof Error ? error : undefined)
     return NextResponse.json(
-      rows.map((r) => ({ id: r.id, email: r.email, full_name: r.name }))
+      { error: 'Unexpected error listing dev profiles', code: 500 },
+      { status: 500 },
     )
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: message }, { status: 500 })
-  } finally {
-    await client.end()
   }
 }

@@ -1,5 +1,7 @@
 import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { fetchUrlTitle } from '@/lib/linkFetcher'
+import { submitGlobalSongEdit } from '@/lib/moderation'
 import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
 
 export type RepertoireOwner = { userId: string } | { bandId: string }
@@ -400,5 +402,130 @@ export async function createAndAddSong(
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to create and add song', err)
     throw new Error(err.message.includes('already in') ? err.message : `Failed to create and add song: ${err.message}`)
+  }
+}
+
+/**
+ * Writes the owner-scoped lyrics of one repertoire entry.
+ *
+ * Deliberately no `RETURNING id` row-count check: an id the owner does not
+ * match has always been a silent no-op here, and turning it into a "not found"
+ * throw would change behaviour the fast view relies on.
+ */
+export async function updateLyrics(
+  owner: RepertoireOwner,
+  repertoireId: string,
+  lyrics: string,
+): Promise<void> {
+  const isBand = 'bandId' in owner
+  const id = isBand ? owner.bandId : owner.userId
+  const sql = `
+    UPDATE repertoire
+    SET lyrics = $1
+    WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}
+  `
+  try {
+    await query(sql, [lyrics, repertoireId, id])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update lyrics', err, { repertoireId })
+    throw new Error(`Failed to update lyrics: ${err.message}`)
+  }
+}
+
+/**
+ * Applies a link edit to the shared `global_songs` catalog on behalf of a user
+ * who already proved a claim on a repertoire entry for the song.
+ *
+ * Additive changes land directly (a musician adding a chords link mid-rehearsal
+ * needs to see it now); removing or rewriting an existing link is a correction
+ * to data everyone else sees, so it goes to the RH-15/RH-27 moderation queue
+ * and reports `pending` instead of writing.
+ */
+export async function applySongLinkUpdate(
+  userId: string,
+  songId: string,
+  links: SongLink[],
+): Promise<{ success: true; pending?: true }> {
+  let songRes
+  try {
+    songRes = await query('SELECT links FROM global_songs WHERE id = $1', [songId])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update song links', err, { songId })
+    throw new Error(`Failed to update song links: ${err.message}`)
+  }
+
+  // Outside the wrapper (convention L1a): the UI shows this message verbatim.
+  if (songRes.rowCount === 0) throw new Error('Song entry not found')
+
+  const processedLinks = await Promise.all(
+    links.map(async (l) => {
+      if (!l.label || !l.label.trim()) {
+        const fetchedTitle = await fetchUrlTitle(l.url)
+        return { label: fetchedTitle || l.url, url: l.url }
+      }
+      return l
+    })
+  )
+
+  const currentLinks = (songRes.rows[0].links ?? []) as SongLink[]
+  const submittedUrls = new Set(processedLinks.map((l) => l.url))
+  const isAdditive = currentLinks.every((l) => submittedUrls.has(l.url))
+
+  if (!isAdditive) {
+    await submitGlobalSongEdit(userId, songId, { links: processedLinks })
+    return { success: true, pending: true }
+  }
+
+  try {
+    await query('UPDATE global_songs SET links = $1 WHERE id = $2', [
+      JSON.stringify(processedLinks),
+      songId,
+    ])
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to update song links', err, { songId })
+    throw new Error(`Failed to update song links: ${err.message}`)
+  }
+
+  return { success: true }
+}
+
+/**
+ * One user's personal repertoire entry for a catalog song, or `null`. The band
+ * half of `RepertoireOwner` has no equivalent here on purpose: the only caller
+ * is the fast view, which asks "does this song sit in *my* repertoire?".
+ */
+export async function getPersonalEntryForSong(
+  songId: string,
+  userId: string,
+): Promise<Repertoire | null> {
+  const sql = `
+    SELECT r.*,
+           json_build_object(
+             'id', s.id,
+             'contributor_id', s.contributor_id,
+             'title', s.title,
+             'artist', s.artist,
+             'album', s.album,
+             'standard_key', s.standard_key,
+             'cover_url', s.cover_url,
+             'duration_seconds', s.duration_seconds,
+             'links', s.links,
+             'created_at', s.created_at
+           ) as song
+    FROM repertoire r
+    JOIN global_songs s ON r.song_id = s.id
+    WHERE r.song_id = $1 AND r.user_id = $2
+  `
+  try {
+    const res = await query(sql, [songId, userId])
+    if (res.rowCount === 0) return null
+    return res.rows[0] as Repertoire
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch personal entry for song', err, { songId })
+    throw new Error(`Failed to fetch personal entry for song: ${err.message}`)
   }
 }

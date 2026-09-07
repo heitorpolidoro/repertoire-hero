@@ -1,3 +1,4 @@
+import { assertBandMember } from '@/lib/bands'
 import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { buildUpdateSet } from '@/lib/sqlUpdate'
@@ -241,5 +242,65 @@ export async function getPlaylistWithSongs(id: string, userId: string): Promise<
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch playlist with songs', err, { id })
     throw new Error(`Failed to fetch playlist with songs: ${err.message}`)
+  }
+}
+
+/** One playlist row as the fast view consumes it: the song, plus the repertoire
+ * entry that owner context holds for it. */
+export interface PlaylistEntrySummary {
+  repertoireId: string
+  songId: string
+  title: string
+  artist: string | null
+}
+
+/**
+ * A playlist's name plus its songs resolved against one owner context's
+ * repertoire, ordered by position — what the fast view needs to walk a setlist.
+ *
+ * Both ids are client-supplied, so both are authorized here: the playlist must
+ * be one the caller may read, and the owner context it is read under must be a
+ * band they belong to. The playlist check runs first, so an unrelated caller
+ * learns nothing about the band. The name read below is unscoped and is only
+ * safe because of it.
+ */
+export async function getPlaylistDetailsWithEntries(
+  playlistId: string,
+  userId: string,
+  bandId?: string | null,
+): Promise<{ name: string; entries: PlaylistEntrySummary[] }> {
+  await assertPlaylistAccess(playlistId, userId)
+  if (bandId) await assertBandMember(bandId, userId)
+
+  const sql = `
+    SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist
+    FROM playlist_songs ps
+    JOIN global_songs s ON s.id = ps.song_id
+    JOIN repertoire r ON r.song_id = ps.song_id
+      AND (
+        ($1::uuid IS NOT NULL AND r.band_id = $1::uuid)
+        OR
+        ($1::uuid IS NULL AND r.user_id = $2::uuid)
+      )
+    WHERE ps.playlist_id = $3
+    ORDER BY ps.position ASC
+  `
+  try {
+    const playlistRes = await query('SELECT name FROM playlists WHERE id = $1', [playlistId])
+    const name = (playlistRes.rows[0]?.name as string) ?? 'Playlist'
+
+    const res = await query(sql, [bandId ?? null, userId, playlistId])
+    const entries = res.rows.map((row) => ({
+      repertoireId: row.repertoire_id as string,
+      songId: row.song_id as string,
+      title: row.title as string,
+      artist: row.artist as string | null,
+    }))
+
+    return { name, entries }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch playlist details', err, { playlistId })
+    throw new Error(`Failed to fetch playlist details: ${err.message}`)
   }
 }

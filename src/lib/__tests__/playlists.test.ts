@@ -10,6 +10,18 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => adminTestClient,
 }))
 
+/**
+ * RH-45 — `query` becomes a pass-through spy over the real implementation, so
+ * every statement in this file still runs against Postgres. Only one case needs
+ * it: `getPlaylistDetailsWithEntries`' `?? 'Playlist'` fallback fires when the
+ * playlist row vanishes between the access check and the name read, which a
+ * real database cannot produce.
+ */
+vi.mock('@/lib/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/db')>()
+  return { ...actual, query: vi.fn(actual.query) }
+})
+
 // Import the module under test after vi.mock so the mock is applied
 import {
   getUserPlaylists,
@@ -19,7 +31,10 @@ import {
   addSongToPlaylist,
   removeSongFromPlaylist,
   getPlaylistWithSongs,
+  getPlaylistDetailsWithEntries,
 } from '../playlists'
+import { createBand } from '../bands'
+import { query } from '@/lib/db'
 
 describe.skipIf(skip)('playlists integration tests', () => {
   const suffix = Date.now()
@@ -277,5 +292,151 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(playlistWithSongs!.songs).toBeDefined()
     expect(playlistWithSongs!.songs!.length).toBe(1)
     expect(playlistWithSongs!.songs![0].song_id).toBe(songId)
+  })
+
+  // -------------------------------------------------------------------------
+  // RH-45 — the playlist detail read moved out of src/app/actions/playlists.ts,
+  // together with both of the authorization calls that used to sit above it.
+  // -------------------------------------------------------------------------
+
+  describe('getPlaylistDetailsWithEntries', () => {
+    let personalPlaylistId: string
+    let bandPlaylistId: string
+    let bandId: string
+    let foreignBandId: string
+    let firstSongId: string
+    let secondSongId: string
+
+    const insertSong = async (title: string, artist: string): Promise<string> => {
+      const res = await query(
+        'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+        [title, artist],
+      )
+      const id = res.rows[0].id as string
+      createdSongs.push(id)
+      return id
+    }
+
+    beforeAll(async () => {
+      firstSongId = await insertSong(`RH-45 Detail One ${suffix}`, 'Detail Artist')
+      secondSongId = await insertSong(`RH-45 Detail Two ${suffix}`, 'Other Artist')
+
+      bandId = await createBand(userAId, `RH-45 Detail Band ${suffix}`, null, null)
+      createdBands.push(bandId)
+      foreignBandId = await createBand(userBId, `RH-45 Foreign Band ${suffix}`, null, null)
+      createdBands.push(foreignBandId)
+
+      const personal = await query(
+        'INSERT INTO playlists (user_id, name) VALUES ($1, $2) RETURNING id',
+        [userAId, `RH-45 Personal Detail ${suffix}`],
+      )
+      personalPlaylistId = personal.rows[0].id as string
+      createdPlaylists.push(personalPlaylistId)
+
+      const band = await query('INSERT INTO playlists (band_id, name) VALUES ($1, $2) RETURNING id', [
+        bandId,
+        `RH-45 Band Detail ${suffix}`,
+      ])
+      bandPlaylistId = band.rows[0].id as string
+      createdPlaylists.push(bandPlaylistId)
+
+      // Deliberately inserted out of order: the read must sort by position.
+      for (const [playlistId, songId, position] of [
+        [personalPlaylistId, secondSongId, 2],
+        [personalPlaylistId, firstSongId, 1],
+        [bandPlaylistId, firstSongId, 1],
+      ] as const) {
+        await query(
+          'INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, $3)',
+          [playlistId, songId, position],
+        )
+      }
+
+      await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown')", [
+        userAId,
+        firstSongId,
+      ])
+      await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown')", [
+        userAId,
+        secondSongId,
+      ])
+      await query("INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown')", [
+        bandId,
+        firstSongId,
+      ])
+    })
+
+    it('returns the playlist name and its entries ordered by position, for a personal owner', async () => {
+      const details = await getPlaylistDetailsWithEntries(personalPlaylistId, userAId)
+
+      expect(details.name).toBe(`RH-45 Personal Detail ${suffix}`)
+      expect(details.entries.map((e) => e.songId)).toEqual([firstSongId, secondSongId])
+      expect(details.entries[0]).toEqual({
+        repertoireId: expect.any(String),
+        songId: firstSongId,
+        title: `RH-45 Detail One ${suffix}`,
+        artist: 'Detail Artist',
+      })
+      expect(details.entries[1].artist).toBe('Other Artist')
+    })
+
+    it('resolves the entries against the band repertoire when a bandId is supplied', async () => {
+      const details = await getPlaylistDetailsWithEntries(bandPlaylistId, userAId, bandId)
+
+      expect(details.name).toBe(`RH-45 Band Detail ${suffix}`)
+      expect(details.entries.map((e) => e.songId)).toEqual([firstSongId])
+
+      // The repertoire id is the *band's* row, not user A's own for that song.
+      const bandRow = await query(
+        'SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2',
+        [bandId, firstSongId],
+      )
+      expect(details.entries[0].repertoireId).toBe(bandRow.rows[0].id)
+    })
+
+    it('refuses a playlist the caller has no claim on, before reading anything', async () => {
+      await expect(getPlaylistDetailsWithEntries(personalPlaylistId, userBId)).rejects.toThrow(
+        'Access denied: not allowed on this playlist',
+      )
+    })
+
+    it('refuses a band owner context the caller does not belong to', async () => {
+      await expect(
+        getPlaylistDetailsWithEntries(personalPlaylistId, userAId, foreignBandId),
+      ).rejects.toThrow('Access denied: not a member of this band')
+    })
+
+    it('checks the playlist before the band, so an unrelated caller learns nothing about the band', async () => {
+      await expect(
+        getPlaylistDetailsWithEntries(personalPlaylistId, userBId, foreignBandId),
+      ).rejects.toThrow('Access denied: not allowed on this playlist')
+    })
+
+    it("falls back to the name 'Playlist' when the row disappears after the access check", async () => {
+      const passThrough = vi.mocked(query).getMockImplementation()!
+      vi.mocked(query)
+        // 1. assertPlaylistAccess — the real read, so authorization is genuine.
+        .mockImplementationOnce(passThrough)
+        // 2. the name read — the row is gone by the time it runs.
+        .mockImplementationOnce(async () => ({ rowCount: 0, rows: [] }) as never)
+
+      const details = await getPlaylistDetailsWithEntries(personalPlaylistId, userAId)
+
+      expect(details.name).toBe('Playlist')
+      expect(details.entries.map((e) => e.songId)).toEqual([firstSongId, secondSongId])
+    })
+
+    it('wraps a database failure in the L1 prefix', async () => {
+      const passThrough = vi.mocked(query).getMockImplementation()!
+      vi.mocked(query)
+        .mockImplementationOnce(passThrough)
+        .mockImplementationOnce(async () => {
+          throw new Error('connection lost')
+        })
+
+      await expect(getPlaylistDetailsWithEntries(personalPlaylistId, userAId)).rejects.toThrow(
+        'Failed to fetch playlist details: connection lost',
+      )
+    })
   })
 })
