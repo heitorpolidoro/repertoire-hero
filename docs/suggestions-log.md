@@ -3832,3 +3832,154 @@ this one:
   touched. It is outside RH-54's scope and correctly left alone; noting it only as a candidate for whatever
   follow-up continues the `any`-elimination work, since it is now one of only six remaining sites.
 
+
+## [RH-55] query tipado parte 2/5: validar o payload de moderacao — 2026-09-08 (spec review 1)
+
+
+- **ER7's "is 13 after this change" is correct, but consider stating the measurement
+  method.** I reproduced it: a probe copy of `moderation.ts` carrying the §3 rewrite
+  (parsed payload, `for (const [column, value] of Object.entries(payload))`, the
+  `if (setClauses.length > 0)` guard removed, the extra `||` clause in the catch
+  allowlist) reports `reviewGlobalSongEdit` at complexity **13** under the ESLint API,
+  with `submitGlobalSongEdit` 3, `checkSystemAdmin` 4, `getPendingGlobalSongEdits` 4 and
+  the `withTransaction` arrow at 1 — exactly the §4 table. Likewise a probe of the §1
+  validator reports `parseGlobalSongEditPayload` at **12** and every helper at 5 or less,
+  and `tsc --noEmit` exits 0 with the real module in place. No change needed; recording
+  the numbers here so a later round does not have to re-measure.
+
+- **`src/lib/sqlUpdate.ts` already owns dynamic `SET`-clause building.** RH-23 extracted
+  `buildUpdateSet(fields, columns, startIndex)` for `updateBand` and `updatePlaylist`; it
+  returns `{ setClauses, values, nextIndex }` and skips `undefined`. The approach in §3
+  hand-rolls a fourth copy of that loop. Reusing it would need no change to
+  `sqlUpdate.ts` (so ER11's whitelist still holds), would keep `npm run lint:dup` further
+  from ER7's 1.00% ceiling, and would make the column order explicit rather than relying
+  on `Object.entries` insertion order. Not blocking — the hand-rolled loop is correct and
+  the spec's justification for column-ordered construction is coherent.
+
+- **`Object.entries(payload)` re-widens to `any`.** `GlobalSongEditPayload` has no index
+  signature, so TypeScript picks the `entries(o: {}): [string, any][]` overload; `value`
+  in the §3 loop is `any`, which is why `values.push(Array.isArray(value) ? … : value)`
+  compiles against `(string | number | null)[]` at all. That is why my probe of the whole
+  shape exits 0 under `tsc --noEmit`, so no ER is at risk — but the narrowing F17 asks
+  for lives entirely in the validator, not in the loop. An explicit column list (or
+  `buildUpdateSet`) would carry the types through. Worth a note in the spec so a reader
+  does not over-read the typed `values` declaration.
+
+- **`links` validation now rejects URLs without an `http(s)` scheme, including ones
+  already stored in `global_songs`.** The `updateSongLinksAction` path
+  (`src/lib/songs.ts:477`) submits the *whole* post-edit list, built from
+  `songRes.rows[0].links`. There is no scheme validation anywhere upstream except the
+  browser's `type="url"` inputs (`SongForm.tsx:414,432,527`, `AddLinkForm.tsx:38`), which
+  accept `ftp:` and `mailto:` too. A legacy row holding a non-http link would make every
+  destructive link edit on that song fail with
+  `Invalid global song edit: links must be an array of {label, url} objects with http(s) urls`,
+  with no way for the user to recover. Consider either narrowing the rule to "a non-empty
+  string" for `links[].url`, or naming this as an accepted risk in Out of Scope.
+
+- **ER9's `Compiled successfully` is a substring, not the whole line.** Next 16.3.0 prints
+  `✓ Compiled successfully in 1309ms` (`.meridian/reports/RH-54-qa-1.md:374`). RH-54's QA
+  accepted the substring and logged exactly this note in `docs/suggestions-log.md:3827`.
+  Not blocking — the precedent is established — but "prints a line containing
+  `Compiled successfully`" would retire the note.
+
+- **ER9 does not restate the environment its Playwright run needs.** `playwright.config.ts`
+  has a `globalSetup` (`./e2e/global-setup.ts`) that creates an authenticated session, so
+  the run needs the same live database ER5 and ER8 spell out. QA sees only the ER list, so
+  ER9 reads as if a bare build were enough. (The `--project=chromium` RH-54's dev added is
+  *not* needed: the `mobile` project's `testMatch: '**/fast-view-mobile.spec.ts'` excludes
+  `ssr-smoke.spec.ts`, so the default run yields exactly the `4 passed` ER9 expects.)
+
+- **`package-lock.json` in ER11's whitelist is fine as written.** The list is permissive
+  ("paths drawn from this set"), so listing it costs nothing whether or not the version
+  bump touches the lockfile. No action.
+
+
+## [RH-55] query tipado parte 2/5: validar o payload de moderacao — 2026-09-08 (spec review 2)
+
+
+- Carried over from round 1, still non-blocking and still worth a line in the spec: the
+  `links[].url` rule (`/^https?:\/\/\S+$/i`) is stricter than anything upstream. The
+  `updateSongLinksAction` path (`src/lib/songs.ts:477`) resubmits the whole post-edit list
+  built from stored rows, so a legacy row holding e.g. an `ftp:` link would make every
+  destructive link edit on that song fail with no user-facing recovery. Either narrow the
+  rule to "a non-empty string" for `links[].url` or name it as an accepted risk in Out of
+  Scope. Not blocking: no expected result depends on it, and every link in the existing
+  test corpus is `https:`.
+- Carried over: `Object.entries(payload)` in §3 re-widens `value` to `any` (no index
+  signature on `GlobalSongEditPayload`), which is why `values.push(...)` typechecks
+  against `(string | number | null)[]`. The narrowing F17 asks for genuinely lives in the
+  validator, so no ER is at risk, but a one-line note would stop a reader over-reading the
+  typed `values` declaration. `src/lib/sqlUpdate.ts`'s `buildUpdateSet` remains the
+  alternative that would carry types through and keep `npm run lint:dup` further from
+  ER7's 1.00% ceiling.
+- Carried over: ER9 does not restate that its Playwright run needs the same live database
+  ER5 and ER8 spell out (`playwright.config.ts` has a `globalSetup` that creates an
+  authenticated session), and its `Compiled successfully` is a substring of Next 16's
+  `✓ Compiled successfully in NNNms` rather than a whole line. Both were accepted by
+  RH-54's QA under the same wording, so neither blocks.
+- From the round-2 revision report, and worth acting on outside this task: hoist the ER11
+  whitelist preamble (`AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/<id>-spec.md`,
+  `package.json`, `package-lock.json`) into AGENTS.md as a named convention. RH-55 lost
+  one of those five by hand-copying from RH-54; parts 3, 4 and 5 of RH-40 will each
+  rewrite the same list and can each lose one the same way.
+
+
+## [RH-55] query tipado parte 2/5: validar o payload de moderacao — 2026-09-08 (code review 1)
+
+
+1. **Three uncovered branches in the new module** (coverage points at
+   `src/lib/globalSongEditPayload.ts:35`, `:53`, `:73`): a title that is
+   non-empty after `trim()` but empties after `sanitizeSongTitle`
+   (e.g. `{ title: '(2017 Remaster)' }`), a whitespace-only `standard_key`
+   normalising to `null`, and a `links` array containing `null`
+   (`[null]` — the `value === null` arm of `isSongLink`). Each is one extra
+   `expect` in the existing table test; branch coverage is already 95.38% so
+   this is polish, not a gap in behaviour.
+2. **Non-http(s) links already in the catalog become unremovable.** The additive
+   write path (`src/lib/songs.ts:462-485`) still performs no URL validation, and
+   `AddLinkForm`'s `type="url"` accepts any absolute URL including
+   `javascript:` and `ftp:`. Once such a link exists on a global song, a later
+   *destructive* link edit submits the whole surviving set through
+   `submitGlobalSongEdit` and is now refused with
+   `Invalid global song edit: links must be an array of {label, url} objects with http(s) urls`,
+   so the user cannot remove any link from that song. This is a consequence the
+   spec chose knowingly (the http(s) rule is spec-mandated), and it is not a
+   regression this diff can be blamed for, but validating link URLs on the
+   additive path too — same regex, same module — would close the asymmetry.
+   Worth a follow-up task alongside the two the spec already lists.
+3. **Historical `links` stored as a JSON *string* can no longer be approved.**
+   The deleted block had a `typeof proposed.links === 'string' ? … : JSON.stringify(…)`
+   branch; the new validator rejects a string `links`. No writer in the repo
+   produces that shape (`submitGlobalSongEdit` stores the object verbatim, so
+   `links` stays an array in `jsonb`), so this looks like dead defensiveness
+   rather than a live case — but if any production row has it, the edit becomes
+   reject-only. A one-line check of `global_song_edits` in prod before merge
+   would settle it.
+4. **jscpd clone count went 18 → 19** (0.68% → 0.71%, still far under the 2%
+   threshold): the new
+   `rejects a historical proposed_data that no longer validates…` test
+   (`src/lib/__tests__/moderation.test.ts:294-309`) duplicates the
+   admin-check + edit-lookup mock setup at `:168-181`. Two clones of that same
+   block already existed, so this follows the file's convention; a small
+   `mockAdminAndPendingEdit(proposedData)` helper would retire all three.
+5. **The `fields` annotation at `src/lib/moderation.ts:124** leans on
+   `Object.entries` falling back to `[string, any][]` for an interface with no
+   index signature — the explicit
+   `Array<[string, string | number | null | SongLink[]]>` is therefore an
+   assertion in annotation clothing rather than a checked narrowing. It is sound
+   by construction (the payload is built field by field two files away), and it
+   avoids an `as` cast, but a half-line of comment saying *why* the annotation
+   is safe would keep a future reader from assuming the compiler verified it.
+
+## [RH-55] query tipado parte 2/5: validar o payload de moderacao — 2026-09-08 (QA 1)
+
+
+- ER9's quoted success string (`Compiled successfully`) is out of date for
+  Next.js 16 + Turbopack, which prints `✓ Compiled successfully in <n>ms`. Future
+  expected results for this repo may want the looser wording so the check does not
+  read as a mismatch.
+- `npm run lint:dup` now reports 19 clones (was 18); the new one is the pair of
+  `test-helpers.ts` blocks already flagged before this task, so it is not caused by
+  RH-55, but the duplicated-line total is drifting upward and is worth watching
+  against the 1.00% ceiling.
+

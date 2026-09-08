@@ -83,7 +83,6 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/hooks/useTabLibrary.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },
-  { name: "complexity-budget/override", files: ["src/lib/moderation.ts"], rules: { complexity: ["error", 19] } },
   { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { complexity: ["error", 21], "max-lines": ["error", 531] } },
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },

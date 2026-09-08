@@ -46,7 +46,7 @@ const BASE: Record<BudgetRule, number> = {
 
 // The override list is a ratchet. Lower this number when an override is
 // removed; never raise it.
-const MAX_OVERRIDES = 24
+const MAX_OVERRIDES = 23
 
 type ConfigEntry = {
   name?: string
@@ -110,7 +110,7 @@ describe('complexity budget (F20)', () => {
     })
   })
 
-  it('lists at most 24 per-file overrides, each naming a file that exists', async () => {
+  it('lists at most 23 per-file overrides, each naming a file that exists', async () => {
     const overrides = await loadOverrides()
 
     // `<=`, not `===`: fixing a file and deleting its override must not fail

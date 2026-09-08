@@ -1,7 +1,7 @@
 import { query, withTransaction } from '@/lib/db'
+import { parseGlobalSongEditPayload } from '@/lib/globalSongEditPayload'
 import { logger } from '@/lib/logger'
-import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
-import type { GlobalSongEdit } from '@/types/database'
+import type { GlobalSongEdit, SongLink } from '@/types/database'
 
 export async function submitGlobalSongEdit(
   userId: string,
@@ -13,6 +13,10 @@ export async function submitGlobalSongEdit(
     VALUES ($1, $2, $3, 'pending')
     RETURNING *
   `
+  // Outside the wrapper (convention L1a): the UI shows this message verbatim.
+  // Validation only — `proposed_data` is stored verbatim so the moderation queue
+  // keeps the requester's `reason` (see src/app/admin/moderation/page.tsx).
+  parseGlobalSongEditPayload(data)
   try {
     const res = await query<GlobalSongEdit>(sql, [songId, userId, JSON.stringify(data)])
     return res.rows[0]
@@ -112,60 +116,30 @@ export async function reviewGlobalSongEdit(
       return res.rows[0]
     }
 
-    // Action: approve
-    const proposed = edit.proposed_data as Record<string, unknown>
+    // Action: approve. The row was written by whoever submitted it, so its
+    // fields are narrowed before any of them reaches the catalog UPDATE.
+    const payload = parseGlobalSongEditPayload(edit.proposed_data)
+    // The payload only ever holds the seven `global_songs` column names, in
+    // column order, so interpolating a key as a SQL identifier is safe here.
+    const fields: Array<[string, string | number | null | SongLink[]]> = Object.entries(payload)
     const setClauses: string[] = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const values: any[] = []
-    let paramIndex = 1
+    const values: (string | number | null)[] = []
 
-    if (typeof proposed.title === 'string') {
-      setClauses.push(`title = $${paramIndex++}`)
-      values.push(sanitizeSongTitle(proposed.title))
-    }
-    if (typeof proposed.artist === 'string') {
-      setClauses.push(`artist = $${paramIndex++}`)
-      values.push(proposed.artist.trim())
-    }
-    if (proposed.album !== undefined) {
-      setClauses.push(`album = $${paramIndex++}`)
-      values.push(
-        typeof proposed.album === 'string'
-          ? sanitizeAlbumName(proposed.album)
-          : null
-      )
-    }
-    if (proposed.standard_key !== undefined) {
-      setClauses.push(`standard_key = $${paramIndex++}`)
-      values.push(proposed.standard_key)
-    }
-    if (proposed.cover_url !== undefined) {
-      setClauses.push(`cover_url = $${paramIndex++}`)
-      values.push(proposed.cover_url)
-    }
-    if (proposed.duration_seconds !== undefined) {
-      setClauses.push(`duration_seconds = $${paramIndex++}`)
-      values.push(proposed.duration_seconds)
-    }
-    if (proposed.links !== undefined) {
-      setClauses.push(`links = $${paramIndex++}`)
-      values.push(
-        typeof proposed.links === 'string'
-          ? proposed.links
-          : JSON.stringify(proposed.links)
-      )
+    for (const [column, value] of fields) {
+      setClauses.push(`${column} = $${values.length + 1}`)
+      values.push(Array.isArray(value) ? JSON.stringify(value) : value)
     }
 
     // Applying the edit and marking it reviewed are one unit: a catalog rewrite
     // whose edit stays `pending` gets applied twice by the next admin.
     return await withTransaction(async (client) => {
-      if (setClauses.length > 0) {
-        values.push(edit.song_id)
-        const updateSongSql = `UPDATE global_songs SET ${setClauses.join(
-          ', '
-        )} WHERE id = $${paramIndex}`
-        await client.query(updateSongSql, values)
-      }
+      // The validator guarantees at least one proposed column, so the SET list
+      // is never empty.
+      values.push(edit.song_id)
+      const updateSongSql = `UPDATE global_songs SET ${setClauses.join(
+        ', '
+      )} WHERE id = $${values.length}`
+      await client.query(updateSongSql, values)
 
       const updateEditSql = `
         UPDATE global_song_edits
@@ -180,6 +154,7 @@ export async function reviewGlobalSongEdit(
     const err = error instanceof Error ? error : new Error(String(error))
     if (
       err.message.startsWith('Access denied') ||
+      err.message.startsWith('Invalid global song edit') ||
       err.message === 'Global song edit not found' ||
       err.message === 'Edit request is already reviewed'
     ) {

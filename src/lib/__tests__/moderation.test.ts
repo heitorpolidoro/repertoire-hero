@@ -50,6 +50,14 @@ describe('moderation domain module', () => {
       )
     })
 
+    it('rejects an invalid payload at submission without touching the database', async () => {
+      await expect(
+        submitGlobalSongEdit('user-1', 'song-1', { duration_seconds: 'abc' })
+      ).rejects.toThrowError(new Error('Invalid global song edit: duration_seconds must be a non-negative integer or null'))
+
+      expect(query).not.toHaveBeenCalled()
+    })
+
     it('throws error when database query fails during submission', async () => {
       vi.mocked(query).mockRejectedValueOnce(new Error('DB failure'))
 
@@ -281,6 +289,35 @@ describe('moderation domain module', () => {
 
       // Check title was sanitized to 'Plush' and album to 'Core' in global_songs update query
       expect(query).toHaveBeenNthCalledWith(3, expect.stringContaining('UPDATE global_songs'), expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1']))
+    })
+
+    it('rejects a historical proposed_data that no longer validates before updating global_songs', async () => {
+      // 1. Admin check
+      vi.mocked(query).mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ is_system_admin: true }],
+      } as any)
+
+      // 2. Edit lookup — the row was written before the payload was validated.
+      vi.mocked(query).mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 'edit-1',
+            song_id: 'song-1',
+            requested_by: 'user-1',
+            proposed_data: { duration_seconds: 'abc' },
+            status: 'pending',
+          },
+        ],
+      } as any)
+
+      await expect(
+        reviewGlobalSongEdit('admin-1', 'edit-1', 'approve')
+      ).rejects.toThrowError(new Error('Invalid global song edit: duration_seconds must be a non-negative integer or null'))
+
+      // Only the admin check and the edit lookup ran: no UPDATE was issued.
+      expect(query).toHaveBeenCalledTimes(2)
     })
   })
 })
