@@ -3632,3 +3632,104 @@ None. (One observation, not a defect and not actionable for this task: `vitest r
 warning that `vitest.config.ts` uses ESM syntax in a file loaded as CommonJS under
 `configLoader: 'native'`. It is pre-existing at `e985ba5`, outside this task's footprint, and ER9
 explicitly forbids touching `vitest.config.ts`.)
+
+## [RH-39] Impor orcamentos de complexidade, profundidade e tamanho no eslint.config.mjs — 2026-09-07 (spec review 1)
+
+
+- ER7 lists "the bracket-escaping warning" among items `AGENTS.md` must mention
+  "verbatim", but unlike every other item in that list it is a description rather
+  than a greppable string. QA holding only the ERs has to judge it. Pin a literal
+  substring instead - the Approach's AGENTS.md text already contains
+  `is a character class`, which is a clean anchor.
+- The Audit's "What the test budget absorbs" paragraph says the test budget "absorbs
+  13 of the 14 offending test files outright" and then that "four test-file overrides
+  remain". Those cannot both hold: 14 - 4 = 10 files are absorbed outright. The
+  override list itself (24 entries = 20 source + 4 test) is correct and I verified it
+  produces zero budget violations, so this is a narrative arithmetic slip in the Audit,
+  not a defect in the deliverable. Worth correcting so the next reader can trust the
+  section.
+- ER10 states no preconditions, while ER9 spells out Postgres plus
+  `SUPABASE_SERVICE_ROLE_KEY`. `next build` runs `scripts/migrate.mjs` only through
+  `npm run build` (ER10 calls `npx next build` directly, bypassing it), and
+  `playwright.config.ts` runs `e2e/global-setup.ts`, which authenticates a real user.
+  Both effectively need the same live database ER9 requires. Restating the
+  precondition in ER10 would make it self-contained rather than relying on ER9 having
+  been run first in the same environment.
+- Approach section 2's note that `MAX_OVERRIDES` is a `<=` bound is the right call and
+  is well justified in the spec; consider having the guard also assert
+  `overrides.length > 0`, so that deleting the whole marked block cannot pass tests 3
+  and 4 vacuously. Test 5 would still catch it, so this is defence in depth only.
+- Follow-up already recorded in the spec and worth keeping: clear the 10 pre-existing
+  eslint errors and then wire a real `npm run lint` gate into `ci.yml`. Until that
+  happens the guard test is the only thing making the budget bite, which the spec is
+  admirably explicit about.
+
+## [RH-39] Impor orcamentos de complexidade, profundidade e tamanho no eslint.config.mjs — 2026-09-07 (spec review 2)
+
+
+- ER9 states "at least 1034 tests passed" while the arithmetic in the same sentence
+  (1034 baseline + 6 new) fixes the number at 1040. The `>=` bound is verifiable as
+  written, so this is not blocking, but a QA run that somehow lost five pre-existing
+  tests and gained the six new ones would still pass the clause. Pinning it to `1040`
+  would close that gap.
+- ER8's duplication clause carries three coupled numbers ("no more than 18 clones and
+  no more than 230 duplicated lines (at most 0.69 %)"). If `jscpd` output rounds the
+  percentage differently on another machine, the parenthetical could conflict with the
+  two absolute bounds. Consider treating the percentage as informative only.
+- The Approach's per-file-granularity note is honest about `src/app/profile/page.tsx`
+  being pinned at 394 while its 224-line function could drift upward unnoticed. That is
+  accepted here and correctly documented; when the F11 follow-up lands, it may be worth
+  revisiting whether the guard should pin the *second* worst number too for files with
+  more than one offending function.
+- Already recorded in the spec as a follow-up, and worth keeping visible: clearing the
+  10 pre-existing eslint errors and then wiring a real `npm run lint` CI gate would let
+  a later task delete the guard's test 5 in favour of the gate itself.
+
+## [RH-39] Impor orcamentos de complexidade, profundidade e tamanho no eslint.config.mjs — 2026-09-07 (code review 1)
+
+
+1. `src/lib/__tests__/complexityBudget.test.ts:77` — `ceilingOf` casts
+   `unknown` to `[string, number]` unchecked. Test 4 guarantees the shape, but
+   the tests are independent: a malformed future override (`"off"`, or a bare
+   severity) makes test 6 compute `NaN - 1` and emit a confusing "looser than
+   the worst number" message alongside test 4's accurate one. A `typeof` guard
+   returning `Number.NaN` with a named message would keep the diagnosis crisp.
+2. `src/lib/__tests__/complexityBudget.test.ts:199` — test 6 puts *every*
+   reported `ruleId` into `reported`, including pre-existing non-budget findings
+   (`no-unused-vars`, `no-explicit-any`). It cannot cause a false pass today
+   because `expected` pairs are always budget rule names, but filtering to
+   `BUDGET_RULES` as test 5 does would state the intent and cost nothing.
+3. `src/lib/__tests__/complexityBudget.test.ts:113` vs `:49` — the test *name*
+   hardcodes "24" while the bound lives in `MAX_OVERRIDES`. When the ratchet
+   shrinks (the F11 follow-up will remove `src/app/playlists/[id]/page.tsx`),
+   the name will silently lie until someone edits it. ER5 pins the name, so this
+   is a note for the follow-up task rather than a change to make now.
+4. `src/lib/__tests__/complexityBudget.test.ts:147` — override ceilings are
+   compared against the source `BASE` (`max-lines` 400) even for test-file
+   overrides, whose effective budget is 800. A hypothetical test-file override
+   at `max-lines: 500` would pass test 4 while actually *tightening* the file.
+   Harmless (tightening is safe, and test 6 would catch a non-exact ceiling),
+   but the assertion's stated meaning — "never below the base threshold" — is
+   slightly weaker than it reads for the four test-file entries.
+5. The guard lints all of `src` twice per CI run (once in the reusable `test`
+   job, once in `coverage`), ~7 s each. Once the 10 pre-existing eslint errors
+   are cleared, a real `npm run lint` gate would subsume test 5 and let it
+   shrink to the cheap structural assertions. The spec already records this as a
+   follow-up; worth keeping visible.
+6. Known and accepted, restated for the follow-up: `max-lines-per-function`
+   ceilings are per file, so the 224-line `PersonalProfileView` in
+   `src/app/profile/page.tsx` can grow to 394 unnoticed under that file's
+   override. The ratchet only pins the worst number per file per rule.
+
+## [RH-39] Impor orcamentos de complexidade, profundidade e tamanho no eslint.config.mjs — 2026-09-07 (QA 1)
+
+
+- `next build` emits eight `BetterAuthError: You are using the default secret` lines because the
+  production-mode env chain used by a local build does not supply `BETTER_AUTH_SECRET`. Pre-existing
+  and out of scope for RH-39, but it makes "the build printed no error" harder to assert for the
+  next verifier; documenting the expected noise (or supplying the secret to local production builds)
+  would remove the ambiguity.
+- ER2 pins an exact eslint summary (`24 problems (10 errors, 14 warnings)`), which will need editing
+  the moment any unrelated warning lands. The stronger and more durable assertion is the one the
+  guard already makes: zero findings from the five budget rules.
+
