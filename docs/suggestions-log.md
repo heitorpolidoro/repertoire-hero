@@ -3983,3 +3983,61 @@ this one:
   RH-55, but the duplicated-line total is drifting upward and is worth watching
   against the 1.00% ceiling.
 
+
+## [RH-56] query tipado parte 3/5: tipar a camada de dados de songs e tabs — 2026-09-08 (spec review 1)
+
+
+- ER9's success string: quote it the way Next 16 + Turbopack actually prints it. Suggested
+  wording: "`npx next build` exits 0 and its output contains a line matching
+  `Compiled successfully`" (Next 16.3.0 emits `✓ Compiled successfully in <n>ms`). This is
+  the third spec in the RH-40 chain to carry the bare phrase; two QA reports have flagged it.
+- ER9 could also name the invocation the last two QAs actually needed, so QA does not have to
+  rediscover it: `set -a; . ./.env.local; set +a` and
+  `PLAYWRIGHT_WEB_SERVER='npx next start -p 3000 -H 127.0.0.1' npx playwright test e2e/ssr-smoke.spec.ts`.
+- AGENTS.md:284-285 states as a standing fact that "`src/lib/songs.ts` is pinned at
+  `max-lines: 531` by the RH-39 ratchet". After this task that number is 529 and the sentence
+  goes stale. `AGENTS.md` is already inside ER10's whitelist, so a one-word edit costs
+  nothing; consider adding it to the Approach (an ER for it is optional — the rationale in
+  that sentence survives the number change).
+- The `tabs.ts` `runTabQuery` doc-comment rewrite is the one free-text edit in the task, and
+  ER5's `tabs.ts` guard counts SQL keywords across the whole diff. A replacement sentence that
+  happened to contain the word `UPDATE` or `SELECT` would fail a correct implementation. Very
+  unlikely given the sentence being replaced, but the spec could pin the replacement text the
+  same way it pins the type-argument spellings.
+- ER8's "reports at least `Test Files 92 passed (92)`" mixes a floor ("at least") with an
+  exact literal that already encodes the count. Since this task adds no tests, "reports
+  exactly" would be clearer and equally true.
+- ER4's `wc -l src/lib/songs.ts prints a number N` — `wc -l` on a named file prints the count
+  *and* the filename; harmless, but `wc -l < src/lib/songs.ts` prints the bare number.
+
+## [RH-56] query tipado parte 3/5: tipar a camada de dados de songs e tabs — 2026-09-08 (code review 1)
+
+
+- `AGENTS.md:285` still justifies `dbRows.ts` with "`src/lib/songs.ts` is pinned at
+  `max-lines: 531`". This change lowers that pin to 529, so the sentence is now stale by
+  two lines. Non-blocking (it is rationale prose, not a rule), but worth refreshing when
+  RH-40 part 4 or 5 touches the ratchet again — or better, rewording it to not quote a
+  number that the ratchet keeps moving.
+- `src/lib/playlists.ts:89` still casts to
+  `{ id: string; user_id: string | null; band_id: string | null }` — literally
+  `RepertoireAccessRow` minus `song_id`. Out of scope here (parts 4/5), but when that
+  cast is removed, check whether it is the same `repertoire` projection; if so it should
+  reuse or extend `RepertoireAccessRow` rather than gain a second near-identical
+  interface in `dbRows.ts`.
+- `{ links: SongLink[] | null }` (`songs.ts:450`) is looser than the `NOT NULL DEFAULT
+  '[]'` column. Keeping it is defensible (consistent with `PlaylistSongLinksRow`, and it
+  keeps the preserved `?? []` from becoming provably-dead code), but if RH-40 ever
+  consolidates the two, the honest shape is `SongLink[]` with the fallback dropped in the
+  same edit — not one without the other.
+
+## [RH-56] query tipado parte 3/5: tipar a camada de dados de songs e tabs — 2026-09-08 (QA 1)
+
+
+- ER9's literal expectation (`Compiled successfully`) is worth restating for Next 16, which
+  emits `✓ Compiled successfully in <N>ms`. Future specs pinning this line should match on
+  the substring or on exit code, so the ER does not drift with Next's formatting.
+- The local `next build` emits eight `BetterAuthError: You are using the default secret`
+  lines because `BETTER_AUTH_SECRET` is absent from this machine's env files. Unrelated to
+  RH-56, but adding a dummy value to `.env.local` would make future build logs clean enough
+  that a real error stands out.
+

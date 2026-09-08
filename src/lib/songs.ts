@@ -2,6 +2,7 @@ import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitGlobalSongEdit } from '@/lib/moderation'
+import type { RepertoireAccessRow } from '@/lib/dbRows'
 import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
 
 export type RepertoireOwner = { userId: string } | { bandId: string }
@@ -11,10 +12,7 @@ export type RepertoireOwner = { userId: string } | { bandId: string }
  * is the caller's own or belongs to a band they are a member of; a
  * non-existent id throws the same message, so existence is not leaked.
  */
-export async function assertRepertoireAccess(
-  repertoireId: string,
-  userId: string,
-): Promise<{ id: string; song_id: string; user_id: string | null; band_id: string | null }> {
+export async function assertRepertoireAccess(repertoireId: string, userId: string): Promise<RepertoireAccessRow> {
   const sql = `
     SELECT id, song_id, user_id, band_id
     FROM repertoire
@@ -23,7 +21,7 @@ export async function assertRepertoireAccess(
   `
   let res
   try {
-    res = await query(sql, [repertoireId, userId])
+    res = await query<RepertoireAccessRow>(sql, [repertoireId, userId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to authorize repertoire access', err, { repertoireId })
@@ -31,7 +29,7 @@ export async function assertRepertoireAccess(
   }
 
   if (res.rowCount === 0) throw new Error('Access denied: not allowed on this repertoire entry')
-  return res.rows[0] as { id: string; song_id: string; user_id: string | null; band_id: string | null }
+  return res.rows[0]
 }
 
 export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[]> {
@@ -112,7 +110,7 @@ export async function updateSongStatus(owner: RepertoireOwner, repertoireId: str
     RETURNING id
   `
   try {
-    const res = await query(sql, [status, repertoireId, id])
+    const res = await query<{ id: string }>(sql, [status, repertoireId, id])
     if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -131,7 +129,7 @@ export async function updateSongTags(owner: RepertoireOwner, repertoireId: strin
     RETURNING id
   `
   try {
-    const res = await query(sql, [tags, repertoireId, id])
+    const res = await query<{ id: string }>(sql, [tags, repertoireId, id])
     if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -150,7 +148,7 @@ export async function updatePersonalKey(owner: RepertoireOwner, repertoireId: st
     RETURNING id
   `
   try {
-    const res = await query(sql, [personalKey, repertoireId, id])
+    const res = await query<{ id: string }>(sql, [personalKey, repertoireId, id])
     if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -168,7 +166,7 @@ export async function removeSongFromRepertoire(owner: RepertoireOwner, repertoir
     RETURNING id
   `
   try {
-    const res = await query(sql, [repertoireId, id])
+    const res = await query<{ id: string }>(sql, [repertoireId, id])
     if (res.rowCount === 0) throw new Error('Repertoire entry not found or access denied')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -279,7 +277,7 @@ export async function updateSong(
     // Both updates or neither: a shared catalog row filled in from an edit the
     // owner's own repertoire row never received is worse than no edit at all.
     await withTransaction(async (client) => {
-      await client.query(songSql, [
+      await client.query<never>(songSql, [
         data.title,
         data.artist,
         data.album ?? null,
@@ -290,7 +288,7 @@ export async function updateSong(
         entry.song_id,
       ])
 
-      await client.query(repSql, [
+      await client.query<never>(repSql, [
         data.status,
         data.tags,
         data.key,
@@ -366,7 +364,7 @@ export async function createAndAddSong(
       WHERE song_id = $1 AND ${isBand ? 'band_id = $2' : 'user_id = $2'}
       LIMIT 1
     `
-    const checkRes = await query(checkSql, [songId, ownerId])
+    const checkRes = await query<{ id: string }>(checkSql, [songId, ownerId])
     if (checkRes.rowCount && checkRes.rowCount > 0) {
       throw new Error('Song already in your repertoire')
     }
@@ -425,7 +423,7 @@ export async function updateLyrics(
     WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}
   `
   try {
-    await query(sql, [lyrics, repertoireId, id])
+    await query<never>(sql, [lyrics, repertoireId, id])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update lyrics', err, { repertoireId })
@@ -449,7 +447,7 @@ export async function applySongLinkUpdate(
 ): Promise<{ success: true; pending?: true }> {
   let songRes
   try {
-    songRes = await query('SELECT links FROM global_songs WHERE id = $1', [songId])
+    songRes = await query<{ links: SongLink[] | null }>('SELECT links FROM global_songs WHERE id = $1', [songId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update song links', err, { songId })
@@ -469,7 +467,7 @@ export async function applySongLinkUpdate(
     })
   )
 
-  const currentLinks = (songRes.rows[0].links ?? []) as SongLink[]
+  const currentLinks = songRes.rows[0].links ?? []
   const submittedUrls = new Set(processedLinks.map((l) => l.url))
   const isAdditive = currentLinks.every((l) => submittedUrls.has(l.url))
 
@@ -479,7 +477,7 @@ export async function applySongLinkUpdate(
   }
 
   try {
-    await query('UPDATE global_songs SET links = $1 WHERE id = $2', [
+    await query<never>('UPDATE global_songs SET links = $1 WHERE id = $2', [
       JSON.stringify(processedLinks),
       songId,
     ])

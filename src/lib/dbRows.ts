@@ -30,6 +30,14 @@ export interface PlaylistSongLinksRow {
   links: SongLink[] | null
 }
 
+/** `SELECT id, song_id, user_id, band_id FROM repertoire WHERE id = $1 AND (...)` */
+export interface RepertoireAccessRow {
+  id: string
+  song_id: string
+  user_id: string | null
+  band_id: string | null
+}
+
 /** `SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1` */
 export interface SpotifyTokenRow {
   access_token: string

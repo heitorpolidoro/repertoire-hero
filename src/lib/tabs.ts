@@ -23,7 +23,7 @@ import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
  *
  * Generic in the row shape so a caller that knows its SELECT list names it
  * (`runTabQuery<RepertoireTab>(...)`) instead of casting `res.rows` afterwards;
- * the callers that only read one column keep the `DbRow` default.
+ * every caller below names its row shape, single-column projections inline.
  */
 async function runTabQuery<T extends QueryResultRow = DbRow>(
   verb: string,
@@ -67,7 +67,7 @@ export async function getTabFileUrl(
 ): Promise<string | null> {
   await assertRepertoireAccess(repertoireId, userId)
 
-  const res = await runTabQuery(
+  const res = await runTabQuery<{ file_url: string }>(
     'read tab file url',
     'SELECT file_url FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
     [tabId, repertoireId],
@@ -75,13 +75,13 @@ export async function getTabFileUrl(
   )
 
   if (res.rows.length === 0) return null
-  return res.rows[0].file_url as string
+  return res.rows[0].file_url
 }
 
 export async function deleteTab(tabId: string, repertoireId: string, userId: string): Promise<void> {
   await assertRepertoireAccess(repertoireId, userId)
 
-  await runTabQuery(
+  await runTabQuery<never>(
     'delete tab',
     'DELETE FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
     [tabId, repertoireId],
@@ -96,7 +96,7 @@ export async function getTabAnnotations(
 ): Promise<TabAnnotations | null> {
   await assertRepertoireAccess(repertoireId, userId)
 
-  const res = await runTabQuery(
+  const res = await runTabQuery<{ annotations: TabAnnotations }>(
     'load annotations',
     'SELECT annotations FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2',
     [tabId, repertoireId],
@@ -104,7 +104,7 @@ export async function getTabAnnotations(
   )
 
   if (res.rows.length === 0) return null
-  return res.rows[0].annotations as TabAnnotations
+  return res.rows[0].annotations
 }
 
 /**
@@ -132,7 +132,7 @@ export async function saveTabAnnotations(
   // page's strokes in the same row untouched. RETURNING id is what makes the
   // affected-row count readable, so a non-matching pair reports false instead
   // of silently succeeding.
-  const res = await runTabQuery(
+  const res = await runTabQuery<{ id: string }>(
     'save annotations',
     `UPDATE repertoire_tabs
      SET annotations = jsonb_set(annotations, $3, $4::jsonb, true)
