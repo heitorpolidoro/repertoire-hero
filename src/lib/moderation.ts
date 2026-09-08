@@ -14,8 +14,8 @@ export async function submitGlobalSongEdit(
     RETURNING *
   `
   try {
-    const res = await query(sql, [songId, userId, JSON.stringify(data)])
-    return res.rows[0] as GlobalSongEdit
+    const res = await query<GlobalSongEdit>(sql, [songId, userId, JSON.stringify(data)])
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to submit global song edit', err, { userId, songId })
@@ -65,8 +65,8 @@ export async function getPendingGlobalSongEdits(
       WHERE e.status = 'pending'
       ORDER BY e.created_at ASC
     `
-    const res = await query(sql, [])
-    return res.rows as GlobalSongEdit[]
+    const res = await query<GlobalSongEdit>(sql, [])
+    return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     if (err.message.startsWith('Access denied')) {
@@ -86,7 +86,7 @@ export async function reviewGlobalSongEdit(
   try {
     await checkSystemAdmin(adminUserId)
 
-    const editRes = await query(
+    const editRes = await query<GlobalSongEdit>(
       'SELECT * FROM global_song_edits WHERE id = $1',
       [editId]
     )
@@ -95,7 +95,7 @@ export async function reviewGlobalSongEdit(
       throw new Error('Global song edit not found')
     }
 
-    const edit = editRes.rows[0] as GlobalSongEdit
+    const edit = editRes.rows[0]
 
     if (edit.status !== 'pending') {
       throw new Error('Edit request is already reviewed')
@@ -108,8 +108,8 @@ export async function reviewGlobalSongEdit(
         WHERE id = $3
         RETURNING *
       `
-      const res = await query(updateSql, [adminUserId, reason || null, editId])
-      return res.rows[0] as GlobalSongEdit
+      const res = await query<GlobalSongEdit>(updateSql, [adminUserId, reason || null, editId])
+      return res.rows[0]
     }
 
     // Action: approve

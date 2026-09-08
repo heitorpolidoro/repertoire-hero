@@ -30,8 +30,8 @@ export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
       WHERE p.user_id = $1 OR p.band_id = ANY($2::uuid[])
       ORDER BY p.created_at DESC
     `
-    const res = await query(sql, [userId, bandIds])
-    return res.rows as Playlist[]
+    const res = await query<Playlist>(sql, [userId, bandIds])
+    return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch playlists', err)
@@ -52,8 +52,8 @@ export async function createPlaylist(
     RETURNING *
   `
   try {
-    const res = await query(sql, [userId, data.name, data.description ?? null])
-    return res.rows[0] as Playlist
+    const res = await query<Playlist>(sql, [userId, data.name, data.description ?? null])
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to create playlist', err)
@@ -235,9 +235,9 @@ export async function getPlaylistWithSongs(id: string, userId: string): Promise<
   try {
     // Access-scoped: an unrelated caller gets null, the same as for an id that
     // does not exist — the UI already routes that to "playlist not found".
-    const res = await query(sql, [id, userId])
+    const res = await query<Playlist>(sql, [id, userId])
     if (res.rowCount === 0) return null
-    return res.rows[0] as Playlist
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch playlist with songs', err, { id })

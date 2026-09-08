@@ -57,8 +57,8 @@ export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[
     ORDER BY r.id DESC
   `
   try {
-    const res = await query(sql, [id])
-    return res.rows as Repertoire[]
+    const res = await query<Repertoire>(sql, [id])
+    return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch repertoire', err)
@@ -93,8 +93,8 @@ export async function addSongToRepertoire(owner: RepertoireOwner, songId: string
     JOIN global_songs s ON i.song_id = s.id
   `
   try {
-    const res = await query(sql, [songId, userId, bandId])
-    return res.rows[0] as Repertoire
+    const res = await query<Repertoire>(sql, [songId, userId, bandId])
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to add song to repertoire', err)
@@ -187,8 +187,8 @@ export async function searchGlobalSongs(queryStr: string): Promise<GlobalSong[]>
     LIMIT 20
   `
   try {
-    const res = await query(sql, [`%${trimmed}%`])
-    return res.rows as GlobalSong[]
+    const res = await query<GlobalSong>(sql, [`%${trimmed}%`])
+    return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to search global songs', err, { query: trimmed })
@@ -218,9 +218,9 @@ export async function getSongEntry(owner: RepertoireOwner, repertoireId: string)
     WHERE r.id = $1 AND ${isBand ? 'r.band_id = $2' : 'r.user_id = $2'}
   `
   try {
-    const res = await query(sql, [repertoireId, id])
+    const res = await query<Repertoire>(sql, [repertoireId, id])
     if (res.rowCount === 0) return null
-    return res.rows[0] as Repertoire
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch song entry', err, { repertoireId })
@@ -335,7 +335,7 @@ export async function createAndAddSong(
     }
     lookupSql += ' LIMIT 1'
 
-    const lookupRes = await query(lookupSql, lookupParams)
+    const lookupRes = await query<{ id: string }>(lookupSql, lookupParams)
 
     if (lookupRes.rowCount && lookupRes.rowCount > 0) {
       songId = lookupRes.rows[0].id
@@ -347,7 +347,7 @@ export async function createAndAddSong(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
       `
-      const insertRes = await query(insertSongSql, [
+      const insertRes = await query<{ id: string }>(insertSongSql, [
         contributorId,
         data.title,
         data.artist,
@@ -396,8 +396,8 @@ export async function createAndAddSong(
       FROM inserted i
       JOIN global_songs s ON i.song_id = s.id
     `
-    const repRes = await query(insertRepSql, [songId, userId, bandId])
-    return repRes.rows[0] as Repertoire
+    const repRes = await query<Repertoire>(insertRepSql, [songId, userId, bandId])
+    return repRes.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to create and add song', err)
@@ -520,9 +520,9 @@ export async function getPersonalEntryForSong(
     WHERE r.song_id = $1 AND r.user_id = $2
   `
   try {
-    const res = await query(sql, [songId, userId])
+    const res = await query<Repertoire>(sql, [songId, userId])
     if (res.rowCount === 0) return null
-    return res.rows[0] as Repertoire
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch personal entry for song', err, { songId })

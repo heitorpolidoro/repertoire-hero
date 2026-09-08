@@ -94,7 +94,7 @@ export async function POST(
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `
-    const playlistRes = await query(insertPlaylistSql, [
+    const playlistRes = await query<Playlist>(insertPlaylistSql, [
       bandId ? null : userId,
       bandId ?? null,
       playlistName,
@@ -104,7 +104,7 @@ export async function POST(
       syncWithSpotify,
       syncWithSpotify ? now : null,
     ])
-    const playlist = playlistRes.rows[0] as Playlist
+    const playlist = playlistRes.rows[0]
 
     // --- Step 5: add songs to playlist_songs ---
     if (songIds.length > 0) {

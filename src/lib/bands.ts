@@ -18,8 +18,8 @@ export const getBands = async (userId: string): Promise<Band[]> => {
     ORDER BY b.created_at DESC
   `
   try {
-    const res = await query(sql, [userId])
-    return res.rows as Band[]
+    const res = await query<Band>(sql, [userId])
+    return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to fetch bands", err)
@@ -94,9 +94,9 @@ export const getBandWithMembers = async (
   try {
     // Membership-scoped: a non-member gets exactly what they would get for a
     // band id that does not exist, so existence is not leaked either.
-    const res = await query(sql, [bandId, userId])
+    const res = await query<Band>(sql, [bandId, userId])
     if (res.rowCount === 0) return null
-    return res.rows[0] as Band
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to fetch band", err)
@@ -252,8 +252,8 @@ export const getBandPlaylists = async (
   `
   try {
     // Membership-scoped, like getBandWithMembers: a non-member gets [].
-    const res = await query(sql, [bandId, userId])
-    return res.rows as Playlist[]
+    const res = await query<Playlist>(sql, [bandId, userId])
+    return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to fetch band playlists", err)

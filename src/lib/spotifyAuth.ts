@@ -1,4 +1,5 @@
 import { query } from '@/lib/db'
+import type { SpotifyTokenRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
@@ -7,14 +8,10 @@ import { logger } from '@/lib/logger'
 // Returns null when the user has not connected their Spotify account.
 // ---------------------------------------------------------------------------
 export async function getSpotifyAccessToken(userId: string): Promise<string | null> {
-  let tokenRow: {
-    access_token: string
-    refresh_token: string
-    expires_at: string
-  } | null = null
+  let tokenRow: SpotifyTokenRow | null = null
 
   try {
-    const res = await query('SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1 LIMIT 1', [userId])
+    const res = await query<SpotifyTokenRow>('SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1 LIMIT 1', [userId])
     if (res.rowCount === 0) return null
     tokenRow = res.rows[0]
   } catch (error) {

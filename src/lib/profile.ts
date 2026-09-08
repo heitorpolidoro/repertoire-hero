@@ -5,9 +5,9 @@ import type { Profile } from '@/types/database'
 export async function getProfile(userId: string): Promise<Profile | null> {
   const sql = 'SELECT * FROM profiles WHERE id = $1 LIMIT 1'
   try {
-    const res = await query(sql, [userId])
+    const res = await query<Profile>(sql, [userId])
     if (res.rowCount === 0) return null
-    return res.rows[0] as Profile
+    return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to fetch profile', err)

@@ -1,4 +1,5 @@
-import { query } from '@/lib/db'
+import type { QueryResultRow } from 'pg'
+import { query, type DbRow } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { assertRepertoireAccess } from '@/lib/songs'
 import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
@@ -19,15 +20,19 @@ import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
  * Conventions"). Factored out so the six functions below do not each carry a
  * copy of the same eight-line log-then-throw block, which `npm run lint:dup`
  * would rightly flag.
+ *
+ * Generic in the row shape so a caller that knows its SELECT list names it
+ * (`runTabQuery<RepertoireTab>(...)`) instead of casting `res.rows` afterwards;
+ * the callers that only read one column keep the `DbRow` default.
  */
-async function runTabQuery(
+async function runTabQuery<T extends QueryResultRow = DbRow>(
   verb: string,
   sql: string,
   params: unknown[],
   context: Record<string, unknown>,
 ) {
   try {
-    return await query(sql, params as never)
+    return await query<T>(sql, params)
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error(`Failed to ${verb}`, err, context)
@@ -43,7 +48,7 @@ export async function createTab(
 ): Promise<RepertoireTab> {
   await assertRepertoireAccess(repertoireId, userId)
 
-  const res = await runTabQuery(
+  const res = await runTabQuery<RepertoireTab>(
     'create tab',
     `INSERT INTO repertoire_tabs (repertoire_id, title, file_url)
      VALUES ($1, $2, $3)
@@ -52,7 +57,7 @@ export async function createTab(
     { repertoireId },
   )
 
-  return res.rows[0] as RepertoireTab
+  return res.rows[0]
 }
 
 export async function getTabFileUrl(
@@ -143,7 +148,7 @@ export async function saveTabAnnotations(
 export async function listTabs(repertoireId: string, userId: string): Promise<RepertoireTab[]> {
   await assertRepertoireAccess(repertoireId, userId)
 
-  const res = await runTabQuery(
+  const res = await runTabQuery<RepertoireTab>(
     'list tabs',
     `SELECT id, repertoire_id, title, file_url, created_at::text as created_at
      FROM repertoire_tabs
@@ -153,5 +158,5 @@ export async function listTabs(repertoireId: string, userId: string): Promise<Re
     { repertoireId },
   )
 
-  return res.rows as RepertoireTab[]
+  return res.rows
 }

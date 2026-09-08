@@ -266,6 +266,29 @@ component state (inline banner or Toast), and log with `logger.error`.
 
 Every multi-statement write that must be atomic goes through `withTransaction` from `@/lib/db`, which checks a single client out of the pool, issues `BEGIN`, runs the callback against that client, issues `COMMIT`, and on failure rolls back and rethrows the original error unwrapped (so the `L1` log-then-wrap at the call site still produces its usual message) while always releasing the connection. `query()` is `pool.query()` — it hands back an arbitrary idle connection per call, so `BEGIN`, `COMMIT` or `ROLLBACK` issued through it lands on a connection the other statements never see and leaks the one that opened the transaction idle in transaction; passing any of those three to `query()` is forbidden everywhere except `src/lib/db.ts` and is enforced mechanically by `src/lib/__tests__/transactionGuard.test.ts`. Inside a transaction an expected duplicate is absorbed with `ON CONFLICT DO NOTHING` and never by catching `23505` (the `E1` pattern), because a caught `23505` leaves the transaction aborted and every later statement fails with `25P02` instead of the intended no-op.
 
+# Database Row Types
+
+`query()` and `Queryable.query()` in `src/lib/db.ts` default their row parameter to
+`DbRow = Record<string, unknown>`, never `any`: a call that names no type argument hands
+back `unknown`-valued columns, so the compiler forces every read to declare the shape it
+expects. Dropping the default instead of replacing it does nothing - `@types/pg` declares
+`QueryResultRow` as `{ [column: string]: any }`, so an omitted argument falls back to that
+constraint and rows stay `any`. Declare the shape as a type argument
+(`query<Repertoire>(sql, params)`), never as a cast on `res.rows`: a cast asserts a shape
+the checker never verified against the SELECT list, which is exactly what RH-25 F16 set out
+to remove.
+
+Row shapes that are not already a domain type from `src/types/database.ts` live in
+`src/lib/dbRows.ts` - one exported interface per distinct SELECT list, named `<Subject>Row`
+and mirroring the projection column for column (`SpotifyTokenRow`, `PlaylistSongIdRow`).
+They live there rather than beside their SQL because `src/lib/songs.ts` is pinned at
+`max-lines: 531` by the RH-39 ratchet and cannot grow by even one import line. Keep
+`src/types/database.ts` as the app's public vocabulary and `dbRows.ts` as an implementation
+detail of the data layer: never duplicate a domain type there, name it at the call site
+instead. `knip` (`npm run lint:dead`) fails on a row interface nobody imports, so do not add
+speculative ones. A single-column projection whose shape is evident at the call site
+(`query<{ id: string }>('... RETURNING id')`) may be written inline.
+
 # UI & UX Behavioral Directives
 
 - **NO Browser Alerts**: NEVER use browser `alert()` or `confirm()` dialogs. Always use floating Toast notifications (`showToast`), inline alert banners, or accessible modal overlays.

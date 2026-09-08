@@ -1,4 +1,5 @@
 import { query } from '@/lib/db'
+import type { BandByInviteCodeRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 
 export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
@@ -9,7 +10,7 @@ export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
   member_count: number
 } | null> {
   try {
-    const res = await query('SELECT * FROM get_band_by_invite_code($1)', [inviteCode])
+    const res = await query<BandByInviteCodeRow>('SELECT * FROM get_band_by_invite_code($1)', [inviteCode])
 
     if (res.rowCount === 0) return null
 

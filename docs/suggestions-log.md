@@ -3733,3 +3733,102 @@ explicitly forbids touching `vitest.config.ts`.)
   the moment any unrelated warning lands. The stronger and more durable assertion is the one the
   guard already makes: zero findings from the five budget rules.
 
+
+## [RH-54] query tipado parte 1/5: fundacao DbRow e casa dos row types — 2026-09-08 (spec review 1)
+
+
+- ER5's parenthetical "(no existing test file was modified)" is not true as prose:
+  `src/lib/__tests__/test-helpers.ts` is an existing file under `__tests__` and this task
+  modifies it — the ER's own first clause requires it. The command is right, the gloss is
+  wrong; "no existing test *suite* was modified" would say what is meant.
+- ER10 is the only ER with an environment dependency and no stated precondition: it needs
+  port 3000 free and the Postgres/`SUPABASE_SERVICE_ROLE_KEY` setup, because
+  `playwright.config.ts` starts `npm run dev` and `e2e/global-setup.ts` signs a user in.
+  ER5/ER8/ER9 all spell that precondition out; ER10 should too.
+- ER11 whitelists `package-lock.json`, but nothing in the Approach adds, removes or bumps a
+  dependency. The whitelist is a permissive closed set, so this cannot fail a correct
+  implementation — it only lets an unexplained lockfile churn through. Dropping it makes the
+  gate strictly stronger.
+- ER7 says "a number inside the `complexity-budget-overrides` block". `eslint.config.mjs`
+  has no such block: the overrides are a run of sibling objects each named
+  `complexity-budget/override` (lines 69-91). Naming them the way the file does removes a
+  moment of doubt for whoever reads the diff.
+- ER9 asks for "`0 failed` and `0 skipped`", but vitest prints neither string on a fully
+  green run — the output is just `Test Files 90 passed (90)`. The `N passed (N)` form
+  already proves both (a failure renders as `1 failed | 89 passed (90)`), so the extra
+  strings are better dropped than left for QA to hunt for.
+- Nothing type-checks `test-helpers.ts` after this task: `tsconfig.json` excludes
+  `**/__tests__/**`, and vitest strips types without checking them. ER5's greps prove the
+  `any`s are gone but not that what replaced them is coherent; the runtime suites in ER5 are
+  the only real safety net. The spec reasons about this correctly for the `query` signature
+  (hence the ER3 probe) — worth one sentence saying the same limit applies to the mock, so a
+  later reader does not mistake ER5 for a type-level guarantee.
+- `BandByInviteCodeRow.member_count: string` rests on "`member_count` is a bigint, so pg
+  hands it back as text". The existing `Number(row.member_count)` is correct either way, so
+  nothing breaks if the assumption is wrong — but if the SQL function returns `int`, the
+  interface documents a shape the driver never produces. A glance at
+  `get_band_by_invite_code` in `migrations/` while implementing would settle it.
+
+## [RH-54] query tipado parte 1/5: fundacao DbRow e casa dos row types — 2026-09-08 (spec review 2)
+
+
+- The round-1 suggestions were not applied and remain open. They are all non-blocking and
+  several are one-word edits that would spare QA a moment of doubt: ER5's "no existing test file
+  was modified" gloss (the task does modify `src/lib/__tests__/test-helpers.ts`; "no existing
+  test *suite*" is what is meant), ER7's "complexity-budget-overrides block" (the file has a run
+  of sibling `complexity-budget/override` objects, not a block), ER9's "`0 failed` and
+  `0 skipped`" (vitest prints neither string on a green run; `N passed (N)` already proves both),
+  ER10's missing environment precondition, and `package-lock.json` in ER11's whitelist despite
+  no dependency change. Worth folding into the next spec that touches this file rather than
+  spending a revision round on them now.
+- Section 6's new paragraph settles the marker-string question for this task. Since RH-55 to
+  RH-58 will each add row types and will each want a similar consumer check, making
+  `| grep -v __tests__` the default tail of every source-scanning ER in those specs — as the
+  generator's own report suggests — would stop this trap recurring four more times.
+- ER2's `npm run lint:dead` clause and the section 6 guard test now overlap: knip and the string
+  scan both prove no `dbRows.ts` export is unused. The redundancy is cheap and the two fail at
+  different times, so it is worth keeping here; it is the first place to trim if a later part of
+  the split needs to shorten its ER list.
+
+## [RH-54] query tipado parte 1/5: fundacao DbRow e casa dos row types — 2026-09-08 (code review 1)
+
+
+Non-blocking, and all of them belong to a later part of the RH-40 split rather than to
+this one:
+
+1. `src/lib/dbRows.ts:36` — `SpotifyTokenRow.expires_at: string`, but
+   `migrations/0001_initial_schema.sql:125` declares `expires_at timestamptz`, which
+   node-postgres hands back as a `Date`, not a string. The consumer
+   (`spotifyAuth.ts:28`, `new Date(tokenRow.expires_at)`) works either way, and this type
+   is copied verbatim from the inline block it replaced, so the change introduces no
+   regression — but the row type is now the documented mirror of the projection, and
+   this one mirrors the projection inaccurately. Worth correcting to `Date | string`
+   (or fixing the read) when RH-58 takes `spotifyAuth.ts`.
+2. `src/lib/__tests__/dbRowTypes.test.ts:96-106` — the `any` scan runs against raw source
+   lines, while the same module already exports `stripComments`. A future doc comment in
+   `db.ts` that mentions `: any` (e.g. quoting `@types/pg`'s
+   `{ [column: string]: any }`, which the AGENTS.md section already does) would fail the
+   guard spuriously. Running the scan over `stripComments(source)` would keep the same
+   teeth with no false positive.
+3. `src/lib/dbRows.ts:29` — `PlaylistSongLinksRow.position` is in the SELECT list but
+   unread at the only call site. That is deliberate per the column-for-column convention
+   and knip does not flag it; noting it only so a later reviewer does not read it as an
+   oversight.
+
+## [RH-54] query tipado parte 1/5: fundacao DbRow e casa dos row types — 2026-09-08 (QA 1)
+
+
+- ER5's verification command is malformed and should be corrected wherever this ER text is reused as a template:
+  `git diff --name-only 246313f -- src --diff-filter=M` places `--diff-filter=M` after the `--` separator, so git
+  parses it as a pathspec and the filter never applies. The command therefore lists added files too and prints
+  `1` instead of `0` for any change that adds a test file. The correct form is
+  `git diff --name-only --diff-filter=M 246313f -- src`, which prints `0` here. No code change is warranted.
+
+- ER10's expected success line `Compiled successfully` is a substring of what Next actually prints
+  (`✓ Compiled successfully in 1309ms`). If this ER is reused, matching on the substring rather than the whole
+  line will keep it stable across Next's formatting changes.
+
+- `src/lib/spotify.ts` still carries one cast matching the ER4 pattern and is not among the files this task
+  touched. It is outside RH-54's scope and correctly left alone; noting it only as a candidate for whatever
+  follow-up continues the `any`-elimination work, since it is now one of only six remaining sites.
+

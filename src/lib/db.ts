@@ -19,8 +19,15 @@ if (process.env.NODE_ENV !== 'production') {
   globalForDb.pool = pool
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function query<T extends QueryResultRow = any>(text: string, params?: any[]) {
+/**
+ * The default row shape: a bare record whose values are `unknown`, not `any`.
+ * A caller that names no type argument therefore has to prove what it reads,
+ * instead of silently getting `any` back from `@types/pg`'s `QueryResultRow`
+ * index signature (RH-54 / RH-25 F16).
+ */
+export type DbRow = Record<string, unknown>
+
+export async function query<T extends QueryResultRow = DbRow>(text: string, params?: unknown[]): Promise<QueryResult<T>> {
   return pool.query<T>(text, params)
 }
 
@@ -30,8 +37,7 @@ export async function query<T extends QueryResultRow = any>(text: string, params
  * `Queryable` works both standalone and as part of a caller's transaction.
  */
 export interface Queryable {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>>
+  query<T extends QueryResultRow = DbRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>
 }
 
 /**

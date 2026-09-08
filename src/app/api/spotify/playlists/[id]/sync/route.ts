@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, withTransaction } from '@/lib/db'
+import type { PlaylistSongIdRow, PlaylistSongLinksRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 import { resolveSpotifyRouteAccess, resolveOwnedPlaylist } from '@/lib/spotifyRouteAuth'
 import {
@@ -48,7 +49,7 @@ export async function POST(
     const linkRes = await query('SELECT spotify_playlist_id FROM playlists WHERE id = $1', [localPlaylistId])
 
     // Fetch existing songs in the playlist
-    const songsRes = await query('SELECT song_id FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
+    const songsRes = await query<PlaylistSongIdRow>('SELECT song_id FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
     const localEntries = songsRes.rows
 
     if (!linkRes.rows[0].spotify_playlist_id) {
@@ -67,7 +68,7 @@ export async function POST(
 
       const owner = playlist.band_id ? { bandId: playlist.band_id } : { userId: userId }
 
-      const existingSongIds = new Set(localEntries.map((e) => e.song_id as string))
+      const existingSongIds = new Set(localEntries.map((e) => e.song_id))
       const spotifySongIdsInOrder: string[] = []
       const seenSpotifySongs = new Set<string>()
 
@@ -108,7 +109,7 @@ export async function POST(
       })
     } else {
       // Push local playlist to Spotify
-      const playlistSongsRes = await query(`
+      const playlistSongsRes = await query<PlaylistSongLinksRow>(`
         SELECT ps.song_id, ps.position, s.links
         FROM playlist_songs ps
         JOIN global_songs s ON ps.song_id = s.id
@@ -121,7 +122,7 @@ export async function POST(
 
       for (const ps of playlistSongs) {
         const links = ps.links
-        const spotifyLink = links?.find((l: { label: string; url: string }) => l.label === 'spotify')
+        const spotifyLink = links?.find((l) => l.label === 'spotify')
         if (spotifyLink?.url) {
           const match = spotifyLink.url.match(/track\/([A-Za-z0-9]+)/)
           if (match) {

@@ -3,13 +3,23 @@ import fs from 'fs'
 import path from 'path'
 import { query } from '@/lib/db'
 
+/**
+ * One row handed to `insert`/`update`/`upsert`, or read back from a statement:
+ * a plain column record whose values are `unknown`, mirroring `DbRow` in
+ * `src/lib/db.ts` (RH-54). This module never handles anything else.
+ */
+type MockRow = Record<string, unknown>
+
 class SupabaseMockChain {
   private table: string
   private action: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private actionData: any = null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private conditions: { type: 'eq' | 'in' | 'ilike'; col: string; val: any }[] = []
+  /**
+   * The pending write payload, normalized to an array at set time so the SQL
+   * builders below read one shape instead of a row-or-rows union. An `update`
+   * always holds exactly one entry.
+   */
+  private actionData: MockRow[] = []
+  private conditions: { type: 'eq' | 'in' | 'ilike'; col: string; val: unknown }[] = []
   private singleResult = false
   private maybeSingleResult = false
 
@@ -24,17 +34,15 @@ class SupabaseMockChain {
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insert(data: any) {
+  insert(data: MockRow | MockRow[]) {
     this.action = 'insert'
-    this.actionData = data
+    this.actionData = Array.isArray(data) ? data : [data]
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  update(data: any) {
+  update(data: MockRow) {
     this.action = 'update'
-    this.actionData = data
+    this.actionData = [data]
     return this
   }
 
@@ -43,27 +51,23 @@ class SupabaseMockChain {
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  upsert(data: any) {
+  upsert(data: MockRow | MockRow[]) {
     this.action = 'upsert'
-    this.actionData = data
+    this.actionData = Array.isArray(data) ? data : [data]
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  eq(col: string, val: any) {
+  eq(col: string, val: unknown) {
     this.conditions.push({ type: 'eq', col, val })
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  in(col: string, val: any) {
+  in(col: string, val: unknown) {
     this.conditions.push({ type: 'in', col, val })
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ilike(col: string, val: any) {
+  ilike(col: string, val: unknown) {
     this.conditions.push({ type: 'ilike', col, val })
     return this
   }
@@ -78,22 +82,22 @@ class SupabaseMockChain {
     return this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
+  async then(
+    onfulfilled?: (value: { data: unknown; error: { message?: string; code?: string } | null }) => unknown,
+    onrejected?: (reason: unknown) => unknown,
+  ) {
     try {
       let sql = ''
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const params: any[] = []
+      const params: unknown[] = []
       let paramIndex = 1
 
       if (this.action === 'select') {
         sql = `SELECT * FROM "${this.table}"`
       } else if (this.action === 'insert') {
-        const isArray = Array.isArray(this.actionData)
-        const rows = isArray ? this.actionData : [this.actionData]
+        const rows = this.actionData
         const keys = Object.keys(rows[0])
         const columns = keys.map(k => `"${k}"`).join(', ')
-        const valuesClauses = rows.map((row: any) => {
+        const valuesClauses = rows.map((row: MockRow) => {
           return '(' + keys.map(k => {
             const val = row[k]
             params.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val)
@@ -103,9 +107,10 @@ class SupabaseMockChain {
 
         sql = `INSERT INTO "${this.table}" (${columns}) VALUES ${valuesClauses} RETURNING *`
       } else if (this.action === 'update') {
-        const keys = Object.keys(this.actionData)
+        const row = this.actionData[0]
+        const keys = Object.keys(row)
         const setClauses = keys.map(k => {
-          const val = this.actionData[k]
+          const val = row[k]
           params.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val)
           return `"${k}" = $${paramIndex++}`
         }).join(', ')
@@ -113,11 +118,10 @@ class SupabaseMockChain {
       } else if (this.action === 'delete') {
         sql = `DELETE FROM "${this.table}"`
       } else if (this.action === 'upsert') {
-        const isArray = Array.isArray(this.actionData)
-        const rows = isArray ? this.actionData : [this.actionData]
+        const rows = this.actionData
         const keys = Object.keys(rows[0])
         const columns = keys.map(k => `"${k}"`).join(', ')
-        const valuesClauses = rows.map((row: any) => {
+        const valuesClauses = rows.map((row: MockRow) => {
           return '(' + keys.map(k => {
             const val = row[k]
             params.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val)
@@ -175,8 +179,7 @@ class SupabaseMockChain {
       }
 
       const res = await query(sql, params)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let data: any = res.rows
+      let data: unknown = res.rows
 
       if (this.singleResult) {
         if (res.rowCount === 0) {
@@ -215,14 +218,12 @@ class SupabaseMockClient {
 
 const mockClient = new SupabaseMockClient()
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createAdminTestClient(): any {
+export function createAdminTestClient(): SupabaseMockClient {
   return mockClient
 }
 
 export async function createTestUser(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: any,
+  admin: SupabaseMockClient,
   { email, name = 'Test User' }: { email: string; name?: string },
 ): Promise<string> {
   const userId = randomUUID()
@@ -231,14 +232,12 @@ export async function createTestUser(
   return userId
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function deleteTestUser(admin: any, userId: string): Promise<void> {
+export async function deleteTestUser(admin: SupabaseMockClient, userId: string): Promise<void> {
   await query('DELETE FROM "user" WHERE id = $1', [userId])
 }
 
 export async function createTestUserWithGoTrue(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  admin: any,
+  admin: SupabaseMockClient,
   { email, name = 'Test User', password = 'password123' }: { email: string; name?: string; password?: string },
 ): Promise<{ userId: string; password: string }> {
   const userId = randomUUID()
@@ -247,8 +246,7 @@ export async function createTestUserWithGoTrue(
   return { userId, password }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function deleteTestUserWithGoTrue(admin: any, userId: string): Promise<void> {
+export async function deleteTestUserWithGoTrue(admin: SupabaseMockClient, userId: string): Promise<void> {
   await query('DELETE FROM "user" WHERE id = $1', [userId])
 }
 
