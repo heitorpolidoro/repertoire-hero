@@ -1,5 +1,5 @@
 import { query } from '@/lib/db'
-import type { BandByInviteCodeRow } from '@/lib/dbRows'
+import type { BandByInviteCodeRow, JoinBandByInviteRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 
 export async function getBandByInviteCodeServer(inviteCode: string): Promise<{
@@ -39,10 +39,10 @@ export async function joinBandByInviteServer(
   inviteCode: string,
 ): Promise<JoinBandResult | null> {
   try {
-    const res = await query('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
+    const res = await query<JoinBandByInviteRow>('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
     const row = res.rows[0]
     if (!row || row.band_id === null) return null
-    return { bandId: row.band_id as string, alreadyMember: Boolean(row.already_member) }
+    return { bandId: row.band_id, alreadyMember: Boolean(row.already_member) }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to join band by invite', err)

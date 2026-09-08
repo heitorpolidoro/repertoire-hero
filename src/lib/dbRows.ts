@@ -18,6 +18,33 @@ export interface BandByInviteCodeRow {
   member_count: string
 }
 
+/** `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2` */
+export interface BandMemberRoleRow {
+  role: 'admin' | 'member'
+}
+
+/** `SELECT * FROM join_band_by_invite($1, $2)` — both columns are NULL when the code matches no band (migration 0004). */
+export interface JoinBandByInviteRow {
+  band_id: string | null
+  already_member: boolean | null
+}
+
+/** `SELECT id, user_id, band_id FROM playlists WHERE id = $1 AND (...)` */
+export interface PlaylistAccessRow {
+  id: string
+  user_id: string | null
+  band_id: string | null
+}
+
+/** `SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist FROM playlist_songs ps JOIN ...` */
+export interface PlaylistEntryRow {
+  position: number
+  repertoire_id: string
+  song_id: string
+  title: string
+  artist: string
+}
+
 /** `SELECT song_id FROM playlist_songs WHERE playlist_id = $1` */
 export interface PlaylistSongIdRow {
   song_id: string

@@ -1,5 +1,6 @@
 import { assertBandMember } from '@/lib/bands'
 import { query, withTransaction } from '@/lib/db'
+import type { PlaylistAccessRow, PlaylistEntryRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 import { buildUpdateSet } from '@/lib/sqlUpdate'
 import type { Playlist } from '@/types/database'
@@ -7,7 +8,7 @@ import type { Playlist } from '@/types/database'
 export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
   try {
     // Fetch band IDs the user belongs to
-    const bandIdsResult = await query('SELECT band_id FROM band_members WHERE user_id = $1', [userId])
+    const bandIdsResult = await query<{ band_id: string }>('SELECT band_id FROM band_members WHERE user_id = $1', [userId])
     const bandIds = bandIdsResult.rows.map((m) => m.band_id)
 
     // Personal playlists + playlists of every band the user is a member of
@@ -69,7 +70,7 @@ export async function createPlaylist(
 export async function assertPlaylistAccess(
   playlistId: string,
   userId: string,
-): Promise<{ id: string; user_id: string | null; band_id: string | null }> {
+): Promise<PlaylistAccessRow> {
   const sql = `
     SELECT id, user_id, band_id
     FROM playlists
@@ -78,7 +79,7 @@ export async function assertPlaylistAccess(
   `
   let res
   try {
-    res = await query(sql, [playlistId, userId])
+    res = await query<PlaylistAccessRow>(sql, [playlistId, userId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to authorize playlist access', err, { playlistId })
@@ -86,7 +87,7 @@ export async function assertPlaylistAccess(
   }
 
   if (res.rowCount === 0) throw new Error('Access denied: not allowed on this playlist')
-  return res.rows[0] as { id: string; user_id: string | null; band_id: string | null }
+  return res.rows[0]
 }
 
 export async function updatePlaylist(
@@ -121,7 +122,7 @@ export async function updatePlaylist(
     `
     values.push(id)
 
-    const res = await query(sql, values)
+    const res = await query<never>(sql, values)
     if (res.rowCount === 0) throw new Error('Playlist not found')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -135,7 +136,7 @@ export async function deletePlaylist(id: string, userId: string): Promise<void> 
 
   const sql = `DELETE FROM playlists WHERE id = $1`
   try {
-    const res = await query(sql, [id])
+    const res = await query<never>(sql, [id])
     if (res.rowCount === 0) throw new Error('Playlist not found')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -156,16 +157,16 @@ export async function addSongToPlaylist(playlistId: string, userId: string, song
     await withTransaction(async (client) => {
       if (playlist.band_id) {
         // Band playlist: the band's repertoire and the caller's own.
-        await client.query(
+        await client.query<never>(
           "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
           [playlist.band_id, songId],
         )
-        await client.query(
+        await client.query<never>(
           "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
           [userId, songId],
         )
       } else if (playlist.user_id) {
-        await client.query(
+        await client.query<never>(
           "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
           [playlist.user_id, songId],
         )
@@ -176,7 +177,7 @@ export async function addSongToPlaylist(playlistId: string, userId: string, song
       //    `uq_playlist_song_position` is what actually serialises two
       //    concurrent adds: the loser fails with 23505 instead of silently
       //    writing a duplicate position.
-      await client.query(
+      await client.query<never>(
         `INSERT INTO playlist_songs (playlist_id, song_id, position)
          SELECT $1, $2, COALESCE(MAX(position), 0) + 1 FROM playlist_songs WHERE playlist_id = $1`,
         [playlistId, songId],
@@ -194,7 +195,7 @@ export async function removeSongFromPlaylist(playlistId: string, userId: string,
 
   const sql = `DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2`
   try {
-    await query(sql, [playlistId, songId])
+    await query<never>(sql, [playlistId, songId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to remove song from playlist', err, { playlistId, songId })
@@ -286,15 +287,15 @@ export async function getPlaylistDetailsWithEntries(
     ORDER BY ps.position ASC
   `
   try {
-    const playlistRes = await query('SELECT name FROM playlists WHERE id = $1', [playlistId])
-    const name = (playlistRes.rows[0]?.name as string) ?? 'Playlist'
+    const playlistRes = await query<{ name: string }>('SELECT name FROM playlists WHERE id = $1', [playlistId])
+    const name = playlistRes.rows[0]?.name ?? 'Playlist'
 
-    const res = await query(sql, [bandId ?? null, userId, playlistId])
+    const res = await query<PlaylistEntryRow>(sql, [bandId ?? null, userId, playlistId])
     const entries = res.rows.map((row) => ({
-      repertoireId: row.repertoire_id as string,
-      songId: row.song_id as string,
-      title: row.title as string,
-      artist: row.artist as string | null,
+      repertoireId: row.repertoire_id,
+      songId: row.song_id,
+      title: row.title,
+      artist: row.artist,
     }))
 
     return { name, entries }

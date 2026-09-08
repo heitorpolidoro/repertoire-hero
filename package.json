@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.85-202609080152",
+  "version": "0.1.86-202609080234",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",

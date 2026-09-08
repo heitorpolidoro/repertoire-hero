@@ -1,4 +1,5 @@
 import { query } from "@/lib/db"
+import type { BandMemberRoleRow, JoinBandByInviteRow } from '@/lib/dbRows'
 import { logger } from "@/lib/logger"
 import { buildUpdateSet } from "@/lib/sqlUpdate"
 import type { Band, BandMember, Playlist } from "@/types/database"
@@ -38,7 +39,7 @@ export async function assertBandMember(
 ): Promise<'admin' | 'member'> {
   let res
   try {
-    res = await query(
+    res = await query<BandMemberRoleRow>(
       `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2`,
       [bandId, userId],
     )
@@ -51,7 +52,7 @@ export async function assertBandMember(
   // User-facing authorization failure — outside any wrapping catch so the text
   // survives verbatim to the UI (convention L1a).
   if (res.rowCount === 0) throw new Error('Access denied: not a member of this band')
-  return res.rows[0].role as 'admin' | 'member'
+  return res.rows[0].role
 }
 
 /** Throws unless the caller is an admin of the band. */
@@ -112,15 +113,15 @@ export const createBand = async (
   color?: string | null,
 ): Promise<string> => {
   try {
-    const res = await query('SELECT create_band($1, $2, $3, $4) as band_id', [
+    const res = await query<{ band_id: string }>('SELECT create_band($1, $2, $3, $4) as band_id', [
       name,
       description ?? null,
       coverUrl ?? null,
       userId,
     ])
-    const bandId = res.rows[0].band_id as string
+    const bandId = res.rows[0].band_id
     if (color) {
-      await query('UPDATE bands SET color = $1 WHERE id = $2', [color, bandId])
+      await query<never>('UPDATE bands SET color = $1 WHERE id = $2', [color, bandId])
     }
     return bandId
   } catch (error) {
@@ -159,7 +160,7 @@ export const updateBand = async (
     `
     values.push(bandId)
 
-    const res = await query(sql, values)
+    const res = await query<never>(sql, values)
     if (res.rowCount === 0) throw new Error('Band not found')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -176,7 +177,7 @@ export const deleteBand = async (
 
   const sql = `DELETE FROM bands WHERE id = $1`
   try {
-    const res = await query(sql, [bandId])
+    const res = await query<never>(sql, [bandId])
     if (res.rowCount === 0) throw new Error('Band not found')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -191,7 +192,7 @@ export const leaveBand = async (
 ): Promise<void> => {
   const sql = `DELETE FROM band_members WHERE band_id = $1 AND user_id = $2`
   try {
-    await query(sql, [bandId, userId])
+    await query<never>(sql, [bandId, userId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to leave band", err)
@@ -207,7 +208,7 @@ export const removeBandMember = async (
   // from the client, so the admin check cannot be pointed at a different band.
   let memberRes
   try {
-    memberRes = await query(`SELECT band_id FROM band_members WHERE id = $1`, [memberId])
+    memberRes = await query<{ band_id: string }>(`SELECT band_id FROM band_members WHERE id = $1`, [memberId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to remove band member", err)
@@ -215,12 +216,12 @@ export const removeBandMember = async (
   }
 
   if (memberRes.rowCount === 0) throw new Error('Access denied: no such band member')
-  const bandId = memberRes.rows[0].band_id as string
+  const bandId = memberRes.rows[0].band_id
   await assertBandAdmin(bandId, userId)
 
   const sql = `DELETE FROM band_members WHERE id = $1 AND band_id = $2`
   try {
-    await query(sql, [memberId, bandId])
+    await query<never>(sql, [memberId, bandId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to remove band member", err)
@@ -275,8 +276,8 @@ export const createBandPlaylist = async (
     RETURNING id
   `
   try {
-    const res = await query(sql, [name, bandId])
-    return res.rows[0].id as string
+    const res = await query<{ id: string }>(sql, [name, bandId])
+    return res.rows[0].id
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to create band playlist", err)
@@ -289,9 +290,9 @@ export const joinBandByInviteClient = async (
   inviteCode: string,
 ): Promise<string | null> => {
   try {
-    const res = await query('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
+    const res = await query<JoinBandByInviteRow>('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
     const row = res.rows[0]
-    return row ? (row.band_id as string | null) : null
+    return row ? row.band_id : null
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error("Failed to join band", err)
@@ -305,7 +306,7 @@ export const regenerateBandInviteCode = async (
 ): Promise<string> => {
   let memberRes
   try {
-    memberRes = await query(
+    memberRes = await query<BandMemberRoleRow>(
       `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2`,
       [bandId, userId],
     )
@@ -323,7 +324,7 @@ export const regenerateBandInviteCode = async (
   const MAX_ATTEMPTS = 3
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await query(
+      const res = await query<{ invite_code: string }>(
         `UPDATE bands
          SET invite_code = substr(replace(gen_random_uuid()::text, '-', ''), 1, 12),
              updated_at = now()
@@ -332,7 +333,7 @@ export const regenerateBandInviteCode = async (
         [bandId],
       )
       if (res.rowCount === 0) throw new Error('Band not found')
-      return res.rows[0].invite_code as string
+      return res.rows[0].invite_code
     } catch (error) {
       // 23505 = unique_violation on invite_code — retry with a fresh code.
       if ((error as { code?: string }).code === '23505' && attempt < MAX_ATTEMPTS - 1) continue
@@ -345,5 +346,5 @@ export const regenerateBandInviteCode = async (
 }
 
 export const getBandMembers = (band: Band): BandMember[] => {
-  return (band.members ?? []) as BandMember[]
+  return band.members ?? []
 }

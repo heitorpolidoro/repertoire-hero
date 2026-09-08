@@ -56,7 +56,7 @@ export async function updateProfile(
     `
     values.push(userId)
 
-    const res = await query(sql, values)
+    const res = await query<never>(sql, values)
     if (res.rowCount === 0) throw new Error('Profile not found')
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -73,8 +73,8 @@ export async function updateEmail(userId: string, newEmail: string): Promise<voi
     // Both rows or neither: the identity the user signs in with and the one the
     // app displays must not be allowed to drift apart.
     await withTransaction(async (client) => {
-      await client.query('UPDATE "user" SET email = $1, "updatedAt" = now() WHERE id = $2::uuid', [newEmail, userId])
-      await client.query('UPDATE profiles SET email = $1 WHERE id = $2::uuid', [newEmail, userId])
+      await client.query<never>('UPDATE "user" SET email = $1, "updatedAt" = now() WHERE id = $2::uuid', [newEmail, userId])
+      await client.query<never>('UPDATE profiles SET email = $1 WHERE id = $2::uuid', [newEmail, userId])
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

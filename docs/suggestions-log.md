@@ -4041,3 +4041,65 @@ this one:
   RH-56, but adding a dummy value to `.env.local` would make future build logs clean enough
   that a real error stands out.
 
+
+## [RH-57] query tipado parte 4/5: tipar a camada de dados de bands, playlists e profile — 2026-09-08 (spec review 1)
+
+
+- ER5's `wc -l src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts`
+  prints five lines, not four: GNU/BSD `wc` appends a `total` row (838 after the change), which is
+  greater than 400. The wording "prints four numbers each `<= 400`" is understandable, but adding
+  "ignoring the trailing `total` row" (or using a per-file loop) removes the last hand-wave.
+- ER1's first two greps are described in two different output shapes — the first as "prints `0`
+  for all four files", the second as literal `src/lib/bands.ts:15` pairs. Both are correct
+  (`grep -c` over multiple files always emits `file:count`), but stating the first in the same
+  `file:count` form would make the two symmetric.
+- ER2's `grep -c "(error as { code?: string })" src/lib/bands.ts` is a nice negative pin; the same
+  treatment for the surviving `res.rows[0] as GlobalSongEdit` in `moderation.ts` is already
+  covered by the repo-wide sweep, so nothing to add — noted only to confirm the coverage is not
+  accidental.
+- Nothing in the spec depends on post-merge state; the "Post-merge checks (orchestrator)" section
+  is correctly kept outside the expected results.
+
+## [RH-57] query tipado parte 4/5: tipar a camada de dados de bands, playlists e profile — 2026-09-08 (spec review 2)
+
+
+- Approach section 2 opens "Five sites are that" and then lists six bullets (`bands.ts` 115, 210,
+  278, 326 and `playlists.ts` 10, 289). The bullets, the Audit tables and ER1's pins all agree on
+  six, so the implementation is not ambiguous — it is a stale word from an earlier draft, worth
+  fixing to "Six" the next time the file is touched.
+- Still open from round 1, unchanged and still non-blocking: ER5's
+  `wc -l src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts` prints
+  five lines, the fifth being `total` (838 after the change), which is not `<= 400`. Adding
+  "ignoring the trailing `total` row" would remove the last hand-wave.
+- Also still open from round 1: ER1's first aggregate grep is described as "prints `0` for all
+  four files" while the second is given as literal `file:count` pairs. Both are correct; stating
+  the first in the same `file:count` form would make the pair symmetric.
+- The generator's own round-2 suggestion is a good one and belongs to `pipeline.md`, not to this
+  spec: an ER-level `grep -c` whose last token is the pattern rather than a path is almost always
+  the missing-operand bug. I ran exactly that check here (see above) and it is cheap; making it a
+  standing step in spec review would have caught this in round 0.
+
+## [RH-57] query tipado parte 4/5: tipar a camada de dados de bands, playlists e profile — 2026-09-08 (code review 1)
+
+
+1. `AGENTS.md:269-290` documents the inline single-column literal but says nothing about the
+   `query<never>` idiom for statements that return no rows, which is now used at 19 sites across
+   `songs.ts`, `bands.ts`, `playlists.ts` and `profile.ts`. One sentence in that section during the
+   RH-40 close-out would stop the next author from reaching for `query<DbRow>` or leaving the site
+   untyped. Non-blocking and explicitly out of scope here.
+2. Four lines grew past ~110 characters (`bands.ts:116`, `bands.ts:211`, `playlists.ts:11`,
+   `bands.server.ts:42`). There is no `max-len` rule so nothing flags them, and wrapping them would
+   have perturbed the byte-identical-SQL check this task is graded on — worth folding into a future
+   formatting pass rather than this one.
+3. `PlaylistEntryRow.position` is declared but never read at the call site. That is correct under the
+   "mirror the projection column for column" convention (`position` is in the SELECT list and drives
+   the `ORDER BY`), so I would not change it — noting it only so a future reader does not mistake it
+   for dead surface and delete it.
+
+## [RH-57] query tipado parte 4/5: tipar a camada de dados de bands, playlists e profile — 2026-09-08 (QA 1)
+
+
+- Duplication sits exactly at the ER7 ceiling (19 clones / 242 duplicated lines / 0.71%), so
+  the next change in this area has no headroom before the gate wording bites. Not caused by
+  this task and not blocking, but worth a small cleanup budget soon.
+
