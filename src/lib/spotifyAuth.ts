@@ -78,7 +78,7 @@ export async function getSpotifyAccessToken(userId: string): Promise<string | nu
           updated_at = now()
       WHERE user_id = $4
     `
-    await query(updateSql, [
+    await query<never>(updateSql, [
       refreshJson.access_token,
       refreshJson.refresh_token ?? tokenRow.refresh_token,
       newExpiresAt,

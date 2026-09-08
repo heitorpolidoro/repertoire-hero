@@ -46,7 +46,7 @@ export async function POST(
 
   try {
     // The row itself came from the guard; only the Spotify link is still needed.
-    const linkRes = await query('SELECT spotify_playlist_id FROM playlists WHERE id = $1', [localPlaylistId])
+    const linkRes = await query<{ spotify_playlist_id: string | null }>('SELECT spotify_playlist_id FROM playlists WHERE id = $1', [localPlaylistId])
 
     // Fetch existing songs in the playlist
     const songsRes = await query<PlaylistSongIdRow>('SELECT song_id FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
@@ -59,7 +59,7 @@ export async function POST(
       )
     }
 
-    const spotifyPlaylistId = linkRes.rows[0].spotify_playlist_id as string
+    const spotifyPlaylistId = linkRes.rows[0].spotify_playlist_id
     let added = 0
     let removed = 0
 
@@ -100,11 +100,11 @@ export async function POST(
       // transaction, so `uq_playlist_song_position` is never transiently
       // violated and does not need to be deferrable.
       await withTransaction(async (client) => {
-        await client.query('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
+        await client.query<never>('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
 
         if (spotifySongIdsInOrder.length > 0) {
           const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifySongIdsInOrder)
-          await client.query(sql, values)
+          await client.query<never>(sql, values)
         }
       })
     } else {
@@ -175,7 +175,7 @@ export async function POST(
     }
 
     // Update last synced
-    await query('UPDATE playlists SET last_synced_at = now(), updated_at = now() WHERE id = $1', [localPlaylistId])
+    await query<never>('UPDATE playlists SET last_synced_at = now(), updated_at = now() WHERE id = $1', [localPlaylistId])
 
     return NextResponse.json({ added, removed })
   } catch (error) {

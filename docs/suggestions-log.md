@@ -4103,3 +4103,71 @@ this one:
   the next change in this area has no headroom before the gate wording bites. Not caused by
   this task and not blocking, but worth a small cleanup budget soon.
 
+
+## [RH-58] query tipado parte 5/5: tipar o caminho de dados do Spotify e seus route handlers — 2026-09-08 (spec review 1)
+
+
+- ER10's whitelist includes `AGENTS.md`, but nothing in the Approach or Test
+  plan edits it. Since ER10 is the only exhaustive "nothing else moved" check in
+  the spec, listing a file the task never touches means an unrelated `AGENTS.md`
+  edit would slip through unnoticed. Consider dropping it from the closed set.
+- ER6's `grep -c 'complexity-budget/override' eslint.config.mjs` prints `23` and
+  `grep -cF 'complexity: ["error", 26]' eslint.config.mjs` prints `1` are both
+  strictly implied by the `git diff 9e37072 -- ... eslint.config.mjs` empty check
+  in the same ER. Harmless redundancy, and arguably good documentation of intent
+  — no change needed, noted only so a future reviewer does not read it as a gap.
+- ER3's annotation-laundering guard only covers the three type names
+  `SpotifyTrack|GlobalSongEdit|SongLink` in array form. It happens to be
+  sufficient here because ER3's first grep covers the `rows[0]... as` shapes,
+  but if the pattern is going to be inherited by the follow-up guard task it
+  would be worth generalising to `: [A-Z][A-Za-z]*(\[\])? = await`.
+- The Post-merge note proposing a `no-restricted-syntax` rule or a
+  `dbRowTypes.test.ts`-style source scan is the right follow-up. When it is
+  written, it should scan for *any* receiver (`query(`, `client.query(`,
+  `db.query(`, `pool.query(`) rather than the three the note lists, and exempt
+  `src/lib/db.ts` plus the result-discarding sites the tree deliberately keeps.
+- Separately from this task: `src/lib/__tests__/complexityBudget.test.ts:82`
+  would stop being flaky with an explicit per-test timeout (its `await loadConfig()`
+  imports `eslint.config.mjs` dynamically and routinely exceeds the 5000 ms
+  default under full-suite load, taking ~30 s of wall time in the failing runs).
+  Worth its own small task, since it will keep costing QA rounds on every task
+  that pins the full suite.
+
+## [RH-58] query tipado parte 5/5: tipar o caminho de dados do Spotify e seus route handlers — 2026-09-08 (spec review 2)
+
+
+- ER10's whitelist still lists `AGENTS.md`, but nothing in the Approach or Test
+  plan edits it (carried over from round 1, not adopted — restated once, not
+  worth another round). Since ER10 is the only exhaustive "nothing else moved"
+  check, an unrelated `AGENTS.md` edit would pass unnoticed.
+- ER9 cites the failure frame as `complexityBudget.test.ts:82` while the awaited
+  call itself is on line 83. That matches what vitest prints today, but if the
+  test file ever shifts by a line the ER's prose will read as stale; the test
+  name alone already identifies the flake, and the ER's own restatement
+  ("the failing test is exactly the one named above") is what QA will use.
+- For RH-59: the flake is a 5000 ms default `testTimeout` on the dynamic
+  `eslint.config.mjs` import under full-suite parallel load. An explicit per-test
+  timeout on that one `it` is the smallest fix and would let future specs drop
+  this whole tolerance clause.
+
+## [RH-58] query tipado parte 5/5: tipar o caminho de dados do Spotify e seus route handlers — 2026-09-08 (code review 1)
+
+
+1. `src/lib/spotifyPlaylistSync.ts:101` — `rows[0].links ?? []` is now a no-op to the compiler: `GlobalSongLinksRow.links` is `SongLink[]` and `global_songs.links` is `jsonb NOT NULL DEFAULT '[]'::jsonb`, so the `??` branch is unreachable both by type and by schema. The spec keeps it deliberately to hold the runtime byte-identical, which is the right call for this task, but it is now defensive code the types say cannot fire. Worth deleting in a follow-up (or, if someone believes NULL rows exist, the honest fix is `links: SongLink[] | null` — not both spellings at once). Non-blocking, and explicitly out of scope here.
+2. `src/app/api/spotify/playlists/[id]/sync/route.ts:55` — `linkRes.rows[0]` is indexed without checking `rows.length`, so a missing playlist row throws a `TypeError` inside the `try` and surfaces as the generic 500 rather than a 404. Pre-existing at baseline and untouched by this diff; flagging only so it is not mistaken for something this task introduced. `src/lib/moderation.ts:151` has the same shape, guarded upstream by the `Global song edit not found` check.
+3. Post-merge, the follow-up guard the spec proposes (a lint rule or source-scan test forbidding an untyped `query(` / `client.query(` / `db.query(` / `pool.query(` outside `src/lib/db.ts`) is now cheap to add: the first three receivers are verifiably at zero across `src`, and only `src/lib/auth.ts:84` would need an exemption or a `<never>`. Without it, the invariant F16 just established has nothing holding it in place.
+
+## [RH-58] query tipado parte 5/5: tipar o caminho de dados do Spotify e seus route handlers — 2026-09-08 (QA 1)
+
+
+- ER9's tolerated flake reproduced on the first full-suite run here
+  (`complexityBudget.test.ts` timing out at 5000ms under parallel load while
+  taking 22s wall time in the same run). It is correctly scoped out of RH-58 and
+  owned by RH-59; the cheapest fix when RH-59 comes up is a per-test
+  `testTimeout` on the `loadConfig()` case, since the isolated run already takes
+  ~8s of which the config load dominates.
+- `src/lib/spotify.ts:30` remains the last `as SpotifyTrack[]` in the RH-57
+  inventory. It is an HTTP-body cast deliberately kept out of RH-58's scope, but
+  it is now the only remaining entry, so a follow-up validating the Spotify
+  response body would close that inventory entirely. Non-blocking.
+

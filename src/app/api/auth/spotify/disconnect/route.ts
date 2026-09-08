@@ -16,7 +16,7 @@ export async function POST(): Promise<NextResponse> {
   }
 
   try {
-    await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userId])
+    await query<never>('DELETE FROM spotify_tokens WHERE user_id = $1', [userId])
   } catch (error) {
     logger.error(
       'Failed to disconnect Spotify',

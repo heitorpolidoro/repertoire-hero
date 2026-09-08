@@ -29,7 +29,7 @@ export async function submitGlobalSongEdit(
 
 export async function checkSystemAdmin(userId: string): Promise<void> {
   const sql = 'SELECT is_system_admin FROM profiles WHERE id = $1'
-  const res = await query(sql, [userId])
+  const res = await query<{ is_system_admin: boolean }>(sql, [userId])
   if (res.rowCount === 0 || !res.rows[0]?.is_system_admin) {
     throw new Error('Access denied: User is not a system admin')
   }
@@ -139,7 +139,7 @@ export async function reviewGlobalSongEdit(
       const updateSongSql = `UPDATE global_songs SET ${setClauses.join(
         ', '
       )} WHERE id = $${values.length}`
-      await client.query(updateSongSql, values)
+      await client.query<never>(updateSongSql, values)
 
       const updateEditSql = `
         UPDATE global_song_edits
@@ -147,8 +147,8 @@ export async function reviewGlobalSongEdit(
         WHERE id = $2
         RETURNING *
       `
-      const res = await client.query(updateEditSql, [adminUserId, editId])
-      return res.rows[0] as GlobalSongEdit
+      const res = await client.query<GlobalSongEdit>(updateEditSql, [adminUserId, editId])
+      return res.rows[0]
     })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))

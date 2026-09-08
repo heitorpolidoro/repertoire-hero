@@ -10,6 +10,7 @@
  */
 
 import { pool, query, type Queryable } from '@/lib/db'
+import type { GlobalSongLinksRow } from '@/lib/dbRows'
 import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
 
 export interface SpotifyRawTrack {
@@ -93,15 +94,15 @@ export async function findOrCreateGlobalSong(track: SpotifyRawTrack): Promise<st
     WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2)
     LIMIT 1
   `
-  const { rows } = await query(lookupSql, [cleanTitle, track.artist.trim()])
+  const { rows } = await query<GlobalSongLinksRow>(lookupSql, [cleanTitle, track.artist.trim()])
 
   if (rows.length > 0) {
-    const existingSongId = rows[0].id as string
-    const existingLinks = (rows[0].links as Array<{ label: string; url: string }>) ?? []
+    const existingSongId = rows[0].id
+    const existingLinks = rows[0].links ?? []
 
     if (!existingLinks.some((l) => l.url === track.spotifyUrl)) {
       const updatedLinks = [...existingLinks, spotifyLink]
-      await query('UPDATE global_songs SET links = $1 WHERE id = $2', [
+      await query<never>('UPDATE global_songs SET links = $1 WHERE id = $2', [
         JSON.stringify(updatedLinks),
         existingSongId,
       ])
@@ -114,7 +115,7 @@ export async function findOrCreateGlobalSong(track: SpotifyRawTrack): Promise<st
     VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING id
   `
-  const insertRes = await query(insertSql, [
+  const insertRes = await query<{ id: string }>(insertSql, [
     cleanTitle,
     track.artist.trim(),
     cleanAlbum || null,
@@ -122,7 +123,7 @@ export async function findOrCreateGlobalSong(track: SpotifyRawTrack): Promise<st
     track.durationSeconds,
     JSON.stringify([spotifyLink]),
   ])
-  return insertRes.rows[0].id as string
+  return insertRes.rows[0].id
 }
 
 // ---------------------------------------------------------------------------
@@ -146,16 +147,16 @@ export async function ensureInRepertoire(
   db: Queryable = pool,
 ): Promise<void> {
   if (owner.bandId) {
-    await db.query(
+    await db.query<never>(
       "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
       [owner.bandId, songId],
     )
-    await db.query(
+    await db.query<never>(
       "INSERT INTO repertoire (user_id, song_id, status) SELECT bm.user_id, $1, 'unknown' FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING",
       [songId, owner.bandId],
     )
   } else if (owner.userId) {
-    await db.query(
+    await db.query<never>(
       "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
       [owner.userId, songId],
     )

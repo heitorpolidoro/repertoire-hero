@@ -23,6 +23,12 @@ export interface BandMemberRoleRow {
   role: 'admin' | 'member'
 }
 
+/** `SELECT id, links FROM global_songs WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2)` */
+export interface GlobalSongLinksRow {
+  id: string
+  links: SongLink[]
+}
+
 /** `SELECT * FROM join_band_by_invite($1, $2)` — both columns are NULL when the code matches no band (migration 0004). */
 export interface JoinBandByInviteRow {
   band_id: string | null

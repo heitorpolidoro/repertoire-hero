@@ -129,7 +129,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           spotify_user_id = EXCLUDED.spotify_user_id,
           updated_at = EXCLUDED.updated_at
     `
-    await query(upsertSql, [
+    await query<never>(upsertSql, [
       userId,
       tokenJson.access_token,
       tokenJson.refresh_token,

@@ -109,7 +109,7 @@ export async function POST(
     // --- Step 5: add songs to playlist_songs ---
     if (songIds.length > 0) {
       const { sql, values } = buildPlaylistSongsInsert(playlist.id, songIds)
-      await query(sql, values)
+      await query<never>(sql, values)
     }
 
     return NextResponse.json(playlist, { status: 201 })
