@@ -3575,3 +3575,60 @@ addition with an obvious test. Out of scope here.
   scope for RH-52 — the task removed exactly the one error it owned — but worth a
   cleanup task.
 
+
+## [RH-38] Decompor a pagina Fast View — 2026-09-07 (spec review 2, integration spec)
+
+
+- ER1's phrase "prints exactly one problem line" is accurate but could be read as
+  "the output is one line". The raw output is six lines (blank, file path, the
+  error line, blank, `✖ 1 problem (1 error, 0 warnings)`, blank). Consider
+  "prints exactly one error line ... and a summary reading `1 problem (1 error,
+  0 warnings)`" so a literal-minded QA cannot fail a correct run on line count.
+- ER6's requirement that the `**Correction (RH-38):**` line "states all three of
+  the corrected numbers" is checked by reading prose. It is checkable because the
+  numbers are enumerated, but it could be made fully mechanical by adding that
+  the line must contain the literals `82`, `88`, `1495`, `1534`, `39` and `4`.
+- ER8 does not restate the Postgres/`SUPABASE_SERVICE_ROLE_KEY` precondition that
+  ER4 spells out, yet `e2e/global-setup.ts` creates an authenticated session and
+  therefore needs the database. ER4 covers it for a QA reading the whole list, but
+  a one-line restatement in ER8 would make it standalone.
+- ER9's whitelist names `.meridian/tasks.json`, which is gitignored and so can
+  never appear in `git diff --name-only`. Harmless given the "subset" wording;
+  dropping it would remove a moment of confusion for QA.
+- Post-merge note for the orchestrator: the spec's own hand-off to RH-39 is
+  well-formed — the `24 problems (10 errors, 14 warnings)` ratchet and the
+  concrete override list (`useBandAdmin.ts`, `linkFetcher.ts`, `moderation.ts`,
+  `songs.ts`, the ten `src/lib/__tests__` files) were both reproduced today and
+  can be handed over verbatim.
+
+## [RH-38] Decompor a pagina Fast View — 2026-09-07 (code review 1)
+
+
+1. `AGENTS.md:54` - the new bullet leads with a full sentence in bold
+   (`- **Fast View is a composition root (RH-38).**`) while every sibling bullet
+   in `Key architectural decisions` leads with a short bold topic followed by a
+   colon (`- **Auth**:`, `- **Data access**:`, `- **Observability**:`). A form
+   like `- **Fast View composition root (RH-38)**: ...` would scan more
+   uniformly in that list. Purely cosmetic; the content is accurate and the
+   greps ER7 pins (`Fast View is a composition root`) would need updating if
+   this were changed, so it is arguably better left as is.
+2. `docs/plans/code-quality-review.md:289` - the F6 `Status` line carries the
+   whole per-commit progression (`1427/76, 1091/67, 964/54, 658/30`) inline. It
+   is all true and it is one line by design, but a future reader may find the
+   same data easier to consume as the table that already exists in
+   `docs/tasks/RH-38-spec.md:57-65`. If the review document ever gains a
+   "delivery log" section, that is where this belongs. Not worth churning the
+   `4	0` numstat for now.
+3. Non-blocking observation for the orchestrator, not for this diff: the F6
+   `Status` line asserts the budgets pass "over the whole feature" by way of a
+   `--rule` invocation that nothing in CI reproduces. Until RH-39 wires the
+   thresholds into `eslint.config.mjs`, that claim is true but unenforced and
+   can silently rot. RH-39 is already sequenced next, which is the right answer.
+
+## [RH-38] Decompor a pagina Fast View — 2026-09-07 (QA 1)
+
+
+None. (One observation, not a defect and not actionable for this task: `vitest run` emits a Vite
+warning that `vitest.config.ts` uses ESM syntax in a file loaded as CommonJS under
+`configLoader: 'native'`. It is pre-existing at `e985ba5`, outside this task's footprint, and ER9
+explicitly forbids touching `vitest.config.ts`.)

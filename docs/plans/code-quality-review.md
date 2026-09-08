@@ -285,6 +285,8 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** High
 **Effort:** L
 **Remediation:** Extract in layers rather than all at once: first the pure decision logic into `src/lib` modules in the style `annotationMath.ts` and `stageInteraction.ts` already establish; then controller hooks (`useSongEntry`, `useTabUpload`, `useLyricsEditor`, `usePlaylistNav`, `useStageMode`) in `src/hooks`; then split the JSX into `src/components/fastview/*` presentational components taking props. Target no function over complexity 15 and no file over 400 lines, and unit-test the extracted `src/lib` modules as they land.
+**Correction (RH-38):** Three numbers in the heading and rationale above need dating. The complexity of 82 was accurate at this document's pinned baseline `13da8b2` and had drifted to 88 by `c8665cd`, the commit the remediation branched from. The `1586-line` figure is the file's length, not the function's: `FastViewPage` itself measured 1495 lines at `13da8b2` and 1534 lines at `c8665cd`, where the file had reached 1625 lines. And the `40 useState calls, 5 useEffect blocks` counts were 39 and 4 at `13da8b2` (measured with `grep -o 'useState[<(]'` and `grep -o 'useEffect('`); they reached 40 and 5 only by `c8665cd`.
+**Status:** Resolved by RH-48 (`a49a295`), RH-49 (`6b30ddb`), RH-50 (`bf0c97e`), RH-51 (`aaf9a21`) and RH-52 (`e985ba5`), in five vertical slices rather than the three horizontal layers proposed above; each slice still landed its own pure logic in `src/lib`, its controller in `src/hooks` and its markup in `src/components/fastview`. The page went 1625 lines / complexity 88 at `c8665cd`, then 1427/76, 1091/67, 964/54, 658/30, and finally 222 lines with `FastViewPage` at complexity 6 at `e985ba5`, where it holds no `useState`, no `useEffect` and no data access at all. At `e985ba5` the whole feature - the page, 27 components under `src/components/fastview`, the four `src/app/fastView*Actions.ts` files, seven hooks and nine `src/lib` modules - passes `complexity` 15, `max-lines-per-function` 200 and `max-depth` 4 with no file over 400 lines, and the sixteen new `src/lib` and `src/hooks` modules carry sixteen new unit-test files inside the RH-24 coverage gate.
 
 ### F7 - updateSongLinksAction rewrites the shared global catalog with no session and no moderation
 
@@ -451,6 +453,7 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** Low
 **Effort:** S
 **Remediation:** Use `useSearchParams()` and include the values in the effect's dependency array so a context change refetches. Delete `getPlaylistEntryIdsAction` and have its two callers read `.entries` from `getPlaylistDetailsWithEntriesAction`.
+**Status:** Resolved by RH-48 (`a49a295`) and RH-52 (`e985ba5`). RH-48 replaced the navigation and back-button reads with `useSearchParams()` and deleted `getPlaylistEntryIdsAction`, whose two callers now read `.entries` from `getPlaylistDetailsWithEntriesAction`; RH-52 moved the load-effect reads into `src/hooks/useSongEntry.ts`, whose effect dependency array carries the search-params-derived band id, so a query-string-only navigation refetches. At `e985ba5`, `grep -c "window.location" "src/app/songs/[id]/fast-view/page.tsx"` prints `0` where it printed `4` at `c8665cd`, and `grep -rn "getPlaylistEntryIdsAction" src` prints nothing.
 
 **On the three probes RH-25 was required to reach a conclusion about:**
 `deleteBandAction`, `updateBandAction` and `removeBandMemberAction` are all
@@ -527,6 +530,7 @@ implementation detail.
 **Justification:** A single 1586-line component with cyclomatic complexity 82 and 40 `useState` calls is the largest obstacle to safe change in the repository and is invisible to every existing CI gate.
 **Priority:** high
 **Covers:** F6, F26
+**Status:** Delivered by RH-48 (`a49a295`), RH-49 (`6b30ddb`), RH-50 (`bf0c97e`), RH-51 (`aaf9a21`) and RH-52 (`e985ba5`); integrated and verified by RH-38. Both findings it covers are closed.
 
 ### T6 - Enforce complexity, depth and size budgets in eslint.config.mjs
 
