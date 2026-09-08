@@ -3485,3 +3485,93 @@ addition with an obvious test. Out of scope here.
   module and interpolating it would remove the duplication and make a Tailwind
   class change a one-place edit. Non-blocking.
 
+
+## [RH-52] Fast View parte 5/5: extrair entrada de musica, status, links e o shell da pagina — 2026-09-07 (spec review 1)
+
+
+- **Say in the Approach that the hook tests import through the `@/hooks/...` alias.** ER1
+  requires `src/hooks/__tests__/X.test.tsx` to appear in `grep -rln "from '@/hooks/X'" src`,
+  but the repo is split on this: `useLyricsEditor.test.tsx`, `usePdfStage.test.tsx` and
+  `useTabLibrary.test.tsx` use the alias while `usePlaylistNav.test.tsx` and
+  `useToast.test.tsx` use `'../usePlaylistNav'`. An implementer following the relative-import
+  precedent would fail ER1. Not blocking, because ER1 is itself part of the spec the
+  implementer reads, but the Test plan section should state it.
+- **`FastViewOverlays.tsx` is the largest new component and has no render test.** ER5 covers
+  it only with the state/effect grep. A single "renders every overlay it is given" case in
+  `FastViewShell.test.tsx` would cost little and would catch a mis-forwarded prop that `tsc`
+  cannot (e.g. `songTitle`/`songKey` swapped).
+- **ER7's headroom is 9 lines and ER13's file list is closed.** The measured composition root
+  is 191 lines against a 200-line budget, and no tenth component file is permitted by ER13's
+  whitelist. If the real page lands at 205 lines the implementer has to restructure inside the
+  allowed files rather than extract. Consider either recording the escape hatch (which of the
+  nine components absorbs the overflow) or widening ER13 by one named component file.
+- **ER10's `All files` floors are very loose** relative to the measured baseline
+  (90/74/92/90 vs 96.97/84.03/99.32/97.49). They will not detect a coverage regression of
+  several points. Tightening them to a point or two below the baseline would make the gate
+  meaningful; ER11's per-file floors already carry most of the weight.
+- **The `logger.error` shorthand in the Approach** (`logger.error('Failed to load personal entry', err)`)
+  drops today's `e instanceof Error ? e : new Error(String(e))` normalisation. The spec says
+  "message unchanged" and "byte-for-byte behavioural copy", so intent is clear, but quoting the
+  current second argument would remove any doubt (and `logger.error`'s signature may require an
+  `Error`).
+
+## [RH-52] Fast View parte 5/5: extrair entrada de musica, status, links e o shell da pagina — 2026-09-07 (spec review 2)
+
+
+- Round 1's five suggestions were not addressed and are not blocking; they still apply and are
+  already recorded in `docs/suggestions-log.md` from that round. The two most worth carrying
+  into implementation are (a) stating in the Test plan that the hook tests import through the
+  `@/hooks/...` alias, since ER1's `grep -rln "from '@/hooks/X'" src` triple fails under the
+  repo's competing relative-import precedent, and (b) ER7's 9-line headroom against a closed
+  ER13 file list, which leaves the implementer no tenth component to extract into if the page
+  lands over 200 lines.
+- The generator's own round-2 note is right that `grep -c "useEffect("` is the reusable idiom
+  when the intent is "count effects" and `grep -c "useEffect"` only when the intent is "this
+  symbol appears nowhere". ER5's nine-component grep and ER6's page grep both assert `0`, so
+  they are the second case and are correct as written.
+
+## [RH-52] Fast View parte 5/5: extrair entrada de musica, status, links e o shell da pagina — 2026-09-07 (code review 1)
+
+
+1. `src/components/fastview/FastViewOverlays.tsx:22-30` — `FastViewPdfStage` restates
+   `usePdfStage`'s return shape structurally. It is the right call under today's boundary rule
+   (RH-50's files are out of scope here), but it is the one place where a rename in
+   `usePdfStage` would only be caught by `tsc` at the call site rather than at the definition.
+   A follow-up could move a `PdfStageController` type into `src/lib` alongside the other three,
+   the way RH-52 did for its own controllers.
+2. `src/components/fastview/LinkDeleteConfirm.tsx:16` — the guard is
+   `controller.pendingDeleteUrl === null`, whereas the page's old guard was the truthy
+   `{pendingDelete && …}`. Unreachable difference today (a link url is never the empty
+   string), but `if (!controller.pendingDeleteUrl) return null` would be exactly equivalent to
+   the original for zero cost.
+3. `src/app/songs/[id]/fast-view/page.tsx:184-187` — the inline `onDelete` arrow drops the old
+   `handleDeleteLink`'s `if (!entry || !entry.song) return` guard. Also unreachable: the delete
+   button only exists inside a card, and `controller.links` is `entry?.song?.links ?? []`, so
+   there are no cards without a song. Noted only so a future reader does not read it as a lost
+   check.
+4. `src/hooks/useSongEntry.ts:130` — `identity: songIdentity(entry)` builds a fresh object on
+   every render. Harmless as wired (only `identity.title` / `identity.artist` strings cross a
+   hook boundary), but a `useMemo` would make the controller value safe to drop into a
+   dependency array later.
+5. `src/lib/songLinks.ts:28-35` — `appendLink` and `removeLinkByUrl` are one-line array
+   operations and sit close to the YAGNI line. They earn their place here because they are what
+   the moderation-path test asserts against, and the module is the components' type home
+   anyway, so I would leave them.
+6. There is no test file for `FastViewOverlays`. ER5 does not ask for one and the component is
+   pure prop pass-through, so this is fine; noting it because it is the only one of the nine
+   new components with no direct render test.
+
+## [RH-52] Fast View parte 5/5: extrair entrada de musica, status, links e o shell da pagina — 2026-09-07 (QA 1)
+
+
+- `src/hooks/useSongEntry.ts` is the one new file below 100% statement coverage
+  (97.67% statements, 79.16% branches). The uncovered branches are the defensive
+  guards in the personal-entry load path. Not a gate — the ER11 floor for hooks is
+  90/90/90 statements/functions/lines and 75 branches, and the file clears all
+  four — but a case for the `repertoireId === null` guard would close it.
+- The repo-wide `rtk proxy npx eslint .` still reports 10 errors, all
+  `@typescript-eslint/no-explicit-any` in test helpers and other pre-existing
+  files (`src/lib/__tests__/test-helpers.ts:96` and `:120` among them). Out of
+  scope for RH-52 — the task removed exactly the one error it owned — but worth a
+  cleanup task.
+
