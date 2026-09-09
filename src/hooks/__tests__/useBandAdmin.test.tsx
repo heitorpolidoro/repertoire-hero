@@ -66,6 +66,9 @@ const PLAYLISTS = [{ id: 'pl-1', name: 'Setlist' }] as unknown as Playlist[]
 
 const formEvent = () => ({ preventDefault: vi.fn() }) as unknown as React.FormEvent
 
+const changeEvent = (files: File[]) =>
+  ({ target: { files } }) as unknown as React.ChangeEvent<HTMLInputElement>
+
 type BandAdminActionSpies = { [K in keyof BandAdminActions]: Mock }
 
 /**
@@ -120,6 +123,28 @@ async function setupLoaded(
 }
 
 /**
+ * Mount loaded, open the edit modal and pick a cover file, with
+ * `uploadBandCover` pre-programmed to the given outcome — the shared preamble of
+ * every assertion about the upload leg of `saveEdit`.
+ */
+async function setupWithPickedCover(uploadResult: { coverUrl?: string; error?: string }) {
+  compressImageFileMock.mockResolvedValue({ name: 'c.jpg' } as unknown as File)
+  Object.defineProperty(URL, 'createObjectURL', { value: () => 'blob:preview', configurable: true })
+  const actions = makeActions()
+  actions.uploadBandCover.mockResolvedValue(uploadResult)
+
+  const rendered = await setupLoaded({}, actions)
+
+  act(() => rendered.result.current.startEdit())
+  await act(async () => {
+    await rendered.result.current.pickCoverFile(
+      changeEvent([{ name: 'huge.jpg' } as unknown as File]),
+    )
+  })
+  return rendered
+}
+
+/**
  * `BANDS_PAGE_LOAD_POLICY.catchLoadErrors === false` means a failed load rejects
  * *unhandled*, by design. Vitest's own `unhandledRejection` listener would turn
  * that documented behaviour into a suite failure, so it is swapped out for the
@@ -151,6 +176,77 @@ beforeEach(() => {
     data: { user: { id: USER_ID } },
   } as never)
   useBandContextStore.setState({ context: { type: 'user' } })
+})
+
+describe('useBandAdmin surface', () => {
+  it('exposes 19 members, none of them a state setter', async () => {
+    const { result } = await setupLoaded()
+
+    const keys = Object.keys(result.current).sort()
+    expect(keys).toEqual([
+      'band',
+      'cancelEdit',
+      'currentUserId',
+      'dismissError',
+      'editDraft',
+      'error',
+      'invite',
+      'isAdmin',
+      'isMember',
+      'loading',
+      'newPlaylist',
+      'pending',
+      'pickCoverFile',
+      'playlists',
+      'reportError',
+      'saveEdit',
+      'saving',
+      'startEdit',
+      'updateDraft',
+    ])
+    expect(keys).toHaveLength(19)
+    expect(keys.filter((key) => key.startsWith('set'))).toEqual([])
+  })
+
+  it('groups the invite widget into url, copied, copy and applyNewCode', async () => {
+    const { result } = await setupLoaded()
+
+    const keys = Object.keys(result.current.invite).sort()
+    expect(keys).toEqual(['applyNewCode', 'copied', 'copy', 'url'])
+    expect(keys.filter((key) => key.startsWith('set'))).toEqual([])
+  })
+
+  it('groups the destructive confirmation into action, busy, requestDelete, requestLeave, requestRemove, confirm and dismiss', async () => {
+    const { result } = await setupLoaded()
+
+    const keys = Object.keys(result.current.pending).sort()
+    expect(keys).toEqual([
+      'action',
+      'busy',
+      'confirm',
+      'dismiss',
+      'requestDelete',
+      'requestLeave',
+      'requestRemove',
+    ])
+    expect(keys.filter((key) => key.startsWith('set'))).toEqual([])
+  })
+
+  it('groups the new playlist form into open, name, creating, toggle, changeName, close and submit', async () => {
+    const { result } = await setupLoaded()
+
+    const keys = Object.keys(result.current.newPlaylist).sort()
+    expect(keys).toEqual([
+      'changeName',
+      'close',
+      'creating',
+      'name',
+      'open',
+      'submit',
+      'toggle',
+    ])
+    expect(keys.filter((key) => key.startsWith('set'))).toEqual([])
+  })
 })
 
 describe('useBandAdmin load policies', () => {
@@ -206,18 +302,19 @@ describe('useBandAdmin load policies', () => {
   })
 })
 
-describe('useBandAdmin derived state', () => {
+describe('useBandAdmin derived state and the shared banner', () => {
   it.each([
-    ['the signed-in user is an admin member', USER_ID, true],
-    ['the signed-in user is a plain member', 'user-2', false],
-    ['the signed-in user is not a member at all', 'stranger', false],
-  ])('isAdmin is %s → %s', async (_label, sessionUserId, expected) => {
+    ['the signed-in user is an admin member', USER_ID, true, true],
+    ['the signed-in user is a plain member', 'user-2', false, true],
+    ['the signed-in user is not a member at all', 'stranger', false, false],
+  ])('isAdmin is %s → %s', async (_label, sessionUserId, admin, isMember) => {
     useSessionMock.mockReturnValue({ data: { user: { id: sessionUserId } } } as never)
 
     const { result } = await setupLoaded()
 
     expect(result.current.currentUserId).toBe(sessionUserId)
-    expect(result.current.isAdmin).toBe(expected)
+    expect(result.current.isAdmin).toBe(admin)
+    expect(result.current.isMember).toBe(isMember)
   })
 
   it('has no current user and no admin rights without a session', async () => {
@@ -226,14 +323,26 @@ describe('useBandAdmin derived state', () => {
     const { result } = await setupLoaded()
 
     expect(result.current.currentUserId).toBeNull()
-    expect(result.current.currentMember).toBeUndefined()
+    expect(result.current.isMember).toBe(false)
     expect(result.current.isAdmin).toBe(false)
   })
 
+  it('reportError shows a message in the shared banner and dismissError clears it', async () => {
+    const { result } = await setupLoaded()
+
+    act(() => result.current.reportError('Failed to regenerate invite link'))
+    expect(result.current.error).toBe('Failed to regenerate invite link')
+
+    act(() => result.current.dismissError())
+    expect(result.current.error).toBeNull()
+  })
+})
+
+describe('useBandAdmin invite link', () => {
   it('builds the invite URL from the page origin and the band invite code', async () => {
     const { result } = await setupLoaded()
 
-    expect(result.current.inviteUrl).toBe(`${window.location.origin}/join/INV123`)
+    expect(result.current.invite.url).toBe(`${window.location.origin}/join/INV123`)
   })
 
   it('copies the invite URL and flags the copied state', async () => {
@@ -241,24 +350,41 @@ describe('useBandAdmin derived state', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
 
     const { result } = await setupLoaded()
-    await act(() => result.current.handleCopyInvite())
+    await act(() => result.current.invite.copy())
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/join/INV123`)
-    expect(result.current.copied).toBe(true)
+    expect(result.current.invite.copied).toBe(true)
+  })
+
+  it('applies a regenerated invite code to the band and clears the copied flag', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+    const { result } = await setupLoaded()
+    await act(() => result.current.invite.copy())
+    expect(result.current.invite.copied).toBe(true)
+
+    act(() => result.current.invite.applyNewCode('NEWCODE'))
+
+    expect(result.current.band?.invite_code).toBe('NEWCODE')
+    expect(result.current.invite.url).toBe(`${window.location.origin}/join/NEWCODE`)
+    expect(result.current.invite.copied).toBe(false)
   })
 })
 
 describe('useBandAdmin edit modal', () => {
-  it('openEdit seeds the form from the loaded band', async () => {
+  it('startEdit seeds the draft from the loaded band', async () => {
     const { result } = await setupLoaded()
+    expect(result.current.editDraft).toBeNull()
 
-    act(() => result.current.openEdit())
+    act(() => result.current.startEdit())
 
-    expect(result.current.editing).toBe(true)
-    expect(result.current.editName).toBe('The Band')
-    expect(result.current.editDesc).toBe('Loud')
-    expect(result.current.editColor).toBe('#1d4ed8')
-    expect(result.current.editCoverPreview).toBeNull()
+    expect(result.current.editDraft).toEqual({
+      name: 'The Band',
+      description: 'Loud',
+      coverPreview: null,
+      color: '#1d4ed8',
+    })
   })
 
   it('falls back to the default colour when the band has none', async () => {
@@ -266,13 +392,35 @@ describe('useBandAdmin edit modal', () => {
     actions.getBandWithMembers.mockResolvedValue({ ...BAND, color: null, description: null })
 
     const { result } = await setupLoaded({}, actions)
-    act(() => result.current.openEdit())
+    act(() => result.current.startEdit())
 
-    expect(result.current.editColor).toBe(DEFAULT_BAND_COLOR)
-    expect(result.current.editDesc).toBe('')
+    expect(result.current.editDraft?.color).toBe(DEFAULT_BAND_COLOR)
+    expect(result.current.editDraft?.description).toBe('')
   })
 
-  it('compresses a picked cover file and previews it', async () => {
+  it('updateDraft patches one draft field and leaves the others alone', async () => {
+    const { result } = await setupLoaded()
+
+    act(() => result.current.startEdit())
+    act(() => result.current.updateDraft({ name: 'Renamed' }))
+
+    expect(result.current.editDraft).toEqual({
+      name: 'Renamed',
+      description: 'Loud',
+      coverPreview: null,
+      color: '#1d4ed8',
+    })
+  })
+
+  it('updateDraft does nothing while the modal is closed', async () => {
+    const { result } = await setupLoaded()
+
+    act(() => result.current.updateDraft({ name: 'Renamed' }))
+
+    expect(result.current.editDraft).toBeNull()
+  })
+
+  it('pickCoverFile compresses the chosen file and previews it in the draft', async () => {
     const compressed = { name: 'small.jpg' } as unknown as File
     compressImageFileMock.mockResolvedValue(compressed)
     const createObjectURL = vi.fn(() => 'blob:preview')
@@ -281,39 +429,36 @@ describe('useBandAdmin edit modal', () => {
     const { result } = await setupLoaded()
     const original = { name: 'huge.jpg' } as unknown as File
 
+    act(() => result.current.startEdit())
     await act(async () => {
-      await result.current.handleEditCoverChange({
-        target: { files: [original] },
-      } as unknown as React.ChangeEvent<HTMLInputElement>)
+      await result.current.pickCoverFile(changeEvent([original]))
     })
 
     expect(compressImageFile).toHaveBeenCalledWith(original)
     expect(createObjectURL).toHaveBeenCalledWith(compressed)
-    expect(result.current.editCoverPreview).toBe('blob:preview')
+    expect(result.current.editDraft?.coverPreview).toBe('blob:preview')
   })
 
   it('ignores a cover change event with no file', async () => {
     const { result } = await setupLoaded()
 
+    act(() => result.current.startEdit())
     await act(async () => {
-      await result.current.handleEditCoverChange({
-        target: { files: [] },
-      } as unknown as React.ChangeEvent<HTMLInputElement>)
+      await result.current.pickCoverFile(changeEvent([]))
     })
 
     expect(compressImageFile).not.toHaveBeenCalled()
   })
 
-  it('saves the edit, patches local state and syncs the active band context', async () => {
+  it('saveEdit sends the trimmed draft, patches the band and syncs the active band context', async () => {
     useBandContextStore.getState().setBandContext(BAND_ID, 'The Band', '#1d4ed8')
 
     const { result, actions } = await setupLoaded()
 
-    act(() => result.current.openEdit())
-    act(() => result.current.setEditName('  Renamed  '))
-    act(() => result.current.setEditColor('#047857'))
+    act(() => result.current.startEdit())
+    act(() => result.current.updateDraft({ name: '  Renamed  ', color: '#047857' }))
     await act(async () => {
-      await result.current.handleSaveEdit(formEvent())
+      await result.current.saveEdit(formEvent())
     })
 
     expect(actions.updateBand).toHaveBeenCalledWith(BAND_ID, {
@@ -323,7 +468,7 @@ describe('useBandAdmin edit modal', () => {
       color: '#047857',
     })
     expect(result.current.band?.name).toBe('Renamed')
-    expect(result.current.editing).toBe(false)
+    expect(result.current.editDraft).toBeNull()
     expect(result.current.saving).toBe(false)
     expect(useBandContextStore.getState().context).toEqual({
       type: 'band',
@@ -333,42 +478,67 @@ describe('useBandAdmin edit modal', () => {
     })
   })
 
-  it('refuses to save an empty name', async () => {
+  it('leaves another band as the active context untouched when saving this one', async () => {
+    useBandContextStore.getState().setBandContext('other-band', 'Other', '#111111')
+
+    const { result } = await setupLoaded()
+
+    act(() => result.current.startEdit())
+    await act(async () => {
+      await result.current.saveEdit(formEvent())
+    })
+
+    expect(useBandContextStore.getState().context).toEqual({
+      type: 'band',
+      id: 'other-band',
+      name: 'Other',
+      color: '#111111',
+    })
+  })
+
+  it('saveEdit refuses a blank name and leaves the draft open', async () => {
     const { result, actions } = await setupLoaded()
 
-    act(() => result.current.openEdit())
-    act(() => result.current.setEditName('   '))
+    act(() => result.current.startEdit())
+    act(() => result.current.updateDraft({ name: '   ' }))
     await act(async () => {
-      await result.current.handleSaveEdit(formEvent())
+      await result.current.saveEdit(formEvent())
     })
 
     expect(actions.updateBand).not.toHaveBeenCalled()
-    expect(result.current.editing).toBe(true)
+    expect(result.current.editDraft?.name).toBe('   ')
   })
 
-  it('surfaces an upload error without closing the modal or saving', async () => {
-    compressImageFileMock.mockResolvedValue({ name: 'c.jpg' } as unknown as File)
-    Object.defineProperty(URL, 'createObjectURL', { value: () => 'blob:preview', configurable: true })
-    const actions = makeActions()
-    actions.uploadBandCover.mockResolvedValue({ error: 'Image size exceeds 5MB limit' })
-
-    const { result } = await setupLoaded({}, actions)
-
-    act(() => result.current.openEdit())
-    await act(async () => {
-      await result.current.handleEditCoverChange({
-        target: { files: [{ name: 'huge.jpg' } as unknown as File] },
-      } as unknown as React.ChangeEvent<HTMLInputElement>)
+  it('saveEdit surfaces a cover upload failure without calling updateBand', async () => {
+    const { result, actions } = await setupWithPickedCover({
+      error: 'Image size exceeds 5MB limit',
     })
+
     await act(async () => {
-      await result.current.handleSaveEdit(formEvent())
+      await result.current.saveEdit(formEvent())
     })
 
     expect(actions.uploadBandCover).toHaveBeenCalledTimes(1)
     expect(result.current.error).toBe('Image size exceeds 5MB limit')
-    expect(result.current.editing).toBe(true)
+    expect(result.current.editDraft).not.toBeNull()
     expect(result.current.saving).toBe(false)
     expect(actions.updateBand).not.toHaveBeenCalled()
+  })
+
+  it('saves the uploaded cover URL when the upload succeeds', async () => {
+    const { result, actions } = await setupWithPickedCover({
+      coverUrl: 'https://blob.example/c.jpg',
+    })
+
+    await act(async () => {
+      await result.current.saveEdit(formEvent())
+    })
+
+    expect(actions.updateBand).toHaveBeenCalledWith(
+      BAND_ID,
+      expect.objectContaining({ cover_url: 'https://blob.example/c.jpg' }),
+    )
+    expect(result.current.band?.cover_url).toBe('https://blob.example/c.jpg')
   })
 
   it('reports a failed save through the error banner using the configured fallback', async () => {
@@ -377,31 +547,43 @@ describe('useBandAdmin edit modal', () => {
 
     const { result } = await setupLoaded({ messages: { save: 'Could not save the band' } }, actions)
 
-    act(() => result.current.openEdit())
+    act(() => result.current.startEdit())
     await act(async () => {
-      await result.current.handleSaveEdit(formEvent())
+      await result.current.saveEdit(formEvent())
     })
 
     expect(result.current.error).toBe('Could not save the band')
-    expect(result.current.editing).toBe(true)
+    expect(result.current.editDraft).not.toBeNull()
+  })
+
+  it('cancelEdit closes the draft without calling updateBand', async () => {
+    const { result, actions } = await setupLoaded()
+
+    act(() => result.current.startEdit())
+    expect(result.current.editDraft).not.toBeNull()
+
+    act(() => result.current.cancelEdit())
+
+    expect(result.current.editDraft).toBeNull()
+    expect(actions.updateBand).not.toHaveBeenCalled()
   })
 })
 
 describe('useBandAdmin destructive actions', () => {
-  it('stages a removeMember confirmation, then drops the member and toasts on confirm', async () => {
+  it('requestRemove stages the confirmation, then drops the member and toasts on confirm', async () => {
     const { result, showToast, actions } = await setupLoaded()
 
-    act(() => result.current.handleRemoveMember(ANA))
-    expect(result.current.pendingAction).toEqual({ kind: 'removeMember', member: ANA })
+    act(() => result.current.pending.requestRemove(ANA))
+    expect(result.current.pending.action).toEqual({ kind: 'removeMember', member: ANA })
 
     await act(async () => {
-      await result.current.confirmPendingAction()
+      await result.current.pending.confirm()
     })
 
     expect(actions.removeBandMember).toHaveBeenCalledWith(ANA.id)
     expect(result.current.band?.members).toEqual([ME])
-    expect(result.current.pendingAction).toBeNull()
-    expect(result.current.actionBusy).toBe(false)
+    expect(result.current.pending.action).toBeNull()
+    expect(result.current.pending.busy).toBe(false)
     expect(showToast).toHaveBeenCalledWith('Ana removed from the band.', 'success')
   })
 
@@ -411,105 +593,134 @@ describe('useBandAdmin destructive actions', () => {
 
     const { result, showToast } = await setupLoaded({}, actions)
 
-    act(() => result.current.handleRemoveMember(ANA))
+    act(() => result.current.pending.requestRemove(ANA))
     await act(async () => {
-      await result.current.confirmPendingAction()
+      await result.current.pending.confirm()
     })
 
     expect(result.current.error).toBe('Only admins can remove members')
-    expect(result.current.pendingAction).not.toBeNull()
+    expect(result.current.pending.action).not.toBeNull()
     expect(result.current.band?.members).toHaveLength(2)
     expect(showToast).not.toHaveBeenCalled()
   })
 
   it.each([
-    ['deleteBand', 'handleDelete', 'Failed to delete band'],
-    ['leaveBand', 'handleLeave', 'Failed to leave band'],
-  ] as const)('%s navigates away on success and banners a bare failure', async (kind, trigger, fallback) => {
+    ['requestDelete navigates away through onGone and banners a bare failure', 'deleteBand', 'requestDelete', 'Failed to delete band'],
+    ['requestLeave navigates away through onGone and banners a bare failure', 'leaveBand', 'requestLeave', 'Failed to leave band'],
+  ] as const)('%s', async (_label, kind, trigger, fallback) => {
     const { result, onGone, actions } = await setupLoaded()
     const action = actions[kind]
     action.mockResolvedValueOnce(undefined)
 
-    act(() => (result.current[trigger] as () => void)())
-    expect(result.current.pendingAction).toEqual({ kind })
+    act(() => result.current.pending[trigger]())
+    expect(result.current.pending.action).toEqual({ kind })
 
     await act(async () => {
-      await result.current.confirmPendingAction()
+      await result.current.pending.confirm()
     })
 
     expect(action).toHaveBeenCalledWith(BAND_ID)
     expect(onGone).toHaveBeenCalledTimes(1)
-    expect(result.current.pendingAction).toBeNull()
+    expect(result.current.pending.action).toBeNull()
 
     action.mockRejectedValueOnce('boom')
-    act(() => (result.current[trigger] as () => void)())
+    act(() => result.current.pending[trigger]())
     await act(async () => {
-      await result.current.confirmPendingAction()
+      await result.current.pending.confirm()
     })
 
     expect(result.current.error).toBe(fallback)
   })
 
-  it('does nothing when confirmPendingAction runs with nothing pending', async () => {
+  it('does nothing when confirm runs with nothing pending', async () => {
     const { result, actions } = await setupLoaded()
 
     await act(async () => {
-      await result.current.confirmPendingAction()
+      await result.current.pending.confirm()
     })
 
     expect(actions.deleteBand).not.toHaveBeenCalled()
-    expect(result.current.actionBusy).toBe(false)
+    expect(result.current.pending.busy).toBe(false)
   })
 
-  it('refuses to stage a leave without a session user', async () => {
+  it('requestLeave does nothing without a session user', async () => {
     useSessionMock.mockReturnValue({ data: null } as never)
 
     const { result } = await setupLoaded()
 
-    act(() => result.current.handleLeave())
+    act(() => result.current.pending.requestLeave())
 
-    expect(result.current.pendingAction).toBeNull()
+    expect(result.current.pending.action).toBeNull()
+  })
+
+  it('dismiss clears the staged confirmation without calling any action', async () => {
+    const { result, actions } = await setupLoaded()
+
+    act(() => result.current.pending.requestDelete())
+    expect(result.current.pending.action).toEqual({ kind: 'deleteBand' })
+
+    act(() => result.current.pending.dismiss())
+
+    expect(result.current.pending.action).toBeNull()
+    expect(actions.deleteBand).not.toHaveBeenCalled()
   })
 })
 
-describe('useBandAdmin playlist creation', () => {
-  it('creates the playlist and navigates to it', async () => {
+describe('useBandAdmin new playlist form', () => {
+  it('toggle opens and closes the form, and close always closes it', async () => {
+    const { result } = await setupLoaded()
+    expect(result.current.newPlaylist.open).toBe(false)
+
+    act(() => result.current.newPlaylist.toggle())
+    expect(result.current.newPlaylist.open).toBe(true)
+
+    act(() => result.current.newPlaylist.toggle())
+    expect(result.current.newPlaylist.open).toBe(false)
+
+    act(() => result.current.newPlaylist.toggle())
+    act(() => result.current.newPlaylist.close())
+    expect(result.current.newPlaylist.open).toBe(false)
+  })
+
+  it('submit creates the band playlist and navigates to it', async () => {
     const actions = makeActions()
     actions.createBandPlaylist.mockResolvedValue('pl-9')
 
     const { result, onNavigateToPlaylist } = await setupLoaded({}, actions)
 
-    act(() => result.current.setNewPlaylistName('  Encore  '))
+    act(() => result.current.newPlaylist.changeName('  Encore  '))
+    expect(result.current.newPlaylist.name).toBe('  Encore  ')
+
     await act(async () => {
-      await result.current.handleCreatePlaylist(formEvent())
+      await result.current.newPlaylist.submit(formEvent())
     })
 
     expect(actions.createBandPlaylist).toHaveBeenCalledWith(BAND_ID, 'Encore')
     expect(onNavigateToPlaylist).toHaveBeenCalledWith('pl-9')
   })
 
-  it('clears the busy flag and banners the failure when creation fails', async () => {
+  it('submit banners the failure and clears the creating flag', async () => {
     const actions = makeActions()
     actions.createBandPlaylist.mockRejectedValue(new Error('Failed to create playlist: db down'))
 
     const { result, onNavigateToPlaylist } = await setupLoaded({}, actions)
 
-    act(() => result.current.setNewPlaylistName('Encore'))
+    act(() => result.current.newPlaylist.changeName('Encore'))
     await act(async () => {
-      await result.current.handleCreatePlaylist(formEvent())
+      await result.current.newPlaylist.submit(formEvent())
     })
 
     expect(result.current.error).toBe('Failed to create playlist: db down')
-    expect(result.current.creatingPlaylist).toBe(false)
+    expect(result.current.newPlaylist.creating).toBe(false)
     expect(onNavigateToPlaylist).not.toHaveBeenCalled()
   })
 
   it('ignores a submit with a blank playlist name', async () => {
     const { result, actions } = await setupLoaded()
 
-    act(() => result.current.setNewPlaylistName('   '))
+    act(() => result.current.newPlaylist.changeName('   '))
     await act(async () => {
-      await result.current.handleCreatePlaylist(formEvent())
+      await result.current.newPlaylist.submit(formEvent())
     })
 
     expect(actions.createBandPlaylist).not.toHaveBeenCalled()

@@ -25,43 +25,23 @@ export default function BandDetailPage() {
   const {
     currentUserId,
     band,
-    setBand,
     playlists,
     loading,
     error,
-    setError,
-    editing,
-    setEditing,
-    editName,
-    setEditName,
-    editDesc,
-    setEditDesc,
-    editCoverPreview,
-    editColor,
-    setEditColor,
-    saving,
-    copied,
-    setCopied,
-    showNewPlaylist,
-    setShowNewPlaylist,
-    newPlaylistName,
-    setNewPlaylistName,
-    creatingPlaylist,
-    pendingAction,
-    setPendingAction,
-    actionBusy,
-    currentMember,
     isAdmin,
-    inviteUrl,
-    handleCopyInvite,
-    openEdit,
-    handleEditCoverChange,
-    handleSaveEdit,
-    handleDelete,
-    handleLeave,
-    handleRemoveMember,
-    confirmPendingAction,
-    handleCreatePlaylist,
+    isMember,
+    editDraft,
+    saving,
+    invite,
+    pending,
+    newPlaylist,
+    dismissError,
+    reportError,
+    startEdit,
+    updateDraft,
+    pickCoverFile,
+    saveEdit,
+    cancelEdit,
   } = useBandAdmin({
     bandId,
     actions: BAND_ADMIN_ACTIONS,
@@ -79,15 +59,14 @@ export default function BandDetailPage() {
 
   async function handleRegenerateInvite() {
     setRegenerating(true);
-    setError(null);
+    dismissError();
     try {
       const newCode = await regenerateBandInviteCodeAction(bandId);
-      setBand((prev) => (prev ? { ...prev, invite_code: newCode } : prev));
-      setCopied(false);
+      invite.applyNewCode(newCode);
       setConfirmingRegenerate(false);
       showToast("Invite link regenerated. The old link no longer works.", "success");
     } catch (err) {
-      setError(
+      reportError(
         err instanceof Error ? err.message : "Failed to regenerate invite link",
       );
     } finally {
@@ -145,14 +124,14 @@ export default function BandDetailPage() {
             {isAdmin && (
               <div className="flex gap-2 shrink-0">
                 <button
-                  onClick={openEdit}
+                  onClick={startEdit}
                   title="Edit band"
                   className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
                 >
                   ✏️
                 </button>
                 <button
-                  onClick={handleDelete}
+                  onClick={pending.requestDelete}
                   title="Delete band"
                   className="p-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
                 >
@@ -162,14 +141,14 @@ export default function BandDetailPage() {
             )}
           </div>
 
-          {pendingAction?.kind === "deleteBand" && (
+          {pending.action?.kind === "deleteBand" && (
             <ConfirmPanel
               className="mt-4"
               message={`Delete "${band.name}"? This can't be undone.`}
               confirmLabel="Delete"
-              busy={actionBusy}
-              onConfirm={confirmPendingAction}
-              onCancel={() => setPendingAction(null)}
+              busy={pending.busy}
+              onConfirm={pending.confirm}
+              onCancel={pending.dismiss}
             />
           )}
         </div>
@@ -197,14 +176,14 @@ export default function BandDetailPage() {
           <div className="flex items-center gap-2">
             <input
               readOnly
-              value={inviteUrl}
+              value={invite.url}
               className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 truncate"
             />
             <button
-              onClick={handleCopyInvite}
+              onClick={invite.copy}
               className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
             >
-              {copied ? "Copied!" : "Copy"}
+              {invite.copied ? "Copied!" : "Copy"}
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-2">
@@ -272,7 +251,7 @@ export default function BandDetailPage() {
                   </span>
                   {isAdmin && member.user_id !== currentUserId && (
                     <button
-                      onClick={() => handleRemoveMember(member)}
+                      onClick={() => pending.requestRemove(member)}
                       className="text-gray-400 hover:text-red-500 transition-colors text-lg leading-none"
                       title="Remove member"
                     >
@@ -281,35 +260,35 @@ export default function BandDetailPage() {
                   )}
                 </div>
 
-                {pendingAction?.kind === "removeMember" &&
-                  pendingAction.member.id === member.id && (
+                {pending.action?.kind === "removeMember" &&
+                  pending.action.member.id === member.id && (
                     <ConfirmPanel
                       message={`Remove ${member.profile?.full_name ?? "this member"} from the band?`}
                       confirmLabel="Remove"
-                      busy={actionBusy}
-                      onConfirm={confirmPendingAction}
-                      onCancel={() => setPendingAction(null)}
+                      busy={pending.busy}
+                      onConfirm={pending.confirm}
+                      onCancel={pending.dismiss}
                     />
                   )}
               </li>
             ))}
           </ul>
-          {!isAdmin && currentMember && (
+          {!isAdmin && isMember && (
             <>
               <button
-                onClick={handleLeave}
+                onClick={pending.requestLeave}
                 className="mt-4 text-sm text-red-600 hover:text-red-700 font-medium"
               >
                 Leave band
               </button>
-              {pendingAction?.kind === "leaveBand" && (
+              {pending.action?.kind === "leaveBand" && (
                 <ConfirmPanel
                   className="mt-3"
                   message="Leave this band?"
                   confirmLabel="Leave"
-                  busy={actionBusy}
-                  onConfirm={confirmPendingAction}
-                  onCancel={() => setPendingAction(null)}
+                  busy={pending.busy}
+                  onConfirm={pending.confirm}
+                  onCancel={pending.dismiss}
                 />
               )}
             </>
@@ -321,33 +300,33 @@ export default function BandDetailPage() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-gray-900">Playlists</h2>
             <button
-              onClick={() => setShowNewPlaylist(!showNewPlaylist)}
+              onClick={newPlaylist.toggle}
               className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
             >
               + New playlist
             </button>
           </div>
 
-          {showNewPlaylist && (
-            <form onSubmit={handleCreatePlaylist} className="flex gap-2 mb-4">
+          {newPlaylist.open && (
+            <form onSubmit={newPlaylist.submit} className="flex gap-2 mb-4">
               <input
                 type="text"
-                value={newPlaylistName}
-                onChange={(e) => setNewPlaylistName(e.target.value)}
+                value={newPlaylist.name}
+                onChange={(e) => newPlaylist.changeName(e.target.value)}
                 placeholder="Playlist name"
                 required
                 className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
               <button
                 type="submit"
-                disabled={creatingPlaylist}
+                disabled={newPlaylist.creating}
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
-                {creatingPlaylist ? "..." : "Create"}
+                {newPlaylist.creating ? "..." : "Create"}
               </button>
               <button
                 type="button"
-                onClick={() => setShowNewPlaylist(false)}
+                onClick={newPlaylist.close}
                 className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 Cancel
@@ -403,19 +382,19 @@ export default function BandDetailPage() {
         {isAdmin && members.length > 1 && (
           <div>
             <button
-              onClick={handleLeave}
+              onClick={pending.requestLeave}
               className="text-sm text-red-600 hover:text-red-700 font-medium"
             >
               Leave band
             </button>
-            {pendingAction?.kind === "leaveBand" && (
+            {pending.action?.kind === "leaveBand" && (
               <ConfirmPanel
                 className="mt-3"
                 message="Leave this band?"
                 confirmLabel="Leave"
-                busy={actionBusy}
-                onConfirm={confirmPendingAction}
-                onCancel={() => setPendingAction(null)}
+                busy={pending.busy}
+                onConfirm={pending.confirm}
+                onCancel={pending.dismiss}
               />
             )}
           </div>
@@ -423,10 +402,10 @@ export default function BandDetailPage() {
       </div>
 
       {/* Edit band modal */}
-      {editing && (
+      {editDraft && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
           <form
-            onSubmit={handleSaveEdit}
+            onSubmit={saveEdit}
             className="bg-white rounded-2xl shadow-xl w-full max-w-md px-6 py-6 space-y-4"
           >
             <h2 className="text-lg font-semibold text-gray-900">Edit Band</h2>
@@ -436,8 +415,8 @@ export default function BandDetailPage() {
               </label>
               <input
                 type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
+                value={editDraft.name}
+                onChange={(e) => updateDraft({ name: e.target.value })}
                 required
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
@@ -448,8 +427,8 @@ export default function BandDetailPage() {
               </label>
               <input
                 type="text"
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
+                value={editDraft.description}
+                onChange={(e) => updateDraft({ description: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -458,10 +437,10 @@ export default function BandDetailPage() {
                 Cover Image
               </label>
               <div className="flex items-center gap-3 pt-1">
-                {editCoverPreview ? (
+                {editDraft.coverPreview ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={editCoverPreview}
+                    src={editDraft.coverPreview}
                     alt="Band cover preview"
                     className="w-14 h-14 rounded-2xl object-cover border border-gray-200 shrink-0 shadow-sm"
                   />
@@ -473,12 +452,12 @@ export default function BandDetailPage() {
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={handleEditCoverChange}
+                  onChange={pickCoverFile}
                   className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                 />
               </div>
             </div>
-            <BandColorPicker value={editColor} onChange={setEditColor} />
+            <BandColorPicker value={editDraft.color} onChange={(color) => updateDraft({ color })} />
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -489,7 +468,7 @@ export default function BandDetailPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setEditing(false)}
+                onClick={cancelEdit}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel

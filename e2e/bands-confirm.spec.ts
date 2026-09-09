@@ -102,6 +102,35 @@ test('cancel keeps the band', async ({ page }) => {
   await page.waitForURL(/\/bands$/, { timeout: 15_000 })
 })
 
+/**
+ * RH-64 — the regression net for the controller redesign. Renaming a band is
+ * the one flow that goes through the whole of `editDraft` / `updateDraft` /
+ * `saveEdit`, so a real browser proving it still works is what says the
+ * refactor preserved behaviour.
+ */
+test('rename a band through the edit modal', async ({ page }) => {
+  const dialogs = trackDialogs(page)
+  const { name } = await createBand(page)
+
+  await page.getByTitle('Edit band').click()
+
+  const modal = page.locator('form').filter({ hasText: 'Edit Band' })
+  await expect(modal).toBeVisible()
+
+  const renamed = `${name} Renamed`
+  await modal.locator('input[type="text"]').first().fill(renamed)
+  await modal.getByRole('button', { name: 'Save' }).click()
+
+  await expect(modal).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: renamed })).toBeVisible()
+  expect(dialogs).toEqual([])
+
+  // Clean up so no stray band is left behind.
+  const panel = await openDeleteConfirmation(page)
+  await panel.getByRole('button', { name: 'Delete' }).click()
+  await page.waitForURL(/\/bands$/, { timeout: 15_000 })
+})
+
 test('Escape dismisses the confirmation', async ({ page }) => {
   const dialogs = trackDialogs(page)
   const { name, url } = await createBand(page)

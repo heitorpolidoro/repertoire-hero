@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { useBandContextStore } from "@/store/bandContextStore";
-import { compressImageFile } from "@/lib/imageCompressor";
-import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
+import { useBandEdit, type BandEditController } from "@/hooks/useBandEdit";
+import {
+  useBandPendingAction,
+  type BandPendingController,
+} from "@/hooks/useBandPendingAction";
 import { resolveLoadErrorMessage, type BandAdminLoadPolicy } from "@/lib/bandAdminLoad";
+import { buildInviteUrl, withInviteCode } from "@/lib/bandAdminState";
 import type { ToastTone } from "@/lib/uiTones";
-import type { Band, BandMember, Playlist } from "@/types/database";
-
-/** A destructive action awaiting in-page confirmation. */
-export type PendingAction =
-  | { kind: "deleteBand" }
-  | { kind: "leaveBand" }
-  | { kind: "removeMember"; member: BandMember };
+import type { Band, Playlist } from "@/types/database";
 
 /**
  * The eight band Server Actions the controller calls. Injected rather than
@@ -37,18 +34,62 @@ export interface BandAdminActions {
   uploadBandCover: (formData: FormData) => Promise<{ coverUrl?: string; error?: string }>;
 }
 
-// Error messages that were already identical on both surfaces.
-const DELETE_ERROR = "Failed to delete band";
-const LEAVE_ERROR = "Failed to leave band";
-const REMOVE_MEMBER_ERROR = "Failed to remove member";
 const CREATE_PLAYLIST_ERROR = "Failed to create playlist";
+
+/**
+ * The invite-link widget. `copied` is meaningless without the commands that
+ * move it, so both live here rather than as loose members of the controller.
+ */
+export interface BandInviteController {
+  url: string;
+  copied: boolean;
+  copy: () => Promise<void>;
+  /** After /bands/[id] regenerates the code: patch the band and drop `copied`. */
+  applyNewCode: (code: string) => void;
+}
+
+/** The "+ New playlist" form: its disclosure state and the only ways to move it. */
+export interface NewPlaylistController {
+  open: boolean;
+  name: string;
+  creating: boolean;
+  toggle: () => void;
+  changeName: (name: string) => void;
+  close: () => void;
+  submit: (e: React.FormEvent) => Promise<void>;
+}
+
+/**
+ * What the two band surfaces read: data, three grouped widgets, and commands
+ * named after the user's intent. No raw state setter is exposed — every write
+ * goes through a command that knows what it means (RH-64/F14).
+ *
+ * The edit modal's seven members (`editDraft`, `saving`, `startEdit`,
+ * `updateDraft`, `pickCoverFile`, `saveEdit`, `cancelEdit`) are inherited flat
+ * from `BandEditController` rather than restated, so the sub-hook stays their
+ * single declaration. Nineteen members in total.
+ */
+export interface BandAdminController extends BandEditController {
+  currentUserId: string | null;
+  band: Band | null;
+  playlists: Playlist[];
+  loading: boolean;
+  error: string | null;
+  isAdmin: boolean;
+  isMember: boolean;
+  invite: BandInviteController;
+  pending: BandPendingController;
+  newPlaylist: NewPlaylistController;
+  dismissError: () => void;
+  reportError: (message: string) => void;
+}
 
 export interface UseBandAdminOptions {
   bandId: string;
   /** Required, never defaulted — see `src/app/bandAdminActions.ts`. */
   actions: BandAdminActions;
   showToast: (message: string, tone?: ToastTone) => void;
-  /** bands page: `router.replace('/bands')`; profile: `setError('Band not found.')`. */
+  /** bands page: `router.replace('/bands')`; profile: `reportError('Band not found.')`. */
   onNotFound: () => void;
   /** Required, never defaulted — see `src/lib/bandAdminLoad.ts`. */
   loadPolicy: BandAdminLoadPolicy;
@@ -60,15 +101,17 @@ export interface UseBandAdminOptions {
 
 /**
  * The band-detail controller shared by `/bands/[id]` and the band tab of
- * `/profile`. It owns the data, the edit-modal state, the destructive-action
- * confirmations and the playlist creation flow; the two pages keep their own
- * (deliberately different) markup.
+ * `/profile`. It is a composition root: it owns the loaded data and the two
+ * small widgets (invite link, new-playlist form), delegates the edit modal to
+ * `useBandEdit` and the destructive confirmations to `useBandPendingAction`,
+ * and keeps every pure transition in `src/lib/bandAdminState.ts`. The two pages
+ * keep their own (deliberately different) markup.
  *
  * Everything the two copies disagreed about is an explicit option carrying that
  * page's current value — nothing is unified silently. The callbacks may be
  * plain inline arrows: `load` is memoized on the data it reads, and reaches
  * `onNotFound` through a ref, so a caller can close over this hook's own
- * `setError` without re-running the load effect on every render.
+ * `reportError` without re-running the load effect on every render.
  */
 export function useBandAdmin({
   bandId,
@@ -79,7 +122,7 @@ export function useBandAdmin({
   onGone,
   onNavigateToPlaylist,
   messages,
-}: UseBandAdminOptions) {
+}: UseBandAdminOptions): BandAdminController {
   const { data: session } = authClient.useSession();
   const currentUserId = session?.user?.id ?? null;
 
@@ -88,26 +131,11 @@ export function useBandAdmin({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Edit band modal state
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
-  const [editCoverPreview, setEditCoverPreview] = useState<string | null>(null);
-  const [editColor, setEditColor] = useState<string>(DEFAULT_BAND_COLOR);
-  const [saving, setSaving] = useState(false);
-
-  // Invite link copy state
   const [copied, setCopied] = useState(false);
 
-  // New playlist state
-  const [showNewPlaylist, setShowNewPlaylist] = useState(false);
+  const [newPlaylistOpen, setNewPlaylistOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
-
-  // Destructive action confirmation state
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
 
   const saveErrorMessage = messages?.save ?? "Failed to save";
   const loadErrorMessage = messages?.load ?? "Failed to load band profile";
@@ -163,208 +191,98 @@ export function useBandAdmin({
     load();
   }, [load]);
 
+  const dismissError = useCallback(() => setError(null), []);
+  const reportError = useCallback((message: string) => setError(message), []);
+
+  /** The one place the loaded band is rewritten, for every sub-controller. */
+  const patchBand = useCallback((patch: (current: Band) => Band) => {
+    setBand((prev) => (prev ? patch(prev) : prev));
+  }, []);
+
   const currentMember = band?.members?.find((m) => m.user_id === currentUserId);
   const isAdmin = currentMember?.role === "admin";
+  const isMember = currentMember !== undefined;
+
   const inviteUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/join/${band?.invite_code ?? ""}`
+      ? buildInviteUrl(window.location.origin, band?.invite_code)
       : "";
 
-  async function handleCopyInvite() {
-    await navigator.clipboard.writeText(inviteUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const invite: BandInviteController = {
+    url: inviteUrl,
+    copied,
+    copy: async () => {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    },
+    applyNewCode: (code: string) => {
+      patchBand((current) => withInviteCode(current, code));
+      setCopied(false);
+    },
+  };
 
-  function openEdit() {
-    setEditName(band?.name ?? "");
-    setEditDesc(band?.description ?? "");
-    setEditCoverFile(null);
-    setEditCoverPreview(band?.cover_url ?? null);
-    setEditColor(band?.color ?? DEFAULT_BAND_COLOR);
-    setEditing(true);
-  }
+  const edit = useBandEdit({
+    bandId,
+    band,
+    actions,
+    patchBand,
+    reportError,
+    dismissError,
+    saveErrorMessage,
+  });
 
-  async function handleEditCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (file) {
-      const compressed = await compressImageFile(file);
-      setEditCoverFile(compressed);
-      setEditCoverPreview(URL.createObjectURL(compressed));
-    }
-  }
+  const pending = useBandPendingAction({
+    bandId,
+    actions,
+    currentUserId,
+    patchBand,
+    showToast,
+    reportError,
+    dismissError,
+    onGone,
+  });
 
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editName.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      let cover_url = band?.cover_url ?? null;
-      if (editCoverFile) {
-        const formData = new FormData();
-        formData.append("file", editCoverFile);
-        const uploadRes = await actions.uploadBandCover(formData);
-        if (uploadRes.error) {
-          setError(uploadRes.error);
-          setSaving(false);
-          return;
-        }
-        cover_url = uploadRes.coverUrl ?? null;
+  const newPlaylist: NewPlaylistController = {
+    open: newPlaylistOpen,
+    name: newPlaylistName,
+    creating: creatingPlaylist,
+    toggle: () => setNewPlaylistOpen((prev) => !prev),
+    changeName: (name: string) => setNewPlaylistName(name),
+    close: () => setNewPlaylistOpen(false),
+    submit: async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newPlaylistName.trim() || !currentUserId) return;
+      setCreatingPlaylist(true);
+      try {
+        const playlistId = await actions.createBandPlaylist(bandId, newPlaylistName.trim());
+        onNavigateToPlaylist(playlistId);
+      } catch (err) {
+        reportError(err instanceof Error ? err.message : CREATE_PLAYLIST_ERROR);
+        setCreatingPlaylist(false);
       }
-
-      await actions.updateBand(bandId, {
-        name: editName.trim(),
-        description: editDesc.trim() || null,
-        cover_url,
-        color: editColor,
-      });
-
-      setBand((prev) =>
-        prev
-          ? {
-              ...prev,
-              name: editName.trim(),
-              description: editDesc.trim() || null,
-              cover_url,
-              color: editColor,
-            }
-          : prev,
-      );
-
-      const currentContext = useBandContextStore.getState().context;
-      if (currentContext.type === "band" && currentContext.id === bandId) {
-        useBandContextStore.getState().setBandContext(bandId, editName.trim(), editColor);
-      }
-
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : saveErrorMessage);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleDelete() {
-    setError(null);
-    setPendingAction({ kind: "deleteBand" });
-  }
-
-  function handleLeave() {
-    if (!currentUserId) return;
-    setError(null);
-    setPendingAction({ kind: "leaveBand" });
-  }
-
-  function handleRemoveMember(member: BandMember) {
-    setError(null);
-    setPendingAction({ kind: "removeMember", member });
-  }
-
-  async function confirmPendingAction() {
-    if (!pendingAction) return;
-    setActionBusy(true);
-    try {
-      switch (pendingAction.kind) {
-        case "deleteBand":
-          try {
-            await actions.deleteBand(bandId);
-            setPendingAction(null);
-            // No toast: the view unmounts immediately, navigation is the feedback.
-            onGone();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : DELETE_ERROR);
-          }
-          break;
-        case "leaveBand":
-          try {
-            await actions.leaveBand(bandId);
-            setPendingAction(null);
-            onGone();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : LEAVE_ERROR);
-          }
-          break;
-        case "removeMember": {
-          const { member } = pendingAction;
-          try {
-            await actions.removeBandMember(member.id);
-            setBand((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    members: prev.members?.filter((m) => m.id !== member.id),
-                  }
-                : prev,
-            );
-            setPendingAction(null);
-            showToast(
-              `${member.profile?.full_name ?? "This member"} removed from the band.`,
-              "success",
-            );
-          } catch (err) {
-            setError(err instanceof Error ? err.message : REMOVE_MEMBER_ERROR);
-          }
-          break;
-        }
-      }
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function handleCreatePlaylist(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newPlaylistName.trim() || !currentUserId) return;
-    setCreatingPlaylist(true);
-    try {
-      const playlistId = await actions.createBandPlaylist(bandId, newPlaylistName.trim());
-      onNavigateToPlaylist(playlistId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : CREATE_PLAYLIST_ERROR);
-      setCreatingPlaylist(false);
-    }
-  }
+    },
+  };
 
   return {
     currentUserId,
     band,
-    setBand,
     playlists,
     loading,
     error,
-    setError,
-    editing,
-    setEditing,
-    editName,
-    setEditName,
-    editDesc,
-    setEditDesc,
-    editCoverPreview,
-    editColor,
-    setEditColor,
-    saving,
-    copied,
-    setCopied,
-    showNewPlaylist,
-    setShowNewPlaylist,
-    newPlaylistName,
-    setNewPlaylistName,
-    creatingPlaylist,
-    pendingAction,
-    setPendingAction,
-    actionBusy,
-    currentMember,
     isAdmin,
-    inviteUrl,
-    handleCopyInvite,
-    openEdit,
-    handleEditCoverChange,
-    handleSaveEdit,
-    handleDelete,
-    handleLeave,
-    handleRemoveMember,
-    confirmPendingAction,
-    handleCreatePlaylist,
+    isMember,
+    editDraft: edit.editDraft,
+    saving: edit.saving,
+    invite,
+    pending,
+    newPlaylist,
+    dismissError,
+    reportError,
+    startEdit: edit.startEdit,
+    updateDraft: edit.updateDraft,
+    pickCoverFile: edit.pickCoverFile,
+    saveEdit: edit.saveEdit,
+    cancelEdit: edit.cancelEdit,
   };
 }

@@ -40,7 +40,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
     bandId,
     actions: BAND_ADMIN_ACTIONS,
     showToast,
-    onNotFound: () => setError("Band not found."),
+    onNotFound: () => reportError("Band not found."),
     loadPolicy: BAND_PROFILE_LOAD_POLICY,
     onGone: () => router.replace("/bands"),
     onNavigateToPlaylist: (playlistId) => router.push(`/playlists/${playlistId}`),
@@ -48,18 +48,9 @@ function BandProfileView({ bandId }: { bandId: string }) {
   });
 
   const {
-    currentUserId, band, playlists, loading, error, setError,
-    editing, setEditing, editName, setEditName, editDesc, setEditDesc,
-    editCoverPreview, editColor, setEditColor, saving, copied,
-    showNewPlaylist, setShowNewPlaylist, newPlaylistName, setNewPlaylistName,
-    creatingPlaylist, pendingAction, setPendingAction, actionBusy,
-    currentMember, isAdmin, inviteUrl,
-  } = bandAdmin;
-
-  const {
-    handleCopyInvite, openEdit, handleEditCoverChange, handleSaveEdit,
-    handleDelete, handleLeave, handleRemoveMember, confirmPendingAction,
-    handleCreatePlaylist,
+    currentUserId, band, playlists, loading, error, dismissError, reportError,
+    isAdmin, isMember, invite, pending, newPlaylist,
+    editDraft, saving, startEdit, updateDraft, pickCoverFile, saveEdit, cancelEdit,
   } = bandAdmin;
 
   if (loading) {
@@ -84,7 +75,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
   return (
     <div className="space-y-6">
       {error && (
-        <AlertBanner tone="error" message={error} onDismiss={() => setError(null)} />
+        <AlertBanner tone="error" message={error} onDismiss={dismissError} />
       )}
 
       {/* Band Profile Card */}
@@ -138,14 +129,14 @@ function BandProfileView({ bandId }: { bandId: string }) {
           {isAdmin && (
             <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
               <button
-                onClick={openEdit}
+                onClick={startEdit}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors border"
                 style={theme.lightCardBadgeStyle}
               >
                 <span>✏️</span> Edit Band
               </button>
               <button
-                onClick={handleDelete}
+                onClick={pending.requestDelete}
                 title="Delete band"
                 className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
               >
@@ -155,14 +146,14 @@ function BandProfileView({ bandId }: { bandId: string }) {
           )}
         </div>
 
-        {pendingAction?.kind === "deleteBand" && (
+        {pending.action?.kind === "deleteBand" && (
           <ConfirmPanel
             className="mt-4"
             message={`Delete "${band.name}"? This can't be undone.`}
             confirmLabel="Delete"
-            busy={actionBusy}
-            onConfirm={confirmPendingAction}
-            onCancel={() => setPendingAction(null)}
+            busy={pending.busy}
+            onConfirm={pending.confirm}
+            onCancel={pending.dismiss}
           />
         )}
       </section>
@@ -173,15 +164,15 @@ function BandProfileView({ bandId }: { bandId: string }) {
         <div className="flex items-center gap-2">
           <input
             readOnly
-            value={inviteUrl}
+            value={invite.url}
             className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 truncate"
           />
           <button
-            onClick={handleCopyInvite}
+            onClick={invite.copy}
             className="shrink-0 rounded-lg px-3.5 py-2 text-xs font-bold transition-colors"
             style={theme.style}
           >
-            {copied ? "Copied!" : "Copy"}
+            {invite.copied ? "Copied!" : "Copy"}
           </button>
         </div>
         <p className="text-[11px] text-gray-400 mt-1.5">
@@ -231,7 +222,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 </span>
                 {isAdmin && member.user_id !== currentUserId && (
                   <button
-                    onClick={() => handleRemoveMember(member)}
+                    onClick={() => pending.requestRemove(member)}
                     className="text-gray-400 hover:text-red-500 transition-colors text-base leading-none"
                     title="Remove member"
                   >
@@ -240,36 +231,36 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 )}
               </div>
 
-              {pendingAction?.kind === "removeMember" &&
-                pendingAction.member.id === member.id && (
+              {pending.action?.kind === "removeMember" &&
+                pending.action.member.id === member.id && (
                   <ConfirmPanel
                     message={`Remove ${member.profile?.full_name ?? "this member"} from the band?`}
                     confirmLabel="Remove"
-                    busy={actionBusy}
-                    onConfirm={confirmPendingAction}
-                    onCancel={() => setPendingAction(null)}
+                    busy={pending.busy}
+                    onConfirm={pending.confirm}
+                    onCancel={pending.dismiss}
                   />
                 )}
             </li>
           ))}
         </ul>
 
-        {currentMember && (
+        {isMember && (
           <div className="pt-2">
             <button
-              onClick={handleLeave}
+              onClick={pending.requestLeave}
               className="text-xs text-red-600 hover:text-red-700 font-medium"
             >
               Leave band
             </button>
-            {pendingAction?.kind === "leaveBand" && (
+            {pending.action?.kind === "leaveBand" && (
               <ConfirmPanel
                 className="mt-3"
                 message="Leave this band?"
                 confirmLabel="Leave"
-                busy={actionBusy}
-                onConfirm={confirmPendingAction}
-                onCancel={() => setPendingAction(null)}
+                busy={pending.busy}
+                onConfirm={pending.confirm}
+                onCancel={pending.dismiss}
               />
             )}
           </div>
@@ -281,7 +272,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 text-sm">Playlists</h3>
           <button
-            onClick={() => setShowNewPlaylist(!showNewPlaylist)}
+            onClick={newPlaylist.toggle}
             className="text-xs font-bold hover:opacity-80 transition-opacity"
             style={{ color: theme.bgHex }}
           >
@@ -289,27 +280,27 @@ function BandProfileView({ bandId }: { bandId: string }) {
           </button>
         </div>
 
-        {showNewPlaylist && (
-          <form onSubmit={handleCreatePlaylist} className="flex gap-2">
+        {newPlaylist.open && (
+          <form onSubmit={newPlaylist.submit} className="flex gap-2">
             <input
               type="text"
-              value={newPlaylistName}
-              onChange={(e) => setNewPlaylistName(e.target.value)}
+              value={newPlaylist.name}
+              onChange={(e) => newPlaylist.changeName(e.target.value)}
               placeholder="Playlist name"
               required
               className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <button
               type="submit"
-              disabled={creatingPlaylist}
+              disabled={newPlaylist.creating}
               className="rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60 transition-colors"
               style={theme.style}
             >
-              {creatingPlaylist ? "..." : "Create"}
+              {newPlaylist.creating ? "..." : "Create"}
             </button>
             <button
               type="button"
-              onClick={() => setShowNewPlaylist(false)}
+              onClick={newPlaylist.close}
               className="rounded-lg border border-gray-300 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
             >
               Cancel
@@ -340,10 +331,10 @@ function BandProfileView({ bandId }: { bandId: string }) {
       </section>
 
       {/* Edit Band Modal */}
-      {editing && (
+      {editDraft && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
           <form
-            onSubmit={handleSaveEdit}
+            onSubmit={saveEdit}
             className="bg-white rounded-2xl shadow-xl w-full max-w-md px-6 py-6 space-y-4"
           >
             <h2 className="text-lg font-bold text-gray-900">Edit Band Profile</h2>
@@ -353,8 +344,8 @@ function BandProfileView({ bandId }: { bandId: string }) {
               </label>
               <input
                 type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
+                value={editDraft.name}
+                onChange={(e) => updateDraft({ name: e.target.value })}
                 required
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
@@ -365,8 +356,8 @@ function BandProfileView({ bandId }: { bandId: string }) {
               </label>
               <input
                 type="text"
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
+                value={editDraft.description}
+                onChange={(e) => updateDraft({ description: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -375,10 +366,10 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 Cover Image
               </label>
               <div className="flex items-center gap-3 pt-1">
-                {editCoverPreview ? (
+                {editDraft.coverPreview ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={editCoverPreview}
+                    src={editDraft.coverPreview}
                     alt="Band cover preview"
                     className="w-14 h-14 rounded-2xl object-cover border border-gray-200 shrink-0 shadow-sm"
                   />
@@ -393,12 +384,12 @@ function BandProfileView({ bandId }: { bandId: string }) {
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={handleEditCoverChange}
+                  onChange={pickCoverFile}
                   className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"
                 />
               </div>
             </div>
-            <BandColorPicker value={editColor} onChange={setEditColor} />
+            <BandColorPicker value={editDraft.color} onChange={(color) => updateDraft({ color })} />
             <div className="flex gap-2 pt-2">
               <button
                 type="submit"
@@ -410,7 +401,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
               </button>
               <button
                 type="button"
-                onClick={() => setEditing(false)}
+                onClick={cancelEdit}
                 className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel

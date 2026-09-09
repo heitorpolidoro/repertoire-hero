@@ -4844,3 +4844,160 @@ None.
 - The `next build` log emits eleven `BetterAuthError: You are using the default secret` lines during
   page-data collection. Pre-existing and unrelated to this change, but it makes real build errors harder
   to spot in CI logs.
+
+## [RH-64] Server Components parte 4/5: reduzir useBandAdmin a dados mais comandos de intencao (spec review r1) — 2026-09-09
+
+1. ER6's parenthetical "(it does at `35d6f66` too)" on
+   `rtk proxy npx eslint src/hooks src/lib/bandAdminState.ts 'src/app/bands/[id]/page.tsx'`
+   is false at the baseline: `src/lib/bandAdminState.ts` does not exist yet, so
+   eslint exits non-zero with `No files matching the pattern
+   "src/lib/bandAdminState.ts" were found`. The requirement itself is fine
+   post-implementation; only the baseline aside is wrong. Same ER's gloss "which
+   for `src/hooks` means every hook file ... is clean under the base budget with
+   no per-file relaxation" is also slightly off - `src/hooks/useTabLibrary.ts`
+   keeps a `max-params` 5 override (eslint.config.mjs:81), so a clean run over
+   `src/hooks` does not by itself prove the absence of per-file relaxation
+   there. ER7's `grep -c "src/hooks/useBandAdmin.ts" eslint.config.mjs` is what
+   actually proves it for the file that matters.
+2. The Audit states `BandProfileView` destructures "30 members" in its two
+   statements (lines 50-57 and 59-63). It is 37 (28 + 9). The figure 30 looks
+   like a carry-over from F14's own "must destructure 30+ names". Nothing
+   depends on it, but it is the one number in the Audit that does not reproduce.
+3. `handleDelete`, `handleLeave` and `handleRemoveMember` each call
+   `setError(null)` before staging (hook lines 249, 255, 260), so opening a
+   confirmation clears a previous banner today. The spec's "verbatim" promise
+   covers `confirmPendingAction`'s switch but not this; the flow inventory does
+   not mention it and no ER asserts it. Worth one sentence saying
+   `pending.request*` still clears the shared error, since
+   `useBandPendingAction` will need a `dismissError` (or equivalent) passed in
+   from the composition root either way.
+4. The spec moves `PendingAction` to `src/lib/bandAdminState.ts` to avoid a
+   hook-to-hook type import, but says nothing about `BandAdminActions`, which
+   both sub-hooks need and which must stay exported from
+   `src/hooks/useBandAdmin.ts` (its only importer,
+   `src/app/bandAdminActions.ts`, is out of scope). Suggest naming the intended
+   route - `import type { BandAdminActions }` (or a `Pick<>` of it) in the
+   sub-hooks, which TypeScript erases so no runtime cycle appears.
+5. ER7 requires `src/app/profile/page.tsx`'s `max-lines` ceiling to be strictly
+   below 723, i.e. the file must shrink. It only can if the rewritten
+   destructuring keeps the page's condensed multi-name-per-line style: 19 names
+   written one per line would be ~21 lines against today's 13 and would grow the
+   file by ~8. The Approach hints at this ("lose ~20 and ~8 lines
+   respectively"); making it explicit would remove the trap.
+6. ER4 pins `Tests 11 passed (11)` on `bandAdminState.test.ts` with 11 exact
+   names, which forbids a twelfth pure-function test (for instance
+   `isDraftNameBlank` on a non-blank name). Consider `>= 11` with the eleven
+   names still required, so extra coverage of pure functions is not penalised.
+7. `useBandAdmin.ts`'s own doc comment (lines 61-71) ends on "so a caller can
+   close over this hook's own `setError` without re-running the load effect on
+   every render". After this task there is no `setError`; the sentence should
+   name `reportError`. Not covered by any ER and easy to leave stale.
+8. The Audit records the baseline state of `bands-confirm` and `server-pages`
+   but not of `e2e/ssr-smoke.spec.ts`, which ER8 nonetheless asserts is
+   "unchanged from `35d6f66`" at `4 passed`. It is well-founded - RH-63's ER9
+   required `ssr-smoke` green and RH-63 is `35d6f66` - and the file does hold 4
+   tests, but one line in the Audit would close the gap without a QA having to
+   go read the previous spec.
+
+## [RH-64] Server Components parte 4/5: reduzir useBandAdmin a dados mais comandos de intencao (dev r1) — 2026-09-09
+
+- **AGENTS.md's directory map now lists one of four band-controller files.** The
+  map under `src/hooks/` names `useBandAdmin.ts` as "Band-detail controller
+  shared by /bands/[id] and the /profile band tab", which is still true, but the
+  controller is now four files (`useBandAdmin.ts`, `useBandEdit.ts`,
+  `useBandPendingAction.ts`, `src/lib/bandAdminState.ts`). RH-64's Out of Scope
+  forbids any AGENTS.md edit beyond `21` -> `20`, so this is recorded rather than
+  done: a follow-up could add the two sibling hooks and the state module to the
+  map, the way the Fast View controllers are described in the architecture
+  bullet.
+- **`pending.confirm` cannot be backed by a function literally named `confirm`.**
+  `src/lib/__tests__/noBrowserDialogs.test.ts` (RH-16) greps all of `src` for
+  `confirm(` and does not exempt a declaration, so `async function confirm()`
+  inside `useBandPendingAction.ts` fails that guard even though nothing native is
+  involved. The member is exposed as `confirm: confirmPending`. A future spec
+  that names a controller command `confirm` should say so up front, or the guard
+  should learn to skip `function confirm(`.
+- **The `[id]` glob in an eslint CLI argument is load-bearing.**
+  `npx eslint 'src/app/bands/\[id\]/page.tsx'` (brackets escaped the way
+  `eslint.config.mjs` needs them) fails with `No files matching the pattern`,
+  while the unescaped `'src/app/bands/[id]/page.tsx'` from ER6 works. Worth a
+  note wherever the re-pinning recipe is written down, since the recipe tells the
+  implementer to lint the file by path.
+
+## [RH-64] Server Components parte 4/5: reduzir useBandAdmin a dados mais comandos de intencao (code review r1) — 2026-09-09
+
+1. **`invite.copied` never gets tested reverting after 2000 ms.**
+   `src/hooks/useBandAdmin.ts:217` schedules `setTimeout(() => setCopied(false),
+   2000)`, and the spec's behaviour inventory calls out "the `Copied!` label
+   reverting after 2000 ms", but no test advances timers over it. The baseline
+   suite did not cover it either, so this is not a regression and I am not
+   blocking on it — but `vi.useFakeTimers()` plus
+   `act(() => vi.advanceTimersByTime(2000))` in
+   `copies the invite URL and flags the copied state`
+   (`src/hooks/__tests__/useBandAdmin.test.tsx:348`) would close the last
+   uncovered branch of the invite widget cheaply.
+
+2. **The delete/leave `it.each` runs two scenarios against one mounted hook.**
+   `src/hooks/__tests__/useBandAdmin.test.tsx:607-633` asserts the success leg
+   (`onGone`, action cleared) and then re-triggers the same command with
+   `mockRejectedValueOnce` to assert the failure banner. It passes and the
+   coupling is deliberate, but a failure in the second half will report under a
+   title that describes the first, and the two legs share mutated spy state.
+   Splitting into two `it.each` blocks would keep ER5's required titles on the
+   success legs and give the failure legs their own names.
+
+3. **Type-only import cycle between the composition root and its sub-hooks.**
+   `src/hooks/useBandEdit.ts:12` and `src/hooks/useBandPendingAction.ts:3` do
+   `import type { BandAdminActions } from "@/hooks/useBandAdmin"`, while
+   `useBandAdmin.ts:3-7` imports both of them. It is erased at compile time, `tsc
+   --noEmit` is clean and the jsdom suite proves no runtime cycle, and it is the
+   route spec review explicitly proposed — but note the spec moved `PendingAction`
+   into `src/lib/bandAdminState.ts` for exactly the purpose of *avoiding* a
+   hook-to-hook type import, and `BandAdminActions` reintroduces one. A follow-up
+   could move the `BandAdminActions` interface next to `PendingAction` in
+   `src/lib/bandAdminState.ts` (or a new `src/lib/bandAdminActionsContract.ts`),
+   leaving `src/hooks/useBandAdmin.ts` to re-export it for
+   `src/app/bandAdminActions.ts`. Out of scope here — `bandAdminActions.ts` is
+   pinned unchanged by ER10.
+
+4. **`/profile`'s `onNotFound` closes over a `const` declared 8 lines later.**
+   `src/app/profile/page.tsx:43` is `onNotFound: () => reportError("Band not
+   found.")`, but `reportError` is destructured at line 51. This is safe —
+   `useBandAdmin` reads `onNotFound` through a ref and only calls it from the
+   load effect, long after the binding initializes, and the hook's doc comment
+   (`src/hooks/useBandAdmin.ts:111-114`) documents the guarantee — but it reads
+   as a TDZ hazard to anyone who has not read that comment. A one-line comment at
+   the call site pointing at the guarantee would save the next reader the trip.
+
+5. **AGENTS.md's directory map still describes the controller as one file.**
+   `AGENTS.md:135` names only `useBandAdmin.ts`; the controller is now four files
+   (`useBandAdmin.ts`, `useBandEdit.ts`, `useBandPendingAction.ts`,
+   `src/lib/bandAdminState.ts`). Correctly *not* done here — RH-64's Out of Scope
+   forbids any AGENTS.md edit beyond `21` → `20`, and ER7 pins the numstat to
+   `1 1` — and the developer already logged it in `docs/suggestions-log.md`.
+   Noting it so the follow-up is not lost.
+
+6. **Consider tightening `noBrowserDialogs`' detector to skip declarations.**
+   `src/lib/__tests__/noBrowserDialogs.test.ts:23`'s `DIALOG_CALL` matches
+   `function confirm(` as well as a call, which is what forced Deviation A. A
+   negative lookbehind for `function\s+` (or an explicit
+   `(?<!function\s)` / declaration filter, with a detector test for it) would let
+   a future controller name a command `confirm` honestly. Out of scope for RH-64
+   — that file is outside the whitelist and ER10 pins the changed-file set — and
+   already logged by the developer.
+
+## [RH-64] Server Components parte 4/5: reduzir useBandAdmin a dados mais comandos de intencao (QA r1) — 2026-09-09
+
+- `e2e/bands-confirm.spec.ts` is flaky in this environment at roughly one
+  failure in three full-file runs, and the flake predates this task (reproduced
+  at `35d6f66` with the untouched RH-16 tests, including two failures out of
+  five repeats of `cancel keeps the band` alone). The symptom is the band
+  detail page stuck on `Loading...` right after `createBand` navigates to
+  `/bands/<id>`, i.e. the `BANDS_PAGE_LOAD_POLICY` "keep loading on not-found"
+  branch being hit for a band that was just created. Adding a fourth test to
+  the file raises the per-run probability that at least one test hits it, so it
+  will be seen more often from now on. Worth a separate task: either make
+  `createBand` retry the heading assertion, or find the read-after-write race
+  behind the not-found.
+- Nothing in the refactor itself invites a change; the surface test that pins
+  the 19 keys is a good guard against the setters creeping back.
