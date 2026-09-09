@@ -369,6 +369,8 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** Medium
 **Effort:** M
 **Remediation:** Change the signature to `query<T extends QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>` with no default, so callers must name the row shape; declare row interfaces next to each SQL string in `src/lib` and drop the corresponding `as` assertions. Roll it out module by module - the compiler enumerates the work.
+**Correction (RH-40):** The remediation above does not do what it says. `query<T extends QueryResultRow>` with no default types nothing: `@types/pg` declares `QueryResultRow` as `{ [column: string]: any }`, and when a type argument is omitted and cannot be inferred TypeScript falls back to the parameter's constraint, so rows stay `any`-valued and no caller is under any pressure to name `T`. Measured before the remediation started: that signature produces exactly one compiler error in the whole repository, against 29 errors across 10 files for the signature actually delivered, `export type DbRow = Record<string, unknown>` plus `query<T extends QueryResultRow = DbRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>`. Replacing the default is what has teeth; dropping it is cosmetic. The second half of the remediation was inverted too: `src/lib/songs.ts` sits at its RH-39 `max-lines` ceiling and cannot take even one import line, so the row interfaces live in one `src/lib/dbRows.ts` rather than next to each SQL string.
+**Status:** Resolved by RH-54 (`f92c0f3`), RH-56 (`b293e82`), RH-57 (`9e37072`) and RH-58 (`55656fe`). `query()` and `Queryable.query()` default to `DbRow = Record<string, unknown>` with `params?: unknown[]` and an explicit `Promise<QueryResult<T>>`, and both `eslint-disable` comments are gone; every row-reading call site names its shape as a type argument (`query<never>` where no row is read), and the ten interfaces that are not already domain types live in `src/lib/dbRows.ts`. At `ca91de2` the untyped row-reading call sites are down from 80 at `246313f`, the commit this split branched from, to 0, and the DB-row cast inventory from 26 at `246313f` to 1; the survivor, `src/lib/spotify.ts:30`, is a cast on an HTTP JSON body rather than on a `QueryResult` row and is outside this finding. The one query call the finding does not cover is `src/lib/auth.ts:84`, an `INSERT ... ON CONFLICT DO NOTHING` issued on `pg`'s own `Pool.query` inside the Better Auth create hook, whose result is discarded so no column is ever read off it. Guarded by `src/lib/__tests__/dbRowTypes.test.ts`, and the convention is recorded in the `# Database Row Types` section of AGENTS.md.
 
 ### F17 - Moderation payload fields reach SQL without type narrowing
 
@@ -377,6 +379,7 @@ Findings are ordered by severity: F1-F7 High, F8-F22 Medium, F23-F26 Low.
 **Severity:** Medium
 **Effort:** S
 **Remediation:** Define a `GlobalSongEditPayload` type and one `parseGlobalSongEditPayload(data: unknown)` validator, call it in `submitGlobalSongEdit` (so bad input is rejected at submission) and again before the approval `UPDATE` (so historical rows are covered), and narrow every field the same way. Table-test the accept/reject cases.
+**Status:** Resolved by RH-55 (`b024a87`). `src/lib/globalSongEditPayload.ts` exports `GlobalSongEditPayload` and one `parseGlobalSongEditPayload(data: unknown)` that validates all seven mutable `global_songs` columns with per-field messages and sanitises title and album through `songSanitizer`; `submitGlobalSongEdit` calls it before the INSERT so bad input never reaches the queue, and `reviewGlobalSongEdit` calls it again on `proposed_data` before the approval UPDATE, building its SET clause from the parsed payload, so a hand-crafted historical row is refused with the catalog row left untouched. The ad-hoc `typeof` block, the `!== undefined` pushes, the `any[]` and the `eslint-disable` are gone, and `moderation.ts` fell under the base complexity budget and lost its per-file override (24 entries down to 23). Covered by `src/lib/__tests__/globalSongEditPayload.test.ts` (17 table tests) and `src/lib/__tests__/moderationPayload.db.test.ts` (2 real-database tests).
 
 ### F18 - Playlist positions are computed with COUNT then INSERT, without a transaction or a constraint
 
@@ -543,6 +546,7 @@ implementation detail.
 **Justification:** `query()` defaults its row type to `any`, so essentially every database row enters the application untyped and is re-asserted with an unchecked cast at the use site; the moderation approval path narrows only three of the seven fields it writes into the shared catalog.
 **Priority:** medium
 **Covers:** F16, F17
+**Status:** Delivered by RH-54 (`f92c0f3`), RH-55 (`b024a87`), RH-56 (`b293e82`), RH-57 (`9e37072`) and RH-58 (`55656fe`); integrated and verified by RH-40. Both findings it covers are closed.
 
 ### T8 - Load page data in Server Components and slim the client controllers
 

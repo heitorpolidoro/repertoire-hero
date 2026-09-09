@@ -4288,3 +4288,67 @@ this one:
 None. Every expected result was met on first execution, including the two that carry a
 tolerated-failure escape clause (ER7/ER8) — the RH-59 `complexityBudget` flake did not
 reproduce, so both passed outright without invoking the exception.
+
+## [RH-40] Tipar o helper query e validar o payload de moderacao — 2026-09-09 (spec review 4, re-baseline)
+
+
+- AGENTS.md's `# Database Row Types` section still says `src/lib/songs.ts` is
+  "pinned at `max-lines: 531` by the RH-39 ratchet", but RH-56 (`b293e82`)
+  tightened `eslint.config.mjs:86` to `529` and the file is now 529 lines. The
+  drift is pre-existing (RH-54 wrote the section before RH-56 landed) and RH-40
+  correctly keeps AGENTS.md out of its diff per ER9, so this is not a finding
+  against this spec — but it is worth a one-line follow-up task, since the stale
+  number is exactly the sort of thing a later reader would "correct" in the wrong
+  direction.
+- ER7's suite counts, coverage numbers, production build and SSR smoke were not
+  re-executed in this review (the dispatch forbade it). RH-60 was a dependency
+  change that moved `next` from 16.0.0 to 16.3.4, which is the one class of
+  change that can move a build or an SSR render without touching `src/`. The
+  implementer should treat ER7's build and Playwright clauses as genuinely
+  re-run at the merge commit rather than inherited from the round-3 measurement
+  at `55656fe`. ER7 already states its counts as floors, so a small unrelated
+  drift will not fail it spuriously.
+- `55656fe` survives in five narrative sentences outside the quoted Status and
+  Delivered lines (L11, L17, L189, L356, L372). Each is a correct historical
+  reference to RH-58's commit rather than a measurement baseline, and L11/L17
+  are what make the rebase legible. Recorded here only so a future reader of the
+  round-4 checklist does not read those five as leftovers.
+- ER9's whitelist deliberately omits `package-lock.json`. Bump `package.json`'s
+  `version` by hand; any `npm install` / `npm version` in the working tree would
+  rewrite the lockfile's root `version` field and break ER9's
+  `git diff --name-only ca91de2` clause.
+- ER4 calls `GlobalSongEditPayload` a "type"; it is declared as
+  `export interface GlobalSongEditPayload` at
+  `src/lib/globalSongEditPayload.ts:19`. The mechanical check ER4 actually runs
+  (`grep -c "^export "` prints `2`) is unaffected, so this is wording only.
+
+
+## [RH-40] Tipar o helper query e validar o payload de moderacao — 2026-09-09 (code review 1)
+
+
+1. **A second full-suite flake exists that ER5/ER7's tolerance clause does not
+   name.** `src/lib/__tests__/transactionAtomicity.db.test.ts:300`
+   (`rejects two concurrent inserts that would take the same position`) failed
+   once under the twelve-file parallel run with
+   `expected null to be an instance of Error`, then passed 3/3 in isolation and
+   the full twelve-file run passed clean on retry. RH-40's spec tolerates only
+   the RH-59 `complexityBudget.test.ts` timeout by name, so a QA run that trips
+   this instead has no disposal rule. Non-blocking for this docs-only diff;
+   worth a follow-up task alongside RH-59 (or an explicit note to QA that an
+   isolated re-run of this file is the disposal), since a concurrency race test
+   that intermittently sees both inserts succeed may also be pointing at a real
+   gap in how the unique constraint is exercised.
+
+2. **The Correction's two error counts are unreproducible from this tree.** "one
+   compiler error" versus "29 errors across 10 files" are pre-remediation
+   measurements; a future reader cannot re-derive them without reverting
+   `src/lib/db.ts`. They are the strongest evidence in the line, so pinning the
+   commit they were measured at (`246313f`, as the adjacent count claims already
+   do) would make the correction self-verifying. Not worth reopening this diff —
+   fold it in if the document is edited again.
+
+## [RH-40] Tipar o helper query e validar o payload de moderacao — 2026-09-09 (QA 1)
+
+
+None.
+
