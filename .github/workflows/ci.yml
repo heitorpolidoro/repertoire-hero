@@ -127,6 +127,11 @@ jobs:
       # Only used as the "the database is really there" switch for the
       # integration describes — the app itself no longer talks to Supabase.
       SUPABASE_SERVICE_ROLE_KEY: "ci-integration-tests-enabled" # pragma: allowlist secret
+      # RH-42: the email-change suites build real Better Auth tokens, which are
+      # signed with this secret. Outside production Better Auth falls back to a
+      # default when it is unset, so the tests would pass either way — but the
+      # fallback is not something to depend on.
+      BETTER_AUTH_SECRET: "ci-better-auth-secret" # pragma: allowlist secret
       NEXT_PUBLIC_SENTRY_DSN: ""
       SENTRY_DSN: ""
 

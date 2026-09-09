@@ -7,12 +7,16 @@ import { useRouter } from "next/navigation";
 import {
   getProfileAction as getProfile,
   updateProfileAction as updateProfile,
-  updateEmailAction as updateEmail,
+  requestEmailChangeAction,
 } from "@/app/actions/profile";
 import { useBandContextStore } from "@/store/bandContextStore";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { getBandThemeStyles } from "@/lib/bandColors";
 import { InstrumentPicker, INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
+import {
+  EmailChangeSection,
+  type EmailChangeActions,
+} from "@/components/profile/EmailChangeSection";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
 import { Toast } from "@/components/ui/Toast";
@@ -21,6 +25,14 @@ import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";
 import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BAND_PROFILE_LOAD_POLICY } from "@/lib/bandAdminLoad";
 import type { Profile } from "@/types/database";
+
+/**
+ * The page owns the Server Action and hands it to the island (F21). Module-level
+ * so the object identity is stable across re-renders.
+ */
+const EMAIL_CHANGE_ACTIONS: EmailChangeActions = {
+  requestEmailChange: requestEmailChangeAction,
+};
 
 /** Module-level so the hook's `load` callback stays referentially stable. */
 const BAND_PROFILE_MESSAGES = {
@@ -425,7 +437,6 @@ function PersonalProfileView() {
   const [_profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [emailSaving, setEmailSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -434,7 +445,6 @@ function PersonalProfileView() {
   const [instruments, setInstruments] = useState<string[]>([]);
   const [primaryInstrument, setPrimaryInstrument] = useState<string | null>(null);
   const [email, setEmail] = useState("");
-  const [newEmail, setNewEmail] = useState("");
 
   useEffect(() => {
     getProfile()
@@ -446,7 +456,6 @@ function PersonalProfileView() {
         setInstruments(p.instruments ?? []);
         setPrimaryInstrument(p.primary_instrument ?? null);
         setEmail(p.email);
-        setNewEmail(p.email);
       })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load profile"),
@@ -481,23 +490,6 @@ function PersonalProfileView() {
       setError(err instanceof Error ? err.message : "Failed to save profile");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleUpdateEmail = async () => {
-    if (!newEmail.trim() || newEmail === email) return;
-    setEmailSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      await updateEmail(newEmail.trim());
-      setSuccess(
-        `Confirmation email sent to ${newEmail.trim()}. Check your inbox to complete the change.`,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update email");
-    } finally {
-      setEmailSaving(false);
     }
   };
 
@@ -613,34 +605,9 @@ function PersonalProfileView() {
 
       <hr className="border-gray-100" />
 
-      {/* Email */}
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-gray-700">Email</h2>
-        <div className="flex gap-2">
-          <input
-            id="email"
-            type="email"
-            value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
-            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              handleUpdateEmail();
-            }}
-            disabled={emailSaving || !newEmail.trim() || newEmail === email}
-            className="shrink-0 px-4 py-2 rounded-md bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {emailSaving ? "Sending..." : "Change"}
-          </button>
-        </div>
-        {newEmail !== email && newEmail.trim() && (
-          <p className="text-xs text-amber-600">
-            A confirmation link will be sent to {newEmail.trim()}.
-          </p>
-        )}
-      </section>
+      {/* Email — a client island of its own (RH-42): the address is the login
+          identity, so it only moves through the verified change-email flow. */}
+      <EmailChangeSection currentEmail={email} actions={EMAIL_CHANGE_ACTIONS} />
     </div>
   );
 }

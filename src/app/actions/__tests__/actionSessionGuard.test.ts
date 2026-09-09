@@ -40,6 +40,20 @@ vi.mock('@/lib/linkFetcher', () => ({
   fetchUrlTitle: vi.fn(),
 }))
 
+// RH-42: the email action reaches `@/lib/emailChange` -> `@/lib/auth` rather
+// than the database, so it gets a refusal of its own in the same spirit as the
+// `@/lib/db` mock above — starting a verified email change without a session is
+// itself the failure, whatever the action returns afterwards.
+vi.mock('next/headers', () => ({
+  headers: vi.fn(async () => new Headers()),
+}))
+
+vi.mock('@/lib/emailChange', () => ({
+  requestEmailChange: vi.fn(async () => {
+    throw new Error('the email change must not be requested without a session')
+  }),
+}))
+
 import { getRequiredUserId } from '@/lib/auth-session'
 import { allExportedActionNames } from './actionScan'
 import {
@@ -70,7 +84,7 @@ import {
   getPlaylistWithSongsAction,
   getPlaylistDetailsWithEntriesAction,
 } from '../playlists'
-import { getProfileAction, updateProfileAction, updateEmailAction } from '../profile'
+import { getProfileAction, updateProfileAction, requestEmailChangeAction } from '../profile'
 import {
   getRepertoireAction,
   addSongAction,
@@ -156,7 +170,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- profile.ts ---
   getProfileAction: { run: () => getProfileAction(), mode: 'throws' },
   updateProfileAction: { run: () => updateProfileAction({ full_name: 'Jane' }), mode: 'throws' },
-  updateEmailAction: { run: () => updateEmailAction('jane@example.com'), mode: 'throws' },
+  requestEmailChangeAction: { run: () => requestEmailChangeAction('jane@example.com'), mode: 'throws' },
 
   // --- repertoire.ts ---
   getRepertoireAction: { run: () => getRepertoireAction(BAND_ID), mode: 'throws' },

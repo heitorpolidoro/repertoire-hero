@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
-import { getProfile, updateProfile, updateEmail } from '../profile'
-import { query } from '../db'
+import { getProfile, updateProfile } from '../profile'
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 const skip = !SERVICE_ROLE_KEY
@@ -98,23 +97,5 @@ describe.skipIf(skip)('profile branches not reached by the happy path', () => {
     await expect(
       updateProfile('00000000-0000-0000-0000-000000000000', { full_name: 'Ghost' }),
     ).rejects.toThrow('Failed to update profile: Profile not found')
-  })
-
-  it('updateEmail commits the new address to both the auth user and the profile', async () => {
-    const newEmail = `test-profile-${suffix}-moved@example.com`
-
-    await updateEmail(userId, newEmail)
-
-    const profile = await getProfile(userId)
-    expect(profile!.email).toBe(newEmail)
-
-    const authUser = await query('SELECT email FROM "user" WHERE id = $1', [userId])
-    expect(authUser.rows[0].email).toBe(newEmail)
-  })
-
-  it('updateEmail rolls back and wraps the failure when the update cannot be applied', async () => {
-    await expect(updateEmail('not-a-uuid', 'whatever@example.com')).rejects.toThrow(
-      /^Failed to update email: /,
-    )
   })
 })

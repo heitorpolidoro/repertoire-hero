@@ -1,4 +1,5 @@
-import { query, withTransaction } from '@/lib/db'
+// No email write lives here (RH-42) - see `src/lib/emailChange.ts`.
+import { query } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import type { Profile } from '@/types/database'
 
@@ -62,23 +63,5 @@ export async function updateProfile(
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update profile', err)
     throw new Error(`Failed to update profile: ${err.message}`)
-  }
-}
-
-// Email changes are applied directly to both the Better Auth "user" table
-// and the app profiles table. Better Auth's own changeEmail route requires
-// email verification; this server-side function bypasses that for admin use.
-export async function updateEmail(userId: string, newEmail: string): Promise<void> {
-  try {
-    // Both rows or neither: the identity the user signs in with and the one the
-    // app displays must not be allowed to drift apart.
-    await withTransaction(async (client) => {
-      await client.query<never>('UPDATE "user" SET email = $1, "updatedAt" = now() WHERE id = $2::uuid', [newEmail, userId])
-      await client.query<never>('UPDATE profiles SET email = $1 WHERE id = $2::uuid', [newEmail, userId])
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error('Failed to update email', new Error(message))
-    throw new Error(`Failed to update email: ${message}`)
   }
 }

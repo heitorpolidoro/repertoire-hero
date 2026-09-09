@@ -450,6 +450,8 @@ describe("Supabase Error Handling", () => {
       );
     });
 
-    // updateEmail uses pg Pool directly (not Supabase client) so it's not testable via this mock.
+    // The email address is no longer written from this module (RH-42): it moves
+    // only through `src/lib/emailChange.ts` -> `auth.api.changeEmail`, covered
+    // by `emailChange.test.ts` and `emailChangeVerification.db.test.ts`.
   });
 });

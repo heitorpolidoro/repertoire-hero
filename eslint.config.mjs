@@ -72,7 +72,7 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/app/join/\\[code\\]/page.tsx"], rules: { "max-lines-per-function": ["error", 249] } },
   { name: "complexity-budget/override", files: ["src/app/page.tsx"], rules: { complexity: ["error", 18], "max-lines-per-function": ["error", 511], "max-lines": ["error", 640] } },
   { name: "complexity-budget/override", files: ["src/app/playlists/\\[id\\]/page.tsx"], rules: { complexity: ["error", 34], "max-lines-per-function": ["error", 1072], "max-lines": ["error", 1344] } },
-  { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 23], "max-lines-per-function": ["error", 385], "max-lines": ["error", 714] } },
+  { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 23], "max-lines-per-function": ["error", 385], "max-lines": ["error", 681] } },
   { name: "complexity-budget/override", files: ["src/components/landing/LandingPage.tsx"], rules: { "max-lines-per-function": ["error", 208] } },
   { name: "complexity-budget/override", files: ["src/components/layout/AppLayout.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 202] } },
   { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 459], "max-lines": ["error", 612] } },

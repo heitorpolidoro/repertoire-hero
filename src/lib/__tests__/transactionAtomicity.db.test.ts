@@ -16,7 +16,6 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { query, withTransaction } from '@/lib/db'
 import { updateSong } from '@/lib/songs'
-import { updateEmail } from '@/lib/profile'
 import { reviewGlobalSongEdit } from '@/lib/moderation'
 import { addSongToPlaylist, removeSongFromPlaylist } from '@/lib/playlists'
 import type { Repertoire } from '@/types/database'
@@ -174,19 +173,6 @@ describe.skipIf(!SERVICE_ROLE_KEY)('multi-statement writes are atomic (real data
     expect(after.status).toBe('unknown')
     expect(after.tags).toEqual([])
     expect(after.personal_key).toBeNull()
-  })
-
-  it('updateEmail leaves the user row untouched when the profiles update fails', async () => {
-    await injectFailure('rh36_fail_profiles', 'profiles', 'UPDATE', `OLD.id = '${userId}'`)
-
-    const original = `rh36-user-${suffix}@example.com`
-
-    await expect(updateEmail(userId, `rh36-changed-${suffix}@example.com`)).rejects.toThrow(
-      /^Failed to update email:/,
-    )
-
-    const user = await one('SELECT email FROM "user" WHERE id = $1', [userId])
-    expect(user.email).toBe(original)
   })
 
   it('reviewGlobalSongEdit leaves global_songs untouched when marking the edit reviewed fails', async () => {

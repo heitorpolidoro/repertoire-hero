@@ -52,6 +52,7 @@ Key architectural decisions:
 - **File storage**: PDF tab uploads go to **Vercel Blob** (`@vercel/blob`), not the database or Supabase Storage.
 - **State**: `zustand` (with `persist`) is used client-side only for lightweight UI state — currently just which "context" (personal vs. a specific band) the user is browsing in (`src/store/bandContextStore.ts`).
 - **Observability**: Sentry (`@sentry/nextjs`) is wired for client, server, and edge configs.
+- **Identity fields change only through Better Auth's verified flows (RH-42).** `"user".email` is the login identity: no SQL under `src/` may `UPDATE` the `"user"` table, and no application code writes `profiles.email`. A user-facing change goes through `requestEmailChange` (`src/lib/emailChange.ts`) -> `auth.api.changeEmail`, which mails a verification link and leaves the row untouched until the link is opened at `/api/auth/verify-email`; `profiles.email` follows automatically through the `sync_profile_email_on_user_update` trigger (`migrations/0008_sync_profile_email.sql`), in the same transaction as the write, so the two identity rows cannot diverge. Enforced by `src/lib/__tests__/identityWriteGuard.test.ts`.
 - **Fast View is a composition root (RH-38).** `src/app/songs/[id]/fast-view/page.tsx` holds no `useState`, no `useEffect` and no data access: it wires seven controller hooks (`usePlaylistNav`, `useTabLibrary`, `usePdfStage`, `useLyricsEditor`, `useSongEntry`, `useSongStatus`, `useSongLinks`) to the presentational components under `src/components/fastview/`, and the pure decisions live in `src/lib` (`playlistNav.ts`, `tabLibrary.ts`, `scrollHost.ts`, `stageHistory.ts`, `lyricsMarkdown.ts`, `lyricsEditor.ts`, `songEntry.ts`, `songStatus.ts`, `songLinks.ts`). Because of the import-direction rule below, no hook or component may import a Server Action: the page injects them as typed dependency objects from `src/app/fastViewNavActions.ts`, `fastViewTabActions.ts`, `fastViewLyricsActions.ts` and `fastViewEntryActions.ts`. New Fast View behaviour goes into a lib function, its hook and its component - never back into the page.
 
 Legacy/unused code to be aware of: the live data model is `src/types/database.ts`. `NEXT_PUBLIC_SUPABASE_*` env vars and stray "Supabase" comments are historical; the app's actual persistence and auth run on plain Postgres via Better Auth, not Supabase Auth/client (the `supabase/` directory retains only `config.toml` and `seed.sql` for the local docker-compose stack; the Supabase CLI migration flow is disabled — see `[db.migrations] enabled = false`).
@@ -73,7 +74,7 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 **Storage & external services**
 - `@vercel/blob` — PDF tab file storage
 - Spotify Web API — OAuth (`src/lib/spotifyAuth.ts`) + search/import (`src/lib/spotify.ts`), integrated via `src/app/api/spotify/**` and `src/app/api/auth/spotify/**`
-- `resend` — transactional email (password reset)
+- `resend` — transactional email (password reset and email-change verification), sent through `src/lib/authEmail.ts`
 - `@vercel/analytics`, `@sentry/nextjs` — analytics and error monitoring
 
 **Frontend**
@@ -197,7 +198,7 @@ These are the patterns the codebase already follows. New code must match them; t
 which walks every `.ts`/`.tsx` file under `src/`.
 
 - **Never `catch (x: any)`.** Narrow instead: `const err = error instanceof Error ? error : new Error(String(error))`. Never cast with `error as Error` either — the cast only lies to the type checker.
-- **Never `console.error` in a catch body.** Use `logger` (`@/lib/logger`), so the event reaches Sentry. (Two deliberate exceptions, documented at their call sites: the `console.log` dev echo of the password-reset URL in `src/lib/auth.ts`, which must not become a Sentry breadcrumb, and the module-load `console.warn` in `src/lib/db.ts`, which runs before Sentry is initialised.)
+- **Never `console.error` in a catch body.** Use `logger` (`@/lib/logger`), so the event reaches Sentry. (Two deliberate exceptions, documented at their call sites: the `console.log` dev echo in `src/lib/authEmail.ts`, which prints the link for every auth mail — password reset, change-email confirmation and new-address verification — when no `RESEND_API_KEY` is configured, and must not become a Sentry breadcrumb because that link is a single-use credential; and the module-load `console.warn` in `src/lib/db.ts`, which runs before Sentry is initialised.)
 
 **L1 — data-access / domain layer (`src/lib/*.ts`): log, then throw a prefixed message.**
 

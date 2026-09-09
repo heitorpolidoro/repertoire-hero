@@ -5450,3 +5450,288 @@ The full-suite, coverage, build and Playwright ERs are QA's to run.
   a future reader comparing the document against `prerender-manifest.json` (11 entries, including
   `/_global-error`) will hit the same discrepancy RH-63's QA hit. A parenthetical in that line naming the
   manifest counts would make the document self-reconciling. Non-blocking; no ER requires it.
+
+## [RH-42] Exigir verificacao para troca de e-mail (spec review r1) — 2026-09-09
+
+- **ER4's idempotency evidence is vacuous.** `scripts/migrate.mjs` records every
+  applied filename in `_migrations` and prints `Skipping migration: ... (already executed)`
+  on the second pass, so "running `npm run db:migrate` twice in a row exits 0 both
+  times" never re-executes `0008` and proves nothing about `CREATE OR REPLACE` /
+  `DROP TRIGGER IF EXISTS`. If the re-runnability is worth an ER, apply the file
+  directly twice (`psql "$DATABASE_URL" -f migrations/0008_sync_profile_email.sql`,
+  exit 0 both times). Low stakes — the runner never re-runs a recorded migration —
+  which is why this is not blocking.
+- **ER5 does not name the command that applies the new migration.** It says
+  "(migrations applied)"; ER4 carries `npm run db:migrate`. Since QA reads the ERs as
+  a set this works, but ER5 is the one QA will run first and it is otherwise
+  scrupulously self-contained. One clause would close it.
+- **ER13's `Status:` count is the only relative baseline in the spec.** "prints a
+  number exactly 2 greater than at 890a27b" makes QA compute the baseline; every
+  other ER states the absolute. It is `14` at 890a27b, so say "prints `16`".
+- **The guard regexes are line-scoped and the codebase already shows the evasion.**
+  `findViolations` splits on `\n` before testing, and `updateProfile` in
+  `src/lib/profile.ts` writes its statement as a template literal with `UPDATE profiles`
+  and `SET ...` on separate lines. A re-introduced raw identity write formatted the
+  same way slips past both ER2 patterns. Worth either normalising whitespace before
+  matching or noting the limitation in the suite's header comment, so the next reader
+  does not over-trust it.
+- **Approach §8 understates the `thinActions.test.ts` edit.** The table says "rename
+  the entry to `requestEmailChangeAction`", but that row asserts
+  `toHaveBeenCalledWith(USER_ID, ...)` under the title "passes the resolved session
+  user id through to src/lib", and the new action passes `(Headers, newEmail)` and no
+  user id. The row needs a new mock target (`@/lib/emailChange`), a `next/headers`
+  mock, and a different `expected` shape. ER10 forces the suite green so the
+  implementation is not ambiguous, but the prose will mislead the implementer's first
+  pass.
+- **Two line citations drift by three.** The audit cites `update-user.mjs` L465-475
+  for `sendChangeEmailConfirmation` and L480-489 for the verification branch; the
+  installed file has them at 468 and 482. L409, L414-417, L424, L431-435 and
+  `sign-up.mjs:241` are exact, as is `email-verification.mjs:216-219`. Worth
+  correcting since ER3 points a future reader at those numbers.
+- **ER3 could pin `emailVerification.expiresIn`.** Approach §3 sets it to 3600 and
+  nothing checks it; a link that expires in the default window is a different product
+  than one that expires in an hour.
+- **The taken-address copy is honest but silent.** ER8 correctly requires identical
+  copy for the taken and free cases. Consider adding, in the pending state, a line
+  telling the user what to do if no mail arrives — it costs nothing, leaks nothing,
+  and is the only recourse a user has in the `{ status: true }`-with-no-mail case.
+- **ER11's jscpd cap is tight.** Six new suites land in a tree already at exactly the
+  pinned `18` clones. Nothing wrong with the ratchet, but the shared
+  `describe.skipIf` / fixture-cleanup boilerplate across `emailChangeVerification.db.test.ts`
+  and its neighbours is the likely place a nineteenth clone appears.
+
+## Not verified
+
+`npm run build`, the four green e2e specs and `npm run test:coverage` were not
+re-run — they need a build and a running server, and none of the spec's claims about
+them contradicted anything I could check statically. The CI env block, the e2e file
+list and the coverage thresholds/`coverage-final.json` artefact were all confirmed by
+reading `.github/workflows/ci.yml`, `vitest.config.ts` and `coverage/`.
+
+## [RH-42] Exigir verificacao para troca de e-mail (spec review r2) — 2026-09-09
+
+- **ER4's quoted call literal does not typecheck, and ER12 pins `tsc --noEmit`
+  clean.** Probed with the exact object ER4 writes:
+
+  ```
+  auth.options.emailAndPassword.sendResetPassword({
+    user: { email: 'reset-target@example.com', name: 'Jane' },
+    url: 'https://example.com/reset?token=abc',
+  })
+  ```
+  ->  `error TS2739: Type '{ email: string; name: string; }' is missing the
+      following properties from type '{ id: string; createdAt: Date; updatedAt:
+      Date; email: string; emailVerified: boolean; name: string; image?: ... }':
+      id, createdAt, updatedAt, emailVerified`
+
+  Not blocking: the ER's assertions (recipient, url, subject, resolves) are
+  unaffected, and an implementer will add the four fields or cast. But a literal
+  transcription breaks ER12 for a full round, so it is worth writing the ER's
+  snippet with a complete `user` (`id`, `emailVerified`, `createdAt`,
+  `updatedAt`) or with an explicit cast, since the whole point of ER4 is that it
+  be transcribable.
+
+- **ER3's rationale for `expiresIn: 3600` is factually wrong.** ER3 says the pin
+  makes "a verification link live one hour rather than the package default".
+  `3600` **is** the package default:
+  `createEmailVerificationToken(secret, email, updateTo, expiresIn = 3600, ...)`
+  at `email-verification.mjs:12`, and `init-options.d.mts:559` documents
+  `@default 3600 seconds (1 hour)`. The assertion is still worth keeping — it
+  pins the value explicitly and would fail if the option were dropped — but the
+  justification should be "explicit rather than inherited, so a future default
+  change cannot silently move it", not "rather than the package default".
+
+- **The guard's known limitation is documented in Approach §7 but not required
+  by any ER.** ER2 describes both halves of the suite without asking for the
+  header comment, so the comment can be silently skipped. One clause in ER2
+  (`grep` for a fragment of the limitation text in
+  `src/lib/__tests__/identityWriteGuard.test.ts`) would close it. Trivial
+  stakes — it is a comment inside a test file — which is why this is not a
+  finding.
+
+- **Approach §3's inline citations drift from the audit's.** §3 cites L465 and
+  L480 where the audit (correctly, this round) cites L468 and L482 for the same
+  two branches. Same code, two different numbers in one document; worth
+  aligning since ER3 points a future reader at these lines.
+
+## Not verified
+
+`npm run build`, the four green e2e specs, `npm run test:coverage` and
+`npm run lint:dup` were not re-run this round — none of them changed between the
+two spec revisions, and round 1 confirmed the ones that are statically
+checkable. No migration was applied and no write was issued to the local
+database; the `psql` probe used a script that errors before touching anything
+and a `SELECT`.
+
+## [RH-42] Exigir verificacao para troca de e-mail (spec review r3) — 2026-09-09
+
+- **ER5's parenthetical says "the second run" where, in the order ER5 itself
+  prescribes, an unguarded migration already fails on the first psql run.**
+  Because `npm run db:migrate` has applied the file before the two psql runs, run
+  1 is application #2 and is where `CREATE TRIGGER` would collide. Harmless — the
+  pass criterion is "exits `0` on both runs" — but "would exit `3` on a repeat
+  application" would be the accurate rationale.
+- **Write ER4's snippet with a complete `user` object** (`id`, `emailVerified`,
+  `createdAt`, `updatedAt`) or an explicit cast. The literal as written does not
+  typecheck (`TS2739`), and ER12 pins `tsc --noEmit` clean; the ER is meant to be
+  transcribable.
+- **ER3's rationale for `expiresIn: 3600` is factually wrong** (carried from round
+  2, unadopted). `3600` *is* the package default —
+  `createEmailVerificationToken(secret, email, updateTo, expiresIn = 3600, ...)`
+  at `email-verification.mjs:12`, `@default 3600 seconds (1 hour)` at
+  `init-options.d.mts:559`. Keep the assertion, fix the justification to
+  "explicit rather than inherited".
+- **The guard's known limitation is documented in Approach §7 but required by no
+  ER** (carried from round 2, unadopted). One `grep` clause in ER2 for a fragment
+  of the limitation text would close it.
+- **Approach §3's line citations drift from the audit's** (carried from round 2,
+  unadopted): §3 says L465/L480, the audit says L468/L482 for the same two
+  branches. Worth aligning, since ER3 points a future reader at these lines.
+
+## Not verified this round
+
+`npm run build`, the four green e2e specs, `npm run test:coverage`,
+`npm run lint:dup` and `rtk proxy npx eslint .` — none of the ERs carrying them
+changed in this revision, and rounds 1 and 2 covered what is statically
+checkable. No migration applied; the only database interaction was the
+`SELECT`-only `ON_ERROR_STOP` probe described above.
+
+## [RH-42] Exigir verificacao para troca de e-mail (implementation) — 2026-09-09
+
+Three deliberate departures from what the spec's source findings asked for,
+recorded here because each is a decision a future reader could otherwise read as
+an omission.
+
+- **F12's remediation asks to keep the raw identity write behind
+  `checkSystemAdmin`; it was deleted outright instead.** There is no admin caller
+  today and none is planned in this task, `npm run lint:dead` (knip) fails on an
+  export nobody imports, and a privileged raw-identity write kept alive "for
+  later" is precisely what `src/lib/__tests__/identityWriteGuard.test.ts` now
+  exists to prevent. If an admin-facing email edit is ever needed it is a new
+  task and it goes through `auth.api.changeEmail` / `auth.api.updateUser` behind
+  an admin check, not through SQL.
+- **F12's remediation also asks for a uniqueness pre-check; it was deliberately
+  not implemented.** A distinct "that address is already registered" answer is an
+  account-enumeration oracle on an endpoint any signed-in user can call. Better
+  Auth 1.6.22 answers the taken case with a silent `{ status: true }` and sends
+  no mail (`node_modules/better-auth/dist/api/routes/update-user.mjs` L431-435),
+  and uniqueness itself is enforced by the `UNIQUE` constraint on `"user".email`.
+  The UI copy is therefore identical for the taken and the free case, which
+  `src/components/profile/__tests__/EmailChangeSection.test.tsx` asserts.
+- **RH-36's `updateEmail leaves the user row untouched ...` atomicity case
+  (recorded as ER3(b) of `docs/tasks/RH-36-spec.md`) was removed, not
+  preserved.** The function it exercised no longer exists. The property it
+  asserted - that the auth row and the profile row never disagree - is asserted
+  more strongly by `src/lib/__tests__/emailChangeVerification.db.test.ts`, which
+  drives the real Better Auth write and proves the trigger rolls the `"user"`
+  row back when the `profiles` write fails.
+
+## Follow-ups worth a task later
+
+- **The guard is line-scoped and says so.** `findViolations` splits on `\n`
+  before matching, so a raw identity write formatted as a multi-line template
+  literal - the shape `updateProfile` in `src/lib/profile.ts` already has - would
+  not be caught. The limitation is written into the suite's header comment rather
+  than hidden. A parser-based check (or a `stripComments`-style statement
+  joiner in `test-helpers.ts`) would close it for every guard in the repo at
+  once, not just this one.
+- **No end-to-end spec covers `/profile`.** The flow needs a mailbox, so the
+  database suite carries the behaviour instead. If a mail-capture fixture ever
+  lands in `e2e/`, the change-email round trip is the first thing worth putting
+  through it.
+
+## [RH-42] Exigir verificacao para troca de e-mail (code review r1) — 2026-09-09
+
+1. **`mailOrLog`'s catch is unreachable in production (`src/lib/auth.ts:22-31`).**
+   `sendAuthEmail` already swallows every provider failure internally
+   (`src/lib/authEmail.ts:78-85`) and nothing outside its own `try` can throw, so
+   it never rejects — the wrapper's `catch` can only fire when `@/lib/authEmail`
+   is mocked, which is exactly the one test that covers it
+   (`authConfig.test.ts:130`). Two layers swallowing the same failure also means
+   a real Resend outage logs `Failed to send auth email` once, from the inner
+   layer, and the outer message is dead text. The spec prescribed both layers, so
+   this is not a defect — but a one-line note in `mailOrLog`'s doc comment saying
+   it is a belt-and-braces guard against a *future* throwing sender (rather than a
+   live path) would stop the next reader from assuming the inner swallow is
+   missing. Alternatively, collapse to one layer by letting `sendAuthEmail`
+   propagate and keeping only `mailOrLog`.
+
+2. **`emailChangeVerification.db.test.ts` is order-coupled.** Case (b) reads
+   `captured[0]` populated by case (a); case (e) depends on the verified state
+   case (b) leaves behind; case (c) runs last and depends on (e). The file labels
+   them (a),(b),(d),(e),(c) — the declaration order is deliberately not the
+   alphabetical order, which is a hint but an easy one to miss. A `.only` or a
+   reorder during a future edit will produce a confusing failure rather than a
+   skip. Consider either a comment at the top of the `describe` stating the chain
+   explicitly, or asserting the precondition at the head of each dependent case
+   (e.g. `expect(captured).toHaveLength(1)` before reading `captured[0]` in (b)).
+
+3. **The dev echo is not gated on `NODE_ENV`** (`src/lib/authEmail.ts:79-83`).
+   With no `RESEND_API_KEY` the token URL — a single-use credential that moves the
+   login identity — is written to `console.log` in whatever environment the app is
+   running in. In practice a production deployment without a mail provider cannot
+   complete the flow at all, and this is verbatim the 890a27b behaviour the spec
+   asked to preserve, so it is not a regression. Still, adding
+   `process.env.NODE_ENV !== 'production'` to the condition (and logging a
+   `logger.warn` about the missing provider in production instead) would make the
+   "this is the local path" claim in the doc comment enforced rather than assumed.
+
+4. **The pending banner survives a subsequent edit of the field**
+   (`src/components/profile/EmailChangeSection.tsx:94-103`). After a successful
+   request, `sentTo` stays set; typing a *different* address keeps showing
+   "Confirmation link sent to `<the previous address>`" and suppresses the
+   "We will email a confirmation link to `<new value>`" preview, because the
+   ternary branches on `sentTo` before checking `submittable`. Clearing `sentTo`
+   in the `onChange` handler (or preferring the preview when
+   `trimmed !== sentTo`) would keep the two lines from contradicting each other.
+   Cosmetic; no expected result covers it.
+
+5. **`injectProfilesFailure` interpolates `rowId` into DDL**
+   (`emailChangeVerification.db.test.ts:90-96`). Unavoidable — a `CREATE TRIGGER`
+   `WHEN` clause cannot take a bind parameter — and the value is a UUID the test
+   itself just created, so there is no real risk; it also matches the existing
+   `injectFailure` helper in `transactionAtomicity.db.test.ts`. Noting it only so
+   a future reader does not mistake it for a pattern to copy into `src/`.
+
+## [RH-42] Exigir verificacao para troca de e-mail (code review r2) — 2026-09-09
+
+1. **Stale line references in the appended suggestions-log entry**
+   (`docs/suggestions-log.md`, item 3 of the RH-42 r1 block). It cites
+   `src/lib/authEmail.ts:79-83` for the dev echo, which the round-2 fix pushed
+   down to `:108-112`; item 1 likewise cites `:78-85` for the swallow, now
+   `:114-128`. The log is a historical record so this is not wrong as written,
+   but a reader following the reference will land in the middle of
+   `renderAuthEmail`. Since these are carried forward as open suggestions,
+   re-pointing them (or dropping the line numbers in favour of the function
+   names) would keep them actionable. Purely cosmetic; no gate covers it.
+
+2. **A future plain-text part must take the raw fields.** `sendAuthEmail`
+   sends `html` only today, so the entity-in-plain-text hazard does not exist.
+   If a `text:` part is ever added for deliverability, it must interpolate
+   `email.greeting` / `email.body` directly and *not* the escaped locals —
+   otherwise recipients on plain-text clients read `Tom &amp; Jerry`. A one-line
+   note next to the `escapeHtmlText` docblock would pin that for the next
+   author. Not needed for this task.
+
+3. Round-1 suggestions 1-5 remain open and unchanged; the round-2 diff did not
+   touch the code they refer to, and none of them blocks. They are recorded in
+   `docs/suggestions-log.md` for later triage, which is the correct disposition.
+
+## [RH-42] Exigir verificacao para troca de e-mail (QA r1) — 2026-09-09
+
+1. ER14 asks the F12/T9 `**Status:**` lines to name "RH-42 and its commit hash".
+   They currently say "the commit carrying this line, on top of `890a27b`", which is
+   unavoidable pre-commit but reads differently from the file's established
+   convention (F14: "Resolved by RH-64 (`6aa099c`)"). A follow-up amend that
+   substitutes the real hash after the commit exists would make the two close-outs
+   greppable the same way as every earlier one.
+2. `src/lib/__tests__/identityWriteGuard.test.ts` documents its own limitation
+   honestly (line-scoped patterns; a template literal splitting `UPDATE profiles`
+   from `SET ...` across lines evades it, as `updateProfile` in
+   `src/lib/profile.ts` already does). If the guard is ever load-bearing beyond a
+   ratchet, joining logical statements before matching would close that gap.
+3. ER7's "trimmed lowercased address for `  Jane@Example.COM  `" is proved across
+   `normalizeEmail` and a separate `validateEmailChange` trimming case rather than
+   in one assertion. Nothing is missing, but a single
+   `validateEmailChange('someone-else@example.com', '  Jane@Example.COM  ')` case
+   would map one-to-one onto the wording.

@@ -7,7 +7,16 @@ vi.mock('@/lib/auth-session', () => ({
 vi.mock('@/lib/profile', () => ({
   getProfile: vi.fn(),
   updateProfile: vi.fn(),
-  updateEmail: vi.fn(),
+}))
+
+// RH-42: the email action delegates to `@/lib/emailChange`, not `@/lib/profile`,
+// and it forwards the request headers instead of a user id.
+vi.mock('@/lib/emailChange', () => ({
+  requestEmailChange: vi.fn(),
+}))
+
+vi.mock('next/headers', () => ({
+  headers: vi.fn(async () => new Headers()),
 }))
 
 vi.mock('@/lib/moderation', () => ({
@@ -16,14 +25,15 @@ vi.mock('@/lib/moderation', () => ({
   reviewGlobalSongEdit: vi.fn(),
 }))
 
-import { getProfileAction, updateProfileAction, updateEmailAction } from '../profile'
+import { getProfileAction, updateProfileAction, requestEmailChangeAction } from '../profile'
 import {
   submitGlobalSongEditAction,
   getPendingGlobalSongEditsAction,
   reviewGlobalSongEditAction,
 } from '../moderation'
 import { getRequiredUserId } from '@/lib/auth-session'
-import { getProfile, updateProfile, updateEmail } from '@/lib/profile'
+import { getProfile, updateProfile } from '@/lib/profile'
+import { requestEmailChange } from '@/lib/emailChange'
 import {
   submitGlobalSongEdit,
   getPendingGlobalSongEdits,
@@ -61,10 +71,12 @@ const THIN_ACTIONS: Array<{
     expected: [USER_ID, PROFILE_PATCH],
   },
   {
-    name: 'updateEmailAction',
-    invoke: () => updateEmailAction('new@example.com'),
-    target: () => vi.mocked(updateEmail),
-    expected: [USER_ID, 'new@example.com'],
+    // The one row that passes no user id: `requestEmailChange` resolves the
+    // session from the headers itself, so the action forwards those instead.
+    name: 'requestEmailChangeAction',
+    invoke: () => requestEmailChangeAction('new@example.com'),
+    target: () => vi.mocked(requestEmailChange),
+    expected: [expect.any(Headers), 'new@example.com'],
   },
   {
     name: 'submitGlobalSongEditAction',
