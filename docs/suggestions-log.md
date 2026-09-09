@@ -4171,3 +4171,120 @@ this one:
   it is now the only remaining entry, so a follow-up validating the Spotify
   response body would close that inventory entirely. Non-blocking.
 
+
+## [RH-40] Tipar o helper query e validar o payload de moderacao — 2026-09-08 (spec review 2, close-out spec)
+
+
+- **`Out of Scope`, "Correcting F16's ~44 such casts overall"**: the figure "the
+  DB-row cast inventory regex gives 32" at `13da8b2` is reachable only by widening
+  the inventory to `.tsx` as well; the inventory as this spec defines it
+  (`--include='*.ts'`) gives 23 at `13da8b2`. The paragraph's conclusion - that the
+  ~44 counting method is not reproducible, so calling it wrong would be an
+  unverified claim - is unaffected and remains right. Worth aligning the number
+  with the spec's own regex definition anyway, since the spec's credibility here
+  rests on its counts being reproducible.
+- ER1's "at the pre-split commit `246313f` the same command printed 80 lines" and
+  ER3's "(the count was 26 at `246313f`)" read like checks but are background.
+  A QA agent taking them as checks might check out an old commit. Marking them
+  as context (or phrasing them as `git grep ... 246313f`, which is safe and does
+  reproduce both numbers) would remove the temptation.
+- Several ERs point at "Approach 3" and "the F16 `**Status:**` line of ER8" for
+  rationale. QA sees only the ERs, so those pointers dangle. They are purely
+  explanatory in every case - the mechanical check next to them is complete - so
+  this is cosmetic, but inlining the one-clause reason ("its result is discarded,
+  no column is read off it") would make ER1 and ER9 fully self-contained.
+- Unrelated to this task's diff, worth a follow-up: AGENTS.md L285 still says
+  `src/lib/songs.ts` is pinned at `max-lines: 531`, but RH-56 tightened the
+  override to `529` (`eslint.config.mjs:86`, and `wc -l src/lib/songs.ts` = 529).
+  ER9 forbids touching AGENTS.md here, correctly - this belongs to its own task.
+
+## [RH-40] Tipar o helper query e validar o payload de moderacao — 2026-09-09 (spec review 3)
+
+
+- ER8 verifies the F16 `**Status:**` line by commit id, placement and the `4	0`
+  numstat, but never by its stated counts - which is precisely why the round-2
+  defect reached review instead of being caught mechanically. If a future
+  close-out task mandates a document line containing measured figures, consider
+  having its ER grep for the figures together with their baseline commit (for
+  example, requiring the line to match `down from 80 at .246313f.`), so a
+  mis-stated or undated count fails QA rather than depending on a reviewer
+  reproducing the baseline by hand.
+- The spec deliberately leaves F16's "~44 such casts overall" uncorrected because
+  the counting method could not be reproduced (`Out of Scope`, third bullet). That
+  is the right call for this task, but the three candidate interpretations it
+  records at `13da8b2` (32 / 29 / 64) are useful evidence that will be lost once
+  this spec is archived. Worth a one-line note in the review document, or in
+  whichever task takes up the HTTP-boundary validation follow-up, so the next
+  reader does not redo the same inconclusive measurement.
+
+## [RH-60] Corrigir as 5 vulnerabilidades novas do npm audit — 2026-09-09 (spec review 1)
+
+
+1. **ER9 could use the form every prior QA already used.** RH-54, RH-55 and RH-56 all ran the SSR
+   smoke as `set -a; . ./.env.local; set +a` followed by the `PLAYWRIGHT_WEB_SERVER=…` command.
+   That sources every key, whereas ER9 exports only `BETTER_AUTH_SECRET` — and
+   `.env.production.local` also blanks `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and
+   `SPOTIFY_REDIRECT_URI`. `ssr-smoke.spec.ts` touches none of those, so the narrow export is
+   sufficient here and I did not treat it as blocking; but the broader form is strictly more robust
+   and matches the established house pattern.
+
+2. **ER4 writes scratch files to `/tmp`.** `/tmp/rh60-base-lock.json`, `/tmp/rh60-lockscope.mjs`,
+   and ER5's `/tmp/rh60-lock.sha`. These work (I ran them), but agents in this project are told to
+   use the session scratchpad instead of `/tmp`. Naming a scratchpad path, or noting that QA may
+   substitute one, would remove the friction. Purely cosmetic — no assertion depends on the
+   location.
+
+3. **ER8's "materially below … is a finding" is the one soft clause in ten ERs.** The threshold
+   comparison is fully mechanical, but "a value materially below `97.38 | 85.43 | 99.41 | 97.95` is
+   a finding even when it clears the threshold" asks QA for a judgement call. Quantifying it
+   (e.g. "more than one percentage point below any of the four") would make the whole ER set
+   judgement-free.
+
+4. **Two specs are in flight against the same baseline.** `docs/tasks/RH-40-spec.md` is untracked in
+   the working tree alongside RH-60's. ER10 anchors its whitelist on `git diff --name-only 55656fe`,
+   so if RH-40 commits before RH-60 reaches QA, a *correct* RH-60 implementation would show RH-40's
+   files in that diff and fail ER10. Not a defect in the spec — every spec in this project anchors
+   this way, and RH-60 is CRITICAL so it should land first — but the orchestrator should keep the
+   ordering in mind, or re-anchor ER10 on the then-current `master` if RH-40 lands first.
+
+5. **The generator's own suggestions 1-5** (in `.meridian/reports/RH-60-spec-1.md`) are all sound
+   and I endorse them, in particular the `@vitest/coverage-v8` exact-peer guard test: the failure
+   mode "`npm audit fix` moves `vitest`, leaves the reporter behind, `npm ls` goes `invalid` while
+   `npm audit` stays green" is structural and will recur on the next vitest advisory. A one-assert
+   test in the spirit of `serverExternalPackages.test.ts` would catch it. Follow-up task, not RH-60.
+
+
+## [RH-60] Corrigir as 5 vulnerabilidades novas do npm audit — 2026-09-09 (code review 1)
+
+
+1. **The lockfile root `version` field was stale at the baseline and is now resynced — worth knowing,
+   not worth acting on.** `package-lock.json`'s `packages[""].version` read `0.1.67-202609052124` at
+   `55656fe` while `package.json` already said `0.1.87-202609081036`; the `npm install` in this task
+   pulled it forward to `0.1.88-202609090956`, matching `package.json`. This is a *benign side effect
+   and strictly an improvement* — the lockfile is now internally consistent, where before it was 20
+   version bumps behind. It also explains one of the two root-entry lines in the lockfile diff. The
+   underlying cause is that the AGENTS.md Version Bumping Rule bumps `package.json` by hand without
+   an `npm install`, so the lockfile root drifts until some unrelated task happens to reinstall.
+   Nothing to fix here; a future task could consider whether the bump step should touch the lockfile
+   root too, purely to keep the two from diverging again.
+
+2. **`eslint-config-next` remains at `16.0.1` against `next@16.3.4`.** The spec's reasoning for
+   leaving it alone is correct and I verified it holds: `eslint-config-next` declares no peer
+   dependency on `next` (its peers are `eslint` and `typescript`), and `@next/eslint-plugin-next` did
+   **not** move in the lockfile, so the lint baseline is provably untouched. Bumping it here would
+   have moved the lint baseline for zero security benefit. Flagging only so the drift is a conscious,
+   recorded decision rather than an oversight — it is now three minors behind and eventually deserves
+   its own task.
+
+3. **Pre-existing noise, correctly left alone.** The `configLoader: 'native'` / "ESM syntax in a file
+   loaded as CommonJS (vitest.config.ts:1:1)" warning still prints on every vitest run. It predates
+   this task and is explicitly out of scope; no action taken or wanted.
+
+
+## [RH-60] Corrigir as 5 vulnerabilidades novas do npm audit — 2026-09-09 (QA 1)
+
+
+None. Every expected result was met on first execution, including the two that carry a
+tolerated-failure escape clause (ER7/ER8) — the RH-59 `complexityBudget` flake did not
+reproduce, so both passed outright without invoking the exception.

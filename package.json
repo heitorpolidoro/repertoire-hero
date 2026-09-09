@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.87-202609081036",
+  "version": "0.1.88-202609090956",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -29,7 +29,7 @@
     "bcryptjs": "^3.0.3",
     "better-auth": "^1.6.22",
     "kysely": "^0.28.17",
-    "next": "16.3.0",
+    "next": "16.3.4",
     "pg": "^8.21.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
