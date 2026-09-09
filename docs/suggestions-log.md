@@ -5001,3 +5001,127 @@ None.
   behind the not-found.
 - Nothing in the refactor itself invites a change; the surface test that pins
   the 19 keys is a good guard against the setters creeping back.
+
+## [RH-65] Server Components parte 5/5: tornar src/proxy.ts uma conveniencia de redirect estreita e documentada (spec review r1) — 2026-09-09
+
+1. **`## Approach`, "What changes for a visitor, exactly", first bullet is
+   factually wrong.** It says a stale-cookie visitor on a gated private route
+   sees "The page's own `authClient.useSession()` resolves to no user and it
+   renders its signed-out state." `grep -rn useSession` shows that none of
+   `/profile`, `/settings`, `/songs/search`, `/songs/[id]/fast-view` or
+   `/bands/[id]` calls `useSession` at all, and neither `src/app/AppShell.tsx`
+   nor `src/components/layout/AppLayout.tsx` redirects on a missing session —
+   they merely skip loading data. Measured, the visitor gets HTTP 200 and an
+   empty app shell with no bounce. The **conclusion** (no exposure) is still
+   correct, for a different reason: those pages are either statically
+   prerendered or fed exclusively by fail-closed Server Actions. Rewriting the
+   bullet to say that would make the spec's security argument true as written.
+2. **The header comment's "every route handler under `src/app/api/` answers its
+   own 401" overstates.** `/api/spotify/playlists` answers `200
+   {"connected":false}`, `/api/dev/profiles` answers `404`, and
+   `/api/auth/spotify/authorize` answers no 401 at all. Since this comment is
+   the durable statement of where authorization lives, consider "every route
+   handler under `src/app/api/` resolves its own session and answers for
+   itself" instead. No ER greps the sentence, so this is prose quality only.
+3. **Test 12's name carries the same overstatement** — `passes a present but
+   unvalidated session cookie through to the page, which owns the authorization
+   decision`. For `/profile` the decision is owned by the Server Actions, not
+   the page. Consider `…, which no longer receives a redirect` or similar.
+   Changing it means changing ER4's literal list too.
+4. **`/api/auth/spotify/authorize` has no session check** and hands an
+   `spotify_oauth_state` cookie plus a Spotify consent redirect to any
+   anonymous caller. This is true at `6aa099c` and unchanged by RH-65 (it sits
+   under `skipSession`), so it is correctly out of scope — but it is exactly
+   the kind of thing F10's "no route may rely on the proxy" is about. Worth a
+   `docs/suggestions-log.md` entry alongside the HMAC follow-up the spec
+   already plans.
+5. **`## Audit` coverage numbers are slightly off.** The spec records
+   statements `97.58` and functions `99.73`; a fresh `npm run test:coverage` at
+   `6aa099c` prints `97.53` and `99.47`. No ER depends on them (ER10 pins only
+   the thresholds and the per-file one-liner, which reproduces exactly), so
+   this is cosmetic.
+6. **Citation off by two.** `## Audit` cites `proxy.md:253` for "Proxy defaults
+   to using the Node.js runtime"; it is line 255. The `proxy.md:249-251` quote
+   about Server Functions is correct.
+7. **Minor internal tension.** `## Approach` says "the implementer records it
+   in `docs/suggestions-log.md`", while `## Whitelist` lists that file as
+   "permitted but not required" and no ER checks it. Harmless, but picking one
+   would remove the wobble.
+
+## [RH-65] Server Components parte 5/5: tornar src/proxy.ts uma conveniencia de redirect estreita e documentada (follow-up candidates, dev) — 2026-09-09
+
+- **A session cookie whose HMAC does not verify bounces its owner off the auth
+  pages until it expires.** `src/proxy.ts` now checks cookie *presence* only, by
+  design and by declaration. Better Auth clears a cookie whose signature
+  verifies but whose session row is gone (`GET /api/auth/get-session` answers
+  `null` plus a `Max-Age=0` `Set-Cookie`), and `/` and `/api/auth/(.*)` are
+  deliberately outside the matcher so that recovery stays reachable. The
+  residual case is a cookie that was hand-crafted or issued under a rotated
+  `BETTER_AUTH_SECRET`: nothing clears it, so `/login` keeps redirecting to `/`.
+  Two candidate fixes, neither in RH-65's scope: verify the cookie's HMAC in the
+  proxy (`getSessionCookie` has no such mode, so this means importing
+  `@better-auth/utils`' signer and re-introducing a small amount of crypto work
+  per matched request), or add a `/login?signout=1` escape hatch that skips the
+  signed-in redirect and clears the token client-side.
+- **`/api/auth/spotify/authorize` has no session check of its own.** Raised in
+  the RH-65 spec review (r1, item 4) and true at `6aa099c`: the handler hands an
+  `spotify_oauth_state` cookie plus a Spotify consent redirect to any anonymous
+  caller. It sat under the old proxy's `skipSession` prefix list, so RH-65
+  neither improves nor regresses it — but it is exactly the class of thing F10's
+  "no route may rely on the proxy" is about, and it is the last `/api/` handler
+  that answers a stranger without resolving a session. Worth its own task
+  alongside the two `authorize`/`callback`/`disconnect` siblings.
+
+## [RH-65] Server Components parte 5/5: tornar src/proxy.ts uma conveniencia de redirect estreita e documentada (code review r1) — 2026-09-09
+
+1. **`src/proxy.ts:16-17` and `AGENTS.md:48` — "every route handler under
+   src/app/api/ resolves its own session and answers for itself" is still not
+   literally true of two handlers.** `/api/auth/spotify/authorize` resolves no
+   session at all (it hands a CSRF cookie and a consent redirect to any
+   anonymous caller), and `/api/dev/profiles` gates on `NODE_ENV`, not on a
+   session. Both are correctly out of scope and both are logged as follow-ups,
+   but the sentence sits in the file whose entire purpose is a durable, precise
+   statement of where authorization lives — and `docs/suggestions-log.md` now
+   contains a bullet that directly contradicts it ("the last `/api/` handler
+   that answers a stranger without resolving a session"). A four-word
+   parenthetical — "…answers for itself (the two exceptions,
+   `/api/auth/spotify/authorize` and `/api/dev/profiles`, are tracked in
+   `docs/suggestions-log.md`)" — would close the gap without touching any ER.
+
+2. **`src/lib/__tests__/proxy.test.ts:20` — the matcher guard compiles entries
+   as plain JS regex, which is a close approximation of Next's path-to-regexp,
+   not the thing itself.** It agrees perfectly for all twelve current entries (I
+   verified against `getMiddlewareMatchers`), so nothing is wrong today. But a
+   future entry written in the named-parameter dialect the same docs endorse —
+   `/bands/:path*` — would sail through `new RegExp('^/bands/:path*$')` as a
+   *literal-colon* pattern matching nothing, and the suite would still be green
+   while the redirect silently stopped firing. Compiling through
+   `next/dist/build/analysis/get-page-static-info`'s `getMiddlewareMatchers`
+   instead would make the guard exact. Out of scope here (ER5 pins the current
+   idiom via the untouched `pdfWorkerAsset.test.ts`), but worth a follow-up.
+
+3. **`src/app/api/spotify/search/route.ts:71` — the bare `catch` turns a
+   `getSession()` infrastructure failure into a `401`, not a `500`.** This is
+   fail-closed, it is byte-for-byte the pattern
+   `/api/auth/spotify/disconnect:14` and `/api/auth/spotify/callback:113`
+   already use, and the old proxy behaved the same way (a failed session lookup
+   became a `307` to `/login`), so there is no regression and consistency argues
+   for leaving it. Noted only so the choice is on the record.
+
+4. **Message-string drift across the 401 envelopes** — `'Not authenticated'`
+   (search), `'Unauthorized'` (disconnect), `'User is not authenticated'`
+   (callback). The R1-mandated shape `{ error, code }` is consistent; only the
+   fixed message varies. Pre-existing, not introduced by this change, and a
+   one-line constant in `@/lib/auth-session` would settle it whenever someone is
+   next in those files.
+
+## [RH-65] Server Components parte 5/5: tornar src/proxy.ts uma conveniencia de redirect estreita e documentada (QA r1) — 2026-09-09
+
+- ER6's fifteen-route table and ER7's `/nope` 404 are only asserted by curl in this report; the
+  vitest matcher tests cover the same routing decisions in-process, but there is no committed
+  regression test that a *new* private page route added under `src/app/` is either present in the
+  matcher or self-guarding. `src/proxy.ts` warns about this in prose ("A new private page route does
+  not inherit the redirect - add it here"); a test enumerating page directories and asserting each
+  either matches the matcher or calls `redirect('/login')` would make the warning enforceable.
+- `npm run test:coverage` reports `Functions 376/377`; the single uncovered function is outside this
+  task's scope, but pinning it would let the functions threshold be raised from 78.

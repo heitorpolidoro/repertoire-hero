@@ -1,45 +1,47 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { getSessionCookie } from 'better-auth/cookies'
 
-const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/reset-password', '/api/auth/', '/api/dev/', '/join/']
+/**
+ * NOT AN AUTHORIZATION BOUNDARY (RH-65, code-quality review F10).
+ *
+ * This file is a redirect convenience and nothing else. It answers one
+ * question, from the request headers alone: does this request carry a Better
+ * Auth session cookie? It never validates that cookie, never asks the
+ * database, and never talks to the app over HTTP.
+ *
+ * A present cookie therefore proves nothing: it may be expired, revoked or
+ * signed by a different secret. A page, a Server Action or a route handler
+ * that skips its own session check because "the proxy already redirects" is a
+ * bug. Every Server Action resolves its own session
+ * (src/app/actions/__tests__/actionSessionGuard.test.ts), every route handler
+ * under src/app/api/ resolves its own session and answers for itself, and the
+ * three Server Component pages call redirect("/login") themselves. That is
+ * where authorization lives.
+ *
+ * What this file buys is that a signed-out visitor who types /profile gets an
+ * immediate 307 instead of a client-rendered page that would sit on a spinner.
+ * The matcher below is an allow-list of exactly the routes that need that.
+ * A new private page route does not inherit the redirect - add it here.
+ */
 
-export async function proxy(request: NextRequest) {
+const AUTH_PAGES = ['/login', '/signup', '/forgot-password', '/reset-password']
+
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isPublicPath = pathname === '/' || PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  const isAuthPage = AUTH_PAGES.includes(pathname)
+  const hasSessionCookie = getSessionCookie(request) !== null
 
-  // Better Auth uses pg (Node.js only) — call the session endpoint via fetch
-  // rather than importing auth directly (which would pull pg into Edge Runtime).
-  // Skip the session check for API/static public paths — only /login and /signup
-  // need the session (to redirect already-authenticated users away from them).
-  const skipSession = ['/api/auth/', '/api/dev/', '/join/'].some((p) => pathname.startsWith(p))
-  let user: { id: string } | null = null
-  if (!skipSession) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 3000)
-      const sessionRes = await fetch(
-        new URL('/api/auth/get-session', request.url),
-        { headers: { cookie: request.headers.get('cookie') ?? '' }, signal: controller.signal }
-      )
-      clearTimeout(timeout)
-      if (sessionRes.ok) {
-        const data = (await sessionRes.json()) as { user?: { id: string } } | null
-        user = data?.user ?? null
-      }
-    } catch {
-      // Session check failed or timed out — treat as unauthenticated
-    }
-  }
-
-  // Unauthenticated users must go to /login (skip public paths to avoid loops).
-  if (!user && !isPublicPath) {
+  // No cookie on a gated route: send them to /login, remembering where they
+  // were headed. `clone()` keeps the original query string, as before.
+  if (!hasSessionCookie && !isAuthPage) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     loginUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(loginUrl)
   }
 
-  // Authenticated users who land on public auth paths are sent to the root.
-  if (user && ['/login', '/signup', '/forgot-password', '/reset-password'].includes(pathname)) {
+  // A cookie on an auth page: they are (probably) already signed in.
+  if (hasSessionCookie && isAuthPage) {
     const homeUrl = request.nextUrl.clone()
     homeUrl.pathname = '/'
     return NextResponse.redirect(homeUrl)
@@ -50,6 +52,23 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|pdf\\.worker\\.min\\.mjs|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Auth pages: a visitor who already carries a session cookie is sent home.
+    '/login',
+    '/signup',
+    '/forgot-password',
+    '/reset-password',
+    // Client-rendered private routes: nothing on the server turns a signed-out
+    // visitor away, so without this they would sit on a spinner.
+    '/profile',
+    '/settings',
+    '/bands/(.*)',
+    '/playlists/(.*)',
+    '/songs/(.*)',
+    // Server Component routes that redirect themselves. They stay here because
+    // src/app/loading.tsx makes their own redirect() a streamed meta refresh
+    // (HTTP 200 behind a spinner) rather than a 307 - see the audit above.
+    '/admin/(.*)',
+    '/bands',
+    '/playlists',
   ],
 }

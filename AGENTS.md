@@ -29,7 +29,7 @@ Browser (React 19)
    ├─ Server Actions             (src/app/actions/*.ts)   ← primary read/write path for UI
    ├─ Route Handlers / API       (src/app/api/**/route.ts) ← auth, Spotify OAuth/proxy, dev tools
    │
-   ├─ src/proxy.ts  (Next.js middleware — session gate on every request)
+   ├─ src/proxy.ts  (Next.js Proxy — redirects an allow-list of routes; not an authorization boundary)
    │
    ▼
 src/lib/*  (data-access + domain logic, talks to Postgres via `pg`/Pool in src/lib/db.ts)
@@ -45,7 +45,8 @@ Key architectural decisions:
 - **Auth**: [Better Auth](https://better-auth.com) (`src/lib/auth.ts`), backed directly by the same Postgres pool as the app data (not a separate auth service). A `databaseHook` auto-creates an app-level `profiles` row whenever a Better Auth `user` is created.
 - **Data access**: no ORM — hand-written parameterized SQL via `pg`, wrapped in domain modules under `src/lib/*.ts` (`songs.ts`, `bands.ts`, `playlists.ts`, `profile.ts`). `kysely` is a dependency but the primary query path shown in the codebase uses raw `pg` queries directly.
 - **Mutations**: implemented as Next.js **Server Actions** (`'use server'` files in `src/app/actions/`) rather than a REST/GraphQL API — this is the primary way the UI writes data.
-- **Session gating**: `src/proxy.ts` (Next.js middleware) calls the Better Auth session endpoint via `fetch` (rather than importing `auth` directly) specifically to avoid pulling the `pg` driver into a non-Node runtime, and redirects unauthenticated users to `/login`.
+- **Redirect convenience, not an authorization boundary (RH-65)**: `src/proxy.ts` (the Next.js Proxy, which is what Next.js 16 renamed Middleware to) checks only whether the request carries a Better Auth session cookie, reading it straight from the request headers with `getSessionCookie` from `better-auth/cookies` — never through a `fetch` back into the app, never through the database, with no timeout and no failure mode. It never validates the cookie, so a present cookie proves nothing (it may be expired, revoked or signed under a rotated secret), and it runs on an explicit twelve-entry allow-list of page routes rather than on every request. No page, Server Action or route handler may rely on it: each resolves its own session and answers for itself. A new private page route does not inherit the redirect — add it to the matcher in `src/proxy.ts`.
+- **The Server Component page pattern (RH-62, RH-63)**: `/bands`, `/admin/moderation` and `/playlists` are async Server Components — they read through `src/lib` directly instead of loading in a `useEffect`, call `redirect("/login")` themselves rather than trusting the proxy, and inject their Server Actions into `"use client"` islands under `src/components/<area>/` as a typed actions object, which is the same import-direction rule (F21) Fast View follows. New read-only page routes follow this pattern.
 - **Never externalize a React-exposing package**: `next.config.ts`'s `serverExternalPackages` may contain only Node-only packages (`pg`, `kysely`, the Kysely adapter). Listing a package that ships React hooks — `better-auth` did, via `better-auth/react` — leaves it unbundled, so it loads its own `react` instead of Next's vendored SSR React and every SSR render dies with `Cannot read properties of null (reading 'useRef')` (RH-32). Enforced by `src/lib/__tests__/serverExternalPackages.test.ts`.
 - **Band vs. personal ownership**: most domain tables (`repertoire`, `playlists`) use a mutually-exclusive `user_id` / `band_id` pair rather than a separate join table, enforced by a DB CHECK constraint. A Postgres trigger (`sync_band_repertoire_on_member_update`) keeps a band's aggregate song status in sync as the MIN status across its members whenever a member's personal status changes.
 - **File storage**: PDF tab uploads go to **Vercel Blob** (`@vercel/blob`), not the database or Supabase Storage.
@@ -153,7 +154,9 @@ src/
 │   └── repertoireStore.ts      Client-side repertoire UI state
 ├── types/
 │   └── database.ts             Authoritative domain types (Song, Repertoire, Band, Playlist, …)
-└── proxy.ts                    Next.js middleware — session-gates all non-public routes
+└── proxy.ts                    Next.js Proxy — redirects a twelve-entry allow-list of page routes
+                                 to /login (and signed-in visitors away from the auth pages); it is
+                                 a convenience, not an authorization boundary
 
 migrations/                     Hand-written SQL migrations — the SINGLE source of truth for the schema.
                                  Applied by scripts/migrate.mjs (`npm run db:migrate`, and automatically on

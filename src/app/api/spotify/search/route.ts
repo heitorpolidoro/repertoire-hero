@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
 
 export interface SpotifyTrack {
@@ -64,6 +65,13 @@ async function getAccessToken(): Promise<string> {
 // GET /api/spotify/search?q=<query>
 // ---------------------------------------------------------------------------
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // This handler owns its authorization: src/proxy.ts is not a boundary (RH-65).
+  try {
+    await getRequiredUserId()
+  } catch {
+    return NextResponse.json({ error: 'Not authenticated', code: 401 }, { status: 401 })
+  }
+
   // Graceful degradation — if Spotify is not configured, return an empty list
   if (!process.env.SPOTIFY_CLIENT_ID) {
     return NextResponse.json([])
