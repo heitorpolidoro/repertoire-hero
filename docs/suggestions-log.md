@@ -4635,3 +4635,212 @@ None.
   a separate task to either set a build-time placeholder secret or downgrade the
   message.
 
+
+## [RH-63] Convert /playlists to a Server Component with client islands (spec review r1) — 2026-09-09
+
+- ER5 allows `npm run lint:dup` to drift to `21` clones / `0.80 %` from today's
+  `19` / `0.70 %`. Nothing in the Approach predicts new duplication — the page
+  shrinks and its two helpers move into `src/lib/playlistList.ts` — so the slack
+  is unexplained. Consider tightening it to `19` / `0.70 %`, or say in the
+  Approach which split is expected to create a clone (the likeliest candidate is
+  `formatDuration`, which `src/app/playlists/[id]/page.tsx:38` also carries; that
+  pair exists today and only changes address).
+- Scope says "Behaviour is preserved", but the Approach later removes the
+  `&& spotifyConnected !== null` loading guard from the empty-state condition
+  (page line 807), so an empty account now sees `No playlists yet` at first paint
+  instead of a blank panel. That is an improvement and it is stated where it
+  happens, but the Scope paragraph would read more honestly with a one-clause
+  carve-out naming it, since it is the one visible difference.
+- `docs/plans/code-quality-review.md` F15 gets no `Status:` line until part 5.
+  Worth a note in RH-65's spec so the line is not forgotten; nothing to change
+  here.
+- The AGENTS.md architecture bullet that should eventually name the converted
+  pages as the server-read precedent is already deferred to a suggestion by the
+  spec (Out of Scope, last AGENTS.md bullet). Agreed — but after RH-63 that will
+  be three converted routes (`/bands`, `/admin/moderation`, `/playlists`) with no
+  written rule, which is the point at which a new contributor guesses. Consider
+  making it part 5's explicit deliverable rather than a floating suggestion.
+
+## [RH-63] Convert /playlists to a Server Component with client islands (spec review r2) — 2026-09-09
+
+- ER13's coverage one-liner silently returns `100` for a file with no functions
+  (`a.length ? … : 100`). It cannot bite here — both new lib files have
+  functions — and it matches istanbul's own convention, but if this one-liner
+  becomes the house pattern for later parts of RH-41, a half-sentence in the ER
+  ("a file with no functions reports `100`") would spare the next QA agent the
+  derivation.
+- The same one-liner would break if the repository were ever checked out under a
+  path containing `/src/`, because of `k.split('/src/').pop()`. Not worth
+  changing for this task; worth knowing before it is copied a fourth time.
+- Carried over from round 1, still unaddressed and still non-blocking: ER9's
+  "Checked out at `6e32874` with only this file changed, the first new test
+  fails" asks QA to move git state. It is the RH-62 ER7 precedent verbatim, so I
+  did not block, but a QA agent under a "never touch git state" instruction
+  cannot execute it literally.
+- Carried over from round 1: after RH-63 there will be three server-converted
+  routes (`/bands`, `/admin/moderation`, `/playlists`) and still no AGENTS.md
+  rule naming the pattern. The spec correctly defers it, but making it an
+  explicit deliverable of part 5 (RH-65) rather than a floating suggestion would
+  close it.
+- Carried over from round 1: `docs/plans/code-quality-review.md`'s F15 `Status:`
+  line is owned by part 5; worth naming in RH-65's spec so it is not forgotten.
+
+## [RH-63] Convert /playlists to a Server Component with client islands (code review r1) — 2026-09-09
+
+- **`src/components/playlists/CreatePlaylistModal.tsx:4-7` — the alias.**
+  `import { useBandContextStore as useBandContext } from "@/store/bandContextStore";`
+  is a plain single-line import with a single call site
+  (`useBandContext((s) => s.bandId())` at line 66), so it costs nothing in
+  readability and the original symbol name is still greppable on that line. Not a
+  blocker. But once the test above is written plainly, the alias's only stated
+  justification ("so the store's name appears on exactly one line") disappears,
+  and dropping it would leave the file matching the four other readers of the
+  store in the codebase. Non-blocking either way.
+- **`src/components/playlists/PlaylistGroupList.tsx:8-18` — the fifth prop is
+  justified.** `max-params` (4) counts function parameters, and a destructured
+  props object is one parameter, so the rule does not apply and eslint confirms
+  it (exit 0). `spotifyConnected` is not in the spec's prop table, but the same
+  section of the spec assigns the empty state to this component, and the
+  empty-state copy is exactly what the flag varies
+  (`{spotifyConnected && " or import one from Spotify"}`, line 69) — verbatim
+  from `6e32874`'s page line 816. Moving the empty state up into `PlaylistsView`
+  would trade one prop for a second place that has to know when the list is
+  empty; the component stays cohesive as it is. No change requested.
+- **`src/app/playlists/page.tsx:42,54` — two sequential DB round trips.**
+  `getUserPlaylists(userId)` is awaited inside the `try`, then
+  `hasSpotifyConnection(userId)` is awaited in the JSX prop, so the two queries
+  serialise and both are on the TTFB path. This is exactly the code the spec
+  prints, so it is conformant, but `Promise.all` (with the `catch` kept on the
+  playlist half) would remove one round trip from first paint. Worth considering
+  in RH-64/RH-65 if the pattern repeats.
+- **`src/components/playlists/CreatePlaylistModal.tsx:96-116` — a failed load
+  cannot be retried within one modal open.** `hasLoadedSpotify.current` is set
+  before the request and never reset, which is the spec's "at most once per modal
+  open" and is pinned by a test — but it also means a transient network failure
+  leaves the panel on "Connect your Spotify account …" until the user closes and
+  reopens the modal. Resetting the ref in the `catch` would allow a second click
+  to retry without weakening the "no fetch until the tab is opened" contract.
+- **`src/components/playlists/CreatePlaylistModal.tsx:101-107` — the response
+  cast.** `body as SpotifyPlaylist[]` in the `else` arm is reachable for a body
+  that is neither an array nor `{connected:false}` (e.g. an error envelope), in
+  which case `playlists.map` would run over a non-array. `Array.isArray(body) ? …`
+  as the positive test would narrow without a cast. Low risk — the route only
+  emits those two shapes — and it is a verbatim carry-over of `6e32874`'s
+  `loadSpotifyStatus`, so not blocking.
+- **`src/components/playlists/SpotifyImportPanel.tsx:15-20,75-89` — `connected`
+  conflates two causes.** `connected={!spotifyLoadFailed}` is `false` both when
+  the route answers `{connected:false}` and when the request throws, so a plain
+  network blip renders "Connect your Spotify account in Profile & Settings" to a
+  user who *is* connected. The spec explicitly chose this copy for both cases and
+  documented it in the `catch`; recording it here only so the next reader knows
+  it was a decision, not an oversight.
+- **Report accuracy nit.** The dev report's ER12 block says
+  `grep -c "" src/lib/spotifyConnection.ts -> 30`; it is `31`. The ER only
+  requires `<= 400`, so nothing turns on it.
+
+## What I verified and found correct
+
+- **Architecture / import direction.** The page is the composition root, holds
+  `PLAYLISTS_VIEW_ACTIONS` at module scope and injects it, so nothing under
+  `src/components` points back into `src/app` — verified by grep, not by report.
+  The server page is byte-for-byte the RH-62 shape: `getSession()` →
+  `session?.user?.id` → `redirect("/login")` (which narrows to `string`), a
+  `try` around the domain read that degrades to `initialError` with the "already
+  logged at L1" comment, and no `export const dynamic`. Compare
+  `src/app/bands/page.tsx:24-41`; the two are structurally identical.
+- **Data-access-in-`src/lib`.** The only new query lives in
+  `src/lib/spotifyConnection.ts:21-24`, parameterized (`$1`), never string
+  interpolated. `src/app/actions/playlists.ts`, `src/lib/playlists.ts` and
+  `src/app/api/**` are byte-identical to `6e32874`.
+- **Database Row Types.** `query<{ one: number }>('SELECT 1 AS one …')` names its
+  row shape as a type argument, never as a cast on `res.rows`, and is the
+  single-column inline projection the AGENTS.md rule explicitly permits — no
+  speculative entry added to `src/lib/dbRows.ts` (which knip would have flagged).
+- **Security.** No secret crosses the RSC boundary: the page passes
+  `playlists`, a `string | null` error, a `boolean` and the action object. No
+  token value, no refresh token, no Spotify client id. `hasSpotifyConnection`
+  deliberately avoids `getSpotifyAccessToken`, so the server render never
+  performs the outbound token refresh; the fourth test in
+  `spotifyConnection.test.ts` pins that with a `fetch` spy. The deliberate
+  degrade-to-`false` is documented at the definition and follows the `catch
+  (error)` + `logger.error` house style, so `errorHandlingStyle.test.ts` stays
+  green (it does — full targeted run above).
+- **Lazy Spotify fetch.** `loadSpotifyPlaylists` is called only from
+  `handleOpenSpotifyTab` (`CreatePlaylistModal.tsx:118-121`), which is the tab
+  button's `onClick`; there is no `useEffect` that sets data state anywhere in
+  the islands (the three effects in the modal are focus/Escape, moved verbatim,
+  and the one in `PlaylistCard` is the rename focus). `PlaylistsView` has zero
+  `useEffect`. Loading and not-connected states both render. Repeated tab clicks
+  issue exactly one request — asserted by
+  `requests the Spotify playlist list once when the From Spotify tab is opened`.
+  `src/app/api/spotify/playlists/route.ts` is untouched.
+- **KISS/YAGNI/DRY.** No speculative abstraction: the overlay is two plain state
+  fields and one pure function; `PlaylistCardList` was extracted to remove the
+  duplicated `<ul>`+`map` (and jscpd confirms the repo net-improved to 18 clones
+  / 0.65 %). `PlaylistCard`, `PlaylistNameEditor` and `SpotifyImportListItem`
+  diff clean against their `6e32874` originals apart from the duration
+  derivation, which now calls `@/lib/playlistList`.
+- **Overlay correctness.** `applyPlaylistOverlay` keeps the props as the source
+  of truth — no `useState(initialPlaylists)` freeze — and the "never cleared"
+  property is genuinely a no-op after a refresh (removed ids are absent, renamed
+  rows already carry the name). The failure paths roll the overlay entry back and
+  set the banner, matching `6e32874`'s behaviour.
+- **Unit-test quality.** `playlistList.test.ts` covers grouping order
+  (personal-first, bands alphabetical by name, multiple playlists per band),
+  the missing-`band.name` fallback to the id, the empty list, both overlay
+  operations plus immutability of the input (`expect(original[0].name).toBe('Old
+  name')`, `expect(result[1]).toBe(original[1])`), and the duration boundaries
+  `0`, `3599`, `3600`, plus `null`/absent song entries. `spotifyConnection.test.ts`
+  asserts the SQL target and the parameter array, the no-row case, the throw case
+  (message, `instanceof Error`, `{ userId }` context) and the no-fetch invariant.
+  `PlaylistsView.test.tsx` asserts through the injected actions and the rendered
+  DOM, including a negative (`refresh` not called on failure, card still there).
+  Assertions are behavioural, not snapshot-shaped.
+- **Ratchet.** `eslint.config.mjs` loses exactly the
+  `src/app/playlists/page.tsx` entry (`src/app/playlists/\[id\]/page.tsx`
+  survives); `grep -c "complexity-budget/override" eslint.config.mjs` is `21`;
+  `MAX_OVERRIDES = 21` and the test title follows; `AGENTS.md` is a one-insertion
+  one-deletion change of `22` → `21` in the F20 bullet, with the
+  `nextjs-agent-rules` block untouched; `complexityBudget.test.ts` passes (part
+  of the 37).
+- **Page shape.** 58 lines, no `"use client"`, no React hooks, no
+  `getUserPlaylistsAction`, no `api/spotify/playlists`, no `cookies()`, no
+  `searchParams`, no `useBandContextStore`.
+
+## [RH-63] Convert /playlists to a Server Component with client islands (code review r2) — 2026-09-09
+
+- **`docs/suggestions-log.md` — the round-1 report was copied in wholesale,
+  including its "What I verified and found correct" section.** The staged diff
+  adds 122 lines under three headings (`spec review r1`, `spec review r2`,
+  `code review r1`), and the `code review r1` block carries not only the seven
+  suggestions — which is what a suggestions log is for — but also the eleven
+  "What I verified and found correct" bullets, which are review *evidence* for a
+  change that is now merged, not future work. Nothing is wrong or inaccurate;
+  it just means the next person triaging the log has to skip past a block that
+  has no action in it. Trimming the verification section on the next triage pass
+  would keep the log scannable. Docs only, non-blocking.
+- The five round-1 suggestions that touch code — the sequential DB round trips
+  at `src/app/playlists/page.tsx:42,54`, the non-retryable
+  `hasLoadedSpotify.current` at `CreatePlaylistModal.tsx:96-116`, the
+  `body as SpotifyPlaylist[]` cast at `CreatePlaylistModal.tsx:101-107`, the
+  `connected={!spotifyLoadFailed}` conflation in `SpotifyImportPanel.tsx`, and
+  the `PlaylistGroupList` prop count — were all logged and remain
+  non-blocking. I am not re-raising them; they are recorded in
+  `docs/suggestions-log.md` for RH-64/RH-65 triage, which is the right place for
+  them.
+
+## [RH-63] Convert /playlists to a Server Component with client islands (QA r1) — 2026-09-09
+
+- `src/lib/__tests__/transactionAtomicity.db.test.ts > rejects two concurrent inserts that would take the
+  same position` failed once in three full-suite runs (`expected null to be an instance of Error`) and
+  passed in isolation and on both re-runs. The file is untouched by this task, so it is out of scope
+  here, but it is a real intermittent failure that will surface in CI: the test appears to assume the
+  two concurrent inserts always collide, which is not guaranteed under parallel worker load. Worth a
+  separate task to make the collision deterministic.
+- `src/components/playlists/__tests__/CreatePlaylistModal.test.tsx` spells its cleanup as
+  `afterEach(() => { cleanup(); vi.unstubAllGlobals() })` rather than the literal `afterEach(cleanup)`
+  the ER names, while `PlaylistsView.test.tsx` uses the literal form. Behaviour is equivalent; only
+  noting the inconsistency in spelling between the two sibling suites.
+- The `next build` log emits eleven `BetterAuthError: You are using the default secret` lines during
+  page-data collection. Pre-existing and unrelated to this change, but it makes real build errors harder
+  to spot in CI logs.
