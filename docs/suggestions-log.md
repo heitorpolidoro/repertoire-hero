@@ -4496,3 +4496,142 @@ both tamper directions.
 
 None.
 
+
+## [RH-62] Server Components parte 2/5: converter /bands e /admin/moderation — 2026-09-09 (spec review 1)
+
+
+- **ER12's self-contradicting pathspec.** "`git diff 57bc60a -- src/app/actions
+  src/lib src/proxy.ts src/hooks src/store AGENTS.md next.config.ts` prints nothing,
+  except that `src/lib/__tests__/complexityBudget.test.ts` may differ (ER11)" names a
+  command whose stated outcome a correct implementation must violate, rescued only by
+  the trailing clause. It is decidable as written (which is why it is not blocking),
+  but a literal-minded QA runner is one reading away from failing a correct branch.
+  Make it consistent with a pathspec exclusion:
+  `git diff 57bc60a -- src/app/actions src/lib src/proxy.ts src/hooks src/store
+  next.config.ts ':(exclude)src/lib/__tests__/complexityBudget.test.ts'` prints
+  nothing. (If blocking finding 1 is taken, `AGENTS.md` leaves this list anyway.)
+- **ER7's red-before claim reads like a QA step.** "Checked out at `57bc60a` with only
+  this file added, both tests fail, because both placeholder strings are present in the
+  prerendered documents there" is true (I confirmed both strings are in
+  `.next/server/app/bands.html` and `.next/server/app/admin/moderation.html` at
+  baseline), but verifying it requires a checkout of the parent commit — a git-state
+  mutation QA is not allowed to perform. Phrase it as background, the way ER1 does
+  ("it printed `227` at `57bc60a`"), e.g. "for the record, both placeholder strings are
+  present in the `57bc60a` prerendered documents, so these assertions are red before
+  the change".
+- **The Approach authorises a file the whitelist forbids.** "The implementer must
+  confirm with eslint rather than trust these estimates, and **split further if any
+  file reports**" — a further split would add a path outside ER12's closed set and fail
+  ER12. Say explicitly that any further decomposition happens *inside* the four named
+  component files (extract a local function, not a new module), or that a new path
+  requires a spec revision.
+- **ER11 does not actually forbid a new override.** It pins the override-line count at
+  `22` and the moderation entry at `0`, so an implementer who deleted the moderation
+  override and added one for, say, `src/components/admin/PendingEditCard.tsx` would
+  still pass — even though AGENTS.md says "never add an entry for new code". Consider
+  asserting the override list's *content*, e.g. `grep -c "src/components/admin\|src/components/bands/BandsView"
+  eslint.config.mjs` prints `0`.
+- **`lint:dup` is tighter than the tool's own gate, and this task adds two structurally
+  similar jsdom suites.** `.jscpd.json` sets `threshold: 2`, while ER11 demands "at
+  most `19` clones and at most `0.71 %`". The two new test files share a preamble
+  (`// @vitest-environment jsdom`, `afterEach(cleanup)`, the same
+  `vi.mock('next/navigation', …)` block) that is plausibly ≥ 8 lines / 50 tokens of
+  near-identical text. The wording matches RH-59/RH-60/RH-61 precedent so I did not
+  block on it, but the implementer should be told to vary or factor that preamble if
+  jscpd reports a 20th clone.
+- **One audit inaccuracy, load-bearing claim unaffected.** "Actions and revalidation"
+  says `grep -rn "revalidatePath" src/` "returns hits only in
+  `src/app/actions/repertoire.ts` (8 calls) and its test". It actually also hits
+  `src/app/actions/tabs.ts` and four more test files
+  (`actionDataAccessGuard`, `actionSessionGuard`, `authzRepertoire.db`, `authzTabs.db`,
+  `tabs.test.ts`). The claim that matters — that `bands.ts` and `moderation.ts` call
+  no `revalidatePath` — is correct, and no ER depends on the wrong sentence.
+- **Nothing asserts the moderation success message.** Scope promises "same success
+  message", and ER10 covers approve/reject/removal but no test names the success
+  banner. A ninth test (or folding the assertion into test 3) would close the gap;
+  as it stands the promise is unverified rather than contradicted.
+- **No ER pins that `/bands` renders real server data.** ER7's first test only asserts
+  the *absence* of `Loading bands...`. An assertion that the signed-in document
+  contains a band name (or the empty-state copy) would distinguish "server-rendered
+  list" from "island that renders nothing". ER9 test 1 covers it at the unit level, so
+  this is a nicety, not a hole.
+
+
+## [RH-62] Server Components parte 2/5: converter /bands e /admin/moderation — 2026-09-09 (spec review 2)
+
+
+- ER3 opens with "The five island files exist" but the `test -f` chain that
+  follows names four (`BandsView.tsx`, `ModerationQueue.tsx`,
+  `PendingEditCard.tsx`, `PendingEditDiff.tsx`). The prose miscounts; the
+  command is unambiguous and is what QA runs, so this is cosmetic. Reading
+  "five" as "four components plus something" could briefly mislead an
+  implementer into looking for a fifth component. Suggest "four".
+- The Approach's complexity estimates for the split moderation files
+  (card 8, diff 9, queue 5) are explicitly flagged as estimates the implementer
+  must confirm with eslint. That is the right instruction, but no expected
+  result pins the per-file numbers — ER11 only requires the six files lint
+  clean. That is adequate (clean under the base budget is the actual
+  requirement) and no tightening is needed; noting it only so QA does not expect
+  the arithmetic to be checkable.
+- The `next build` regeneration of the `nextjs-agent-rules` block is handled by
+  "revert it before the commit". A follow-up task could make that automatic
+  rather than a manual step an implementer has to remember; out of scope here,
+  and ER11's numstat check does catch a forgotten revert.
+
+## [RH-62] Server Components parte 2/5: converter /bands e /admin/moderation — 2026-09-09 (code review 1)
+
+
+- **S1 — raw wrapped error text now reaches the browser in production**
+  (`src/app/admin/moderation/page.tsx:62-63`, `src/app/bands/page.tsx:36-37`).
+  The catch passes `err.message` — e.g.
+  `Failed to fetch pending global song edits: connect ECONNREFUSED 127.0.0.1:54322` —
+  into the island as `initialError`, and it is rendered into the server HTML. Before
+  this change the same message travelled through a Server Action rejection, which
+  Next.js **redacts in production** (generic message + digest), so in production the
+  underlying `pg` text was never visible; now it is. Only an authenticated user can
+  reach it and it carries no credentials, so this is not blocking, and it is what the
+  spec specified. But `AGENTS.md`'s R1 rule ("never the raw exception text") exists for
+  the analogous case in route handlers. Consider mapping non-`Access denied` failures
+  to a fixed user-facing string on the server page and leaving the detail to the
+  `logger.error` the lib layer already emits.
+- **S2 — record the new server-page error convention in AGENTS.md.** The Error Handling
+  Conventions list has L1/L1a, A1, A2, R1, P1, S1 but no entry for "async page in
+  `src/app` that reads `src/lib` directly": `getSession()` + `redirect`, catch, narrow,
+  classify, hand the message to an island, do not double-log. Two pages now follow it
+  and RH-63/64 will add more. The spec deliberately deferred the AGENTS.md architecture
+  bullet to keep the numstat at 1/1; this is the natural place to land it in a later
+  part.
+- **S3 — `router.refresh()` in `ModerationQueue` is currently invisible**
+  (`ModerationQueue.tsx:51`, `:74`). Because `edits` is seeded from `initialEdits` by a
+  `useState` initialiser, the refreshed RSC payload changes nothing on screen; the call
+  only re-seeds a later mount. That is the documented intent, but it means every
+  approve/reject pays for an extra RSC round-trip whose result is discarded. If a later
+  part wants the queue to actually converge on the server state, the shape to move to
+  is dropping the local `edits` state and letting the prop drive the list (with
+  `useTransition` for the pending flag), not adding an effect.
+- **S4 — `getPendingGlobalSongEditsAction` is now production-dead**
+  (`src/app/actions/moderation.ts:19`). Its only remaining references are the three
+  action guard suites. knip does not flag it (test imports count), and touching
+  `src/app/actions/*` is explicitly out of scope here, but it is a deletion candidate
+  once part 5 lands. `getBandsAction` is still live via `src/app/AppShell.tsx:29`.
+- **S5 — the `/bands` e2e assertion is absence-only**
+  (`e2e/server-pages.spec.ts:28-29`). It proves the placeholder is gone but would also
+  pass against a page that server-rendered an empty shell. One positive assertion on
+  server-rendered content — e.g. `expect(body).toContain('>Bands<')` for the `<h1>` —
+  would make it a real SSR assertion at no extra cost and stay red at `57bc60a` anyway.
+- **S6 — redundant `key`** at `src/components/bands/BandsView.tsx:64`: the `<li>` inside
+  `BandListItem` carries `key={band.id}` while the mapped `<BandListItem>` at `:235`
+  carries the effective one. Inherited verbatim from the deleted page, harmless, and
+  removable in any later touch of the file.
+
+## [RH-62] Server Components parte 2/5: converter /bands e /admin/moderation — 2026-09-09 (QA 1)
+
+
+- `next build` emits ten-plus `BetterAuthError: You are using the default
+  secret.` lines during page-data collection whenever the build runs without
+  `BETTER_AUTH_SECRET` exported. This is pre-existing and outside RH-62's scope
+  (it reproduces from the baseline build path, and no ER covers it), but it makes
+  a clean build log noisy enough that a real error could be missed in CI. Worth
+  a separate task to either set a build-time placeholder secret or downgrade the
+  message.
+

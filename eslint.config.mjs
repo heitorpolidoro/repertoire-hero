@@ -66,7 +66,6 @@ const eslintConfig = defineConfig([
   // the escaped brackets: in a glob, `[id]` is a character class, so an
   // unescaped Next.js dynamic segment silently matches nothing.
   // BEGIN:complexity-budget-overrides
-  { name: "complexity-budget/override", files: ["src/app/admin/moderation/page.tsx"], rules: { complexity: ["error", 16], "max-lines-per-function": ["error", 295] } },
   { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/import/route.ts"], rules: { complexity: ["error", 21] } },
   { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 26], "max-depth": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/app/bands/\\[id\\]/page.tsx"], rules: { complexity: ["error", 30], "max-lines-per-function": ["error", 490], "max-lines": ["error", 508] } },
