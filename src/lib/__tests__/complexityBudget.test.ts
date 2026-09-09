@@ -18,7 +18,7 @@
  *      which is what forces the list to shrink as files get fixed, and what
  *      catches an override added for a file that never needed one.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { ESLint } from 'eslint'
 import type { Linter } from 'eslint'
 import { existsSync } from 'node:fs'
@@ -54,14 +54,25 @@ type ConfigEntry = {
   rules?: Record<string, unknown>
 }
 
+let configPromise: Promise<ConfigEntry[]> | undefined
+
 /**
  * Load the real `eslint.config.mjs`. The specifier is computed at runtime, so
  * Vite hands the import straight to Node instead of trying to transform it.
+ *
+ * RH-59: the import is memoized so it is issued at most once per worker. It
+ * pulls the whole `eslint-config-next` module graph through Node's ESM loader
+ * (~0.7-1.2 s cold, unloaded), and whichever test ran first was charged the
+ * entire bill — 4469 ms of a 5000 ms default budget in a measured full-suite
+ * run. The hook below pays it once, off any single test's clock.
  */
-async function loadConfig(): Promise<ConfigEntry[]> {
-  const href = pathToFileURL(resolve(ROOT, 'eslint.config.mjs')).href
-  const mod = (await import(/* @vite-ignore */ href)) as { default: ConfigEntry[] }
-  return mod.default
+function loadConfig(): Promise<ConfigEntry[]> {
+  configPromise ??= (async () => {
+    const href = pathToFileURL(resolve(ROOT, 'eslint.config.mjs')).href
+    const mod = (await import(/* @vite-ignore */ href)) as { default: ConfigEntry[] }
+    return mod.default
+  })()
+  return configPromise
 }
 
 async function loadOverrides(): Promise<ConfigEntry[]> {
@@ -79,6 +90,15 @@ function ceilingOf(value: unknown): number {
 }
 
 describe('complexity budget (F20)', () => {
+  // RH-59: pay the `eslint.config.mjs` import here, not inside whichever test
+  // happens to run first. Measured cost: ~1.2 s isolated, 2.0-4.5 s under
+  // full-suite parallel load (17.6 s for the ESLint runs under artificial CPU
+  // contention), against a 5000 ms default per-test timeout — a 1.1x margin
+  // that made this healthy guard flake. 60 s restores a ~13x margin.
+  beforeAll(async () => {
+    await loadConfig()
+  }, 60_000)
+
   it('sets the base budget for src at complexity 15, max-depth 4, max-lines-per-function 200, max-params 4 and max-lines 400', async () => {
     const config = await loadConfig()
     const base = config.find(entry => entry?.name === 'complexity-budget/base')
@@ -92,7 +112,7 @@ describe('complexity budget (F20)', () => {
       'max-params': ['error', BASE['max-params']],
       'max-lines': ['error', BASE['max-lines']],
     })
-  })
+  }, 60_000)
 
   it('relaxes the budget for test files to max-lines-per-function off and max-lines 800', async () => {
     const config = await loadConfig()
@@ -108,7 +128,7 @@ describe('complexity budget (F20)', () => {
       'max-lines-per-function': 'off',
       'max-lines': ['error', 800],
     })
-  })
+  }, 60_000)
 
   it('lists at most 23 per-file overrides, each naming a file that exists', async () => {
     const overrides = await loadOverrides()
@@ -127,7 +147,7 @@ describe('complexity budget (F20)', () => {
       if (!existsSync(resolve(ROOT, toDiskPath(glob)))) missing.push(glob)
     }
     expect(missing, `override targets that do not exist on disk: ${missing.join(', ')}`).toEqual([])
-  })
+  }, 60_000)
 
   it('relaxes only the five budget rules, and never below the base threshold', async () => {
     const overrides = await loadOverrides()
@@ -153,7 +173,7 @@ describe('complexity budget (F20)', () => {
     }
 
     expect(offenders, offenders.join('\n')).toEqual([])
-  })
+  }, 60_000)
 
   it('reports no budget violation anywhere under src', async () => {
     const eslint = new ESLint({ cwd: ROOT })

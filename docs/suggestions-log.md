@@ -4352,3 +4352,57 @@ reproduce, so both passed outright without invoking the exception.
 
 None.
 
+
+## [RH-59] Corrigir flake do complexityBudget.test.ts — 2026-09-09 (spec review 1)
+
+
+- S1 - ER7 quotes the eslint summary as `✖ 22 problems (8 errors, 14 warnings)`. This is
+  factually right and, measured today, survives the write to the board intact, so it is not
+  blocking. But every other spec in `docs/tasks/` quotes that line ASCII-only, and a leading
+  non-ASCII glyph is the kind of thing a future reformat, terminal or log pipeline mangles. A
+  future spec would be more robust quoting `22 problems (8 errors, 14 warnings)` and letting
+  the glyph be implicit.
+- S2 - ER8 reads "reports `Test Files  92 passed (92)` and `Tests  1064 passed (1064)` with
+  `0 skipped`". Every other backticked string in that sentence is a literal output line, but
+  `0 skipped` is not: vitest prints a `| N skipped` segment only when skips exist, so on a
+  clean run the literal text `0 skipped` never appears. `Tests  1064 passed (1064)` with
+  total == passed already proves zero skips, so the qualifier is redundant; phrasing it as
+  "and no `skipped` segment in the Tests line" would remove the chance of a QA failing a
+  correct run on a literal grep.
+- S3 - ER3 pins `grep -c 'configPromise'` to `3`. That matches the Approach block exactly
+  (declaration, `??=` assignment, `return`), so no spec-following implementation fails it. It
+  is still a shape pin rather than a behaviour pin: an equivalent
+  `return (configPromise ??= ...)` would give 2 and fail. Since `beforeAll(async` = 1 plus the
+  timeout counts plus ER5's duration measurement already prove the import is paid once in the
+  hook, this grep could be dropped or loosened to `>= 2` without weakening the result.
+- S4 - Approach step 3 says the hook carries "a comment naming RH-59 and the measured numbers",
+  but the code block right below it shows the hook with no comment. Harmless (no ER checks for
+  a comment), but the two should agree so the implementer is not left guessing whether the
+  comment is required.
+
+## [RH-59] Corrigir flake do complexityBudget.test.ts — 2026-09-09 (code review 1)
+
+
+1. `src/lib/__tests__/complexityBudget.test.ts:63-67` and `:93-97` narrate the
+   same RH-59 measurement story twice (import cost, 4469 ms of 5000 ms, the
+   margin). One of the two could be trimmed to a cross-reference — the hook
+   comment is the one that earns its keep, since it explains *why the hook
+   exists at all* to someone who would otherwise see it as redundant with the
+   memoization. Non-blocking; the duplication is prose, not code, and both
+   comments are accurate.
+2. `src/lib/__tests__/complexityBudget.test.ts:115,131,150,176` — 60 s on tests
+   that measure 0-2 ms is a very large multiple. It is what the spec pins and it
+   is the right *kind* of number (a deadlock catcher, not a performance
+   assertion), so this is only a note that the value is deliberately loose, not
+   a request to change it.
+
+
+## [RH-59] Corrigir flake do complexityBudget.test.ts — 2026-09-09 (QA 1)
+
+
+None. The change is minimal and precisely scoped: a memoized loader, a
+`beforeAll` that pays the import off the per-test clock, and explicit timeouts.
+Assertion count, thresholds, `eslint.config.mjs` and `vitest.config.ts` are all
+provably untouched, and the guard was demonstrated to still fail correctly in
+both tamper directions.
+
