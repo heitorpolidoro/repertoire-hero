@@ -5125,3 +5125,328 @@ None.
   either matches the matcher or calls `redirect('/login')` would make the warning enforceable.
 - `npm run test:coverage` reports `Functions 376/377`; the single uncovered function is outside this
   task's scope, but pinning it would let the functions threshold be raised from 78.
+
+## [RH-41] Carregar dados de pagina em Server Components e enxugar os controllers client (spec review r1) — 2026-09-09
+
+- Reconcile RH-63's QA figure explicitly. RH-63 measured "11 prerendered / 17
+  dynamic" at `35d6f66`; this spec says 10 / 17 at `66d9442`, and a reader
+  comparing the two records will suspect a route regressed. It did not: the route
+  file set is identical at both commits (26 route-defining files, empty diff),
+  and `grep -c '○'` without the trailing ` /` prints 11 on today's log because it
+  also counts the `○  (Static)` legend line. One sentence in the "Two properties
+  of the build output are traps" paragraph would close that loop permanently.
+- The F10 `**Status:**` line asserts "every Server Action, route handler and
+  Server Component page resolves its own session and answers for itself". That is
+  AGENTS.md L48's convention almost verbatim, and spot checks agree with it
+  (`deleteBandAction` and `updateSongLinksAction` both call `getRequiredUserId()`
+  today), but in this document F1, F2, F3, F7 and T1 are still open findings
+  saying several actions do not — and F10's own "Why it matters" cites them by
+  name. Phrasing it normatively ("no page, action or route handler may rely on
+  it: each resolves its own session") would state the convention without reading
+  as a claim that F1/F2/F7 are closed.
+- ER9 requires `git diff --name-only 66d9442 | sort` to print the four whitelist
+  paths and "nothing else". RH-40's equivalent ER said "a subset of exactly this
+  whitelist", which is the safer form: if a review round ends with no suggestions
+  appended, `docs/suggestions-log.md` would not be in the diff and a correct
+  implementation would fail an exact-set check. The `-- src migrations e2e
+  eslint.config.mjs vitest.config.ts AGENTS.md README.md
+  docs/plans/mobile-app-analysis.md` clause already carries the real closure.
+- ER9 contains a `§` (in "re-deriving its §3.2 conclusion"). It round-tripped
+  into the persisted `expected_results` intact, so nothing is broken, but
+  "section 3.2" would keep that ER ASCII-only; ER4's box glyphs cannot be
+  avoided the same way since they are the literal build-output symbols.
+- Post-merge checks already name both follow-ups (the mobile-app-analysis
+  correction and a Server-Component page-pattern guard). Worth stating in the
+  second one which allow-list the guard would need, since Out of Scope says that
+  allow-list is what makes it its own task.
+
+## [RH-41] Carregar dados de pagina em Server Components e enxugar os controllers client (spec review r2) — 2026-09-09
+
+- The Audit says `docs/plans/mobile-app-analysis.md` repeats the claim "in six
+  places" and then lists seven line numbers (L17, L29, L137, L169, L181, L311,
+  L330); `grep -c "force-dynamic"` prints 7. Say "seven" or drop the count. The
+  Out of Scope bullet lists eight numbers because it folds in L39, the proxy
+  claim, which is a different assertion — worth splitting the two lists
+  explicitly.
+- The F15 line says the four dashboards read through "Server Actions in
+  `src/app/actions/` calling `getRequiredUserId()`". For `/` and `/bands/[id]`
+  the call is one level down, in `resolveOwner()` inside
+  `src/app/actions/repertoire.ts` (and the bands/playlists actions call it
+  directly). "calling `getRequiredUserId()`, directly or through
+  `resolveOwner()`" would be exactly true and costs four words.
+- ER8 is now the longest ER and reads three separate assertions about the same
+  F15 line (a `grep -c`, a prose reading, and the ten-file correspondence). If
+  the line changes for blocking finding 1, consider pinning the group membership
+  with a second literal pattern (for example a phrase containing
+  `fast-view` alongside `deferred with no named owner`) so QA has a grep rather
+  than a reading for the part that just went wrong twice.
+- Post-merge checks now list three follow-ups; if `/songs/[id]/fast-view` joins
+  the unowned group, the third bullet's list should say five pages, and the
+  allow-list named in the guard follow-up (ten pages) still stands unchanged.
+
+## [RH-41] Carregar dados de pagina em Server Components e enxugar os controllers client (spec review r3) — 2026-09-09
+
+- ER8 says the three finding lines "between them they name the commit ids
+  `57bc60a`, `6e32874`, `35d6f66`, `6aa099c` and `66d9442` (the F15 line names
+  one further id, `e985ba5` ...)". The F14 line also names `246313f` and the F15
+  line also names `13da8b2`, both as measurement baselines rather than as
+  resolution claims. A QA reading "one further id" as exhaustive could stumble;
+  "names no further *resolution* id beyond `e985ba5`" would close that reading
+  for four words.
+- ER8 is now 4190 characters and is by some margin the longest result. The two
+  literal patterns (`deferred with no named owner`, `decomposed and closed by
+  F6`) already carry the part that went wrong twice, so the long prose
+  restatement of the F15 line that follows them could be trimmed to the
+  assertions that are not already pinned by a grep, without losing any
+  mechanical strength.
+- The Audit's group-3 paragraph (spec L254-268) runs a single sentence from
+  "The first four are interactive dashboards" through the `/settings` route
+  handler; L259 is also the one line in the spec whose wrap is broken
+  ("... being closed. They read *and* mutate, ..."). Purely cosmetic, but it is
+  the paragraph a future reader will go to first when re-deriving the grouping.
+- The F15 line points at `docs/tasks/RH-41-spec.md` as the durable record of the
+  five unowned pages. That file is committed by ER9, so the reference resolves;
+  if the orchestrator later opens the follow-up task from the Post-merge list,
+  updating that pointer to the new task id would keep the review document
+  self-contained.
+
+## [RH-41] Carregar dados de pagina em Server Components e enxugar os controllers client (code review r1) — 2026-09-09
+
+1. `docs/tasks/RH-41-spec.md:130` says "`src/proxy.ts` opens with a 22-line
+   header comment". The file opens with two `import` lines; the 22-line comment
+   is at L4-25. The shipped review-doc line does not repeat the imprecision - it
+   says "the file's own header comment declares in its second line", which is
+   exactly right (comment L5 is
+   `NOT AN AUTHORIZATION BOUNDARY (RH-65, code-quality review F10).`). Nothing to
+   change in the merged artefact; noting it only so a later reader of the spec is
+   not confused. Not worth a revision round.
+
+## What was checked, and the evidence
+
+### 1. The five inserted lines are byte-identical to the spec's Approach fences
+
+Extracted the five added lines from
+`git diff --cached 66d9442 -- docs/plans/code-quality-review.md` (strip `+`) and
+the fence bodies from the Approach section (spec L399-460), then `diff`ed them:
+identical, 5 lines against 5 lines, no differences, same order. Both sides carry
+"seventeen tests" after the orchestrator's correction, so the transcription
+picked up the corrected text rather than the pre-correction draft.
+
+`git diff --cached --check 66d9442` exits 0 (no trailing whitespace, no
+whitespace errors) and the file contains no CR bytes.
+
+### 2. Placement and house format
+
+Insertion points, verified in the working tree:
+
+| Line | Heading (line) | Preceding line |
+|---|---|---|
+| 324 `**Status:** Resolved by RH-65` | `### F10 ...` (317) | 323 `**Remediation:**` |
+| 357 `**Correction (RH-41):**` | `### F14 ...` (350) | 356 `**Remediation:**` |
+| 358 `**Status:** Resolved by RH-64` | `### F14 ...` (350) | 357 the Correction |
+| 367 `**Status:** Resolved by RH-61 ...` | `### F15 ...` (360) | 366 `**Remediation:**` |
+| 560 `**Status:** Delivered by RH-61 ...` | `### T8 ...` (555) | 559 `**Covers:** F10, F13, F14, F15` |
+
+Every line lands inside the block it belongs to and before the next `###`
+(F11 at 326, F16 at 369, T9 at 562). The F14 pair is in the spec's prescribed
+order, Correction then Status. The format matches the house style already in the
+file - T7's `**Status:** Delivered by RH-54 (...)` at L553 is the immediate
+neighbour of the new T8 line and has the same shape, and the finding lines use
+`**Status:** Resolved` as F6, F8, F16, F17, F21, F22, F26 do.
+
+ER8's mechanical counts all hold at the staged tree:
+
+| Pattern | Expected | Measured |
+|---|---|---|
+| `^\*\*Status:\*\* Resolved` | 10 | 10 |
+| `^\*\*Status:\*\* Delivered` | 4 | 4 |
+| `^\*\*Correction` | 5 | 5 |
+| `^\*\*Correction (RH-41):\*\*` | 1 | 1 |
+| `RH-41` | 5 | 5 |
+| `RH-53` | 2 | 2 |
+| `deferred with no named owner` | 1 | 1 |
+| `decomposed and closed by F6` | 1 | 1 |
+| `The seven pages still fetching` | 0 | 0 |
+
+The `RH-41` count of exactly 5 confirms none of the attributions was dropped
+while transcribing, which the spec flags as load-bearing.
+
+### 3. Every factual claim in the five lines is true at 66d9442
+
+**F10 line.** `grep -c "pathname === '/'" src/proxy.ts` -> 0.
+`grep -cE "fetch\(|AbortController|setTimeout|get-session|async |await "
+src/proxy.ts` -> 0. `better-auth/cookies` -> 1, `getSessionCookie` -> 2,
+`@/lib/auth` -> 0, `NOT AN AUTHORIZATION BOUNDARY` -> 1 (comment line 5, i.e.
+the comment's second line, as claimed). The matcher has exactly 12 quoted
+entries and they are exactly the twelve the line lists, in the order it lists
+them: `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/profile`,
+`/settings`, `/bands/(.*)`, `/playlists/(.*)`, `/songs/(.*)`, `/admin/(.*)`,
+`/bands`, `/playlists`. AGENTS.md: `not an authorization boundary` -> 3,
+`session gate on every request` -> 0,
+`calls the Better Auth session endpoint via` -> 0.
+
+**Proxy test count - the spec mis-count the developer reported.**
+`src/lib/__tests__/proxy.test.ts` has 17 `it(` blocks, and
+`rtk proxy npx vitest run src/lib/__tests__/proxy.test.ts` prints
+`Test Files  1 passed (1)` / `Tests  17 passed (17)`, exit 0, nothing skipped.
+The orchestrator's corrected ER1 (`Tests  17 passed (17)`, spec L499) is the
+measured value. The four test names the F10 line and the spec cite all exist:
+`resolves the session without ever calling fetch` (L67),
+`passes a present but unvalidated session cookie through to the page, which owns
+the authorization decision` (L116),
+`does not match /, the invite route or any route under /api` (L151),
+`lists exactly twelve matcher entries, each a valid regular-expression source`
+(L178).
+
+**F14 lines.** Returned-object surface: 19 members, 0 `set[A-Z]` at HEAD;
+39 members and 10 setters at `246313f` (measured with the spec's own `awk`
+slice against `git show 246313f:src/hooks/useBandAdmin.ts`). The nineteen names
+in the Status line match the returned object exactly.
+`src/lib/bandAdminState.ts` and `src/lib/bandAdminLoad.ts` both exist;
+`wc -l src/hooks/useBandAdmin.ts` -> 288, `246313f` -> 370.
+`grep -c "src/hooks/useBandAdmin.ts" eslint.config.mjs` -> 0, so the override
+entry was deleted, not relaxed. Longest function measured directly:
+`Function 'useBandAdmin' has too many lines (173)` and
+`has a complexity of 13` - exactly the "298 to 173 at complexity 13, under the
+base budget" the line claims.
+
+**F14 Correction line.**
+`rtk proxy npx eslint 'src/app/bands/[id]/page.tsx' 'src/app/profile/page.tsx'
+--rule '{"complexity":["error",1]}'` still reports
+`Function 'BandDetailPage' has a complexity of 30` and
+`Function 'BandProfileView' has a complexity of 23`, so the correction's central
+assertion (the scores did not move when the hook surface shrank to 19) is true
+today. The independent corroboration also holds: `eslint.config.mjs:71` is
+`files: ["src/app/bands/\\[id\\]/page.tsx"] ... complexity: ["error", 30],
+"max-lines-per-function": ["error", 469], "max-lines": ["error", 487]`, and the
+`ca91de2..66d9442` diff of that file shows the profile entry changing only
+`394/723 -> 385/714` with `complexity: ["error", 23]` untouched - the ratchet
+behaviour the line describes.
+
+**F15 line.** Page sizes: `src/app/bands/page.tsx` 41,
+`src/app/playlists/page.tsx` 58, `src/app/admin/moderation/page.tsx` 77 - all
+three as stated. `grep -c "force-dynamic" src/app/layout.tsx` -> 0;
+`grep -rl "force-dynamic" src/` -> exactly `src/app/api/dev/profiles/route.ts`;
+no `export const revalidate` anywhere under `src/`. Census: 15 `page.tsx` files,
+10 carrying `use client`. The ten files are exactly the ten the line enumerates:
+`/`, `/bands/[id]`, `/forgot-password`, `/login`, `/playlists/[id]`, `/profile`,
+`/reset-password`, `/settings`, `/signup`, `/songs/[id]/fast-view` - so the
+4 + 1 + 5 grouping is checkable against the tree and the arithmetic closes.
+The four island/guard suites named all exist
+(`rootLayoutRendering.test.ts`, `BandsView.test.tsx`, `PlaylistsView.test.tsx`,
+`ModerationQueue.test.tsx`).
+
+Ownership claims in the F15 line: F11's `**Location:**` is only
+`src/app/playlists/[id]/page.tsx:273`/`:1076`, so handing `/playlists/[id]` to
+F11/RH-53 is right and the other four dashboards are correctly *not* attributed
+to it. RH-53 is `backlog` in `.meridian/tasks.json`. F6 (heading at L281) carries
+`**Status:** Resolved by RH-48 (a49a295) ... and RH-52 (e985ba5)`, so it is
+closed and cannot own future work, which is exactly the reasoning the line gives
+for putting `/songs/[id]/fast-view` in group 3.
+`src/app/songs/[id]/fast-view/page.tsx` is 222 lines with 0 `useState`/
+`useEffect` matches. The fail-closed chain is real:
+`src/hooks/useSongEntry.ts:58` is the mount effect calling
+`actions.getSongEntry` / the personal-entry action, wired in
+`src/app/fastViewEntryActions.ts:23-24` to `getSongEntryAction` and
+`getPersonalEntryForSongAction`; `getSongEntryAction`
+(`src/app/actions/repertoire.ts:72`) calls `resolveOwner(bandId)` whose first
+statement (L26) is `const userId = await getRequiredUserId()`, and
+`getPersonalEntryForSongAction` (L149) calls `getRequiredUserId()` directly and
+returns `null` on throw. `/settings`' claim holds too:
+`src/app/api/spotify/playlists/route.ts:15` calls `getRequiredUserId()` and
+L17/L23 answer `{ connected: false }` when it throws.
+
+**Route split.** A build exists in `.next`, so this was read rather than trusted:
+`prerender-manifest.json .routes` has 11 keys -
+`/ /_global-error /_not-found /forgot-password /icon.jpg /login /profile
+/reset-password /settings /signup /songs/search`; the `app-path-routes-manifest`
+entries not in that set number 17 and are exactly the seventeen dynamic routes
+the spec lists, out of 28 app paths total. The F15 line's "27 routes, of which
+10 are prerendered ... and 17 are server-rendered on demand" is that same tree
+minus `/_global-error`, and its ten-route static list matches the manifest set
+minus `/_global-error` exactly. `/bands`, `/playlists` and `/admin/moderation`
+are all in the dynamic set.
+
+**T8 line.** All three F13 coordinates resolve in
+`src/app/playlists/[id]/page.tsx` (1344 lines): L277
+`const { data: session } = authClient.useSession()`, L291
+`const [currentUserId, setCurrentUserId] = useState<string | null>(null)`, L343
+`setCurrentUserId(session?.user?.id ?? null)`.
+
+**Commit ids.** All ids named in the five lines and in the spec resolve and are
+the tasks claimed: `57bc60a` perf(RH-61), `6e32874` refactor(RH-62), `35d6f66`
+feat(RH-63), `6aa099c` refactor(RH-64), `66d9442` refactor(RH-65), plus the
+cited `e985ba5` refactor(RH-52), `a49a295` refactor(RH-48), `246313f`
+chore(RH-39), `13da8b2` test(RH-24), `ca91de2` fix(RH-60), `65cadd8`
+test(RH-59).
+
+**Overrides.** `grep -c 'complexity-budget/override' eslint.config.mjs` -> 20
+(24 at `246313f`, 23 at `ca91de2`), and `eslint.config.mjs` is not in the diff.
+
+### 4. Blast radius (ER9)
+
+`git diff --cached --numstat 66d9442 -- docs/plans/code-quality-review.md` is
+`5	0` - five insertions, zero deletions, so F13's block, T8's
+`**Justification:**`, the section 2 tables and section 4 rows 10/13/14/15 are
+untouched by construction.
+
+`git diff --cached 66d9442 -- src` is empty.
+`git diff --cached --name-only 66d9442 -- src migrations e2e eslint.config.mjs
+vitest.config.ts AGENTS.md README.md docs/plans/mobile-app-analysis.md` prints
+nothing. `git diff --cached --stat 66d9442 -- src/components/landing
+src/i18n/dictionaries` prints nothing (Landing Page Rule not engaged).
+
+`git diff --cached --name-only 66d9442 | sort` lists exactly the four whitelisted
+paths and no others.
+
+`package.json` version `0.1.95-202609091654` -> `0.1.96-202609091801`: matches
+`^0\.1\.96-20[0-9]{10}$` and sorts strictly above the baseline. Patch bumped,
+timestamp plausible for the commit's local time.
+
+### 5. Spec internal consistency after the orchestrator's edit
+
+`grep -n -i "nineteen\|seventeen" docs/tasks/RH-41-spec.md`:
+
+- L54 "seventeen dynamic ones" - the 17 dynamic routes. Correct.
+- L95 "seventeen dynamic routes above, out of 28 app paths" - same. Correct.
+- L142 "seventeen tests across two `describe` blocks" - the 17 proxy tests.
+  Correct (corrected from "nineteen").
+- L416 (F10 fence) "whose seventeen tests assert ..." - the 17 proxy tests.
+  Correct, and byte-identical to what landed at review doc L324.
+- L157 "The nineteen are `currentUserId`, ..." - the 19 `useBandAdmin` members.
+  Correctly left as "nineteen".
+- L501 (ER2) "lists exactly these nineteen names" - same. Correct.
+
+No occurrence of "nineteen" refers to a test count and no occurrence of
+"seventeen" refers to a hook member count. ER1 reads `Tests  17 passed (17)`
+(L499) and there is no surviving `passed (19)` anywhere in the spec. The review
+document contains one occurrence of either word, "seventeen tests" at L324, and
+no stale count. No mismatch to flag.
+
+### 6. `docs/suggestions-log.md` is append-only
+
+The diff has zero deletion lines. Reconstructed the check independently:
+`git show 66d9442:docs/suggestions-log.md` is 5127 lines, and
+`head -5127 docs/suggestions-log.md` is byte-identical to it - so the 84 new
+lines are strictly appended. The appended block is a single
+`## [RH-41] ... (spec review r1) - 2026-09-09` entry, consistent with the file's
+existing entry format.
+
+## Notes on scope
+
+This is a documentation close-out with an empty `src` diff, so there is no new
+logic to unit-test and no lint surface to dirty; the "missing unit tests for new
+logic" and "dirty lint" blocking categories do not apply. The verification the
+task is actually delivering is the ER set, and the parts of it that are cheap and
+local were re-run here (proxy suite 17/17, the two complexity measurements, the
+`useBandAdmin` surface, the manifest route split) rather than taken on report.
+The full-suite, coverage, build and Playwright ERs are QA's to run.
+
+## [RH-41] Carregar dados de pagina em Server Components e enxugar os controllers client (QA r1) — 2026-09-09
+
+- ER4's manifest-based reading is the right call, but the F15 status line in
+  `docs/plans/code-quality-review.md` still quotes the printed route table ("27 routes, of which 10 are
+  prerendered"). That is accurate for the table and ER4 explains the 27/28 and 10/11 reconciliation, but
+  a future reader comparing the document against `prerender-manifest.json` (11 entries, including
+  `/_global-error`) will hit the same discrepancy RH-63's QA hit. A parenthetical in that line naming the
+  manifest counts would make the document self-reconciling. Non-blocking; no ER requires it.
