@@ -4406,3 +4406,93 @@ Assertion count, thresholds, `eslint.config.mjs` and `vitest.config.ts` are all
 provably untouched, and the guard was demonstrated to still fail correctly in
 both tamper directions.
 
+
+## [RH-61] Server Components parte 1/5: tirar force-dynamic do layout raiz — 2026-09-09 (spec review 1)
+
+
+- ER4's worker count: `grep -c 'static pages using 7 workers (19/19)'` is pinned to
+  a 7-worker machine and the ER hedges in prose. Give QA one machine-independent
+  command instead, e.g. `grep -cE 'static pages using [0-9]+ workers \(19/19\)'`
+  prints `1`, and drop the parenthetical.
+- ER4 could state that the route table and the legend are printed on **stdout**
+  (verified on 16.3.4), so a QA run that captures only stdout still finds them;
+  as written, "its output contains" leaves the `2>&1` question open.
+- ER3's second half asks QA to revert ER1's edit and rerun. Add "then restore
+  `src/app/layout.tsx`" so the tree QA hands back is not accidentally left with
+  the directive reintroduced.
+- ER5's prose calls all fourteen manifest keys "the routes Next classifies as
+  prerendered as static content", but `/_global-error` never appears in the
+  printed route table. Harmless, but a sentence noting that `/_global-error` is a
+  framework-internal entry would stop a QA reader from hunting for it in the table.
+- Consider pinning `git diff 65cadd8 -- package-lock.json` prints nothing in ER11:
+  the version bump must not drag the lockfile along, and the current whitelist
+  only implies it.
+- `docs/plans/mobile-app-analysis.md` is knowingly left stale (it still claims the
+  directive prevents a prerender crash). The Out of Scope section says so, which is
+  the right call for this task, but it is worth a suggestions-log entry so a later
+  part of RH-41 picks it up.
+
+## [RH-61] Server Components parte 1/5: tirar force-dynamic do layout raiz — 2026-09-09 (spec review 2)
+
+
+- `package-lock.json` is at `0.1.88-202609090956` while `package.json` is at
+  `0.1.90-202609091102`, i.e. the repo already does not sync the lockfile version
+  on a bump. The spec is unambiguous (step 5 names `package.json`, and
+  `package-lock.json` is outside ER11's closed set, so `npm version` would fail
+  the result), but a one-line note in the Approach — "edit the `version` field by
+  hand; do not run `npm version`, which would also rewrite `package-lock.json`
+  and fail ER11" — would remove a plausible implementer misstep. This restates
+  round 1's lockfile suggestion in its cheaper, non-blocking form.
+- The `## Audit` probe says lines `7-12` were deleted in the scratch clone while
+  the normative `## Approach` says `7 through 13` (and ER1 pins `39` lines,
+  which only `7-13` produces). Both are internally correct — the probe simply
+  left the trailing blank line — but a reader comparing the two sections has to
+  work that out. A half-sentence in the probe ("plus the trailing blank line in
+  the real edit; the probe left it, which is why the probe file was 40 lines")
+  would close the gap. Not ambiguity: the Approach is normative and ER1
+  arbitrates.
+- Round-1 suggestions that survive unchanged and are still worth taking in a
+  future edit or in the implementation: ER4's `grep -cE 'static pages using
+  [0-9]+ workers \(19/19\)'` machine-independent form; noting that the route
+  table and legend go to stdout; adding "then restore `src/app/layout.tsx`" to
+  ER3's revert-and-rerun step so QA does not hand back a tree with the directive
+  reintroduced; a sentence in ER5 noting `/_global-error` is a framework-internal
+  manifest entry that never appears in the printed route table.
+- `docs/plans/mobile-app-analysis.md` is knowingly left stale (it still claims
+  the directive prevents a prerender crash). Out of Scope says so correctly, but
+  it deserves a suggestions-log entry so a later part of RH-41 picks it up.
+
+
+## [RH-61] Server Components parte 1/5: tirar force-dynamic do layout raiz — 2026-09-09 (code review 1)
+
+
+1. **Nested layouts are not covered.** The guard names `src/app/layout.tsx`
+   explicitly; a route-group layout added by RH-41 parts 2–5 (e.g.
+   `src/app/(app)/layout.tsx`) carrying `export const revalidate = 0` would pass
+   both assertions — the tree-wide check only greps the `force-dynamic` literal.
+   Cheap hardening for a later part: flag `export const (dynamic|revalidate)` in
+   **any** `layout.tsx` under `src/app`. (Same as the developer's own suggestion
+   3; I confirm the gap is real.)
+2. `REPO_ROOT` is computed a second time in the new test
+   (`path.resolve(__dirname, '..', '..', '..')`) because `test-helpers.ts` keeps
+   its copy module-local for knip reasons. Harmless, but if a third guard needs
+   it, export it once from `test-helpers.ts` and let one consumer keep knip
+   quiet.
+3. Now that `/profile` and `/settings` serve a cached static shell, the
+   `src/proxy.ts` matcher is the *only* thing standing between an anonymous
+   request and that shell. It holds today (measured 307), and the shell carries
+   no data, but RH-41 part 5 (F10) touches exactly that matcher — worth an
+   explicit expected result there that `GET /profile` anonymous still answers
+   `307` against a `next start` build.
+4. `docs/plans/mobile-app-analysis.md` still repeats the now-false "force-dynamic
+   exists to prevent a real prerender crash" claim. Out of scope here (correctly
+   excluded), but it is stale as of this commit.
+5. `next start` emits `x-nextjs-prerender: 1` twice on prerendered routes (I saw
+   it on both `/` and `/login`). Framework behaviour, harmless, noted only in
+   case a CDN rule is ever keyed on that header.
+
+## [RH-61] Server Components parte 1/5: tirar force-dynamic do layout raiz — 2026-09-09 (QA 1)
+
+
+None.
+
