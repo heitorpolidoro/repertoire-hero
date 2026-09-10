@@ -21,12 +21,25 @@ export interface SongData {
 // ---------------------------------------------------------------------------
 
 /**
- * Counts the titles handed out by this worker process, so two calls made
+ * Counts the names handed out by this worker process, so two calls made
  * inside the same millisecond still differ. Zero-padded at the call site so no
  * suffix can ever be a prefix of another one (`-001` vs `-010`), which matters
  * because `songCard` matches a card by substring.
  */
 let songTitleSequence = 0
+
+/**
+ * Builds a fixture name — a song title, a playlist name, a tag — that is unique
+ * to this invocation. Every fixture kind shares the one counter above, so a
+ * playlist name and a song title minted in the same millisecond still differ.
+ *
+ * The same rule as `uniqueSongTitle` below applies, for the same reason: call it
+ * from inside the test body, never at module scope.
+ */
+export function uniqueFixtureName(prefix: string): string {
+  songTitleSequence += 1
+  return `${prefix} ${Date.now()}-${process.pid}-${String(songTitleSequence).padStart(3, '0')}`
+}
 
 /**
  * Builds a song title that is unique to this invocation.
@@ -42,8 +55,7 @@ let songTitleSequence = 0
  * once at import time would repeat and collide exactly like a constant.
  */
 export function uniqueSongTitle(prefix: string): string {
-  songTitleSequence += 1
-  return `${prefix} ${Date.now()}-${process.pid}-${String(songTitleSequence).padStart(3, '0')}`
+  return uniqueFixtureName(prefix)
 }
 
 // ---------------------------------------------------------------------------
@@ -186,4 +198,61 @@ export async function deleteSong(page: Page, title: string) {
  */
 export function songCard(page: Page, title: string) {
   return page.getByRole('article').or(page.getByRole('listitem')).filter({ hasText: title })
+}
+
+// ---------------------------------------------------------------------------
+// Playlist helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a playlist through the `+ New Playlist` modal on `/playlists` and
+ * waits until its card is on the page.
+ *
+ * The name must come from `uniqueFixtureName` — `/playlists` is never reset
+ * between runs and every locator here matches a card by its accessible name.
+ */
+export async function createPlaylist(page: Page, name: string) {
+  await page.goto('/playlists')
+
+  const newPlaylistButton = page.getByRole('button', { name: '+ New Playlist' })
+  const modal = page.getByRole('dialog', { name: 'New Playlist' })
+
+  // The header paints before React hydrates, so a click can be swallowed on a
+  // cold route. Retry opening the modal until it actually appears.
+  await expect(newPlaylistButton).toBeVisible({ timeout: 30_000 })
+  await expect(async () => {
+    await newPlaylistButton.click()
+    await expect(modal).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+
+  await modal.locator('#modal-playlist-name').fill(name)
+  await modal.getByRole('button', { name: 'Create' }).click()
+
+  await expect(page.getByRole('button', { name: `Open ${name}` })).toBeVisible({ timeout: 15_000 })
+}
+
+/**
+ * Opens the named playlist from `/playlists` and returns its detail URL.
+ *
+ * Unlike `createPlaylist` this needs no hydration-retry wrapper: it is only ever
+ * called immediately after `createPlaylist`, i.e. on a page that has already
+ * proved it is hydrated by opening the modal and rendering the new card. The
+ * heading assertion carries 15 s because the detail route renders a loading
+ * state until its data resolves and the first hit pays a bundler compile.
+ */
+export async function openPlaylist(page: Page, name: string): Promise<string> {
+  await page.getByRole('button', { name: `Open ${name}` }).click()
+  await page.waitForURL(/\/playlists\/[^/]+$/, { timeout: 15_000 })
+  await expect(page.getByRole('heading', { name })).toBeVisible({ timeout: 15_000 })
+  return page.url()
+}
+
+/**
+ * Deletes the playlist whose detail page is open, through the inline
+ * `Sure? / Yes` affordance, and waits for the redirect back to `/playlists`.
+ */
+export async function deletePlaylistFromDetail(page: Page) {
+  await page.getByRole('button', { name: 'Delete playlist' }).click()
+  await page.getByRole('button', { name: 'Yes', exact: true }).click()
+  await page.waitForURL(/\/playlists$/, { timeout: 15_000 })
 }

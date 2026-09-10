@@ -275,6 +275,7 @@ export default function PlaylistDetailPage() {
   const router = useRouter();
   const playlistId = params.id as string;
   const { data: session } = authClient.useSession();
+  const currentUserId = session?.user?.id ?? null;
   const bandId = useBandContextStore((s) => s.bandId());
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
@@ -288,7 +289,6 @@ export default function PlaylistDetailPage() {
   const [editName, setEditName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [songFilterQuery, setSongFilterQuery] = useState("");
   const [addingTagForSong, setAddingTagForSong] = useState<string | null>(null);
@@ -340,13 +340,12 @@ export default function PlaylistDetailPage() {
     }
     setPlaylist(data);
     setSongs(data.songs ?? []);
-    setCurrentUserId(session?.user?.id ?? null);
 
     // Band or personal: the trigger keeps band status in sync,
     // so getRepertoireAction(bandId) reads the correct value directly.
     const rep = await getRepertoireAction(bandId);
     setRepertoireMap(new Map(rep.map((r: Repertoire) => [r.song_id, r])));
-  }, [playlistId, router, session?.user?.id, bandId]);
+  }, [playlistId, router, bandId]);
 
   useEffect(() => {
     setLoading(true);

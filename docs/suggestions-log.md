@@ -6228,3 +6228,294 @@ were written to the session scratchpad, not the repo.
 - ER1's script says "opening `http://127.0.0.1:3000/login` ... Editing any visible English string in a client component under `src/components/`", but `/login` deliberately bypasses the app shell (`ConditionalLayout` returns bare `children` for `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/join/`), so no `src/components/` component is mounted there. Future ERs of this shape should name an authenticated route (e.g. `/`) for the edit step, or name `src/app/login/page.tsx` as the file to edit.
 - The comment for the 15 s heading budget in `e2e/fast-view-mobile.spec.ts` sits at line 104 with the assertion at 105-107; the ER cites the assertion as being at `:104`. Harmless, but if a later ER re-checks that exact line number it will drift.
 - `src/lib/__tests__/devBundler.test.ts` guards the `dev` script only. `build` (`next build`, Turbopack by default) has no equivalent guard; a second assertion that `scripts.build` contains no `--webpack` would close the same hole on the build path the AGENTS.md entry claims for Turbopack.
+
+## [RH-66] PlaylistDetailPage parte 1/6: rede e2e de caracterizacao e currentUserId derivado (spec review r1) — 2026-09-10
+
+- **Cold-route assertion timeouts.** `playwright.config.ts:12` sets
+  `expect: { timeout: 5_000 }` globally, and
+  `test.describe.configure({ timeout: 90_000 })` raises the *test* timeout only
+  (the precedent the spec cites, `bands-confirm.spec.ts:20` and
+  `fast-view-mobile.spec.ts:38`, is exactly that call — verified). The detail
+  route renders a loading state until `refreshPlaylist` resolves, and the first
+  hit pays a Turbopack compile; `openPlaylist`'s heading assertion and the first
+  assertion after each `page.goto(playlistUrl)` therefore run against a 5 s
+  budget. `server-pages.spec.ts:70` pins `{ timeout: 15_000 }` for the same
+  reason. Prescribe an explicit timeout on the first assertion of each test.
+- **Test 3 asserts an optimistic value and then reloads.** `handleStatusCycle`
+  (page 555-566) writes `setRepertoireMap` *before* awaiting
+  `updateSongStatus`, so `Status: Learning. Click to advance.` becomes true
+  within a frame and proves nothing about persistence; `page.reload()` fired
+  immediately afterwards races the in-flight Server Action. Wait on the action's
+  response (or another server-confirmed signal) before reloading, the way test 2
+  waits for the row to appear in the song list.
+- **`openPlaylist` clicks without the hydration-retry wrapper** that
+  `createPlaylist` uses. It happens to be safe because it is only ever called
+  immediately after `createPlaylist` on an already-hydrated page — worth saying
+  so in the spec, or wrapping it like the others.
+- **`Status:` line opening.** Every `Status:` line in
+  `docs/plans/code-quality-review.md` opens `**Status:** Resolved by RH-NN
+  (\`sha\`)` (lines 289, 307, 324, 341, 359, ...). The spec describes the
+  content of the new line but not that opening.
+- **`code-quality-review.md:564` will read as stale.** The T8 close-out says
+  F13 "stays open ... owned end to end by RH-53 (F11)". The spec's reason for
+  not editing it is defensible (it records T8's scope), but a clause in the new
+  F13 `Status:` line pointing at it would stop the next reader from believing
+  the older sentence.
+- **jscpd is not at risk and could be said so.** `.jscpd.json` has
+  `"path": ["src"]`, so an `e2e/` file cannot move the baseline (measured at
+  `a17dd2b`: `Found 18 clones`, `231 (0.61%)`). Similarly `tsconfig.json:33`
+  excludes `e2e/**` and `**/*.spec.ts`, so `tsc --noEmit` never sees the new
+  spec, and `knip.json`'s `ignoreExportsUsedInFile` keeps `uniqueFixtureName`
+  safe. One sentence saves QA the analysis.
+- **One locator table row is missing its "(substring)" annotation.** The real
+  placeholder is `Filter playlist by title or artist...` (page 996); the table
+  writes it without the ellipsis and, unlike the picker input and the tag-filter
+  clear rows, does not note that it relies on `getByPlaceholder`'s substring
+  default.
+
+## What I verified and found correct (no action needed)
+
+Audit section, all measured at `a17dd2b`:
+
+- `grep -c ""` on the page prints `1344`; `grep -c "useState"` prints `24`;
+  `grep -n "session"` prints exactly lines 277, 343, 349. ✓
+- The override at `eslint.config.mjs:74` reads exactly as quoted; the block
+  holds 20 entries; `MAX_OVERRIDES = 20` is at
+  `complexityBudget.test.ts:49`; AGENTS.md:97 is quoted accurately. ✓
+- `rtk proxy npx eslint .` prints `✖ 22 problems (8 errors, 14 warnings)`. ✓
+- `rtk proxy npx vitest run` prints `Test Files 108 passed (108)` /
+  `Tests 1211 passed (1211)`. ✓
+- `npx jscpd`: `Found 18 clones`, `231 (0.61%)`. ✓ (not cited by the spec)
+- `npx knip` prints nothing. ✓
+- The sweep command prints exactly one line, page 291; the other five
+  `useSession()` call sites are `AppShell.tsx:22`, `page.tsx:625`,
+  `AppLayout.tsx:39` and `:146`, `useBandAdmin.ts:126`, and
+  `useBandAdmin.ts:127` is already the derived `const`. ✓
+- `grep -rn "playlists/" e2e/*.ts` prints nothing; there is no
+  `src/app/playlists/[id]/__tests__`. ✓
+- `npx playwright test --list` prints `Total: 22 tests in 6 files`, so ER2's
+  `Total: 33 tests in 7 files` / `33 passed` is the right arithmetic and the
+  right format. The `chromium` project carries `testIgnore:
+  '**/fast-view-mobile.spec.ts'` and no `testMatch`, and `mobile` carries
+  `testMatch: '**/fast-view-mobile.spec.ts'`, so a new spec runs once, in
+  chromium only. ✓
+- `webServer.command` is `process.env.PLAYWRIGHT_WEB_SERVER ?? 'npm run dev'`,
+  `retries: 2` / `workers: 1` on CI only, `globalSetup: ./e2e/global-setup.ts`,
+  storage state opted into per spec. ✓
+- F13's `**Remediation:**` (line 349) is the last line before `### F14`
+  (line 351), so the described insertion point exists. ✓
+
+Locator contract — spot-checked far past the requested four, every row resolves
+at `a17dd2b`:
+
+- status cycle button: `aria-label={\`Status: ${cfg.label}. Click to advance.\`}`
+  at page 1173, rendered only when `bandId` is falsy (personal mode), which is
+  the e2e context. `STATUS_CONFIG.unknown.label === 'Unknown'`,
+  `STATUS_ORDER` gives `unknown -> learning`, so `Status: Learning. Click to
+  advance.` is the right next name. ✓
+- per-song tag input: `placeholder="new tag"` at page 1252, behind
+  `isAddingTag`; `Add tag` button at page 1262 — and `Add tag` really is a
+  prefix of `Add tag to playlist` (page 962), so the `exact: true` plus row
+  scoping the spec prescribes is necessary, not decorative. ✓
+- rename: `aria-label="Playlist name"` at page 749, `Save` at 758,
+  `aria-label="Rename playlist"` at 810; delete at 848 with the inline `Yes` at
+  834. ✓
+- text filter: page 996; tag-filter buttons 1029-1042 (accessible name is the
+  tag text); tag-filter clear is `× clear` at 1045-1051, which
+  `getByRole('button', { name: 'clear' })` matches on the substring default. ✓
+- song list `<section aria-label="Songs in this playlist">` at 1057-1059, rows
+  are `<li>` at 1084, remove button `Remove ${title} from playlist` at 1185,
+  chip remove `Remove tag ${tag}` at 919 (playlist bar) and 1219 (song row). ✓
+- picker: toggle `aria-label="Add songs"` at 781, input placeholder
+  `Search catalog and Spotify…` at 1284 (note the U+2026 — the spec's substring
+  locator handles it), the `ul[aria-live="polite"]` at 1287-1290 is the file's
+  only `aria-live` node, and `PickerRow`'s `Add` button is at page 128-135. ✓
+- `/playlists` fixtures: `+ New Playlist` at `PlaylistsView.tsx:96`, modal
+  `role="dialog" aria-label="New Playlist"` with `#modal-playlist-name` and
+  `Create` at `CreatePlaylistModal.tsx:144,176,220`, card
+  `role="button" aria-label={\`Open ${playlist.name}\`}` at
+  `PlaylistCard.tsx:113` pushing `/playlists/<id>` from
+  `PlaylistsView.tsx:122`. `PlaylistGroupList` has no collapsing and no
+  pagination, so leaked fixtures cannot hide a card. ✓
+- the remove-tag buttons are `opacity-0 group-hover:opacity-100`; the spec's
+  note that Playwright treats them as visible and clickable is correct, and
+  worth having written down.
+
+Design questions the dispatch raised:
+
+- **Idempotency under failure.** Correct as specified. Every fixture name is
+  minted inside the first test body from `uniqueSongTitle`'s counter +
+  `Date.now()` + `process.pid`, a serial-mode retry restarts at test 1 and mints
+  fresh names, and test 11 is the teardown. A mid-file failure leaks one
+  playlist and two repertoire rows whose names no later run can collide with.
+  Those leftovers cannot break the other six spec files: `songs-crud` filters
+  before acting (`helpers.ts:161-163`), `server-pages` names its own playlist
+  and asserts only on that name (`server-pages.spec.ts:70,78,93,122`), and
+  nothing anywhere counts playlists or songs globally. The spec's argument for
+  preferring a leak over a best-effort `afterAll` is sound.
+- **Catalog seeding.** Songs are seeded through `addSong` on the home page,
+  which writes `global_songs` and the repertoire row with `status` defaulting to
+  `unknown`; `searchGlobalSongs` is `title ILIKE '%q%' OR artist ILIKE '%q%'`,
+  so a full unique title matches exactly one row, and
+  `pickerVisibleCatalog` (page 426-429) additionally hides songs already in the
+  playlist. Seeding through the repertoire is also what makes tests 3, 4 and 7
+  possible at all — `handleStatusCycle` and `handleAddSongTag` both bail on a
+  missing `repertoireMap` entry (pages 556-557, 639-640). Zero-padded suffixes
+  keep title 1 from being a substring of title 2. Spotify is not a hazard: the
+  picker's `searchSpotify(query).catch(() => [])` at page 375 means an
+  unconfigured or failing Spotify leaves the catalog rows intact.
+- **Tag normalisation.** `handleAddSongTag` and `handleAddPlaylistTag` do
+  `trim().toLowerCase()` and nothing else (pages 624-638), so a minted tag with
+  internal spaces survives verbatim into the chip text, the
+  `Remove tag <tag>` label and the filter button name. The spec's "mints a
+  lowercase unique tag" is the right instruction; `allTags` (page 400-406) is
+  built from song tags only, so test 4's "the tag filter bar now offers it" and
+  test 7's "no longer offers it" are both true, and test 8's playlist tag
+  correctly is *not* claimed to appear there.
+- **Scope.** One spec file, one four-line source edit, one config re-pin, one
+  doc line. Single-PR sized; the "Out of Scope" section correctly fences RH-67
+  through RH-71, the `MAX_OVERRIDES` constant and the F11 row.
+- **Whitelist** is a closed set and matches the house shape (`RH-72-spec.md:125-142`),
+  including `docs/suggestions-log.md` as permitted-not-required.
+- **Version.** `0.1.100-202609100006` -> `0.1.101-YYYYMMDDHHmm` satisfies
+  AGENTS.md:479-481 ("must only ever go up"), and the spec pre-empts the
+  string-sort objection.
+- **Over-specification.** ER4's `--numstat 2 4` and ER5's `35 / 1070 / 1342` are
+  exact for the implementation the spec prescribes — I reproduced both. They
+  would fail an equally correct alternative (variant B), but the spec pins the
+  implementation line for line, so this is pinning, not over-specification. It
+  does mean ER4 and ER5 must move if blocking finding 2 is resolved by switching
+  forms.
+- **ASCII / self-containedness.** The spec body is ASCII apart from the em- and
+  en-dashes and arrows it uses throughout, consistent with the sibling specs; it
+  is readable without the task record except for the one false sentence called
+  out in blocking finding 1.
+- **No git-state moves** are requested anywhere in the spec, and none were made
+  during this review.
+
+## [RH-66] PlaylistDetailPage parte 1/6: rede e2e de caracterizacao e currentUserId derivado (spec review r2) — 2026-09-10
+
+- **ER3's last clause is relative where every other number in the eight
+  paragraphs is absolute.** It reads "exits 0 with the same pass count as at
+  `a17dd2b`" rather than naming it. `npx playwright test e2e/songs-crud.spec.ts
+  e2e/ssr-smoke.spec.ts --list` prints `Total: 7 tests in 2 files`, so the value
+  is `7 passed`. QA can still decide it (ER2 already pins that neither file
+  changed), but writing `7 passed` would spare a QA run at the baseline commit.
+- **ESLint does lint `e2e/`.** The spec's "three gates cannot move because of a
+  new file under `e2e/`" paragraph names jscpd, `tsc` and knip and is correct as
+  written — but the fourth gate, `eslint .`, *does* see the new spec (`npx
+  eslint e2e/helpers.ts e2e/songs-crud.spec.ts` runs and is currently clean, and
+  the `complexity-budget/base` block is scoped to `src/**` so no budget applies
+  to it). ER7's `22 problems (8 errors, 14 warnings)` already forces the new file
+  to be lint-clean; saying so in that paragraph would stop an implementer from
+  reading the omission as "eslint ignores e2e too".
+- **Test 3's wait is described as "`page.waitForResponse` on the POST to the
+  current URL".** That is the right mechanism for a Next.js Server Action, but it
+  is the one step in the Approach specified by mechanism rather than by
+  observable outcome. A sentence allowing any server-confirmed signal (the
+  response, or a re-read that survives a reload) would leave the implementer less
+  room to guess and still satisfy the intent.
+- **"ten behaviours" vs "eleven checkpoints".** Scope (line 14) says ten
+  behaviours, the Approach heading says eleven tests; the arithmetic works only
+  if "adding and removing a song tag" counts as one behaviour. Harmless, but a
+  reader checking coverage counts twice.
+
+## [RH-66] PlaylistDetailPage parte 1/6: rede e2e de caracterizacao e currentUserId derivado (code review r1) — 2026-09-10
+
+1. **`e2e/playlist-detail.spec.ts:205`, `:266`, `:292` — the reload-after-optimistic-write race that test 3 guards against also exists in tests 4, 7 and 8.**
+   `handleAddSongTag` (page 635-658), `handleRemoveSongTag` (page 660-674) and
+   `handleTagsChange` (page 614-621, behind `handleAddPlaylistTag`) all set React
+   state *before* awaiting `updateSongTags` / `updatePlaylist`, exactly like
+   `handleStatusCycle`. The pre-reload assertions in those three tests therefore
+   prove nothing about persistence, and the `page.reload()` that follows can
+   overtake the in-flight Server Action; if the reload's data fetch wins, the
+   post-reload assertion fails for a reason that is not a product regression.
+   It passed on my run and the window is small (the write is usually committed
+   before the reloaded page fetches), but this is the one latent flake in a file
+   whose entire value is that it never lies about parts 2-6. The fix is the
+   pattern the file already contains once: hold a
+   `page.waitForResponse((r) => r.request().method() === 'POST' && r.url().startsWith(playlistUrl))`
+   across the `Enter` press / remove click, and await it before `page.reload()`.
+   Worth noting that the spec's own review log flagged this shape for test 3 and
+   the spec then fixed only test 3; the developer implemented the spec faithfully,
+   so this is a spec-level gap rather than a deviation.
+
+2. **`e2e/playlist-detail.spec.ts:89-90` — `playlistTagBar` is the one locator in
+   the file that a component extraction can silently redefine.**
+   `getByRole('button', { name: 'Add tag to playlist' }).locator('xpath=..')`
+   scopes by DOM parenthood: if RH-70 wraps that button in an extra element while
+   moving the tag bar into `src/components/playlists/`, the locator keeps
+   resolving but to a smaller box, and the chip assertions in test 8 turn into
+   silent false negatives (`toBeVisible` would fail loudly, so this is a
+   nuisance rather than a hole — but it is the failure mode the "accessible names
+   are the contract" doctrine exists to avoid). It also resolves to zero elements
+   whenever `addingPlaylistTag` is true, since the button and the input are the
+   two branches of one ternary; that is fine today only because the assertion runs
+   after the tag is committed. Consider scoping the two playlist-level assertions
+   by the header/tag-bar region instead, or simply dropping the scope: the two
+   tags a run mints are different strings, so `Remove tag ${playlistTag}` is
+   already unambiguous page-wide, which the spec itself observes.
+
+3. **`e2e/playlist-detail.spec.ts:338` — the "card is gone" assertion can pass
+   vacuously.** `deletePlaylistFromDetail` returns as soon as the URL is
+   `/playlists`, and `toHaveCount(0)` on `Open <name>` is then true both when the
+   playlist is really gone and when `PlaylistsView` has not rendered its list yet.
+   The delete itself is genuinely persisted (`handleDelete` awaits
+   `deletePlaylist` before `router.replace`), so nothing is actually unproven —
+   but a positive anchor first (e.g. `await expect(page.getByRole('button', { name: '+ New Playlist' })).toBeVisible({ timeout: 15_000 })`)
+   would make the absence assertion mean what it reads as.
+
+4. **`e2e/helpers.ts:39` — the counter's name outlived its meaning.**
+   `songTitleSequence` is now shared by playlist names and tags; the doc comment
+   above it was updated ("Counts the names handed out ..."), but the identifier
+   still says `songTitle`. A rename to `fixtureNameSequence` would cost one line
+   and is safe (module-private).
+
+## [RH-66] PlaylistDetailPage parte 1/6: rede e2e de caracterizacao e currentUserId derivado (QA r1) — 2026-09-10
+
+- ER2's failure leaves fixture rows behind every time it trips, which makes the next run more
+  likely to trip. Consider a `test.afterAll` (or a `deleteSong` call guarded so it runs even when
+  an earlier assertion in test 11 throws) so a failed run cannot degrade the environment for the
+  next one. The eleven tests are `mode: 'serial'`, so a mid-file failure currently skips nothing
+  but does abandon the remaining teardown.
+- `e2e/helpers.ts`'s `songTitleSequence` counter is now shared by `uniqueFixtureName` and
+  `uniqueSongTitle`, which is exactly right; the variable name still says "songTitle" though. A
+  rename to `fixtureSequence` would match the doc comment directly above it, which was already
+  updated to say "names" rather than "titles". Non-blocking.
+- `uniqueSongTitle` is now a one-line delegation with no remaining behaviour of its own. Once the
+  existing callers are touched for other reasons, it could be dropped in favour of
+  `uniqueFixtureName` — but not in this task, since ER3 requires the export to survive unchanged.
+
+## [RH-66] PlaylistDetailPage parte 1/6: rede e2e de caracterizacao e currentUserId derivado (code review r2) — 2026-09-10
+
+- **S1 — tighten the action predicate (`e2e/playlist-detail.spec.ts:122-126`).**
+  Adding `response.request().headers()['next-action'] !== undefined` to the
+  predicate would identify a Server Action positively instead of inferring it
+  from "POST to this URL", and would make `startsWith(playlistUrl)` safe against
+  a future sub-route such as `/playlists/<id>/print`. Non-blocking: no such POST
+  or sub-route exists today.
+- **S2 — anchor the teardown assertion positively
+  (`e2e/playlist-detail.spec.ts:410-413`).** After `search.fill(title)`, asserting
+  the catalog offer is visible first — `page.getByRole('button', { name: new
+  RegExp(\`Add ${title} by\`, 'i') })` — would prove the filtered list has actually
+  rendered post-fetch, closing the render-gap window in which a bare
+  `toHaveCount(0)` can pass before the store commits. It also reads as the truth
+  the test is after: the song is still in the catalog and no longer in the
+  repertoire.
+- **S3 — one helper instead of two (`e2e/playlist-detail.spec.ts:122-126` vs
+  `:403-406`).** `serverActionResponse(page)` and the inline wait inside
+  `expectSongRemoved` are the same wait against two different URLs.
+  `serverActionResponse(page, url = playlistUrl)` would remove the near-duplicate
+  and make the one explicit timeout apply to both.
+- **S4 — RH-73 wording**, as set out in section 4: the double mount fetch is
+  React Strict Mode, i.e. development only; the production exposure is overlapping
+  `loadSongs()` calls from `handleAddFromCatalog` / `handleAddFromSpotify` /
+  `updateStatus`'s catch path. Worth correcting in the backlog item so its
+  severity is judged on the reproducible case.
+
+## [RH-66] PlaylistDetailPage parte 1/6: rede e2e de caracterizacao e currentUserId derivado (QA r2) — 2026-09-10
+
+- None blocking or otherwise worth recording: the round-1 concern (the teardown test's
+  `toHaveCount(0)` failing 4 of 9 full-suite runs) did not reproduce once in eight
+  executions here (six full-suite, two spec-only), all against a freshly started
+  `npm run dev` with accumulated fixture rows left in the database.
