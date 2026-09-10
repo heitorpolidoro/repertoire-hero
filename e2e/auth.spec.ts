@@ -29,6 +29,18 @@ async function fillAndSubmitLogin(
   email: string,
   password: string
 ) {
+  // Clearing first is what makes a retry able to change anything. `/login` is a
+  // `'use client'` page with controlled inputs, so a fill that lands before
+  // hydration writes the DOM while React's state stays `''`; hydration then
+  // adopts the DOM text as the tracked value, and every later `fill` of the same
+  // string is seen as "no change" and dispatches no React event. The submit
+  // therefore posts `{"email":""}`, Better Auth answers `400 Invalid email`, and
+  // the retry loop below repeats it identically for its whole budget (measured
+  // at 6 submits in 30 s, all with an empty email — the failure behind
+  // `valid credentials redirect to home`). Filling `''` is a real value change,
+  // so the fill that follows it dispatches the event React needs.
+  await page.locator('#email').fill('')
+  await page.locator('#password').fill('')
   await page.locator('#email').fill(email)
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: /sign in/i }).click()
@@ -56,6 +68,18 @@ async function signInAndLandOn(
     await expect(page).toHaveURL(destination, { timeout: 5_000 })
   }).toPass({ timeout: 30_000 })
 }
+
+// ---------------------------------------------------------------------------
+// The retry budget above only exists if the test is allowed to spend it: the
+// `toPass({ timeout: 30_000 })` wrapper is as large as playwright.config.ts's
+// `timeout: 30_000`, and `redirect param is honoured after login` spends up to
+// 8_000 ms on `goto`/`waitForURL` before it even reaches the loop, so under the
+// inherited default the test always died ("Test timeout of 30000ms exceeded")
+// while the loop was still retrying. 90 s is comfortably above 8 s + 30 s and
+// leaves room for a cold dev server compiling /login on demand — the same shape
+// e2e/fast-view-mobile.spec.ts uses for the same reason.
+// ---------------------------------------------------------------------------
+test.describe.configure({ timeout: 90_000 })
 
 // ---------------------------------------------------------------------------
 // Tests — intentionally NOT using storageState

@@ -101,5 +101,8 @@ test('fast-view page renders the song title on mobile', async ({ page }) => {
 
   // Verify we're on the fast-view URL and the song title is displayed
   await expect(page).toHaveURL(/\/songs\/.+\/fast-view/)
-  await expect(page.getByRole('heading').filter({ hasText: songTitle })).toBeVisible()
+  // Budget, not a sleep: covers the client navigation above plus `useSongEntry`'s entry fetch, which the 5 s expect default does not.
+  await expect(page.getByRole('heading').filter({ hasText: songTitle })).toBeVisible({
+    timeout: 15_000,
+  })
 })
