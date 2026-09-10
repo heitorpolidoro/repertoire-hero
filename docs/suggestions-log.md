@@ -6519,3 +6519,65 @@ Design questions the dispatch raised:
   `toHaveCount(0)` failing 4 of 9 full-suite runs) did not reproduce once in eight
   executions here (six full-suite, two spec-only), all against a freshly started
   `npm run dev` with accumulated fixture rows left in the database.
+
+## [RH-67] PlaylistDetailPage parte 2/6: extrair o SongPicker (spec review r1) — 2026-09-10
+
+- **ER2's `'use client'` requirement for the hook departs from a unanimous convention.** All eleven files in `src/hooks/` (including `useSongStatus.ts`, which the spec names as its model) start with an `import` line and carry no directive; only components under `src/components/` carry `"use client"`. Requiring `head -1 src/hooks/useSongPicker.ts` to be the directive is harmless and does not break the module-layout guard (`@/lib/spotify` and `@/lib/songPicker` are both outside the `pg` closure), but it makes RH-67 the odd hook out. Consider dropping that clause for the hook and keeping it for the three components, where it is the house style.
+- **The complexity budget lands on exactly 30, with zero margin.** My simulation measures complexity 30, i.e. one added `&&`, `?:` or `??` anywhere in `PlaylistDetailPage`'s own body during implementation puts it at 31 and fails ER4. Worth a sentence in the Approach warning the implementer that the page's two new call sites must stay as written (`{showSearch && <SongPicker …/>}` is the one decision point the extraction budgets for).
+- **ER1's `grep -c "useState\|useEffect\|useRef\|react" src/lib/songPicker.ts` is brittle in one direction**: the bare substring `react` also matches an ordinary English word in a doc comment ("the hook reacts to…"). `grep -cE "from ['\"]react['\"]|useState|useEffect|useRef"` says the same thing without the trap.
+- **Name the arrow-const rule explicitly.** `namingConventions.test.ts` enforces "src/lib declares its exports as functions, never as arrow consts". ER1 counts `export function|export interface|export const`, which would also pass for `export const shouldSearchPicker = (q: string) => …` — a form ER5's suite then rejects. One line in the Shape section ("every function export is `export function`") removes the round-trip.
+- Minor: the audit says "`handleRemoveSong` at 548 calls it too"; `handleRemoveSong` starts at 543 and its `autoPushIfNeeded()` call is at 548.
+
+## [RH-67] PlaylistDetailPage parte 2/6: extrair o SongPicker (spec review r2) — 2026-09-10
+
+- ER2's `head -1` clause covers the three `playlists/` components but not
+  `src/components/ui/Spinner.tsx`, which is the fourth new `.tsx`. "Moved verbatim"
+  settles what its body must be, and nothing breaks either way, but a QA reader
+  comparing the seven-file list of ER1 with the three-file list of ER2 has to reason
+  the gap out. Half a sentence in ER2 ("`Spinner.tsx` moves verbatim and inherits the
+  page's client context") would close it.
+- ER11's whitelist is verified with `git diff --name-only 882806a`, which only reports
+  the eleven new files once they are in the index. That is how this pipeline stages work
+  before QA, so it holds — but the ER does not say so, and an implementer who leaves the
+  new files untracked will see a passing whitelist that proves nothing. Naming the
+  precondition ("with the change set staged") would make the ER self-contained.
+
+## [RH-67] PlaylistDetailPage parte 2/6: extrair o SongPicker (code review r1) — 2026-09-10
+
+1. **D1 — retire the suppression in RH-71, and say so in RH-71's spec.** The
+   comment at `src/app/playlists/[id]/page.tsx:246-249` names RH-71 as owner, but
+   nothing mechanically holds it to that. When RH-71 converts the page to a Server
+   Component the effect disappears and the disable must go with it; a line in that
+   spec's Expected Results (`grep -c "eslint-disable-next-line react-hooks/set-state-in-effect" 'src/app/playlists/[id]/page.tsx'` prints `0`)
+   would make it self-enforcing rather than aspirational.
+2. **One line of slack on `max-lines-per-function`.** The delivered 839 sits one line
+   under ER4's 840 ceiling, four of which are D1's comment block. RH-68 will have to
+   re-pin the override on its first edit — worth stating in RH-68's spec so it is not
+   discovered as a surprise failure of `complexityBudget.test.ts`.
+3. **`src/components/ui/Spinner.tsx` does not need `"use client"`.** It renders a
+   static SVG with no hook, no state and no handler. Both consumers today are client
+   components, so the directive costs nothing, but it needlessly bars a future Server
+   Component from rendering it without crossing a client boundary. Drop it whenever
+   `ui/` is next touched.
+4. **Add an unmount test for the debounce when the name budget allows.** Something
+   like "clears the pending debounce when the controller unmounts" — assert
+   `searchCatalog` is never called after `unmount()` followed by
+   `vi.advanceTimersByTime(500)`. The cleanup is correct today; nothing pins it.
+5. **The twelfth hook test carries two scenarios.** `reuses the existing repertoire
+   entry when the create reports the song is already in the repertoire` also covers
+   the *no entry to reuse* path in its second half. It is honest — the dev report
+   discloses it — and the ER fixed the thirteen names, but a reader scanning test
+   names will not find the failing-create case. Split it when the name list is next
+   free to grow.
+6. **The flaky full-run the dev reported** (`1 failed | 1248 passed`, unreproducible)
+   is worth QA's attention. Nothing in this diff explains it; the three new files ran
+   clean in isolation here, twice.
+
+## [RH-67] PlaylistDetailPage parte 2/6: extrair o SongPicker (QA r1) — 2026-09-10
+
+- `src/hooks/useSongPicker.ts` measures 90.9 % function coverage against 100 % for
+  `src/lib/songPicker.ts`; the uncovered function is well inside the ER's >= 90 bar, but a
+  single extra hook test would close it.
+- ER2's wording "all eleven files in `src/hooks/`" is now a twelve-file directory (the count
+  was the `882806a` one). Worth restating as "every file in `src/hooks/`" if this clause is
+  ever reused as a rule.

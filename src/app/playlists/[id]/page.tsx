@@ -8,23 +8,22 @@ import {
   getPlaylistWithSongsAction as getPlaylistWithSongs,
   updatePlaylistAction as updatePlaylist,
   deletePlaylistAction as deletePlaylist,
-  addSongToPlaylistAction as addSongToPlaylist,
   removeSongFromPlaylistAction as removeSongFromPlaylist,
 } from "@/app/actions/playlists";
 import {
   updateSongStatusAction as updateSongStatus,
   updateSongTagsAction as updateSongTags,
-  searchGlobalSongsAction as searchGlobalSongs,
-  addSongAction as addSongToRepertoire,
-  createAndAddSongAction as createAndAddSong,
 } from "@/app/actions/repertoire";
-import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
+import { SONG_PICKER_ACTIONS } from "@/app/songPickerActions";
+import { SongPicker } from "@/components/playlists/SongPicker";
+import { SongPickerToggle } from "@/components/playlists/SongPickerToggle";
+import { Spinner } from "@/components/ui/Spinner";
+import { useSongPicker } from "@/hooks/useSongPicker";
 import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
 import { authClient } from "@/lib/auth-client";
 import { getRepertoireAction } from "@/app/actions/repertoire";
 import { useBandContextStore } from "@/store/bandContextStore";
 import type {
-  GlobalSong,
   Playlist,
   PlaylistSong,
   SongStatus,
@@ -53,92 +52,6 @@ const timeAgo = (isoString: string): string => {
   if (diffHrs < 24) return `${diffHrs}h ago`;
   return `${Math.floor(diffHrs / 24)}d ago`;
 };
-
-const Spinner = () => (
-  <svg
-    className="animate-spin h-4 w-4 text-emerald-500"
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-  >
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8v8H4z"
-    />
-  </svg>
-);
-
-// ---------------------------------------------------------------------------
-// Song result row — used in the add-song search panel
-// ---------------------------------------------------------------------------
-
-interface PickerRowProps {
-  coverUrl?: string | null;
-  title: string;
-  artist: string;
-  album?: string | null;
-  adding: boolean;
-  error?: string;
-  onAdd: () => void;
-}
-
-const PickerRow = ({
-  coverUrl,
-  title,
-  artist,
-  album,
-  adding,
-  error,
-  onAdd,
-}: PickerRowProps) => (
-  <li className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
-    {coverUrl ? (
-      <Image
-        src={coverUrl}
-        alt=""
-        width={32}
-        height={32}
-        className="h-8 w-8 rounded object-cover shrink-0"
-        unoptimized
-      />
-    ) : (
-      <div
-        className="h-8 w-8 rounded bg-emerald-100 shrink-0"
-        aria-hidden="true"
-      />
-    )}
-    <div className="flex-1 min-w-0">
-      <p className="text-sm text-gray-900 truncate">{title}</p>
-      <p className="text-xs text-gray-500 truncate">{artist}</p>
-      {album && (
-        <p className="text-xs text-gray-400 italic truncate">{album}</p>
-      )}
-    </div>
-    <div className="shrink-0 flex flex-col items-end gap-0.5">
-      <button
-        type="button"
-        onClick={onAdd}
-        disabled={adding}
-        className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {adding ? "Adding…" : "Add"}
-      </button>
-      {error && (
-        <p className="text-xs text-red-500 text-right max-w-[120px]">{error}</p>
-      )}
-    </div>
-  </li>
-);
 
 // ---------------------------------------------------------------------------
 // Playlist mastery summary
@@ -296,28 +209,13 @@ export default function PlaylistDetailPage() {
   const [addingPlaylistTag, setAddingPlaylistTag] = useState(false);
   const [newPlaylistTagInput, setNewPlaylistTagInput] = useState("");
 
-  // Add-song search panel
+  // Add-song search panel — everything but this flag lives in the controller
   const [showSearch, setShowSearch] = useState(false);
-  const [pickerQuery, setPickerQuery] = useState("");
-  const [pickerCatalogResults, setPickerCatalogResults] = useState<
-    GlobalSong[]
-  >([]);
-  const [pickerSpotifyResults, setPickerSpotifyResults] = useState<
-    SpotifyTrack[]
-  >([]);
-  const [pickerLoading, setPickerLoading] = useState(false);
-  const [pickerAddingId, setPickerAddingId] = useState<string | null>(null);
-  const [pickerRowErrors, setPickerRowErrors] = useState<
-    Record<string, string>
-  >({});
-  const pickerDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pickerLatestQuery = useRef("");
 
   // Focus refs — used instead of autoFocus to preserve accessibility
   const editInputRef = useRef<HTMLInputElement>(null);
   const playlistTagInputRef = useRef<HTMLInputElement>(null);
   const songTagInputRef = useRef<HTMLInputElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) editInputRef.current?.focus();
@@ -328,9 +226,6 @@ export default function PlaylistDetailPage() {
   useEffect(() => {
     if (addingTagForSong) songTagInputRef.current?.focus();
   }, [addingTagForSong]);
-  useEffect(() => {
-    if (showSearch) searchInputRef.current?.focus();
-  }, [showSearch]);
 
   const refreshPlaylist = useCallback(async () => {
     const data = await getPlaylistWithSongs(playlistId);
@@ -348,6 +243,10 @@ export default function PlaylistDetailPage() {
   }, [playlistId, router, bandId]);
 
   useEffect(() => {
+    // Re-enters the loading state when `refreshPlaylist` changes identity (a
+    // band-context switch). RH-71 deletes this effect with the Server Component
+    // conversion; until then, the same exception `useBandAdmin.ts` carries.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     refreshPlaylist()
       .catch((err) =>
@@ -357,44 +256,6 @@ export default function PlaylistDetailPage() {
       )
       .finally(() => setLoading(false));
   }, [refreshPlaylist]);
-
-  // Debounced picker search: catalog + Spotify in parallel
-  const runPickerSearch = useCallback(async (query: string) => {
-    pickerLatestQuery.current = query;
-    if (query.trim().length < 2) {
-      setPickerCatalogResults([]);
-      setPickerSpotifyResults([]);
-      setPickerLoading(false);
-      return;
-    }
-    setPickerLoading(true);
-    try {
-      const [catalog, spotify] = await Promise.all([
-        searchGlobalSongs(query).catch(() => [] as GlobalSong[]),
-        searchSpotify(query).catch(() => [] as SpotifyTrack[]),
-      ]);
-      if (pickerLatestQuery.current !== query) return;
-      setPickerCatalogResults(catalog);
-      setPickerSpotifyResults(spotify);
-    } finally {
-      if (pickerLatestQuery.current === query) setPickerLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (pickerDebounce.current) clearTimeout(pickerDebounce.current);
-    pickerDebounce.current = setTimeout(() => {
-      runPickerSearch(pickerQuery).catch(console.error);
-    }, 500);
-    return () => {
-      if (pickerDebounce.current) clearTimeout(pickerDebounce.current);
-    };
-  }, [pickerQuery, runPickerSearch]);
-
-  const currentSongIds = useMemo(
-    () => new Set(songs.map((ps) => ps.song_id)),
-    [songs],
-  );
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -422,29 +283,6 @@ export default function PlaylistDetailPage() {
     return result;
   }, [songs, repertoireMap, activeTagFilter, songFilterQuery]);
 
-  // Picker results: hide songs already in the playlist; deduplicate Spotify vs catalog
-  const pickerVisibleCatalog = useMemo(
-    () => pickerCatalogResults.filter((song) => !currentSongIds.has(song.id)),
-    [pickerCatalogResults, currentSongIds],
-  );
-  const pickerCatalogKeys = useMemo(
-    () =>
-      new Set(
-        pickerVisibleCatalog.map(
-          (song) => `${song.title.toLowerCase()}|${song.artist.toLowerCase()}`,
-        ),
-      ),
-    [pickerVisibleCatalog],
-  );
-  const pickerVisibleSpotify = useMemo(
-    () =>
-      pickerSpotifyResults.filter((track) => {
-        const key = `${track.title.toLowerCase()}|${track.artist.toLowerCase()}`;
-        return !pickerCatalogKeys.has(key);
-      }),
-    [pickerSpotifyResults, pickerCatalogKeys],
-  );
-
   const autoPushIfNeeded = useCallback(async () => {
     if (!playlist?.sync_with_spotify || !playlist?.spotify_playlist_id) return;
     const res = await fetch(`/api/spotify/playlists/${playlistId}/sync`, {
@@ -458,87 +296,15 @@ export default function PlaylistDetailPage() {
     }
   }, [playlist?.sync_with_spotify, playlist?.spotify_playlist_id, playlistId]);
 
-  // Low-level: add an already-in-repertoire song to the playlist and refresh state
-  const addSongIdToPlaylist = useCallback(
-    async (songId: string) => {
-      await addSongToPlaylist(playlistId, songId);
-      const updated = await getPlaylistWithSongs(playlistId);
-      setSongs(updated?.songs ?? []);
-      await autoPushIfNeeded();
-    },
-    [playlistId, autoPushIfNeeded],
-  );
-
-  // Add a catalog song: ensure it's in the repertoire, then add to playlist
-  const handlePickerAddCatalog = async (song: GlobalSong) => {
-    setPickerAddingId(song.id);
-    setPickerRowErrors((prev) =>
-      Object.fromEntries(
-        Object.entries(prev).filter(([key]) => key !== song.id),
-      ),
-    );
-    try {
-      if (!repertoireMap.has(song.id)) {
-        await addSongToRepertoire(song.id);
-      }
-      await addSongIdToPlaylist(song.id);
-    } catch (err) {
-      setPickerRowErrors((prev) => ({
-        ...prev,
-        [song.id]: err instanceof Error ? err.message : "Failed to add",
-      }));
-    } finally {
-      setPickerAddingId(null);
-    }
-  };
-
-  // Add a Spotify track: create global song + add to repertoire, then add to playlist
-  const handlePickerAddSpotify = async (track: SpotifyTrack) => {
-    setPickerAddingId(track.id);
-    setPickerRowErrors((prev) =>
-      Object.fromEntries(
-        Object.entries(prev).filter(([key]) => key !== track.id),
-      ),
-    );
-    try {
-      const resolveTrackId = async (): Promise<string> => {
-        try {
-          const entry = await createAndAddSong({
-            title: track.title,
-            artist: track.artist,
-            album: track.album ?? undefined,
-            cover_url: track.albumArt ?? undefined,
-            links: [{ label: "Spotify", url: track.spotifyUrl }],
-          });
-          return entry.song_id;
-        } catch (err) {
-          // Song already in repertoire — find its id from the current map
-          if (
-            err instanceof Error &&
-            err.message.includes("already in your repertoire")
-          ) {
-            const existing = [...repertoireMap.values()].find(
-              (rep) =>
-                rep.song?.title.toLowerCase() === track.title.toLowerCase() &&
-                rep.song?.artist.toLowerCase() === track.artist.toLowerCase(),
-            );
-            if (!existing) throw err;
-            return existing.song_id;
-          }
-          throw err;
-        }
-      };
-      const songId = await resolveTrackId();
-      await addSongIdToPlaylist(songId);
-    } catch (err) {
-      setPickerRowErrors((prev) => ({
-        ...prev,
-        [track.id]: err instanceof Error ? err.message : "Failed to add",
-      }));
-    } finally {
-      setPickerAddingId(null);
-    }
-  };
+  // The add-song panel: query, debounce, dual-source search and the two adds
+  const picker = useSongPicker({
+    playlistId,
+    actions: SONG_PICKER_ACTIONS,
+    repertoire: repertoireMap,
+    songs,
+    onSongsChanged: setSongs,
+    afterAdd: autoPushIfNeeded,
+  });
 
   const handleRemoveSong = async (songId: string) => {
     setError(null);
@@ -774,31 +540,10 @@ export default function PlaylistDetailPage() {
           {!editing && (
             <div className="flex items-center gap-0.5 shrink-0">
               {/* Add songs */}
-              <button
-                type="button"
-                onClick={() => setShowSearch((prev) => !prev)}
-                aria-label="Add songs"
-                aria-pressed={showSearch}
-                className={`p-1.5 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors ${
-                  showSearch
-                    ? "text-emerald-600 bg-emerald-50"
-                    : "text-gray-400 hover:text-emerald-600"
-                }`}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
+              <SongPickerToggle
+                open={showSearch}
+                onToggle={() => setShowSearch((prev) => !prev)}
+              />
 
               <button
                 type="button"
@@ -1273,71 +1018,7 @@ export default function PlaylistDetailPage() {
       </section>
 
       {/* Add-song search panel (toggled by the + button in the header) */}
-      {showSearch && (
-        <div className="border-t border-gray-100 px-4 py-3 md:px-6 shrink-0 flex flex-col gap-2">
-          <input
-            ref={searchInputRef}
-            type="search"
-            value={pickerQuery}
-            onChange={(ev) => setPickerQuery(ev.target.value)}
-            placeholder="Search catalog and Spotify…"
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-          <ul
-            className="max-h-60 overflow-y-auto flex flex-col gap-0.5"
-            aria-live="polite"
-          >
-            {pickerQuery.trim().length < 2 ? (
-              <li className="text-xs text-gray-400 text-center py-3">
-                Type to search…
-              </li>
-            ) : pickerLoading ? (
-              <li
-                className="flex items-center gap-2 px-2 py-2 text-sm text-gray-400"
-                aria-busy="true"
-              >
-                <Spinner /> Searching…
-              </li>
-            ) : pickerVisibleCatalog.length === 0 &&
-              pickerVisibleSpotify.length === 0 ? (
-              <li className="text-xs text-gray-400 text-center py-3">
-                No results
-              </li>
-            ) : (
-              <>
-                {pickerVisibleCatalog.map((song) => (
-                  <PickerRow
-                    key={song.id}
-                    coverUrl={song.cover_url}
-                    title={song.title}
-                    artist={song.artist}
-                    album={song.album}
-                    adding={pickerAddingId === song.id}
-                    error={pickerRowErrors[song.id]}
-                    onAdd={() => {
-                      handlePickerAddCatalog(song).catch(console.error);
-                    }}
-                  />
-                ))}
-                {pickerVisibleSpotify.map((track) => (
-                  <PickerRow
-                    key={track.id}
-                    coverUrl={track.albumArt}
-                    title={track.title}
-                    artist={track.artist}
-                    album={track.album}
-                    adding={pickerAddingId === track.id}
-                    error={pickerRowErrors[track.id]}
-                    onAdd={() => {
-                      handlePickerAddSpotify(track).catch(console.error);
-                    }}
-                  />
-                ))}
-              </>
-            )}
-          </ul>
-        </div>
-      )}
+      {showSearch && <SongPicker picker={picker} />}
     </div>
   );
 }
