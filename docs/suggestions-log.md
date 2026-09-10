@@ -6768,3 +6768,96 @@ None.
   satisfied vacuously rather than by inspection of a clone list. If future tasks want to lean on that
   clause, switching the `lint:dup` reporter to one that lists clone locations would make the check
   meaningful. Non-blocking.
+
+## [RH-70] PlaylistDetailPage parte 5/6: header, sync do Spotify, efeitos de foco e reducer de paineis (spec review r1) — 2026-09-10
+
+- ER3's `grep -c "playlistPanelReducer\|NO_PANEL\|renameDraft"` >= `4` is
+  formatting-dependent. There is no Prettier in this repo (no config, no
+  `format` script), so an implementer who leaves the 83-character import on one
+  line gets `3` - import line, the `useReducer` call carrying both
+  `playlistPanelReducer` and `NO_PANEL`, and `renameDraft(panel)` in
+  `handleRename` - and fails a correct implementation. My probe printed `5` only
+  because I broke the import across lines. Count occurrences rather than lines
+  (`grep -o ... | wc -l`) or lower the bound to `3`.
+- Difference 3's prose ("a callback ref ... runs when the input mounts") is not
+  quite true of an inline arrow ref: it re-runs on every render of the header.
+  Either memoize the ref with `useCallback` (which makes the sentence true and
+  removes the focus-recapture edge case) or state the re-attach explicitly.
+- The `PlaylistDetailPage <= 260` target is reachable inside this slice by also
+  extracting the in-playlist filter input (page 479-514, ~36 lines, worth ~30 on
+  the function). The spec's reason for not doing it is sound, but consider
+  recording in `docs/suggestions-log.md` that the plan target is deferred to
+  RH-71 rather than dropped, so the parent plan's five targets stay auditable.
+- ER5's phrasing "`grep -c "complexity:"` over that line prints `0`" reads as a
+  command applied to a line rather than a file; spelling it as
+  `grep -n "src/app/playlists" eslint.config.mjs | grep -c "complexity:"` would
+  make it directly runnable.
+
+## [RH-70] PlaylistDetailPage parte 5/6: header, sync do Spotify, efeitos de foco e reducer de paineis (spec review r2) — 2026-09-10
+
+- The audit table sends line 83 (`editInputRef`) to "deleted" but does not
+  mention its doc comment on lines 81-82 ("Focus ref — used instead of
+  autoFocus to preserve accessibility. The two tag inputs have their own, inside
+  the tag editing controller."), which also contains the word `editing`. ER3
+  settles it by naming the single surviving line, so nothing is ambiguous in
+  practice; a row reading `81-83 | the focus ref and its comment | deleted — the
+  accessibility note moves to the header's callback ref` would make the table
+  self-contained.
+- ER3's `grep -c "PlaylistDetailHeader"` prints `2` assumes the element is
+  written self-closing (`<PlaylistDetailHeader … />`), which it must be since it
+  takes no children — worth a parenthetical, since a `<X>…</X>` pair would print
+  `3` and fail a behaviourally identical implementation.
+- The "Reference measurement of the result" table (header 198 / 167 / 5) was
+  measured before difference 3 adopted the `useCallback` memoization; the header
+  file is now a few lines longer than the number quoted. No ER reads those
+  header numbers as a threshold, so nothing fails, but re-measuring or marking
+  them "before the memoized ref" would keep the table honest for RH-71.
+
+## [RH-70] PlaylistDetailPage parte 5/6: header, sync do Spotify, efeitos de foco e reducer de paineis (dev r1) — 2026-09-10
+
+- Two of the parent plan's five targets for `/playlists/[id]` are **deferred to
+  RH-71, not dropped**, so the plan stays auditable: `useState <= 5` (pinned at
+  the measured `8` — the two filter selections are not panels and `loading`
+  leaves with the Server Component conversion) and `PlaylistDetailPage <= 260`
+  lines (pinned at the measured `282` — reaching 260 needs the in-playlist
+  filter input extracted, which RH-71's island dissolves anyway). The other
+  three landed here with room: page 323 lines, complexity 10, one `useEffect(`.
+
+## [RH-70] PlaylistDetailPage parte 5/6: header, sync do Spotify, efeitos de foco e reducer de paineis (code review r1) — 2026-09-10
+
+- `NO_PANEL` (`src/lib/playlistPanels.ts:32`) is an exported mutable object that
+  the reducer hands back by reference from both `close` and the picker toggle-off.
+  Nothing mutates it today, but `Object.freeze` — or declaring the union members
+  with `readonly` fields — would make the shared initial state impossible to
+  corrupt from a call site. Non-blocking; the exported type is not part of any
+  public API beyond this page.
+- The reducer's exhaustiveness currently rests on TypeScript's "not all code
+  paths return a value" error. That is sufficient and I verified it holds, but an
+  explicit `default: { const _never: never = action; return _never }` would name
+  the intent for the next reader. Weigh it against the extra branch: the current
+  form has no untested line, the explicit form would add one.
+- `syncEndpoint` interpolates `playlistId` into the path without
+  `encodeURIComponent` (`src/lib/playlistSync.ts:21`). This is identical to the
+  baseline template literal and the id is a route param the user already owns, so
+  there is no exploitable path and changing it here would be an unrequested
+  behaviour change — but it is worth a line in a future task that touches this
+  module.
+- `import { NO_PANEL, playlistPanelReducer, renameDraft } from "@/lib/playlistPanels"`
+  landed at `src/app/playlists/[id]/page.tsx:32`, immediately before the
+  pre-existing out-of-order `@/lib/auth-client` and `@/app/actions/repertoire`
+  imports. No lint rule orders imports in this repo, and the block was already
+  unordered at `a79abef`, so this is cosmetic; tidying it would also widen the
+  diff beyond the closed change set.
+
+## [RH-70] PlaylistDetailPage parte 5/6: header, sync do Spotify, efeitos de foco e reducer de paineis (QA r1) — 2026-09-10
+
+- ER4/ER5 pin `max-lines-per-function` at the exact measured `282`, so any later
+  edit to the page that adds a single line inside `PlaylistDetailPage` will fail
+  lint until the override is re-pinned. That is the ratchet working as designed
+  and RH-71 deletes the entry entirely, so this is a note rather than a change
+  request.
+- `src/lib/playlistPanels.ts` and `src/lib/playlistSync.ts` use single-quote,
+  semicolon-free style while `src/app/playlists/[id]/page.tsx` uses
+  double-quote-with-semicolons. Both pass lint, and the split matches the
+  existing split between `src/lib` and `src/app` in this repository, so nothing
+  needs doing; flagging only in case a future formatting pass wants uniformity.
