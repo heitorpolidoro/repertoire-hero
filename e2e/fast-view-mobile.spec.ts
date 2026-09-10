@@ -11,15 +11,31 @@
 
 import { test, expect } from '@playwright/test'
 import { AUTH_STATE_PATH } from './global-setup'
-import { addSong, goHome, songCard } from './helpers'
+import { addSong, goHome, songCard, uniqueSongTitle } from './helpers'
 
-const MOBILE_SONG_TITLE = 'E2E Mobile Song'
-const MOBILE_SONG_FAST_VIEW = 'E2E Mobile Song Fast View'
+// ---------------------------------------------------------------------------
+// Song titles are built with `uniqueSongTitle` inside each test body, never as
+// module-level constants: the e2e database is never reset, so a constant title
+// can only be added once and every later run (or retry) dies on its own
+// leftovers with `Song already in your repertoire`. The two prefixes below are
+// also deliberately not prefixes of one another — `songCard` matches by
+// substring, so `E2E Mobile Song` used to match the `... Fast View` card too and
+// blow up strict mode once both rows existed.
+// ---------------------------------------------------------------------------
+const SEARCH_SONG_PREFIX = 'E2E Mobile Search Song'
+const FAST_VIEW_SONG_PREFIX = 'E2E Mobile FastView Song'
 
 // ---------------------------------------------------------------------------
 // Use authenticated session
 // ---------------------------------------------------------------------------
 test.use({ storageState: AUTH_STATE_PATH })
+
+// The dev server compiles routes on first hit, so the first test to reach
+// /songs/[id]/fast-view can pay a large one-off compile cost on top of the
+// the hydration retry loop below. Allow more than the 30s default rather than
+// reporting a cold cache as a product failure (same reasoning as
+// e2e/bands-confirm.spec.ts).
+test.describe.configure({ timeout: 90_000 })
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -39,39 +55,51 @@ test('song list is visible on a mobile viewport', async ({ page, viewport }) => 
 })
 
 test('search works on a mobile viewport', async ({ page }) => {
+  const songTitle = uniqueSongTitle(SEARCH_SONG_PREFIX)
+
   await goHome(page)
 
   // Add a uniquely-titled song so we can search for it
-  await addSong(page, { title: MOBILE_SONG_TITLE, artist: 'Mobile Artist' })
-  await expect(songCard(page, MOBILE_SONG_TITLE)).toBeVisible()
+  await addSong(page, { title: songTitle, artist: 'Mobile Artist' })
+  await expect(songCard(page, songTitle)).toBeVisible()
 
   // Type into the search input and wait for debounce
   const searchInput = page.locator('#search-input')
   await expect(searchInput).toBeVisible()
-  await searchInput.fill(MOBILE_SONG_TITLE)
+  await searchInput.fill(songTitle)
 
   // After debounce the card should still be visible (matching) and unrelated
   // cards should be hidden
-  await expect(songCard(page, MOBILE_SONG_TITLE)).toBeVisible()
+  await expect(songCard(page, songTitle)).toBeVisible()
 })
 
 test('fast-view page renders the song title on mobile', async ({ page }) => {
+  const songTitle = uniqueSongTitle(FAST_VIEW_SONG_PREFIX)
+
   await goHome(page)
 
   // Ensure there is at least one song we can navigate to
-  await addSong(page, { title: MOBILE_SONG_FAST_VIEW })
+  await addSong(page, { title: songTitle })
 
   // Find the fast-view link for our song and click it
-  const card = songCard(page, MOBILE_SONG_FAST_VIEW)
+  const card = songCard(page, songTitle)
   const fastViewLink = card.getByRole('link', { name: /fast view|🎸|📖/i }).or(
     // Fallback: any link inside the card that goes to /fast-view
     card.locator('a[href*="fast-view"]')
   )
   await expect(fastViewLink).toBeVisible()
-  await fastViewLink.click()
+
+  // The card is a next/link inside a client-rendered list: it paints before
+  // React hydrates, so a click on a cold route can be swallowed with no
+  // navigation logged at all (the CI failure mode of this test). Retry the click
+  // until the navigation actually happens, exactly as bands-confirm and
+  // server-pages retry their cold-route clicks.
+  await expect(async () => {
+    await fastViewLink.click()
+    await expect(page).toHaveURL(/\/songs\/.+\/fast-view/, { timeout: 5_000 })
+  }).toPass({ timeout: 30_000 })
 
   // Verify we're on the fast-view URL and the song title is displayed
-  await page.waitForURL(/\/songs\/.+\/fast-view/, { timeout: 8_000 })
   await expect(page).toHaveURL(/\/songs\/.+\/fast-view/)
-  await expect(page.getByRole('heading').filter({ hasText: MOBILE_SONG_FAST_VIEW })).toBeVisible()
+  await expect(page.getByRole('heading').filter({ hasText: songTitle })).toBeVisible()
 })

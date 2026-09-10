@@ -5956,3 +5956,149 @@ sanctioned by the spec and are recorded here only so a future task has them.
   requires editing the test. That is arguably the point (the decision should be
   re-litigated deliberately), but the failure message could say so explicitly.
   Non-blocking.
+
+## [RH-44] Corrigir CI vermelho na master (spec review r1) — 2026-09-09
+
+- ER5 asserts `grep -rn "retries" e2e/ playwright.config.ts` prints only the pre-existing
+  `retries: process.env.CI ? 2 : 0` line. The intent is "no new retry knob", but the pattern is
+  a bare word: a perfectly correct JSDoc such as "…retries the click until the dialog opens"
+  would fail it. Tightening the pattern to `retries:` would keep the guarantee without
+  constraining prose.
+- The audit's phrase "a database that is never reset" is accurate locally but invites the wrong
+  conclusion about CI, where `.github/workflows/ci.yml:23-36` gives the job a fresh Postgres
+  service container plus `npm run db:migrate` on every run. Worth one clause stating that in CI
+  the collision is strictly within-run (retry re-runs the fixture against the database the
+  first attempt already dirtied), and that the never-reset database is a local amplifier.
+- The fill-if-empty rule is attributed to "commit `d102d28`, RH-15". Those are two separate
+  changes: `d102d28` introduced fill-if-empty and explicitly said no correction mechanism
+  existed yet; RH-15 (`fbd3197`, `3923f6d`) added `Correct Global Info` and the moderation
+  queue later. Splitting the citation would make the audit exactly right.
+- `e2e/bands-confirm.spec.ts:36` is cited for `E2E Band Confirm ${Date.now()}`; the line is 37.
+- Approach B instructs the implementer to record the "editable title field whose value is
+  silently discarded" UX gap in `docs/suggestions-log.md`, but no ER pins that entry. The spec
+  already knows this gap exists — it is not a conditional discovery — so a one-clause addition
+  to ER6 ("`docs/suggestions-log.md` gains an entry naming the silently-discarded title field")
+  would make the hand-off verifiable rather than trusted. Not blocking: the substantive
+  deliverable is fully pinned without it.
+- Out of Scope already flags the `server-pages.spec.ts:81` multi-worker detachment flake for
+  the suggestions log. Worth noting there that ER4's `--workers=1` is what keeps it out of this
+  task's measurements, so a future reader does not mistake the constraint for a workaround the
+  task introduced.
+
+## [RH-44] Corrigir CI vermelho na master (implementation) — 2026-09-09
+
+Four application-side observations made while repairing the E2E suite. All of
+them are `src/` changes, which RH-44's whitelist forbids, so each is recorded
+here as its own future item rather than fixed in passing.
+
+- **The song edit dialog accepts a title it will silently discard.** `SongForm`
+  renders `#sf-title` as an editable field in edit mode, but `updateSong`
+  (`src/lib/songs.ts:257-267`) writes `global_songs` fill-if-empty, so a title
+  that is already set is never overwritten and the user gets no feedback at all:
+  the dialog closes, the card keeps its old title, and nothing says why. The
+  correction path that does exist is `Correct Global Info` ->
+  `submitGlobalSongEditAction` -> the admin moderation queue (RH-15). Options
+  are to disable the field once the catalog value is non-empty and point at
+  `Correct Global Info`, or to route a changed title into the moderation queue
+  automatically. `e2e/songs-crud.spec.ts` now pins the current behaviour, so
+  whichever is chosen will show up as a test that has to be rewritten
+  deliberately.
+- **The "Add song" FAB covers the action buttons of whichever card lands in the
+  bottom-right corner.** The FAB is `fixed bottom-20 right-5` (`src/app/page.tsx:605`)
+  and the per-card Edit/Delete buttons sit at the right edge of each row, so once
+  the list is long enough to put a row under it, that row's Delete button cannot
+  be clicked at all — Playwright reports `<button aria-label="Add song"> intercepts
+  pointer events`, and a real thumb hits the same obstacle. Worth either padding
+  the bottom of the list past the FAB or shrinking the FAB's hit area. `deleteSong`
+  in `e2e/helpers.ts` now filters the list before clicking, which sidesteps the
+  overlap but does not remove it.
+- **Better Auth's rate limiter makes repeated sign-ins from one address flaky
+  against a production build.** `next start` runs with `NODE_ENV=production`, where
+  Better Auth enables rate limiting and caps `/sign-in/email` at a few requests per
+  ten seconds; `e2e/global-setup.ts` plus the two signing-in tests in
+  `e2e/auth.spec.ts` exceed it, and the login form then shows `Too many requests.
+  Please try again later.` for entirely valid credentials. CI does not see this
+  because `npm run test:e2e` starts the dev server. The spec's tests now retry the
+  submit and the invalid-credentials test explicitly refuses to be satisfied by the
+  rate-limit banner, but the durable fix is a test-only Better Auth rate-limit
+  exemption (or a per-run e2e user), which is an `src/lib/auth.ts` change.
+- **The local parallel-worker flake in `e2e/server-pages.spec.ts:81`** (out of scope
+  per the spec): running the full suite without `--workers=1` has failed with
+  `locator.fill: ... element was detached from the DOM` inside `createPlaylist`,
+  where the `toPass` block re-clicks the modal toggle and re-opens the modal under
+  the `fill`. ER4's `--workers=1` mirrors `playwright.config.ts` under CI and is
+  what keeps this out of RH-44's measurements — it is not a workaround this task
+  introduced. The fix is to stop re-clicking once the modal is open (assert the
+  toggle's state instead of clicking blind).
+
+## [RH-44] Corrigir CI vermelho na master (code review r1) — 2026-09-09
+
+**S1 — `signInAndLandOn` can re-enter after a submit that actually succeeded
+(`e2e/auth.spec.ts:54-57`).** The retry re-runs `fillAndSubmitLogin`, which
+clicks `getByRole('button', { name: /sign in/i })`. On the success path
+`src/app/login/page.tsx:40-55` never calls `setLoading(false)` — it goes straight
+to `router.push(redirect)` — so while the navigation is in flight the button
+renders `Signing in...` (`page.tsx:164`), which `/sign in/i` does not match. If a
+successful post-submit navigation takes longer than the 5s inner assertion (a
+cold `/profile` compile on CI's dev server is the realistic case), attempt 2's
+`click()` waits for a locator that will never resolve, bounded only by the test
+timeout — so a login that worked is reported as a timeout. Cheap fix: make the
+loop idempotent by checking the URL before re-submitting, e.g.
+`if (!page.url().includes('/login')) { await expect(page).toHaveURL(destination); return }`
+at the top of the block, or scope the retry to the rate-limit banner
+(`if (await banner.isVisible())`). Not blocking: the outcome is a false failure,
+never a false pass, CI's `retries: 2` would rescue it with `/profile` warm, and
+the pre-existing code failed on the same slow navigation too.
+
+**S2 — the 30s `toPass` budget in `e2e/auth.spec.ts` is unreachable.** The file
+carries no `test.describe.configure({ timeout: ... })`, so the per-test budget is
+`playwright.config.ts:10`'s `30_000` — the same number as the two `toPass`
+timeouts. The JSDoc at `:47-48` says "a real failure to honour it still fails
+once the retry budget runs out", but the retry budget can never run out: the test
+timeout fires first, with a less legible error. Either raise the file timeout the
+way `bands-confirm.spec.ts:20` and `fast-view-mobile.spec.ts` do, or lower the
+two `toPass` timeouts to something reachable (20s leaves room for the 10s
+rate-limit window plus a full attempt).
+
+**S3 — `deleteSong` interpolates the title straight into a `RegExp`
+(`e2e/helpers.ts:167`).** `new RegExp(\`Delete ${title}\`, 'i')` is safe today
+only because `uniqueSongTitle` emits `[A-Za-z0-9 -]`. The moment a fixture prefix
+gains a `(`, `+` or `.` this breaks in a confusing way. A one-line escape helper,
+or `getByLabel(\`Delete ${title}\`, { exact: true })`, removes the trap. Same
+applies to `openEditDialog` at `:125` (pre-existing).
+
+**S4 — the shared e2e user's repertoire grows by four rows per full local run.**
+Spec-sanctioned and harmless in CI (fresh service container per run), and no spec
+depends on list length, so this is not a correctness issue. But a developer's
+local home page accumulates `E2E %` cards indefinitely, which slowly makes every
+`songCard` render heavier and makes the FAB-overlap defect easier to hit
+manually. An `afterEach` in `songs-crud.spec.ts` calling the existing
+`deleteSong` for the add/edit fixtures (tolerating "not found") would keep it
+bounded at near-zero cost, and would fail closed since the titles are unique.
+
+**S5 — pre-existing lint warning blocks `eslint e2e --max-warnings 0`.**
+`e2e/global-setup.ts:13` imports `chromium` without using it. Inherited from
+`68a605b` and outside this task's whitelist-in-practice (the file is "permitted
+but not required" and was not touched), so it must not be fixed here — but the
+next task that opens that file should drop the import, since it is the only thing
+standing between `e2e/` and a zero-warning gate.
+
+**S6 — typo in a new comment.** `e2e/fast-view-mobile.spec.ts`: "on top of the
+the hydration retry loop" — duplicated "the".
+
+## [RH-44] Corrigir CI vermelho na master (QA r1) — 2026-09-09
+
+- ER5's constraint is written against `e2e/helpers.ts` and `e2e/fast-view-mobile.spec.ts`;
+  `e2e/auth.spec.ts` independently gained a `toPass` retry around the sign-in submit
+  (`signInAndLandOn`, lines 50–58) to absorb Better Auth's rate limiter, which only engages
+  against a production `next start`. That is a correct read of the mechanism and the
+  destination assertion is unweakened, but it means the four auth tests will now spend up to
+  30s retrying if sign-in ever breaks for a non-rate-limit reason. A cheap hardening would be
+  to fail fast when the error banner text is neither empty nor `too many requests`, mirroring
+  the exclusion already present in `invalid credentials show an error message` (line 85).
+  Non-blocking.
+- `uniqueSongTitle` keys uniqueness on `Date.now()`-`process.pid`-sequence. Under
+  `--workers=1` and under CI's single worker this is airtight; with parallel local workers two
+  processes could in principle share a pid namespace only across containers, which is not a
+  real risk here. No change needed, noted only so the invariant is written down somewhere
+  other than the helper's own comment.
