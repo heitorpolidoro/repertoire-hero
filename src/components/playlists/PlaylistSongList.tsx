@@ -1,6 +1,5 @@
 "use client";
 
-import type { RefObject } from "react";
 import {
   PlaylistSongRow,
   type PlaylistSongHandlers,
@@ -19,9 +18,6 @@ export interface PlaylistSongListProps extends PlaylistSongHandlers {
   /** Only used to word the no-match message; the filtering happens on the page. */
   activeTagFilter: string | null;
   songFilterQuery: string;
-  addingTagForSong: string | null;
-  newTagInput: string;
-  tagInputRef: RefObject<HTMLInputElement | null>;
 }
 
 /**
@@ -38,7 +34,6 @@ export function PlaylistSongList({
   bandId,
   activeTagFilter,
   songFilterQuery,
-  addingTagForSong,
   ...rowProps
 }: PlaylistSongListProps) {
   return (
@@ -66,7 +61,6 @@ export function PlaylistSongList({
               entry={repertoireMap.get(ps.song_id)}
               playlistId={playlistId}
               bandId={bandId}
-              isAddingTag={addingTagForSong === ps.song_id}
             />
           ))}
         </ul>

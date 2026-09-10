@@ -1,27 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import type { RefObject } from "react";
 import { PlaylistSongIdentity } from "@/components/playlists/PlaylistSongIdentity";
+import { TagEditRow } from "@/components/playlists/TagEditRow";
+import type { TagEditorController } from "@/hooks/useTagEditor";
 import { formatPlaylistDuration } from "@/lib/playlistList";
 import { STATUS_CONFIG } from "@/lib/statusConfig";
 import type { PlaylistSong, Repertoire } from "@/types/database";
 
 /**
- * What the row can ask the page to do. The page still owns `handleRemoveSong`,
- * `handleStatusCycle` and the two song-tag handlers, so the row reaches them by
- * injection (F21) and keeps the `.catch(console.error)` at each call site — a
- * failure surfaces through the page's error banner, never as an unhandled
- * rejection. RH-69 replaces this prop set with `useTagEditor`.
+ * What the row can ask the page to do. The page still owns `handleRemoveSong`
+ * and `handleStatusCycle`, so the row reaches them by injection (F21) and keeps
+ * the `.catch(console.error)` at each call site — a failure surfaces through
+ * the page's error banner, never as an unhandled rejection. RH-69 replaced the
+ * seven tag props with the one controller below, which the page shares between
+ * every row and the playlist's own tag bar.
  */
 export interface PlaylistSongHandlers {
   onStatusCycle: (songId: string) => Promise<void>;
   onRemoveSong: (songId: string) => Promise<void>;
-  onAddTag: (songId: string, tag: string) => Promise<void>;
-  onRemoveTag: (songId: string, tag: string) => Promise<void>;
-  /** Opens the inline tag input for a song, or closes it when given `null`. */
-  onEditTagsFor: (songId: string | null) => void;
-  onTagInputChange: (value: string) => void;
+  tagEditor: TagEditorController;
 }
 
 export interface PlaylistSongRowProps extends PlaylistSongHandlers {
@@ -31,9 +29,6 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
   playlistId: string;
   /** The band being browsed, or `null` in personal context. */
   bandId: string | null;
-  isAddingTag: boolean;
-  newTagInput: string;
-  tagInputRef: RefObject<HTMLInputElement | null>;
 }
 
 /**
@@ -46,18 +41,11 @@ export function PlaylistSongRow({
   entry,
   playlistId,
   bandId,
-  isAddingTag,
-  newTagInput,
-  tagInputRef,
+  tagEditor,
   onStatusCycle,
   onRemoveSong,
-  onAddTag,
-  onRemoveTag,
-  onEditTagsFor,
-  onTagInputChange,
 }: PlaylistSongRowProps) {
   const cfg = STATUS_CONFIG[entry?.status ?? "unknown"];
-  const tags = entry?.tags ?? [];
 
   return (
     <li className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 hover:shadow transition-all group">
@@ -122,56 +110,14 @@ export function PlaylistSongRow({
         </button>
       </div>
 
-      {/* Tags row */}
-      <div className="flex flex-wrap items-center gap-1.5 mt-2 ml-[52px]">
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            className="group flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
-          >
-            {tag}
-            <button
-              type="button"
-              onClick={() => {
-                onRemoveTag(ps.song_id, tag).catch(console.error);
-              }}
-              aria-label={`Remove tag ${tag}`}
-              className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        {isAddingTag ? (
-          <input
-            ref={tagInputRef}
-            type="text"
-            value={newTagInput}
-            onChange={(ev) => onTagInputChange(ev.target.value)}
-            onKeyDown={(ev) => {
-              if (ev.key === "Enter")
-                onAddTag(ps.song_id, newTagInput).catch(console.error);
-              if (ev.key === "Escape") onEditTagsFor(null);
-            }}
-            onBlur={() => {
-              if (newTagInput.trim())
-                onAddTag(ps.song_id, newTagInput).catch(console.error);
-              else onEditTagsFor(null);
-            }}
-            placeholder="new tag"
-            className="px-2 py-0.5 rounded-full text-xs border border-emerald-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => onEditTagsFor(ps.song_id)}
-            aria-label="Add tag"
-            className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
-          >
-            + tag
-          </button>
-        )}
-      </div>
+      {/* Tags row — the same markup the playlist's own tag bar renders */}
+      <TagEditRow
+        subject={ps.song_id}
+        tags={entry?.tags ?? []}
+        editor={tagEditor}
+        addLabel="Add tag"
+        className="flex flex-wrap items-center gap-1.5 mt-2 ml-[52px]"
+      />
     </li>
   );
 }

@@ -6662,3 +6662,109 @@ Non-blocking; none needs to land in RH-68, and several are explicitly RH-69's.
 ## [RH-68] PlaylistDetailPage parte 3/6: extrair a linha de musica, a lista e o PlaylistSummary (QA r1) — 2026-09-10
 
 None.
+
+## [RH-69] PlaylistDetailPage parte 4/6: unificar edicao de tags em useTagEditor (spec review r1) — 2026-09-10
+
+- ER11's jscpd clause asks that the output name "no file under
+  `src/components/playlists`", but jscpd prints project-relative paths with the
+  `src/` prefix stripped (`app/bands/[id]/page.tsx`,
+  `lib/__tests__/spotify.test.ts` — verified in the baseline run). As written the
+  clause can never fail. RH-68's equivalent ER used the prefix-less form
+  (`app/playlists/[id]/page.tsx`); `components/playlists` would restore the
+  check's teeth.
+- "Why a third component" and ER8 imply `TagEditRow` renders a fragment (the two
+  sites' wrappers carry different classNames and the prop list has no
+  `className`), but the spec never says so. A nested `<div>` would still satisfy
+  the bar's `xpath=..` locator while quietly changing the row's
+  `flex flex-wrap gap-1.5` layout, and nothing in the ER set would catch it. One
+  sentence — "`TagEditRow` returns a fragment; each site keeps its own wrapper" —
+  would close it.
+- ER7's ninth test, `writes nothing when the subject has no tags to edit`, is the
+  only commit test whose name omits "and closes", which reads as a deliberate
+  contrast with the two beside it and matches today's behaviour (`handleAddSongTag`
+  returns at `if (!entry) return` without closing). Since this is the one path
+  where the two sites differ and it is the third behaviour difference in a spec
+  that enumerates two, saying outright which way it goes would make the test
+  unambiguous.
+- ER3 pins `grep -c "useTagEditor"` to exactly `3` and ER9 pins `grep -c "Add tag"`
+  to exactly `1`. Both are correct for the intended implementation, but a prose
+  comment mentioning either string (the page already carries comments of that
+  kind, e.g. L79) would fail an otherwise correct diff. `>= 3` / `>= 1` with the
+  same parenthetical would be equally strong.
+- The audit table row for page L655-663 says "six tag props on the
+  `PlaylistSongList` call"; there are seven there (`addingTagForSong`,
+  `newTagInput`, `tagInputRef`, `onAddTag`, `onRemoveTag`, `onEditTagsFor`,
+  `onTagInputChange`). "Six" is right for what `PlaylistSongList` *forwards*
+  through `...rowProps` (it destructures `addingTagForSong` and reads it at
+  `isAddingTag={addingTagForSong === ps.song_id}`), so the two numbers are
+  describing different things a sentence apart.
+- Nothing in the ER set proves the normalisation is *only* in the lib — ER3 shows
+  `toLowerCase`/`endsWith(",")` left the page, but a duplicate inside the hook or
+  `TagEditRow` would pass. `grep -c "toLowerCase" src/hooks/useTagEditor.ts
+  src/components/playlists/TagEditRow.tsx` printing `0` would close the PM intent
+  "normalisation lives only in the lib" mechanically.
+- The hook's `readTags`/`saveTags` closures capture `playlist` and
+  `repertoireMap`. If they are memoised with a stale dependency list, a second
+  tag added to the same row without a reload would drop the first — a path the
+  e2e net does not walk (it adds one tag per row). Worth a line in the hook's
+  contract that the options are read fresh on every commit.
+
+## [RH-69] PlaylistDetailPage parte 4/6: unificar edicao de tags em useTagEditor (dev r1) — 2026-09-10
+
+- Neither tag write reverts its optimistic update when the Server Action is
+  rejected: `useTagEditor` applies the new list, reports the failure through the
+  page's error banner and leaves the list applied. `handleStatusCycle`, right
+  beside it on the same page, does revert. RH-69 preserved the asymmetry on
+  purpose — `e2e/playlist-detail.spec.ts` asserts the optimistic chip before the
+  write lands, so adding a rollback is a behaviour change, not a refactor. A
+  later task could unify the two, and would have to say what the e2e net should
+  observe instead.
+
+## [RH-69] PlaylistDetailPage parte 4/6: unificar edicao de tags em useTagEditor (code review r1) — 2026-09-10
+
+1. `src/hooks/__tests__/useTagEditor.test.tsx:171-185` — the no-rollback test
+   builds **two** hook instances: `setup()` (never driven) and
+   `failing = setup({ saveTags })`. The contract is pinned by
+   `expect(failing.applyTags).toHaveBeenCalledTimes(1)` at `:178`, but the
+   comment `// No rollback: the page keeps the optimistic list` sits above
+   `expect(applyTags).not.toHaveBeenCalled()` at `:182`, which asserts about the
+   *unused* instance and would pass no matter what the hook does. Dropping the
+   first `setup()` and moving the comment onto the `toHaveBeenCalledTimes(1)`
+   line would say the same thing with nothing vacuous in it. Non-blocking: the
+   real assertion is there and passes.
+2. `src/components/playlists/__tests__/tagBars.test.tsx:38-50` — the stub is cast
+   (`as TagEditorController & EditorSpies`) while the sibling stub in
+   `PlaylistSongList.test.tsx` uses `satisfies TagEditorController`. The cast
+   will keep compiling if the controller gains a member; the `satisfies` form
+   will not. Worth aligning the two the next time this file is opened.
+3. `useTagEditor.commitDraft` closes the input even when `readTags` returns
+   `null` (`useTagEditor.ts:105-108`), where `handleAddSongTag` returned at
+   `if (!entry) return` with the input still open. This is a third
+   micro-difference in a spec that enumerates two; it is recorded in the dev
+   report and is unreachable in practice (a row without a repertoire entry still
+   renders an add button, but the write it guards has nothing to write). No
+   action needed for RH-69 — noting it so QA is not surprised.
+4. Handoff for RH-71, already assigned by the spec: `AGENTS.md`'s Naming
+   Conventions section still says
+   `src/components/ui/__tests__/feedbackSurfaces.test.tsx` is the *one* file
+   outside the one-test-file-per-subject shape. `tagBars.test.tsx` is now a
+   second. RH-69 must not touch `AGENTS.md` (ER5 forbids it), so this is only a
+   reminder that RH-71's manifest pass has one more sentence to fix than it did.
+5. The missing rollback asymmetry with `handleStatusCycle` is already logged in
+   `docs/suggestions-log.md` by this change set — no further action.
+
+## [RH-69] PlaylistDetailPage parte 4/6: unificar edicao de tags em useTagEditor (QA r1) — 2026-09-10
+
+- `src/hooks/__tests__/useTagEditor.test.tsx:171-185` ("keeps the optimistic list and reports the
+  rejection message through onError") builds two hook instances: `setup()` for the assertions
+  `expect(applyTags).not.toHaveBeenCalled()` / `expect(onError).not.toHaveBeenCalled()`, and
+  `setup({ saveTags })` for the behaviour under test. The deciding assertion is
+  `expect(failing.applyTags).toHaveBeenCalledTimes(1)`; the untouched second instance adds nothing a
+  reader can act on and the shadowed `result` in the last line asserts against the instance that was
+  never driven. Dropping the unused `setup()` would make the no-rollback contract read directly off
+  the failing instance. Non-blocking.
+- The jscpd report body names no file at all (only the summary table is emitted at the configured
+  reporter level), so the ER's "output naming no file under `src/components/playlists`" clause is
+  satisfied vacuously rather than by inspection of a clone list. If future tasks want to lean on that
+  clause, switching the `lint:dup` reporter to one that lists clone locations would make the check
+  meaningful. Non-blocking.

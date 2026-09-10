@@ -17,10 +17,13 @@ import {
 import { SONG_PICKER_ACTIONS } from "@/app/songPickerActions";
 import { PlaylistSongList } from "@/components/playlists/PlaylistSongList";
 import { PlaylistSummary } from "@/components/playlists/PlaylistSummary";
+import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
 import { SongPicker } from "@/components/playlists/SongPicker";
 import { SongPickerToggle } from "@/components/playlists/SongPickerToggle";
+import { TagFilterBar } from "@/components/playlists/TagFilterBar";
 import { Spinner } from "@/components/ui/Spinner";
 import { useSongPicker } from "@/hooks/useSongPicker";
+import { useTagEditor } from "@/hooks/useTagEditor";
 import {
   collectPlaylistTags,
   cycleSongStatus,
@@ -71,28 +74,17 @@ export default function PlaylistDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [songFilterQuery, setSongFilterQuery] = useState("");
-  const [addingTagForSong, setAddingTagForSong] = useState<string | null>(null);
-  const [newTagInput, setNewTagInput] = useState("");
-  const [addingPlaylistTag, setAddingPlaylistTag] = useState(false);
-  const [newPlaylistTagInput, setNewPlaylistTagInput] = useState("");
 
   // Add-song search panel — everything but this flag lives in the controller
   const [showSearch, setShowSearch] = useState(false);
 
-  // Focus refs — used instead of autoFocus to preserve accessibility
+  // Focus ref — used instead of autoFocus to preserve accessibility. The two
+  // tag inputs have their own, inside the tag editing controller.
   const editInputRef = useRef<HTMLInputElement>(null);
-  const playlistTagInputRef = useRef<HTMLInputElement>(null);
-  const songTagInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) editInputRef.current?.focus();
   }, [editing]);
-  useEffect(() => {
-    if (addingPlaylistTag) playlistTagInputRef.current?.focus();
-  }, [addingPlaylistTag]);
-  useEffect(() => {
-    if (addingTagForSong) songTagInputRef.current?.focus();
-  }, [addingTagForSong]);
 
   const refreshPlaylist = useCallback(async () => {
     const data = await getPlaylistWithSongs(playlistId);
@@ -223,67 +215,40 @@ export default function PlaylistDetailPage() {
     }
   };
 
-  const handleTagsChange = async (tags: string[]) => {
-    setPlaylist((prev) => (prev ? { ...prev, tags } : prev));
-    try {
+  // The two tag editing sites, on one controller each: the playlist's own bar
+  // and every song row of the list. Both write optimistically — the list is
+  // applied before the Server Action is awaited — and report a rejection
+  // through the error banner without reverting, exactly as before RH-69.
+  const playlistTagEditor = useTagEditor({
+    readTags: () => (playlist ? (playlist.tags ?? []) : null),
+    applyTags: (_playlistId, tags) =>
+      setPlaylist((prev) => (prev ? { ...prev, tags } : prev)),
+    saveTags: async (_playlistId, tags) => {
       await updatePlaylist(playlistId, { tags });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update tags");
-    }
-  };
+    },
+    onError: setError,
+    addFailureMessage: "Failed to update tags",
+    removeFailureMessage: "Failed to update tags",
+  });
 
-  const handleAddPlaylistTag = async (raw: string) => {
-    let tagValue = raw.trim().toLowerCase();
-    while (tagValue.endsWith(",")) tagValue = tagValue.slice(0, -1);
-    const tag = tagValue.trim();
-    setAddingPlaylistTag(false);
-    setNewPlaylistTagInput("");
-    if (!tag) return;
-    const current = playlist?.tags ?? [];
-    if (current.includes(tag)) return;
-    await handleTagsChange([...current, tag]);
-  };
-
-  /** Opens the inline tag input for one song, or closes it when given `null`. */
-  const handleEditTagsFor = (songId: string | null) => {
-    setAddingTagForSong(songId);
-    setNewTagInput("");
-  };
-
-  const handleAddSongTag = async (songId: string, tag: string) => {
-    const trimmed = tag.trim().toLowerCase();
-    if (!trimmed) return;
-    const entry = repertoireMap.get(songId);
-    if (!entry) return;
-    if (entry.tags.includes(trimmed)) {
-      handleEditTagsFor(null);
-      return;
-    }
-    const newTags = [...entry.tags, trimmed];
-    setRepertoireMap((prev) =>
-      withRepertoireEntry(prev, songId, { ...entry, tags: newTags }),
-    );
-    handleEditTagsFor(null);
-    try {
-      await updateSongTags(entry.id, newTags);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add tag");
-    }
-  };
-
-  const handleRemoveSongTag = async (songId: string, tag: string) => {
-    const entry = repertoireMap.get(songId);
-    if (!entry) return;
-    const newTags = entry.tags.filter((existingTag) => existingTag !== tag);
-    setRepertoireMap((prev) =>
-      withRepertoireEntry(prev, songId, { ...entry, tags: newTags }),
-    );
-    try {
-      await updateSongTags(entry.id, newTags);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove tag");
-    }
-  };
+  const songTagEditor = useTagEditor({
+    readTags: (songId) => repertoireMap.get(songId)?.tags ?? null,
+    applyTags: (songId, tags) =>
+      setRepertoireMap((prev) => {
+        const entry = prev.get(songId);
+        return entry
+          ? withRepertoireEntry(prev, songId, { ...entry, tags })
+          : prev;
+      }),
+    saveTags: async (songId, tags) => {
+      // Unreachable without an entry: `readTags` reports `null` for that song.
+      const entry = repertoireMap.get(songId);
+      if (entry) await updateSongTags(entry.id, tags);
+    },
+    onError: setError,
+    addFailureMessage: "Failed to add tag",
+    removeFailureMessage: "Failed to remove tag",
+  });
 
   const handleDelete = async () => {
     setError(null);
@@ -487,76 +452,12 @@ export default function PlaylistDetailPage() {
         )}
       </header>
 
-      {/* Playlist tags */}
-      {playlist &&
-        (playlist.band_id !== null || playlist.user_id === currentUserId) && (
-          <div className="px-4 py-2 md:px-6 border-b border-gray-100 bg-white flex flex-wrap items-center gap-1.5">
-            {(playlist.tags ?? []).map((tag) => (
-              <span
-                key={tag}
-                className="group flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
-              >
-                {tag}
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleTagsChange(
-                      (playlist.tags ?? []).filter(
-                        (existingTag) => existingTag !== tag,
-                      ),
-                    ).catch(console.error);
-                  }}
-                  aria-label={`Remove tag ${tag}`}
-                  className="opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-700 transition-opacity leading-none"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {addingPlaylistTag ? (
-              <input
-                ref={playlistTagInputRef}
-                type="text"
-                value={newPlaylistTagInput}
-                onChange={(ev) => setNewPlaylistTagInput(ev.target.value)}
-                onKeyDown={(ev) => {
-                  if (ev.key === "Enter")
-                    handleAddPlaylistTag(newPlaylistTagInput).catch(
-                      console.error,
-                    );
-                  if (ev.key === "Escape") {
-                    setAddingPlaylistTag(false);
-                    setNewPlaylistTagInput("");
-                  }
-                }}
-                onBlur={() => {
-                  if (newPlaylistTagInput.trim())
-                    handleAddPlaylistTag(newPlaylistTagInput).catch(
-                      console.error,
-                    );
-                  else {
-                    setAddingPlaylistTag(false);
-                    setNewPlaylistTagInput("");
-                  }
-                }}
-                placeholder="new tag"
-                className="px-2 py-0.5 rounded-full text-xs border border-emerald-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setAddingPlaylistTag(true);
-                  setNewPlaylistTagInput("");
-                }}
-                aria-label="Add tag to playlist"
-                className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
-              >
-                + tag
-              </button>
-            )}
-          </div>
-        )}
+      {/* Playlist tags — the bar owns the ownership gate */}
+      <PlaylistTagBar
+        playlist={playlist}
+        currentUserId={currentUserId}
+        editor={playlistTagEditor}
+      />
 
       {/* Playlist level summary */}
       <PlaylistSummary songs={songs} repertoireMap={repertoireMap} />
@@ -613,35 +514,11 @@ export default function PlaylistDetailPage() {
       )}
 
       {/* Tag filter */}
-      {allTags.length > 0 && (
-        <div className="px-4 md:px-6 pb-2 flex flex-wrap gap-1.5">
-          {allTags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              onClick={() =>
-                setActiveTagFilter(activeTagFilter === tag ? null : tag)
-              }
-              className={`px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${
-                activeTagFilter === tag
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400"
-              }`}
-            >
-              {tag}
-            </button>
-          ))}
-          {activeTagFilter && (
-            <button
-              type="button"
-              onClick={() => setActiveTagFilter(null)}
-              className="px-2 py-0.5 rounded-full text-xs text-gray-400 hover:text-gray-600 border border-gray-200"
-            >
-              × clear
-            </button>
-          )}
-        </div>
-      )}
+      <TagFilterBar
+        tags={allTags}
+        activeTag={activeTagFilter}
+        onChange={setActiveTagFilter}
+      />
 
       {/* Song list */}
       <PlaylistSongList
@@ -652,15 +529,9 @@ export default function PlaylistDetailPage() {
         bandId={bandId}
         activeTagFilter={activeTagFilter}
         songFilterQuery={songFilterQuery}
-        addingTagForSong={addingTagForSong}
-        newTagInput={newTagInput}
-        tagInputRef={songTagInputRef}
+        tagEditor={songTagEditor}
         onStatusCycle={handleStatusCycle}
         onRemoveSong={handleRemoveSong}
-        onAddTag={handleAddSongTag}
-        onRemoveTag={handleRemoveSongTag}
-        onEditTagsFor={handleEditTagsFor}
-        onTagInputChange={setNewTagInput}
       />
 
       {/* Add-song search panel (toggled by the + button in the header) */}

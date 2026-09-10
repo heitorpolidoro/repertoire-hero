@@ -3,9 +3,9 @@
  * RH-68 — the playlist song list, its rows and the identity block inside them.
  *
  * `PlaylistSongList` decides nothing: the page hands it the songs, the filtered
- * songs, the repertoire map, the per-song tag state and six callbacks, and the
- * list renders them. So everything here is plain props and `vi.fn()` — no
- * Server Action, no fetch, no `@/app/` import.
+ * songs, the repertoire map, two callbacks and (since RH-69) the one tag
+ * editing controller every row shares. So everything here is plain props and
+ * `vi.fn()` — no Server Action, no fetch, no `@/app/` import.
  *
  * `PlaylistSongRow` and `PlaylistSongIdentity` are only reachable through the
  * list in the running app, so they are covered through it here too. Between
@@ -17,10 +17,10 @@
  * `No songs matching "<query>".`.
  */
 
-import { createRef } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { PlaylistSongList, type PlaylistSongListProps } from '@/components/playlists/PlaylistSongList'
+import type { TagEditorController } from '@/hooks/useTagEditor'
 import type { PlaylistSong, Repertoire, SongStatus } from '@/types/database'
 
 afterEach(cleanup)
@@ -62,6 +62,20 @@ function entry(songId: string, status: SongStatus, tags: string[] = []): Reperto
   }
 }
 
+/** A stub `TagEditorController`: the row calls it, `useTagEditor`'s test drives it. */
+function tagEditor(openFor: string | null = null, draft = '') {
+  return {
+    openFor,
+    draft,
+    inputRef: { current: null },
+    open: vi.fn(),
+    close: vi.fn(),
+    changeDraft: vi.fn(),
+    commitDraft: vi.fn(async () => {}),
+    removeTag: vi.fn(async () => {}),
+  } satisfies TagEditorController
+}
+
 function props(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSongListProps {
   const songs = overrides.songs ?? [playlistSong('song-1')]
   return {
@@ -72,15 +86,9 @@ function props(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSongList
     bandId: null,
     activeTagFilter: null,
     songFilterQuery: '',
-    addingTagForSong: null,
-    newTagInput: '',
-    tagInputRef: createRef<HTMLInputElement>(),
+    tagEditor: tagEditor(),
     onStatusCycle: vi.fn().mockResolvedValue(undefined),
     onRemoveSong: vi.fn().mockResolvedValue(undefined),
-    onAddTag: vi.fn().mockResolvedValue(undefined),
-    onRemoveTag: vi.fn().mockResolvedValue(undefined),
-    onEditTagsFor: vi.fn(),
-    onTagInputChange: vi.fn(),
     ...overrides,
   }
 }
@@ -220,9 +228,11 @@ describe('PlaylistSongList', () => {
     expect(listProps.onRemoveSong).toHaveBeenCalledWith('song-1')
   })
 
-  it('renders one Remove tag button per tag and calls onRemoveTag when it is clicked', () => {
+  it('renders one Remove tag button per tag and calls the tag editor when it is clicked', () => {
+    const editor = tagEditor()
     const listProps = props({
       repertoireMap: new Map([['song-1', entry('song-1', 'learning', ['encore', 'fast'])]]),
+      tagEditor: editor,
     })
     render(<PlaylistSongList {...listProps} />)
 
@@ -230,16 +240,16 @@ describe('PlaylistSongList', () => {
     expect(within(row).getAllByRole('button', { name: /^Remove tag / })).toHaveLength(2)
 
     fireEvent.click(within(row).getByRole('button', { name: 'Remove tag encore' }))
-    expect(listProps.onRemoveTag).toHaveBeenCalledWith('song-1', 'encore')
+    expect(editor.removeTag).toHaveBeenCalledWith('song-1', 'encore')
   })
 
-  it('renders the tag input only for the song named by addingTagForSong', () => {
+  it('renders the tag input only for the song the tag editor is open for', () => {
     const songs = [
       playlistSong('song-1', { title: 'Kashmir' }),
       playlistSong('song-2', { title: 'Black Dog', position: 1 }),
     ]
-    const listProps = props({ songs, addingTagForSong: 'song-2' })
-    render(<PlaylistSongList {...listProps} />)
+    const editor = tagEditor('song-2')
+    render(<PlaylistSongList {...props({ songs, tagEditor: editor })} />)
 
     expect(screen.getAllByPlaceholderText('new tag')).toHaveLength(1)
 
@@ -249,21 +259,21 @@ describe('PlaylistSongList', () => {
     expect(within(second).getByPlaceholderText('new tag')).toBeDefined()
 
     fireEvent.click(within(first).getByRole('button', { name: 'Add tag', exact: true }))
-    expect(listProps.onEditTagsFor).toHaveBeenCalledWith('song-1')
+    expect(editor.open).toHaveBeenCalledWith('song-1')
   })
 
-  it('calls onAddTag with the row song id and the typed tag when Enter is pressed', () => {
-    const listProps = props({ addingTagForSong: 'song-1', newTagInput: 'encore' })
-    render(<PlaylistSongList {...listProps} />)
+  it('commits the tag editor draft for that row when Enter is pressed', () => {
+    const editor = tagEditor('song-1', 'encore')
+    render(<PlaylistSongList {...props({ tagEditor: editor })} />)
 
     const input = screen.getByPlaceholderText('new tag')
     fireEvent.change(input, { target: { value: 'encores' } })
-    expect(listProps.onTagInputChange).toHaveBeenCalledWith('encores')
+    expect(editor.changeDraft).toHaveBeenCalledWith('encores')
 
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(listProps.onAddTag).toHaveBeenCalledWith('song-1', 'encore')
+    expect(editor.commitDraft).toHaveBeenCalledWith('song-1')
 
     fireEvent.keyDown(input, { key: 'Escape' })
-    expect(listProps.onEditTagsFor).toHaveBeenCalledWith(null)
+    expect(editor.close).toHaveBeenCalledTimes(1)
   })
 })
