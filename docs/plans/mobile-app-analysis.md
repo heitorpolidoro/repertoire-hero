@@ -6,6 +6,21 @@
 
 Every claim below is grounded in the code as of `v0.1.50-202609012115`. File and line references are literal.
 
+> **Correction note (RH-43, 2026-09-09).** This document is a snapshot, and two
+> of its load-bearing current-state claims have since been falsified by the
+> code. (1) `src/app/layout.tsx` no longer declares
+> `export const dynamic = "force-dynamic"`: RH-61 (`57bc60a`) removed it and did
+> not push it down to any page segment, so the landing page and all four auth
+> routes prerender again. The seven statements below that describe a globally
+> dynamic route tree are stale. (2) `src/proxy.ts` no longer `fetch`es
+> `/api/auth/get-session` with a 3 s abort: RH-65 (`66d9442`) made it a
+> synchronous, header-only redirect convenience over a twelve-entry allow-list,
+> explicitly not an authorization boundary. The single statement below that
+> describes the fetching proxy is stale. The rest of the analysis is left
+> verbatim on purpose - the section 3.2 conclusion about `output: "export"` is
+> argued partly from claim (1), so correcting the text means re-deriving the
+> conclusion, which is a follow-up task and not a text edit.
+
 ---
 
 ## 1. Current-state inventory

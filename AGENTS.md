@@ -126,22 +126,41 @@ src/
 │   ├── songs/[id]/fast-view/   Mobile-optimized "on stage / on stand" reading view
 │   ├── login/, signup/, forgot-password/, reset-password/
 │   │                           Auth pages
+│   ├── bandAdminActions.ts, fastView*Actions.ts
+│   │                           Typed Server Action bundles injected into client islands
 │   └── layout.tsx, page.tsx    Root layout and dashboard/home
-├── components/
-│   ├── layout/                 AppLayout, ConditionalLayout (auth-aware chrome)
-│   ├── profile/                InstrumentPicker
-│   ├── songs/                  SongForm
-│   └── ui/                     Shared presentational pieces (ConfirmPanel, Toast, AlertBanner)
-├── hooks/                      Shared React hooks (client-side controllers)
-│   ├── useToast.ts             Floating Toast state + 4s auto-dismiss (render with components/ui/Toast)
-│   └── useBandAdmin.ts         Band-detail controller shared by /bands/[id] and the /profile band tab
+├── components/                 Presentational React, one directory per feature area
+│   ├── admin/                  ModerationQueue and the pending-edit cards
+│   ├── bands/                  BandsView island, BandColorPicker
+│   ├── fastview/               The 27 Fast View pieces (setlist, tabs, lyrics, PDF stage)
+│   ├── landing/                LandingPage — the only dictionary-driven component
+│   ├── layout/                 AppLayout, ConditionalLayout, LanguageSelector
+│   ├── playlists/              PlaylistsView island, cards, Spotify import panel
+│   ├── profile/                InstrumentPicker, EmailChangeSection
+│   ├── songs/                  SongForm, CorrectionModal
+│   ├── tabs/                   TabDrawingStage annotation canvas
+│   └── ui/                     The only cross-area directory (ConfirmPanel, Toast, AlertBanner)
+├── hooks/                      Client controller hooks, one use<Name>.ts per subject
+│   ├── useBandAdmin.ts         Band-detail controller shared by /bands/[id] and the /profile band tab
+│   ├── useBandEdit.ts          Band edit modal state, delegated to by useBandAdmin
+│   ├── useBandPendingAction.ts Confirm-then-run state for the destructive band actions
+│   ├── useLyricsEditor.ts      Fast View lyrics: draft, save, version switch, Stage Mode
+│   ├── usePdfStage.ts          Fast View PDF Stage Mode: viewport, scroll lock, annotations
+│   ├── usePlaylistNav.ts       Fast View setlist navigation (fetch, drawer, router pushes)
+│   ├── useSongEntry.ts         Fast View song entry: load, band-context reconciliation, patches
+│   ├── useSongLinks.ts         Fast View link add/delete (duplicate check, moderation queue)
+│   ├── useSongStatus.ts        Fast View mastery-status dropdown + write
+│   ├── useTabLibrary.ts        Fast View tab library: fetch, upload destination, delete
+│   └── useToast.ts             Floating Toast state + 4s auto-dismiss (render with components/ui/Toast)
+├── i18n/dictionaries/          en.json / pt-BR.json — landing-page copy only (see Internationalisation)
 ├── lib/                        Domain logic + data access (no ORM; parameterized SQL via `pg`)
 │   ├── db.ts                   Postgres connection pool + `query()` helper
 │   ├── auth.ts / auth-client.ts / auth-session.ts
 │   │                           Better Auth server config, browser client, session helpers
 │   ├── songs.ts                Global song catalog + repertoire read/write logic
 │   ├── bands.ts / bands.server.ts
-│   │                           Band domain logic (client-safe + server-only halves)
+│   │                           Band domain logic; both import @/lib/db, so both are server-only.
+│   │                           The .server suffix marks a second return shape (see Module Layout)
 │   ├── playlists.ts            Playlist domain logic
 │   ├── profile.ts              Profile domain logic
 │   ├── spotify.ts / spotifyAuth.ts
@@ -170,7 +189,9 @@ migrations/                     Hand-written SQL migrations — the SINGLE sourc
 e2e/                            Playwright end-to-end specs (auth, songs CRUD, mobile fast view)
 docker/                         Local Postgres/Kong env config + Dockerfile support files
 scripts/                        migrate.mjs (schema migration runner), dev-seed (local data seeding)
-docs/                           security-audit.md, test-coverage-plan.md
+docs/                           security-audit.md, test-coverage-plan.md, suggestions-log.md,
+                                 plans/ (code-quality-review.md, mobile-app-analysis.md) and
+                                 tasks/ (one <id>-spec.md per Meridian task)
 spec.md, SDS.md, plan.md, tasks.md
                                  Product requirements, software design spec, implementation plan, task breakdown
 ```
@@ -292,6 +313,157 @@ detail of the data layer: never duplicate a domain type there, name it at the ca
 instead. `knip` (`npm run lint:dead`) fails on a row interface nobody imports, so do not add
 speculative ones. A single-column projection whose shape is evident at the call site
 (`query<{ id: string }>('... RETURNING id')`) may be written inline.
+
+# Naming Conventions
+
+These are the names the codebase already uses, measured at `bb5070b`. Every claim
+below carries one of two tags. A **guarded** claim is one that
+`src/lib/__tests__/namingConventions.test.ts` fails the run on when new code
+breaks it; five claims are guarded. A **convention only** claim has nothing
+enforcing it, so a reviewer has to; five claims are convention only. Of the
+claims in this section, the guard covers exactly those five and nothing more - do
+not read a green run as approval of the other five. The guard file also carries
+two further tests, for rules stated in the Module Layout and Internationalisation
+sections below. Where a rule has an exception in the tree, the exception is named
+here rather than left for the next reader to discover.
+
+- **Server Actions end in `Action`** `(guarded)`. All 44 *function* exports of
+  `src/app/actions/*.ts` are `export async function <verb><Subject>Action(...)` -
+  `createBandAction`, `getRepertoireAction`, `updateSongStatusAction`. The suffix
+  is what tells a reader at the call site that this is a round trip to the server
+  rather than a local call. The rule is about function exports only: the
+  directory also carries one type re-export,
+  `export type { Stroke, TabAnnotations }` at `src/app/actions/tabs.ts:17`, which
+  is not an action and is not covered.
+- **Injected action bundles are `<Subject>Actions`** `(convention only)`. Because
+  of the import direction rule (F21) a hook or component never imports a Server
+  Action; the page hands it down as one typed object. The eight bundles live in
+  five `src/app/<area>Actions.ts` files (`bandAdminActions.ts`,
+  `fastViewEntryActions.ts`, `fastViewLyricsActions.ts`, `fastViewNavActions.ts`,
+  `fastViewTabActions.ts`) as SCREAMING_SNAKE consts -
+  `BAND_ADMIN_ACTIONS: BandAdminActions`, `SONG_ENTRY_ACTIONS: SongEntryActions`.
+  An island that receives its actions from a Server Component page declares the
+  same `<Subject>Actions` shape as a prop type (`BandsViewActions`,
+  `ModerationQueueActions`).
+- **Hooks are `use<Subject>` in a file of exactly that name** `(guarded)`. All
+  eleven files under `src/hooks` are `use<Name>.ts` exporting
+  `export function use<Name>`. Ten of the eleven also annotate a
+  `<Subject>Controller` return type - `SongEntryController`,
+  `TabLibraryController`, `BandAdminController` - which is the vocabulary behind
+  the phrase "controller hook" `(convention only)`; `useToast.ts` is the one hook
+  with no return annotation, and no test reads return types.
+- **Components are `PascalCase.tsx`** `(guarded)`, one component per file, named
+  after the file: 51 files under `src/components`, no exception.
+- **`src/lib` modules are `camelCase.ts`** `(convention only)`, named for the
+  noun they own (`playlistNav.ts`, `songSanitizer.ts`, `stageHistory.ts`). Three
+  legacy names stand outside that and stay: `auth-client.ts` and
+  `auth-session.ts`, which mirror `better-auth`'s own module names, and
+  `bands.server.ts` (see Module Layout).
+- **`src/lib` exports are function declarations** `(guarded)` -
+  `export function` / `export async function` - never
+  `export const f = async () => {}`. The choice is arbitrary but settled:
+  declarations hoist and produce better stack traces, and 45 of the 46 modules
+  already did it. RH-43 converted the last outlier, `src/lib/bands.ts`, so the
+  rule now has no exceptions and the guard allows none.
+- **Type vocabulary.** Domain nouns live in `src/types/database.ts`; a raw SQL
+  projection is `<Subject>Row` in `src/lib/dbRows.ts` `(guarded)`, see Database
+  Row Types; a parsed-and-narrowed input shape is `<Subject>Payload`
+  (`GlobalSongEditPayload`, `BandUpdatePayload`) `(convention only)`.
+- **Tests sit in `__tests__/` beside the code they test** `(convention only)`,
+  named `<subject>.test.ts`, or `.test.tsx` for a DOM test. A test that needs a
+  live Postgres is `<subject>.db.test.ts` - nine of the 106 test files - which is
+  how a reader knows why it skipped. One file stands outside the
+  one-test-file-per-subject shape:
+  `src/components/ui/__tests__/feedbackSurfaces.test.tsx` covers `Toast` and `AlertBanner`
+  together (`ConfirmPanel` has its own test file), and there is no subject file of that name.
+
+# Module Layout - where a thing goes
+
+- **`src/lib/*.ts`** - domain logic and data access. Pure decision functions and
+  SQL both live here, and this is the only place `@/lib/db` may be imported.
+- **`src/app/actions/*.ts`** - `'use server'` entry points: resolve the session,
+  delegate to `src/lib`. No SQL (enforced by `actionDataAccessGuard.test.ts`).
+- **`src/app/<area>Actions.ts`** - the typed bundles that carry those actions
+  into client code without breaking the import direction.
+- **`src/hooks/use*.ts`** - client controllers: state plus intent commands. No
+  JSX, no SQL, no `@/app/*` import.
+- **`src/components/<area>/`** - presentational React, one directory per feature
+  area (`admin`, `bands`, `fastview`, `landing`, `layout`, `playlists`,
+  `profile`, `songs`, `tabs`, `ui`). `ui/` is the only cross-area one; anything
+  else that two areas need moves there rather than being imported sideways.
+- **`src/store/*.ts`** - zustand stores for UI state that outlives a route
+  (`bandContextStore`, `repertoireStore`). Not a cache for server data.
+- **`src/i18n/dictionaries/*.json`** - landing-page copy only (see
+  Internationalisation).
+
+**Server-only is decided by the `@/lib/db` import, not by a filename (F24).**
+Twelve of the 46 modules under `src/lib` import it at module scope - `auth.ts`,
+`bands.ts`, `bands.server.ts`, `devProfiles.ts`, `moderation.ts`,
+`playlists.ts`, `profile.ts`, `songs.ts`, `spotifyAuth.ts`,
+`spotifyConnection.ts`, `spotifyPlaylistSync.ts`, `tabs.ts` - and three more pull
+`pg` in through them: `auth-session.ts` and `emailChange.ts` (via `@/lib/auth`)
+and `spotifyRouteAuth.ts` (via `@/lib/bands`, `@/lib/playlists` and
+`@/lib/spotifyAuth`, among others). None of those fifteen may be imported for its
+values from a file carrying `'use client'`. A type-only import is not a
+violation: `import type` is erased before bundling, so it pulls in no `pg`, and
+client files already use it against `src/lib` today. The other thirty-one modules
+are free of `pg`, and nineteen of them appear in the 60 client files - fifteen
+imported for their values (`playlistNav.ts`, `statusConfig.ts`, `auth-client.ts`,
+...) and the rest for their types only.
+`src/lib/__tests__/namingConventions.test.ts` computes both sets from the source,
+counting only value imports as graph edges, follows the graph to a fixed point,
+and fails the run on any client value import of a server-only module.
+
+The `.server` suffix on `bands.server.ts` does **not** mean that `bands.ts` is
+safe to import from a `'use client'` file: `bands.ts` imports `@/lib/db` too, so
+both halves pull in `pg` and the isolation the suffix suggests never existed.
+What it actually marks is a second return shape for the same
+`join_band_by_invite($1, $2)` call: `joinBandByInviteServer` returns the richer
+`JoinBandResult` that `/join/[code]` renders, while `joinBandByInviteClient` in
+`bands.ts` returns only the band id. Do not add another `.server` file - a new
+server-only module is just `camelCase.ts` that imports `@/lib/db`.
+
+# Internationalisation
+
+**The decision (F25): i18n is scoped to the landing page. The application UI is
+English-only, written inline.**
+
+`src/lib/i18n.ts` resolves a locale (`pt-BR` by default, or `en`) from the
+`NEXT_LOCALE` cookie and then `Accept-Language`, and returns one of the two
+dictionaries in `src/i18n/dictionaries/`. Exactly one component reads copy from
+them, `src/components/landing/LandingPage.tsx`, and `LanguageSelector` is
+rendered in exactly one place - inside that same landing page. `LanguageSelector`
+reads no copy from a dictionary itself; it hardcodes its four strings, including
+the app's only non-English literal. Every other `.tsx` file under `src/` (68 of
+69) hardcodes its copy in English where it has any, as does the user-facing error
+text assembled in `src/lib` (`Failed to fetch bands: ...`).
+
+So: do not add a `getDictionary` lookup to a component outside
+`src/components/landing/`, do not add a `t()` helper, and do not translate a page
+as a side errand while doing something else. New application copy is written
+inline, in English.
+
+Two tests hold the halves of this in place.
+`src/lib/__tests__/namingConventions.test.ts` pins the consumer set: exactly one
+file calls `getDictionary`. `src/lib/__tests__/landingCopy.test.ts` already pins
+the other half - `both dictionaries expose the same key set` - so a landing-copy
+edit cannot land in one dictionary only. There is no third test, and none is
+needed.
+
+Two consequences are deliberate, and are not bugs to fix in passing:
+
+- A `pt-BR` visitor sees a Portuguese landing page and an English application.
+  That is the accepted cost of scoping i18n to marketing.
+- 22 of the 49 dictionary keys are consumed by nothing: `common.*` except
+  `appName` (11 keys), `nav.*` except `signIn` and `getStarted` (6 keys), and all
+  five `status.*`. They are the residue of an abandoned app-wide attempt, and
+  `knip` cannot see inside JSON. They stay, so that revisiting the decision does
+  not start by re-typing them.
+
+Adopting i18n app-wide remains a live option, not a closed door - it just has to
+be its own task, starting with the shared chrome (`AppLayout`, `nav.*`,
+`status.*`, for which the dictionaries already carry keys) rather than with
+whichever page happens to be open.
 
 # UI & UX Behavioral Directives
 

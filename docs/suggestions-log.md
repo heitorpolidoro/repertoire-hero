@@ -5735,3 +5735,224 @@ an omission.
    in one assertion. Nothing is missing, but a single
    `validateEmailChange('someone-else@example.com', '  Jane@Example.COM  ')` case
    would map one-to-one onto the wording.
+
+## [RH-43] Consolidar convencoes de nomes, divisao de modulos e i18n no AGENTS.md (spec review r1) — 2026-09-09
+
+- ER4 says the sorted export list is "exactly `assertBandMember`, `createBand`,
+  `createBandPlaylist`, `deleteBand`, `getBandMembers`, `getBandPlaylists`,
+  `getBandWithMembers`, `getBands`, `joinBandByInviteClient`, `leaveBand`,
+  `removeBandMember`, `regenerateBandInviteCode`, `updateBand`", but the command it
+  pins ends in `| sort`, which puts `regenerateBandInviteCode` **before**
+  `removeBandMember`. Swap the two so QA can compare the output literally.
+- Test 7's rule ("scans non-test files under `src/` for `getDictionary` and asserts
+  the consumer set is exactly `['src/components/landing/LandingPage.tsx']`") needs
+  one more sentence: `src/lib/i18n.ts:59` holds the *definition* and a naive text
+  scan will report it as a second consumer. Say how the definition site is excluded
+  (by path, or by requiring a call expression rather than `export function`).
+- Test 1 could reuse `src/app/actions/__tests__/actionScan.ts`
+  (`allExportedActionNames()`, `actionFileNames()`) instead of re-implementing the
+  scan; `__tests__` is exempt from the F21 import restriction, so the import is
+  legal. If you prefer a standalone scan, say why in the spec so the next reader
+  does not think it was an oversight.
+- The audit says AGENTS.md's components block "names two components that have
+  since been joined by forty-nine". It names seven (AppLayout, ConditionalLayout,
+  InstrumentPicker, SongForm, ConfirmPanel, Toast, AlertBanner), so the arithmetic
+  is 51 - 7 = 44. Cosmetic, and this sentence is not written to any document, but
+  it is the kind of number a later reader will re-derive.
+- "`LanguageSelector.tsx` ... no copy at all" (audit, and verbatim in the F25
+  `**Status:**` line) is not quite right: the file hardcodes four strings -
+  `Select Language`, the `Language selector` aria-label, `Portugues (BR)` and
+  `English`. What is true, and is what the argument needs, is that it reads no copy
+  *from a dictionary*. Worth tightening, since it is the one file in the app that
+  hardcodes a non-English string.
+- "The other 68 of 69 non-test `.tsx` files under `src/` hardcode English" is an
+  overstatement for files that carry no user-visible copy at all (`layout.tsx`,
+  `ConditionalLayout.tsx`). "hardcode their copy in English, where they have any"
+  would survive a re-count.
+- ER8 leaves `npm run lint:dup` at "below the 2 % threshold" while quoting the
+  `bb5070b` figures. Adding a ~200-line scanning test file with several similar
+  `readdir`/`filter` helpers is the most likely thing in this task to move the
+  jscpd number; consider pinning "no new clone group under `src/lib/__tests__`" or
+  simply keeping the loose threshold and noting the risk in the Approach so the
+  implementer keeps the helpers distinct.
+- The Approach tells the implementer to keep the guard inside the base complexity
+  budget so the override list stays at 20. Worth adding the concrete constraint
+  that ER5 also forbids the words `allowed`, `exempt`, `skip` and `todo` anywhere
+  in the file, including comments - the natural comment for test 6's
+  "direct imports only" rationale, and for excluding `__tests__` directories, can
+  trip that grep by accident.
+
+## [RH-43] Consolidar convencoes de nomes, divisao de modulos e i18n no AGENTS.md (spec review r2) — 2026-09-09
+
+- The Naming Conventions preamble's "The guard covers exactly its five and
+  nothing more" is true of the section but false of the guard, which has seven
+  tests - tests 6 and 7 enforce the Module Layout and Internationalisation rules,
+  and both of those sections name the guard file. Scope the sentence ("of the
+  claims in this section, the guard covers exactly the five tagged
+  `(guarded)`"), so the three sections do not appear to disagree about what the
+  one test file does.
+- Test 6's name, `no "use client" file imports a src/lib module that imports
+  @/lib/db`, describes the one-hop rule the spec spent a paragraph rejecting. A
+  name like `... a src/lib module that reaches @/lib/db` would match the closure
+  semantics; ER5 pins the name verbatim, so both would have to move together.
+- Even re-pinned, ER2's `grep -c "src/components/<area>/"` proves nothing about
+  the ten area directories, since it already matches at `bb5070b` through
+  `AGENTS.md:49`. ER3 already checks all ten directory names against
+  `ls -d src/components/*/ | wc -l`; the ER2 grep could simply be dropped.
+- `src/lib/spotifyRouteAuth.ts` also reaches `pg` through
+  `@/lib/auth-session` (L28), not only through the three modules the Audit and
+  AGENTS.md name. The three named are all one-hop-to-a-direct-importer, so the
+  text is accurate as a set of shortest paths; a reader re-deriving it may
+  nevertheless count four and think a path is missing. One clause ("among
+  others") would settle it.
+- ER8's coverage gate was not re-run this round (it needs the full coverage pass);
+  its four threshold numbers do match `vitest.config.ts:77-82`, and
+  `lint:dead`, `audit` and `lint:dup` were re-run and are green at `bb5070b`.
+- ER1 asks the reader to confirm by reading that the section "names the 44 Server
+  Action *function* exports..." - a long prose list that QA can only verify by
+  eye. The three phrase greps plus the 5/5 tag counts already carry most of it;
+  consider adding one grep per named exception (`tabs.ts:17`, `useToast`,
+  `auth-client.ts`) so the exception set is mechanically checkable rather than
+  read.
+
+## [RH-43] Consolidar convencoes de nomes, divisao de modulos e i18n no AGENTS.md (spec review r3) — 2026-09-09
+
+- **Reword the mixed-import parenthetical (spec L502-504).** It reads "An inline
+  `import { type X }` specifier is the same case in principle; at `bb5070b` there
+  are none against `@/lib` in client files, so treating a mixed clause as a value
+  import is acceptable and simpler." Taken as "there are no inline `type`
+  specifiers against `@/lib` in client files" it is false - there are **seven**
+  (`src/app/page.tsx` and `src/app/playlists/[id]/page.tsx` ->
+  `@/lib/spotify`; `TabDrawingStage.tsx` -> `@/lib/annotationMath`;
+  `StatusDropdown.tsx` -> `@/lib/songStatus`; `ui/Toast.tsx` -> `@/lib/uiTones`;
+  `LandingPage.tsx` and `LanguageSelector.tsx` -> `@/lib/i18n`). Taken as "no
+  clause consists *solely* of inline `type` specifiers" it is true (measured: 0),
+  and that is the only reading under which the "so" clause is not vacuous - which
+  is why this is a suggestion and not a blocker. But an implementer who reads it
+  the first way may not handle mixed clauses at all, and nothing in ER5 would
+  catch that: all seven target modules are in the pure 31, so a guard that
+  wrongly treats a mixed clause as type-only is still green today and still
+  passes both ER5 probes. One clause fixes it: "no clause consists solely of
+  inline `type` specifiers; the seven mixed clauses (all against pure modules)
+  count as value imports".
+- ER8's jscpd pin gives two numbers for one gate ("no worse than `250 (0.67%)`").
+  They agree at today's tree size (250 / 37763 = 0.66%), so the pin is safe, but
+  saying which one binds ("the duplicated-lines cell is at most 250") would leave
+  QA nothing to interpret.
+- The Approach (L500) tells the implementer to "**skip** any import statement
+  whose clause begins `import type`" while ER5 forbids the token `skip` anywhere
+  in the guard file. The spec already anticipates this at L544-550 and names this
+  exact case, so it is handled - but the instruction and the prohibition sit 45
+  lines apart and use the same word. Phrasing the instruction as "treat any
+  import statement whose clause begins `import type` as not an edge" would remove
+  the trap at its source.
+- ER5 pins that the guard is green and that the two probes behave, but pins no
+  cardinality on what the scan found. A one-line addition - that the value-import
+  scan resolves **15** distinct `@/lib` modules across the 60 client files - would
+  make a scan that silently under-counts (the failure mode suggestion 1
+  describes) mechanically detectable instead of latent.
+- ER8's coverage gate was not re-run this round (it needs the full coverage pass);
+  `vitest`, `tsc`, `eslint`, `lint:dup`, `lint:dead` and `audit` were all re-run
+  at `bb5070b` and are green with exactly the numbers ER8 records.
+
+## [RH-43] Consolidar convencoes de nomes, divisao de modulos e i18n no AGENTS.md (spec review r4) — 2026-09-09
+
+- **Reword the mixed-import parenthetical (spec L501-503)**, carried forward from
+  round 3 and re-measured. As written, "at `bb5070b` there are none against
+  `@/lib` in client files" is true only under the reading "no clause consists
+  *solely* of inline `type` specifiers" (measured 0); under the more natural
+  reading "no inline `type` specifier exists" it is false - there are **seven**
+  mixed clauses. Both readings leave the guard green today because all seven
+  targets are in the pure 31, so this is not a blocker, but one clause removes the
+  ambiguity permanently: "no clause consists solely of inline `type` specifiers;
+  the seven mixed clauses (all against pure modules) count as value imports".
+- **Pin the scan's cardinality in ER5** (round-3 suggestion, still open). ER5
+  pins that the guard is green and that the two probes behave, but pins no count
+  on what the scan resolved. Adding "the value-import scan resolves **15**
+  distinct `@/lib` modules across the 60 client files" would make the
+  under-counting failure mode above mechanically detectable instead of latent -
+  re-measured this round and still 15.
+- **The amended bullet is now the block's two longest lines** (spec L659 is 90
+  characters, L660 is 93, against a 79-81 character wrap everywhere else in the
+  fenced block). Purely cosmetic, but if an implementer re-wraps them to match
+  the surrounding style, ER1 requires that
+  `src/components/ui/__tests__/feedbackSurfaces.test.tsx` stay on one physical
+  line or the pinned count of 1 becomes 2. Wrapping the block's own text at 80
+  before hand-off would remove the temptation.
+- ER8's jscpd pin still gives two numbers for one gate ("no worse than
+  `250 (0.67%)`"); saying which one binds would leave QA nothing to interpret
+  (round-3 suggestion, not re-measured this round).
+- The Approach (L500) still tells the implementer to "**skip** any import
+  statement whose clause begins `import type`" while ER5 forbids the token `skip`
+  anywhere in the guard file. The spec anticipates the collision at L544-550, so
+  it is handled; phrasing the instruction as "treat ... as not an edge" would
+  remove the trap at its source (round-3 suggestion).
+- ER8's gates were re-run in full at round 3 and are unchanged by this round's
+  amendment, which touches only spec prose; they were not re-run here.
+
+## [RH-43] Consolidar convencoes de nomes, divisao de modulos e i18n no AGENTS.md (code review r1) — 2026-09-09
+
+All non-blocking. None of these should hold up the merge; several are explicitly
+sanctioned by the spec and are recorded here only so a future task has them.
+
+1. **`AGENTS.md` "nine of the 106 test files" is stale by one at the merge
+   commit** (the tree now has 107, the guard being the 107th). The section
+   preamble scopes its numbers to `bb5070b` and the spec pins the block
+   byte-for-byte, so this is correct as delivered — but a future edit of that
+   bullet could phrase it as "nine of them need a live Postgres" and stop the
+   count going stale on every new test file.
+
+2. **The test-6 failure message enumerates 16 server-only modules while
+   AGENTS.md's prose names 15.** The extra name is `db` itself, which is the
+   right call (§3e), but a reader diffing the message against the document will
+   pause on the discrepancy. A four-word clause in the message — "…plus `@/lib/db`
+   itself" — would remove the friction at no cost, whenever that file is next
+   touched.
+
+3. **Test 3 is marginally broader than the claim it guards.** It requires *every*
+   non-test file under `src/components` to be `PascalCase.tsx`, so a future
+   `src/components/<area>/helpers.ts` would fail a test named "every component
+   file … is PascalCase.tsx". No such file exists today, and the stricter reading
+   is defensible; worth a sentence in AGENTS.md if a co-located non-component
+   helper is ever wanted.
+
+4. **A wholly inline-type clause would read as a value import.**
+   `import { type A } from '@/lib/x'` (no bare `import type` prefix) is counted
+   as an edge. The spec states this simplification explicitly and there are none
+   against `@/lib` in client files at `bb5070b`, so it is not a defect — but it
+   is the first thing to revisit if the Out-of-Scope item "forbidding type-only
+   client imports" is ever picked up, since the two readings would then need to
+   be reconciled in one place.
+
+5. **Test 5 is line-oriented.** A declaration split as
+   `export const foo =\n  async () => {}` would slip past the detector. No
+   occurrence exists, and prettier/eslint formatting in this repo does not
+   produce that shape, so the risk is theoretical.
+
+6. **`export … from '@/lib/x'` re-exports are not edges in test 6.** A
+   `'use client'` file that re-exported a server-only module rather than
+   importing it would not be flagged. None exists; noting it as the one gap in an
+   otherwise complete scan.
+
+7. **Follow-ups already captured by the spec** (repeating them so they are not
+   lost between documents): F24 option (a) — fold `bands.server.ts` into
+   `bands.ts`, keep one `joinBandByInvite` returning `JoinBandResult`, delete the
+   caller-less `joinBandByInviteClient`, re-point `/join/[code]` and three test
+   files; and re-deriving `docs/plans/mobile-app-analysis.md` section 3.2 against
+   the post-RH-61/RH-65 architecture, which has now been raised in three review
+   rounds and should become a task or be closed as deliberately historical.
+
+## [RH-43] Consolidar convencoes de nomes, divisao de modulos e i18n no AGENTS.md (QA r1) — 2026-09-09
+
+- `src/lib/__tests__/namingConventions.test.ts` computes the server-only closure
+  from `src/lib/*.ts` only. A future server-only module placed in a `src/lib`
+  subdirectory would fall outside `libModuleNames()` and so outside the closure,
+  silently. AGENTS.md's Module Layout section says `src/lib/*.ts` and no
+  subdirectory exists today, so nothing is wrong now; a one-line assertion that
+  `src/lib` has no non-`__tests__` subdirectory would keep the guard's population
+  honest if that ever changes. Non-blocking.
+- The `i18n scope` test pins the consumer set with an exact-equality assertion on
+  a single path, so legitimately adding a second landing-page file that reads copy
+  requires editing the test. That is arguably the point (the decision should be
+  re-litigated deliberately), but the failure message could say so explicitly.
+  Non-blocking.

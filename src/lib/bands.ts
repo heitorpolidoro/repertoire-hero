@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger"
 import { buildUpdateSet } from "@/lib/sqlUpdate"
 import type { Band, BandMember, Playlist } from "@/types/database"
 
-export const getBands = async (userId: string): Promise<Band[]> => {
+export async function getBands(userId: string): Promise<Band[]> {
   const sql = `
     SELECT b.*,
            COALESCE(
@@ -61,10 +61,10 @@ async function assertBandAdmin(bandId: string, userId: string): Promise<void> {
   if (role !== 'admin') throw new Error('Access denied: band admin required')
 }
 
-export const getBandWithMembers = async (
+export async function getBandWithMembers(
   bandId: string,
   userId: string,
-): Promise<Band | null> => {
+): Promise<Band | null> {
   const sql = `
     SELECT b.*,
            COALESCE(
@@ -105,13 +105,13 @@ export const getBandWithMembers = async (
   }
 }
 
-export const createBand = async (
+export async function createBand(
   userId: string,
   name: string,
   description?: string | null,
   coverUrl?: string | null,
   color?: string | null,
-): Promise<string> => {
+): Promise<string> {
   try {
     const res = await query<{ band_id: string }>('SELECT create_band($1, $2, $3, $4) as band_id', [
       name,
@@ -131,7 +131,7 @@ export const createBand = async (
   }
 }
 
-export const updateBand = async (
+export async function updateBand(
   bandId: string,
   userId: string,
   data: {
@@ -140,7 +140,7 @@ export const updateBand = async (
     cover_url?: string | null;
     color?: string | null;
   },
-): Promise<void> => {
+): Promise<void> {
   await assertBandAdmin(bandId, userId)
 
   try {
@@ -169,10 +169,10 @@ export const updateBand = async (
   }
 }
 
-export const deleteBand = async (
+export async function deleteBand(
   bandId: string,
   userId: string,
-): Promise<void> => {
+): Promise<void> {
   await assertBandAdmin(bandId, userId)
 
   const sql = `DELETE FROM bands WHERE id = $1`
@@ -186,10 +186,10 @@ export const deleteBand = async (
   }
 }
 
-export const leaveBand = async (
+export async function leaveBand(
   bandId: string,
   userId: string,
-): Promise<void> => {
+): Promise<void> {
   const sql = `DELETE FROM band_members WHERE band_id = $1 AND user_id = $2`
   try {
     await query<never>(sql, [bandId, userId])
@@ -200,10 +200,10 @@ export const leaveBand = async (
   }
 }
 
-export const removeBandMember = async (
+export async function removeBandMember(
   memberId: string,
   userId: string,
-): Promise<void> => {
+): Promise<void> {
   // The band is derived from the member row server-side rather than accepted
   // from the client, so the admin check cannot be pointed at a different band.
   let memberRes
@@ -229,10 +229,10 @@ export const removeBandMember = async (
   }
 }
 
-export const getBandPlaylists = async (
+export async function getBandPlaylists(
   bandId: string,
   userId: string,
-): Promise<Playlist[]> => {
+): Promise<Playlist[]> {
   const sql = `
     SELECT p.*,
            COALESCE(
@@ -262,11 +262,11 @@ export const getBandPlaylists = async (
   }
 }
 
-export const createBandPlaylist = async (
+export async function createBandPlaylist(
   bandId: string,
   userId: string,
   name: string,
-): Promise<string> => {
+): Promise<string> {
   // Any member may add a setlist — the UI's new-playlist form is not admin-gated.
   await assertBandMember(bandId, userId)
 
@@ -285,10 +285,10 @@ export const createBandPlaylist = async (
   }
 }
 
-export const joinBandByInviteClient = async (
+export async function joinBandByInviteClient(
   userId: string,
   inviteCode: string,
-): Promise<string | null> => {
+): Promise<string | null> {
   try {
     const res = await query<JoinBandByInviteRow>('SELECT * FROM join_band_by_invite($1, $2)', [inviteCode, userId])
     const row = res.rows[0]
@@ -300,10 +300,10 @@ export const joinBandByInviteClient = async (
   }
 }
 
-export const regenerateBandInviteCode = async (
+export async function regenerateBandInviteCode(
   bandId: string,
   userId: string,
-): Promise<string> => {
+): Promise<string> {
   let memberRes
   try {
     memberRes = await query<BandMemberRoleRow>(
@@ -345,6 +345,6 @@ export const regenerateBandInviteCode = async (
   throw new Error('Failed to regenerate invite code')
 }
 
-export const getBandMembers = (band: Band): BandMember[] => {
+export function getBandMembers(band: Band): BandMember[] {
   return band.members ?? []
 }
