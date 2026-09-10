@@ -6581,3 +6581,84 @@ Design questions the dispatch raised:
 - ER2's wording "all eleven files in `src/hooks/`" is now a twelve-file directory (the count
   was the `882806a` one). Worth restating as "every file in `src/hooks/`" if this clause is
   ever reused as a rule.
+
+## [RH-68] PlaylistDetailPage parte 3/6: extrair a linha de musica, a lista e o PlaylistSummary (spec review r1) — 2026-09-10
+
+1. **ER4's `620` ceiling is thin.** The reference is 614 and the ER allows 620.
+   Rebuilding the same cut, I measured 614 with one-line
+   `setRepertoireMap((prev) => withRepertoireEntry(...))` calls and a one-line
+   `filterPlaylistSongs(...)` memo, but **625** with the multi-line wrapping the
+   current file uses for those same constructs — a purely cosmetic difference in
+   the three places the spec leaves free. RH-67's analogous ER (`<= 840` against
+   a 834-line reference) landed at 839, consuming five of its six lines. Either
+   widen this one to ~630 or pin the shape of the `<PlaylistSongList ... />`
+   call site and the rewritten `handleStatusCycle`. The file-level ceiling
+   (`<= 700` against 666) has no such problem.
+2. **Audit, "the runner-up".** At `5c38206` the second-worst arrow is not
+   `autoPushIfNeeded` (286, complexity 7) but the `filteredSongs` filter callback
+   at `277:35`, complexity 8. The sentence is true of the file *after* the
+   extraction, since that callback leaves with the slice; as written it describes
+   the baseline.
+3. **"byte-for-byte the same function"** overstates the `formatDuration` /
+   `formatPlaylistDuration` relationship: same output for every input, but one
+   uses an early return and the other a ternary, and the parameter names differ.
+   The conclusion (delete the page copy, import the lib one, create no third
+   copy) is right; "identical output for every input" would be the accurate
+   phrasing.
+4. **Line references in "In scope".** `STATUS_SCORES` is at page line 60, not
+   56 (56-58 is the section banner); `PlaylistSummary.tsx` is described as "lines
+   56-180" in one place and `78-180` in the audit table. Cosmetic, but the audit
+   table is the one a reader will trust.
+5. **The row's "six callbacks" are counted, not named.** Two groupings satisfy
+   the count — one `onAddingTagChange(songId | null)` that also clears the input
+   plus `onNewTagInputChange`, or separate start/cancel callbacks — and no ER
+   depends on the choice, so nothing fails either way. Naming them removes the
+   last free variable in the row's props (and interacts with #1, since the call
+   site's length is what the 620 ceiling measures).
+6. **Escape and blur on the row's `new tag` input** are promised in "Behavior"
+   but pinned nowhere: ER7's fourteen tests cover Enter only, and the e2e net
+   does not exercise either. A fifteenth test would close the only moved
+   behaviour with no mechanical check.
+7. **ER1's `>= 10` export grep counts `export function|export interface|export
+   const` only.** The spec body enumerates exactly ten exports, so an
+   implementer who writes `export type PlaylistSongFilter = { ... }` instead of
+   an interface lands at 7 and fails an ER for a stylistic choice the prose does
+   not forbid. Say "three exported interfaces" in "Shape".
+8. **"No new `useState` in the components"** (a PM intent) is not verified. A row
+   that kept its own `newTagInput` state would still satisfy ER7 and the e2e net,
+   yet would take work away from RH-69. A grep — e.g. `grep -c "useState"` prints
+   `0` for the four component files — would pin it for one line.
+
+## [RH-68] PlaylistDetailPage parte 3/6: extrair a linha de musica, a lista e o PlaylistSummary (code review r1) — 2026-09-10
+
+Non-blocking; none needs to land in RH-68, and several are explicitly RH-69's.
+
+1. **The row's `onBlur` path has no unit test.** `PlaylistSongRow.tsx:156-160`
+   branches on `newTagInput.trim()`: commit the tag, or close the editor. Enter and
+   Escape are both pinned by the fourteenth test; blur is pinned by nothing here and
+   by nothing in `e2e/playlist-detail.spec.ts` either. Since ER7 fixes the test
+   count at 14 and the names verbatim, adding one now would break an ER — the right
+   home is RH-69, which rewrites this exact block into `useTagEditor` and will need
+   the coverage anyway. Worth carrying into that spec.
+2. **`PlaylistSongIdentity`'s cover-art branch is never rendered in a test.** Both
+   test fixtures set `cover_url: null`, so only the emerald placeholder path runs,
+   and the `linked` className switch — the whole reason the component exists — is
+   never asserted either. One test rendering a row with a `cover_url` and checking
+   the `<img>` plus the linked title's `group-hover:` class would close both. Same
+   ER-count caveat as above; a candidate for RH-69 or RH-71.
+3. **`PlaylistSongList` takes both `songs` and `filteredSongs` purely to word the
+   empty state.** It is faithful to the original (the old `<section>` read both) and
+   the prop doc says so, but a reader has to hold two lists in mind to follow the
+   three states. If RH-71's Server Component conversion revisits this, a single
+   discriminated `state` prop (`'empty' | 'no-match' | 'rows'`) computed on the page
+   would remove the last decision from the list component. Not worth churning now.
+4. **Import order in the page.** `@/lib/playlistDetail` is inserted above
+   `@/lib/auth-client`, and `@/app/actions/repertoire` is still imported twice
+   (lines 13-16 and again below `@/lib/auth-client`) — both pre-existing at
+   `5c38206`, neither flagged by eslint. If any later part of RH-53 touches the
+   import block, folding the duplicate `@/app/actions/repertoire` import into the
+   first one is a free tidy.
+
+## [RH-68] PlaylistDetailPage parte 3/6: extrair a linha de musica, a lista e o PlaylistSummary (QA r1) — 2026-09-10
+
+None.
