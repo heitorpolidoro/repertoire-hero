@@ -232,18 +232,58 @@ export async function createPlaylist(page: Page, name: string) {
 }
 
 /**
+ * Waits until React has hydrated the playlist detail route, and leaves the page
+ * exactly as it found it.
+ *
+ * RH-71 made the route a Server Component, so its heading is in the raw
+ * document and a caller that returns on the heading alone acts before any
+ * event handler is attached: a click is then simply swallowed, and a `fill`
+ * doubly so, because React never re-runs the handler.
+ *
+ * The probe is the `Add songs` toggle, which a freshly loaded detail page
+ * always renders: its `aria-pressed` can only flip because the panel reducer
+ * ran, which is what proves hydration. Toggling that panel is pure client
+ * state — nothing is written, no request is issued, and opening it twice closes
+ * it again — so the second click restores the closed panel every test starts
+ * from. Both clicks share one retry wrapper on purpose: React can replay a
+ * discrete click queued during hydration, so a bare final assertion could be
+ * raced into leaving the panel open.
+ *
+ * The quiet-network wait is the second half of the same problem and not a
+ * sleep in disguise: `AppLayout` returns a bare `<>{children}</>` for the one
+ * render between its mount and `authClient.useSession()` answering, so the DOM
+ * carries two copies of every control for a few frames. The count assertion
+ * below cannot replace it — it only samples, and it passes on the raw document
+ * before the second copy mounts: measured, dropping this line fails `filters
+ * the playlist by title text` on two filter inputs at once.
+ */
+export async function waitForPlaylistDetailHydrated(page: Page) {
+  const toggle = page.getByRole('button', { name: 'Add songs' })
+  await expect(toggle).toBeVisible({ timeout: 30_000 })
+  await page.waitForLoadState('networkidle', { timeout: 30_000 })
+  await expect(async () => {
+    await expect(toggle).toHaveCount(1, { timeout: 2_000 })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 2_000 })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false', { timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+}
+
+/**
  * Opens the named playlist from `/playlists` and returns its detail URL.
  *
- * Unlike `createPlaylist` this needs no hydration-retry wrapper: it is only ever
- * called immediately after `createPlaylist`, i.e. on a page that has already
- * proved it is hydrated by opening the modal and rendering the new card. The
- * heading assertion carries 15 s because the detail route renders a loading
- * state until its data resolves and the first hit pays a bundler compile.
+ * Unlike `createPlaylist` this needs no hydration-retry wrapper of its own on
+ * the list side: it is only ever called immediately after `createPlaylist`,
+ * i.e. on a page that has already proved it is hydrated by opening the modal
+ * and rendering the new card. The heading assertion carries 15 s because the
+ * first hit on the detail route pays a bundler compile.
  */
 export async function openPlaylist(page: Page, name: string): Promise<string> {
   await page.getByRole('button', { name: `Open ${name}` }).click()
   await page.waitForURL(/\/playlists\/[^/]+$/, { timeout: 15_000 })
   await expect(page.getByRole('heading', { name })).toBeVisible({ timeout: 15_000 })
+  await waitForPlaylistDetailHydrated(page)
   return page.url()
 }
 

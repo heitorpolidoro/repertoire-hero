@@ -34,6 +34,7 @@ import {
   goHome,
   openPlaylist,
   uniqueFixtureName,
+  waitForPlaylistDetailHydrated,
 } from './helpers'
 
 test.use({ storageState: AUTH_STATE_PATH })
@@ -94,14 +95,16 @@ const playlistTagBar = (page: Page) =>
  * — which is what makes this file useful to RH-71, where the page starts
  * loading differently.
  *
- * The route renders a loading state until its data resolves and the first hit
- * pays a bundler compile, so the first assertion after the navigation carries
- * 15 s, the value `server-pages.spec.ts` already uses for the same reason;
- * `playwright.config.ts` keeps the assertion default at 5 s.
+ * The first hit on the route pays a bundler compile, so the first assertion
+ * after the navigation carries 15 s, the value `server-pages.spec.ts` already
+ * uses for the same reason; `playwright.config.ts` keeps the assertion default
+ * at 5 s. Since RH-71 the heading is in the server document and says nothing
+ * about hydration, so `waitForPlaylistDetailHydrated` follows it.
  */
 async function reopenPlaylist(page: Page) {
   await page.goto(playlistUrl)
   await expect(page.getByRole('heading', { name: playlistName })).toBeVisible({ timeout: 15_000 })
+  await waitForPlaylistDetailHydrated(page)
 }
 
 /**

@@ -6861,3 +6861,538 @@ None.
   double-quote-with-semicolons. Both pass lint, and the split matches the
   existing split between `src/lib` and `src/app` in this repository, so nothing
   needs doing; flagging only in case a future formatting pass wants uniformity.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (spec review r1) — 2026-09-10
+
+- `applyPlaylistOverlay` and `PlaylistOverlay` already exist in
+  `src/lib/playlistList.ts` (RH-63, consumed by `PlaylistsView`). The spec adds a
+  second `applyPlaylistOverlay` with a different signature in
+  `src/lib/playlistOverlay.ts` and cites the first as its precedent without
+  noting the collision. No gate fails on it (`knip` checks unused, not
+  ambiguous, names), but two same-named lib exports one import away from each
+  other will confuse the next reader; consider `applyDetailOverlay` /
+  `PlaylistDetailOverlay`, or naming the collision as deliberate.
+- `max-lines-per-function` runs with default options in
+  `eslint.config.mjs:47`, i.e. **comments count**. The reference hook measures
+  176 function lines against a base ceiling of 200 (ER5 caps it at 195) in a
+  repo whose house style is very comment-heavy; the headroom is thinner than the
+  numbers suggest. Worth saying where the comment budget goes, or noting the
+  fallback (a fourth module) so the implementer does not discover it late.
+- ER5 asserts a line containing `Function 'PlaylistDetailView' has too many
+  lines`, which ESLint only emits for a *named function declaration* (an arrow
+  const yields `Arrow function has too many lines`). ER3 pins
+  `export function usePlaylistDetail`; ER2 pins nothing equivalent for the
+  island. Add `grep -c "export function PlaylistDetailView"` to ER2 so a
+  stylistically legal implementation cannot fail ER5.
+- Out of Scope says `src/lib/songs.ts` is "pinned at `max-lines: 531`"; the
+  entry at `eslint.config.mjs:83` reads `529`. Since the guard fails on any
+  ceiling that is not exactly the file's current worst number, the number is
+  worth getting right even in prose.
+- The `src/components/playlists/` line of AGENTS.md's module map (L139) still
+  reads "PlaylistsView island, cards, Spotify import panel" and has not been
+  updated by RH-67..RH-70 either. Not this task's job under ER6's 2/2 numstat,
+  but worth a follow-up note.
+- Consider whether `PlaylistDetailActions` belongs in the island file rather
+  than the hook: RH-63's precedent exports `PlaylistsViewActions` from
+  `PlaylistsView.tsx`, and the page importing an actions type from `src/hooks`
+  is a new shape.
+
+## Notes on process
+
+`git status --short` at the end of this review shows only
+`?? docs/tasks/RH-71-spec.md`. The one probe I wrote (a copy of the `bd3c8cf`
+page) lives outside the repo, in the session scratchpad. No build was run; the
+manifest assertions were checked against the pre-existing `.next` build.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (spec review r2) — 2026-09-10
+
+- ER11's diff filter tests deleted lines against a pattern list, which catches
+  assertions, locators, imports and test declarations but not every
+  semantically load-bearing line. The seven `await page.reload()` calls, the
+  `await deletePlaylistFromDetail(page)` call and the awaited-write helper calls
+  match none of the patterns, so deleting one weakens the net and still passes
+  ER11 (and still passes the suite, more easily than before). A positive test is
+  both simpler and complete: every deleted line must look like comment prose,
+  e.g. `git diff bd3c8cf -- e2e/helpers.ts e2e/playlist-detail.spec.ts | grep
+  "^-[^-]" | grep -vcE '^-\s*(\*|//|/\*)'` prints `0`.
+- The existing `createPlaylist` wrapper retries an **idempotent** action (open
+  the modal); the new probe retries a **toggle**, where React's replay of a
+  discrete click queued during hydration could land after the helper's final
+  `aria-pressed=false` assertion and leave the panel open. The exposure is
+  small, but wrapping the restore-to-closed assertion in the same `toPass` (or
+  asserting the closed state once more before returning) removes it entirely.
+- "Any equivalent probe is acceptable provided it proves a React handler ran and
+  leaves no state behind" grants latitude that ER11 then revokes: the ER pins
+  the helper's name and `aria-pressed` >= 2 in `e2e/helpers.ts`, so a probe built
+  on any other affordance fails QA. Say that the `Add songs` probe is the
+  prescribed one, or loosen the ER.
+- ER11 pins `grep -c "waitForPlaylistDetailHydrated" e2e/playlist-detail.spec.ts`
+  at exactly `2`. A doc comment on `reopenPlaylist` that names the helper — the
+  natural replacement for the loading-state sentence being deleted — makes it
+  `3` and fails an otherwise correct implementation. `>= 2`, the shape used for
+  `e2e/helpers.ts`, is safer.
+- ER11 requires `waitForPlaylistDetailHydrated` to appear `0` times in
+  `e2e/server-pages.spec.ts`, yet the new signed-in test clicks `Delete
+  playlist` / `Yes` on the cold detail route. That is safe only if the test
+  reaches the route through `openPlaylist` (and deletes through
+  `deletePlaylistFromDetail`), so the wait comes transitively. Worth stating,
+  since the ER otherwise reads as forbidding any hydration wait in that file.
+- ER12's `Test Files 124 passed (124)` is exact, but ER14 permits two
+  conditional forks that move the count: deleting `src/lib/playlistDetail.ts`
+  with its test (123) and adding `src/hooks/usePlaylistTagEditors.ts` with its
+  test (125). Condition the number on the forks, or state it as a range, so an
+  implementation that takes a fork ER14 allows cannot fail ER12.
+- ER15's `getRepertoire\([^)]*bandId` requires the call and the owner expression
+  on one physical line; a legal `const owner = bandId ? { bandId } : { userId }`
+  followed by `await getRepertoire(owner)` fails it. The constraint is currently
+  a parenthetical inside ER15 — repeat it in the Approach's "The server page"
+  paragraph where the implementer will read it.
+
+## Notes on process
+
+No probe file was written inside the repository; the three scratch page copies
+and the two scratch modules live in the session scratchpad. No build, no server
+and no Playwright run was started. `git status --short` shows only
+` M docs/suggestions-log.md` and `?? docs/tasks/RH-71-spec.md`.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (spec review r3) — 2026-09-10
+
+- The alternatives paragraph now says "(b) shares cases 1 and 3 with (d) and
+  adds one of its own". It shares case 1 exactly, but not case 3: under (b) a
+  band playlist opened under another band's hat shows the browsing user's
+  *personal* statuses, not band A's, so (b) removes case 3's bug with a different
+  result rather than sharing the case. (b) also shares case 4 (the switcher goes
+  inert here) and case 5 (read and write agree, so the tag edit stops failing),
+  neither of which the sentence mentions. The paragraph's conclusion is
+  unaffected and ER15 forbids (b) mechanically, so this is prose accuracy only.
+- `grep -vcE` exits `1` when it prints `0` (verified). Every ER12/ER11 line that
+  says "prints `0`" through a `grep -c`/`grep -vc` is fine as written, but a QA
+  runner using `set -e` or checking exit status rather than stdout would read
+  ER11's headline filter as a failure. Worth one clause ("prints `0`; the exit
+  status of a `grep -c` that counts nothing is `1` and is not a failure here").
+- ER13's three required claims and its one prohibition are textual. A single
+  literal anchor for the write clause — for instance requiring the substring
+  `writes under` or `write owner` in the F11 line alongside `band_id` — would
+  make the half of it that matters most (the one round 2's blocker 2 was about)
+  a `grep`, without turning the whole sentence into a fill-in-the-blank.
+- ER11 explains that `e2e/server-pages.spec.ts` needs no hydration wait because
+  its signed-in test reaches the route through `openPlaylist` and deletes through
+  `deletePlaylistFromDetail`. That is now stated, as asked, but it is still only
+  prose: nothing pins the new test to those two helpers, so an implementation
+  that navigates with `page.goto` and clicks `Delete playlist` directly satisfies
+  every ER11 grep and reintroduces the race the whole subsection exists to close.
+  `grep -c "openPlaylist" e2e/server-pages.spec.ts` >= `1` would close it.
+- Scope's lead-in bullet says the repertoire "and the one the page's two
+  repertoire writes are authorized against — becomes the **playlist owner's**,
+  not the browsing user's active band context". For the write half the baseline
+  was never the band context but always `{ userId }`; the write-half paragraph
+  says so plainly four lines later. Rewording the lead-in ("becomes the playlist
+  owner's, for both the read and the write") would remove the momentary
+  impression that writes used to follow the hat.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (spec review r4) — 2026-09-10
+
+- **Scope, case 4 — the parenthetical names two routes that do not read the band
+  context.** The sentence "It keeps its meaning on the routes that do read it
+  (`/`, `/bands`, Fast View), which is why it stays in the header" is right about
+  `/` and wrong about the other two. `git grep -l "useBandContextStore" bd3c8cf --
+  src/app src/components` returns `src/app/AppShell.tsx`, `src/app/page.tsx`,
+  `src/app/playlists/[id]/page.tsx` (the route being converted),
+  `src/app/profile/page.tsx`, `src/components/layout/AppLayout.tsx` and
+  `src/components/playlists/CreatePlaylistModal.tsx` — `src/app/bands/page.tsx`
+  is a Server Component that calls `getBands(userId)` with no hat at all, and
+  Fast View takes its owner from the URL
+  (`src/app/songs/[id]/fast-view/page.tsx:45`, `const queryBandId =
+  searchParams.get('bandId')`), which is the option-(c) convention this spec
+  rejects elsewhere. An accurate list is `/`, `/profile` and `/playlists`'s
+  create-playlist modal, with Fast View reading the id from a link that a
+  store-reading component built. This is not a blocking finding because it
+  concerns routes outside the task's file set, contradicts nothing else in the
+  document, prescribes no work, and cannot mislead an implementation: ER14's
+  closed change set excludes `src/components/layout/` entirely, so "the switcher
+  stays in the header" is pinned mechanically whatever the premise says. Worth
+  correcting on the way in, since case 4 is part of the record the operator
+  approves.
+- **ER12's `describe`-block citation ends at the wrong line.** The block is
+  `src/lib/__tests__/playlistDetail.test.ts:229-244`, not `229-236`; line 236 is
+  the `withRepertoireEntry(source, 'song-1', replacement)` call inside its single
+  `it`. Every number ER12 derives from the block is right, so this is a locator
+  fix only.
+- **ER11's `openPlaylist` pin is satisfiable by an import line alone.** `grep -c
+  "openPlaylist" e2e/server-pages.spec.ts` >= `1` (my own round-3 suggestion, and
+  the right shape) counts the import as well as the call. If a stricter form is
+  ever wanted, `grep -c "await openPlaylist" e2e/server-pages.spec.ts` >= `1`
+  pins the call rather than the import. Not worth a round on its own — an unused
+  import that reintroduced the race would still have to survive review — but it
+  is the one gap left in that pin.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (code review r1) — 2026-09-10
+
+Non-blocking. Recorded here rather than in `docs/suggestions-log.md`, which the
+`work` skill owns; the first is the one worth turning into a backlog task.
+
+1. **The `AppLayout` remount is a real product defect and currently has no
+   durable home.** The developer's diagnosis
+   (`.meridian/reports/RH-71-dev-1.md`, deviation 1) is sound and well
+   evidenced: `AppLayout` renders a bare `<>{children}</>` for the render
+   between its own mount and `authClient.useSession()` answering
+   (`src/components/layout/AppLayout.tsx:157`), so every route is unmounted from
+   the shell and mounted back into it, and for ~200 ms the document carries two
+   copies of every control. The measured trace (`filters:2, headings:2,
+   toggles:2` for one 100 ms sample) and the JavaScript-disabled check (one copy
+   in the raw document) together prove it is a client-side swap, not double
+   server markup. RH-71 did not cause it and ER14 forbids touching that file —
+   correctly deferred. But it is recorded only in this task's dev report and in a
+   doc comment in `e2e/helpers.ts`; `docs/suggestions-log.md` carries the four
+   spec-review rounds and no entry for it. It is **not** RH-73-adjacent (RH-73 is
+   the `repertoireStore.loadSongs` stale-response race, a different mechanism in
+   a different file). It deserves its own backlog task: every route now pays a
+   full remount on a cold load, which is a real user-visible flash and the reason
+   the e2e helper needs a network wait at all.
+
+2. **`waitForPlaylistDetailHydrated`'s `networkidle` wait is redundant with the
+   honest condition next to it, and Playwright discourages it**
+   (`e2e/helpers.ts`, the `page.waitForLoadState('networkidle', …)` line). The
+   `await expect(toggle).toHaveCount(1, { timeout: 2_000 })` inside the bounded
+   `toPass` is already the correct wait for the duplicate-DOM window: during the
+   swap the count is 2, the assertion fails, the wrapper retries, and once the
+   route has settled the click dance runs against a single hydrated control.
+   `networkidle` adds nothing that assertion does not cover, and unlike it,
+   `waitForLoadState` *throws* on timeout rather than falling through — so the
+   day the app grows a long-lived connection (Sentry's `replayIntegration` is
+   already enabled under `NODE_ENV=production`, which is exactly what the e2e
+   runs, and any future SSE/poll would be worse), every detail-route test fails
+   on a wait that was never the load-bearing one. I verified the app has no
+   `EventSource`, `WebSocket` or `setInterval` in `src/` today, so the current
+   green run is real. Recommend deleting the line and keeping the count
+   assertion; ER11's pins (`toPass` = 3, `aria-pressed` >= 2, numstat 45/5) all
+   survive that deletion.
+
+3. **A failed rename now leaves the new name on screen** (`rename` records the
+   overlay entry before awaiting, `src/hooks/usePlaylistDetail.ts:187-194`).
+   After a rejection the banner shows the failure, but the header keeps the name
+   that was *not* saved, and since the failure path does not call `onRefresh()`,
+   it keeps it until the user navigates. At `bd3c8cf` the header showed the old
+   name. This follows the spec's own "every mutation writes its overlay entry
+   first" rule and the Rename bullet pins only the banner and the panel, so it is
+   a faithful implementation and a suggestion, not a deviation. Worth a follow-up:
+   a `rename-failed` (or `rename: null`) action reverting to the server name
+   would remove the one place in the route where the UI states something the
+   database does not. Note it interacts with finding 1 above — both come from the
+   same "record, never clear" shape.
+
+4. **The page's band read leans on a database CHECK constraint that the code
+   never names** (`src/app/playlists/[id]/page.tsx:48-49`). The read is safe, and
+   I verified why: `check_playlist_owner_exclusive`
+   (`migrations/0001_initial_schema.sql:253-256`) makes `user_id` and `band_id`
+   mutually exclusive, so a non-null `band_id` forces the `p.user_id = $2`
+   disjunct of `getPlaylistWithSongs`'s predicate to be false and the
+   band-membership disjunct to be the one that matched. Without that constraint,
+   a row carrying both columns would let `getRepertoire({ bandId })` read a band
+   the caller does not belong to, because `getRepertoire` itself performs no
+   authorization (`src/lib/songs.ts:35-64`). The page comment says "a non-null
+   read proves the caller may act as that owner", which is true but silently
+   transitive. Naming the constraint in that comment would make the invariant
+   auditable by the next reader. (AGENTS.md already documents the ownership pair,
+   so this is prose only.)
+
+5. **The new server page is the only one of the four that lets a lib read throw
+   escape.** `src/app/playlists/page.tsx`, `src/app/bands/page.tsx` and
+   `src/app/admin/moderation/page.tsx` each wrap their read in a `try` and
+   degrade to a banner; `src/app/playlists/[id]/page.tsx:46-49` does not, so a
+   transient database failure renders Next's error document instead. It is not a
+   regression worth blocking — at `bd3c8cf` the same failure set an `error` state
+   that `if (!playlist) return null` then prevented from ever rendering, i.e. a
+   blank page — and ER1's 60-line cap (the file is exactly 60) leaves no room for
+   the `try`. Worth a line in a follow-up that revisits the cap.
+
+## What I verified, and how
+
+**Security (the part I was asked to be certain about).**
+
+- *The read is access-scoped and the page does not widen it.*
+  `getPlaylistWithSongs(id, userId)` (`src/lib/playlists.ts:206-247`) scopes in
+  SQL: `WHERE p.id = $1 AND (p.user_id = $2 OR p.band_id IN (SELECT band_id FROM
+  band_members WHERE user_id = $2))`, returning `null` for a playlist the caller
+  may not read. The page resolves the session with the same `getSession()` helper
+  `src/app/playlists/page.tsx:34` uses, `redirect("/login")` when there is no
+  user id (which also narrows `userId` to `string`), and `redirect("/playlists")`
+  on `null` — the destination the deleted client load used. A band playlist is
+  therefore not readable by a non-member through the URL, and the Server
+  Component's access is exactly the Server Action's, not wider.
+- *The band repertoire read.* `getRepertoire` performs no membership check of
+  its own, so the page's `getRepertoire(bandId ? { bandId } : { userId })` is safe
+  only because `bandId` comes from the row that was just access-checked, plus the
+  exclusivity constraint above. I chased that to the migration; it holds. See
+  suggestion 4 for the documentation nit.
+- *The writes carry the same owner and are enforced server-side.*
+  `updateSongStatusAction` / `updateSongTagsAction`
+  (`src/app/actions/repertoire.ts:46,53`) resolve the owner through
+  `resolveOwner`, which calls `getRequiredUserId()` and then
+  `assertBandMember(bandId, userId)` before returning `{ bandId }` — it fails
+  closed on a forged band id. Underneath, `updateSongStatus` and `updateSongTags`
+  (`src/lib/songs.ts:103,122`) scope the `UPDATE` by `band_id = $3` or
+  `user_id = $3` and throw `Repertoire entry not found or access denied` on zero
+  rows, so a forged *entry* id fails too. The island passes `playlist.band_id`
+  (`src/hooks/usePlaylistDetail.ts:105,170,229`) and reads no store, so the write
+  owner and the read owner are the same value — ER15's point, and the client
+  cannot substitute another. No `src/app/actions/**`, `src/lib/playlists.ts`,
+  `src/lib/songs.ts`, `src/store/**` or `src/proxy.ts` change is in the diff.
+- No secrets, no interpolated SQL, no `alert`/`confirm`, no new `dangerouslySet*`.
+
+**The behaviour delta (Scope cases 1-6).** `const bandId = playlist.band_id`
+(page:48) is the sole source of the owner on both halves; `bandId` is forwarded
+to `PlaylistSongList` for the badge branch and the Fast View href
+(`PlaylistDetailView.tsx:142`) and into both writes. The display half is asserted
+on the DOM by `PlaylistDetailView.test.tsx:203-222` (two
+`Band status is computed from all members` badges and no `Click to advance`
+button for a band playlist, two buttons for a personal one) and the write half by
+`usePlaylistDetail.test.tsx:213-242` (`'rep-s1','learning','band-1'` and
+`'rep-s1',[],'band-1'`; `null` third argument for a personal playlist, read out
+of `mock.calls`). This matches ER15 and the six cases as written.
+
+**Layering and cleanliness.** `grep -rn "@/app/" src/components src/lib
+src/hooks | grep -v __tests__` prints nothing (F21 intact — the hook's doc
+comment says "point back into the App Router tree" rather than the literal
+path). No `useEffect` in the island or the hook; no `next/navigation` in the
+hook (the router is injected as `onRefresh`/`onDeleted`, which is what makes the
+hook testable with no navigation mock); no store read anywhere on the route; the
+RH-67 `eslint-disable react-hooks/set-state-in-effect` is gone with the effect it
+guarded, not relocated. The controller exposes commands, not setters. The lib
+module is pure (no React, no `@/lib/db`, no `fetch`) and reuses
+`withRepertoireEntry`, which is why `knip` stays quiet. File style matches the
+local precedent exactly: page and island in the double-quote/semicolon style of
+`src/app/playlists/page.tsx` and `PlaylistsView.tsx`, hook and lib in the
+single-quote style of `src/hooks/useTagEditor.ts` and `src/lib/playlistList.ts`.
+
+**Gates I re-ran myself.**
+
+```
+./node_modules/.bin/tsc --noEmit                                      exit 0, no output
+rtk proxy npx eslint '<page>' src/components/playlists \
+  src/hooks/usePlaylistDetail.ts src/lib/playlistOverlay.ts \
+  e2e/helpers.ts e2e/server-pages.spec.ts --max-warnings 0            exit 0, no output
+rtk proxy npx vitest run complexityBudget namingConventions \
+  playlistOverlay usePlaylistDetail PlaylistDetailView               5 files, 46 passed
+npm run lint:dead                                                     exit 0, no output
+eslint --rule '{"complexity":1,"max-lines-per-function":1}'
+  PlaylistDetailView  117 lines, complexity 5   (ER5: <= 170 / <= 12)
+  usePlaylistDetail   164 lines, no complexity line (ER5: <= 195)
+```
+
+46 = 12 overlay + 12 hook + 9 island + 6 complexity-budget + 7 naming, so all
+three new suites are at the counts ER7/ER8/ER9 pin, with the jsdom preamble on
+the first line of both DOM suites and `afterEach(cleanup)` in each.
+
+**Ratchet and manifest.** The page's override line is deleted outright
+(`eslint.config.mjs`, `-1` line, no re-homing: `grep -c "src/app/playlists"`
+prints `0`), `grep -c "complexity-budget/override"` prints `19`,
+`MAX_OVERRIDES = 19` with the test title moved in lockstep, AGENTS.md changed on
+exactly two lines (the server-page bullet now naming `/playlists/[id]`, and
+"past 19 entries"), and the guard passes. `docs/plans/code-quality-review.md` is
+`2 0` — two inserted lines, nothing deleted. F11's `**Status:**` line is true on
+every number I checked against the tree: the page is 60 lines, the three new
+modules take no override, the ratchet reads 19, and the delta paragraph names
+`band_id` and `write owner` and states the three required facts. It is also
+careful where ER13 demands care — it says explicitly that a *status cycle* never
+produced `Repertoire entry not found or access denied`, and attributes that
+failure to the song-tag edit, which is what `PlaylistSongRow.tsx:69` makes true.
+
+**e2e.** `git diff --cached bd3c8cf -- e2e/helpers.ts e2e/playlist-detail.spec.ts
+| grep "^-[^-]" | grep -vcE '^-\s*($|\*|//|/\*)'` prints `0`: every deleted line
+in both files is comment prose or blank, so no assertion, locator, timeout,
+import, navigation or test body was touched. numstat is `45/5` and `7/4` against
+the `45/12` and `12/8` ceilings; `toPass` is 3 and `aria-pressed` is 3 in
+`helpers.ts`; only the three permitted e2e files changed. The
+`reopenPlaylist` edit is the import, the call and the reworded comment — nothing
+else. The two new `server-pages` tests assert honestly on the raw document
+(`request.get(path)` with no JavaScript: status 200, the unique playlist name in
+the body, no `__next_error__`, then teardown through the detail page's own
+delete affordance) and on the signed-out 307 with the `location` header, inside a
+`describe` that overrides the storage state. Both reach the route through
+`openPlaylist`, so the hydration wait comes to them transitively as ER11
+intends. I did not re-run the Playwright suite; the developer's `35 passed` and
+`--repeat-each=3` `33 passed` runs are recorded with no `flaky`/`retry` line, and
+the blocking finding above is not reachable by that net either way.
+
+**Pre-existing flake the developer reported** (RH-63's optimistic-delete race in
+`deleting a playlist through the inline confirmation …`): confirmed
+pre-existing, in a test this task does not touch, in the `/playlists` island's
+own overlay. Leaving it alone here was right; it is the same family as finding 1
+above and could be folded into whatever task fixes the overlay clearing.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (code review r2) — 2026-09-10
+
+Non-blocking.
+
+1. **`songs-reported` clearing *only* the reported ids is the right semantics,
+   and worth stating in the code as a rejected alternative rather than only as a
+   positive rule.** I checked whether clearing the whole set would be
+   defensible on the grounds that the reported list is authoritative. It is not,
+   and the current code is right: the report is authoritative about the songs it
+   *carries*, not about the ones it omits. Concretely — remove X (write commits,
+   `router.refresh()` not landed yet), then add Y through the picker, whose own
+   reload observed the playlist after X was gone, so the report is `[…, Y]`
+   without X. Under whole-set clearing, X's overlay entry disappears while the
+   server props still carry X, so the removed row flashes back until the refresh
+   lands. Under the shipped per-id filter (`playlistOverlay.ts:98-102`), X keeps
+   its entry and stays hidden, which is exactly what the optimistic window is
+   for. The comment at `:95-97` and the fourth block of the pinned test
+   (`stillRemoved`, `playlistOverlay.test.ts:168-179`) pin the behaviour; only
+   the "why not the whole set" is left implicit.
+
+2. **The `reportedSongs` residual the developer recorded is real but not
+   reachable by hand, and the proposed durable fix is the right one.** With the
+   removal now released by a report, a picker reload that observed the playlist
+   *before* an in-flight removal committed reports the removed row, releases the
+   removal, and then keeps appending that row (it is not in the server props, so
+   `known` never dedupes it) until a full load. Reaching it needs a whole add
+   flow — type, 300 ms debounce, search round-trip, click — to complete inside
+   one removal's request window. Keying removals by the `playlist_songs` row id
+   instead of `song_id` would close it and make every entry inert again; that is
+   a follow-up, not this round.
+
+3. **No other overlay entry kind has the never-cleared defect, and the clearing
+   mechanism is worth naming for the next reader: there is none, by design.**
+   I checked each arm against the refresh path. Nothing resets the overlay after
+   `router.refresh()` lands; entries survive, and are harmless because the
+   server props converge to the same value, so re-applying them is a no-op —
+   `name` and `tags` (`applyDetailOverlay:133-134`) equal the row the refresh
+   brings back; `entries` (`:145-148`) replace a map value with an equal one;
+   `reportedSongs` rows are dropped by the `known` dedupe (`:142`) once the props
+   carry them. `is idempotent once the server render already carries the same
+   edits` (`playlistOverlay.test.ts:216-236`) asserts exactly that property, now
+   including a `remove-song` whose id the report does not carry. Only a removal
+   *hides* a row, which is why it alone needed releasing. On the failed-mutation
+   question: `remove-song` reverts through `restore-song`
+   (`usePlaylistDetail.ts:169`) and `repertoire-entry` reverts to the
+   pre-write entry (`:184`), so neither lies. Two paths do keep a value the
+   database refused — `rename` (`:196`, round-1 suggestion 3, a documented
+   spec-sanctioned deviation) and both tag writes (`useTagEditor.ts:90-101`,
+   "Rejections are reported, never rolled back", RH-69 behaviour that
+   `e2e/playlist-detail.spec.ts` observes deliberately). Both surface an error
+   banner and both state something rather than hide something, so neither is
+   this round's defect; they remain follow-up material.
+
+4. **`songs-pulled` clearing the whole set is right, and its one race is
+   self-correcting.** If a pull resolves while a removal write is still in
+   flight, the removal is released and the row may reappear; the removal's own
+   `onRefresh()` (`usePlaylistDetail.ts:167`) then takes it away again, and if
+   the removal instead rejected, the row *should* be visible. The dispatch is
+   also correctly ordered: `useSpotifySync.pull` only calls `onSynced()` after
+   `res.ok` (`src/hooks/useSpotifySync.ts:75-77`), so `songs-pulled` is never
+   recorded for a failed pull. `useSpotifySync.ts` is untouched, as ER1/ER14
+   require.
+
+5. **My round-1 suggestion 2 was wrong and the developer's evidence is
+   convincing — the `networkidle` line should stay.** I asked for it to be
+   deleted on the theory that `toHaveCount(1)` inside the `toPass` covers the
+   duplicate-DOM window. The counter-evidence is decisive and I accept it: the
+   count assertion *samples*, and on a cold route it samples the raw server
+   document where the count is already 1 because the `AppLayout` remount has not
+   happened yet, so the probe returns early and the swap lands mid-test. The
+   recorded failure (`filters the playlist by title text`, `strict mode
+   violation: getByPlaceholder(…) resolved to 2 elements`) is the same test the
+   spec's hydration subsection names. The line meets the bar I set for accepting
+   it: bounded (`page.waitForLoadState('networkidle', { timeout: 30_000 })`,
+   `e2e/helpers.ts:263`) and documented — the doc paragraph at `:258-265` states
+   the mechanism, states that the count assertion cannot replace it, and records
+   the measurement, so the next reader has what they need not to delete it
+   again. Recording the `AppLayout` remount as RH-74 is the right home for the
+   underlying defect (round-1 suggestion 1).
+
+## What I verified, and how
+
+**The reducer fix, read and executed.** `songs-reported`
+(`src/lib/playlistOverlay.ts:94-104`) builds a `Set` of the reported song ids and
+filters `removedSongIds` by it while still replacing `reportedSongs`;
+`songs-pulled` (`:105-108`) returns `removedSongIds: []`. Both return fresh
+objects, neither mutates, and the `default: return state` arm still returns the
+identical reference (asserted with `toBe`, `playlistOverlay.test.ts:243-247`).
+The new action is in the union at `:61` and the type checks.
+
+**Tests.** `Test Files 3 passed (3)` / `Tests 33 passed (33)` = 12 + 12 + 9, so
+ER7/ER8/ER9 hold; the 12 overlay names and the 12 hook names are unchanged from
+round 1 (I re-listed both). The pinned test `restores a song that was removed
+and then put back` now carries four blocks: the original `restore-song` path,
+the picker re-add (`readded`, asserting `['s1','s2']` — the case my round-1
+scratch file failed on), the Spotify pull (`pulled`), and the guard that the fix
+does not over-fire (`stillRemoved`, a report that omits the removed song leaves
+it hidden). Assertions are on song-id lists, not on internal overlay shape,
+which is the right level. The `is idempotent` test was extended with the
+`remove-song` + `songs-reported` pair, so the module's central property is
+re-proved against the new arm.
+
+**Docs corrected.** The module header (`playlistOverlay.ts:16-30`) no longer
+claims "nothing ever has to clear one"; it names which entries are inert, names
+the removal as the one exception, says why it is not inert (it hides a row the
+props may legitimately carry again) and names both releases. The
+`removedSongIds` field comment (`:43-46`) and the test-file header
+(`playlistOverlay.test.ts:2-13`) match. The two hook call sites carry comments
+that read as the pair they are (`usePlaylistDetail.ts:134-137, 149-153`). No
+comment I checked now overstates what the code does.
+
+**Gates re-run by me.**
+
+```
+rtk proxy npx vitest run playlistOverlay usePlaylistDetail PlaylistDetailView
+  -> Test Files 3 passed (3) / Tests 33 passed (33)
+./node_modules/.bin/tsc --noEmit                                  exit 0, no output
+rtk proxy npx eslint src/lib/playlistOverlay.ts \
+  src/hooks/usePlaylistDetail.ts e2e/helpers.ts --max-warnings 0  exit 0, no output
+```
+
+**ER11 bounds after the helper edits.** `git diff --cached bd3c8cf --numstat`
+prints `45 5 e2e/helpers.ts` and `7 4 e2e/playlist-detail.spec.ts`, inside the
+`45/12` and `12/8` ceilings; the deleted-line filter
+(`grep "^-[^-]" | grep -vcE '^-\s*($|\*|//|/\*)'`) prints `0`, so no assertion,
+locator, timeout, import or test body was deleted in either file; `toPass` is 3
+in `helpers.ts` and `aria-pressed` is 3. I did not run Playwright, as directed.
+
+**Staging.** `git status --short` prints the same 17 staged entries at the end of
+this review as at the start, no unstaged and no untracked lines.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (code review r3) — 2026-09-10
+
+None. The remaining uncovered lines (`usePlaylistDetail.ts:192-193, 212`) were
+reviewed and accepted in earlier rounds and are out of scope for this round; the
+full-suite coverage gate passes.
+
+## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (QA r1) — 2026-09-10
+
+- ER1's `grep -c ""` on `src/app/playlists/[id]/page.tsx` lands exactly on the
+  ceiling (60 vs. the reference draft's 45). It passes, but leaves no headroom
+  for a future comment line.
+- ER11's first command (`git diff bd3c8cf -- e2e playwright.config.ts --name-only`)
+  puts `--name-only` after `--`, where git reads it as a pathspec and emits a
+  full diff. Future ER sets should spell it `git diff --name-only bd3c8cf -- ...`.
+- The e2e database carries stray fixture rows from earlier runs
+  (`RH66 Playlist 1789041619918-92365-003` and three siblings, visible in the
+  `/playlists` document above). Not touched here, and not RH-71's doing, but
+  worth a cleanup task.
+
+## [RH-70] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (code review r4) — 2026-09-15
+
+1. `e2e/server-pages.spec.ts:115` — the predicate could additionally require the
+   `next-action` request header
+   (`response.request().headers()["next-action"] !== undefined`) to pin the match
+   to a Server Action invocation specifically. Today nothing else POSTs to
+   `/playlists`, so this is future-proofing, not a correction; if a second action
+   is ever mounted on that route, the header check is what keeps this helper from
+   waiting on the wrong write.
+2. `e2e/server-pages.spec.ts:115-125` — `deleteWrite` is held unawaited across the
+   `toHaveCount(0)` assertion. If that assertion ever fails, the still-pending
+   `waitForResponse` can reject later as an unhandled rejection and add noise
+   around the real failure. Awaiting the response *before* the DOM assertion, or
+   attaching a no-op `.catch()`, would keep the failure report clean. The current
+   ordering is intentional and correct for timing; this is cosmetic.
+
+## [RH-70] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (QA r2) — 2026-09-15
+
+- `e2e/server-pages.spec.ts` was reformatted wholesale to double quotes and semicolons while the
+  rest of `e2e/` uses single quotes and no semicolons. ER11's positive-deletion filter covers only
+  `helpers.ts` and `playlist-detail.spec.ts`, so this is allowed, but it makes future diffs of that
+  file noisier than they need to be; consider re-running the repo's prevailing style over it.
+- The local Docker VM disk is full (57 GiB of a 61 GiB `Docker.raw`), which is why the Supabase
+  stack could not start. This is unrelated to RH-70 but will block the next contributor's e2e run;
+  a `docker image prune` is worth scheduling.
