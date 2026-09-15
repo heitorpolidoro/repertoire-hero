@@ -48,7 +48,13 @@ const BANDS: BandOption[] = [
   { id: 'band-beta', name: 'Beta Ensemble', color: null },
 ]
 
-const SESSION = { data: { user: { id: 'user-1', name: 'Ada', email: 'ada@example.com' } } }
+const SESSION = {
+  data: { user: { id: 'user-1', name: 'Ada', email: 'ada@example.com' } },
+  isPending: false,
+}
+/** What `authClient.useSession()` answers before the session request settles. */
+const PENDING = { data: undefined, isPending: true }
+const SIGNED_OUT = { data: null, isPending: false }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -107,7 +113,7 @@ describe('AppLayout renders from props (RH-46)', () => {
   })
 
   it('renders only its children once the session resolves to no user', async () => {
-    useSessionSpy.mockReturnValue({ data: null })
+    useSessionSpy.mockReturnValue(SIGNED_OUT)
 
     render(
       <AppLayout bands={BANDS}>
@@ -117,5 +123,72 @@ describe('AppLayout renders from props (RH-46)', () => {
 
     expect(await screen.findByText('page body')).toBeDefined()
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
+  })
+})
+
+describe('AppLayout keeps one stable tree across session resolution (RH-73)', () => {
+  /**
+   * The bug this pins: AppLayout used to `return <>{children}</>` for the
+   * render between its mount effect and `useSession()` answering. `children`
+   * changed parent element and tree position, so React unmounted the route
+   * subtree and mounted a fresh copy — twice per load — and for a few frames
+   * the document carried two copies of every route control.
+   */
+  const routeControl = <button type="button">Route control</button>
+
+  it('keeps the very same child DOM node when the session resolves to a user', () => {
+    useSessionSpy.mockReturnValue(PENDING)
+    const { rerender } = render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+
+    const pendingNode = screen.getByRole('button', { name: 'Route control' })
+
+    useSessionSpy.mockReturnValue(SESSION)
+    rerender(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+
+    const resolvedNode = screen.getByRole('button', { name: 'Route control' })
+    expect(resolvedNode).toBe(pendingNode)
+    expect(pendingNode.parentElement).not.toBeNull()
+    expect(pendingNode.isConnected).toBe(true)
+  })
+
+  it('never renders two copies of a route control in any session phase', () => {
+    useSessionSpy.mockReturnValue(PENDING)
+    const { rerender } = render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    expect(screen.getAllByText('Route control')).toHaveLength(1)
+
+    useSessionSpy.mockReturnValue(SESSION)
+    rerender(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    expect(screen.getAllByText('Route control')).toHaveLength(1)
+
+    useSessionSpy.mockReturnValue(SIGNED_OUT)
+    rerender(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    expect(screen.getAllByText('Route control')).toHaveLength(1)
+  })
+
+  it('renders the chrome, including the main landmark, while the session is still pending', () => {
+    useSessionSpy.mockReturnValue(PENDING)
+    render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+
+    expect(screen.getAllByRole('navigation')).toHaveLength(2)
+    expect(screen.queryByRole('main')).not.toBeNull()
+  })
+
+  it('drops every chrome landmark and layout class once the session resolves to no user', () => {
+    useSessionSpy.mockReturnValue(SIGNED_OUT)
+    const { container } = render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+
+    expect(screen.getByText('Route control')).toBeDefined()
+    expect(screen.queryAllByRole('navigation')).toHaveLength(0)
+    expect(screen.queryByRole('main')).toBeNull()
+
+    // The wrappers survive (that is the point — the children never move), but
+    // they must be layout-neutral so a chrome-less page lays itself out.
+    const child = screen.getByText('Route control')
+    const contentWrapper = child.parentElement
+    const outerWrapper = contentWrapper?.parentElement
+    expect(contentWrapper?.className).toBe('contents')
+    expect(outerWrapper?.className).toBe('contents')
+    expect(container.querySelector('.h-screen')).toBeNull()
+    expect(container.querySelector('.bg-gray-50')).toBeNull()
   })
 })

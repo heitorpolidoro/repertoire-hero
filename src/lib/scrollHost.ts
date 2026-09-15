@@ -8,10 +8,10 @@
 
 /**
  * Nearest scrollable DOM ancestor of `node`, resolved by computed overflow
- * rather than by tag name: the Fast View page contains two <main> elements —
- * the app shell's (AppLayout, `flex-1 overflow-y-auto`, which really scrolls)
- * and the page's own (`min-h-screen`, which never does) — and only the former
- * may be scroll-locked while PDF Stage Mode is open.
+ * rather than by tag name: the Fast View page nests two main landmarks — the
+ * app shell's content wrapper (AppLayout, `flex-1 overflow-y-auto`, which
+ * really scrolls) and the page's own <main> (`min-h-screen`, which never
+ * does) — and only the former may be scroll-locked while Stage Mode is open.
  */
 export function findScrollHost(node: HTMLElement | null): HTMLElement | null {
   for (let el = node?.parentElement ?? null; el; el = el.parentElement) {

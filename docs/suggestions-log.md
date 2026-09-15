@@ -7501,3 +7501,16 @@ full-suite coverage gate passes.
   clearer for `runLoad`'s needs; just note it would need widening if `runLoad` ever needs a
   functional update.
 
+
+## [RH-73] Corrigir remount do AppLayout ao resolver a sessao — code review — 2026-09-15
+
+- `src/hooks/usePdfStage.ts:152` still reads "That container is the app shell's `<main>` (AppLayout, `flex-1 overflow-y-auto`)" — the same staleness that was just fixed in `scrollHost.ts`, left behind. `src/lib/__tests__/scrollHost.test.ts:38` has a milder version ("the app shell's scrolling `<main>`"). Worth sweeping both in a follow-up so the codebase tells one story about that element.
+- The `chrome` object literal packs three parallel ternaries into one expression on two long lines (`AppLayout.tsx:168-170`). It reads fine, but if a fourth varying attribute ever appears, hoisting it to a small module-level `const CHROME_ON / CHROME_OFF` pair would keep the component body from growing against the 201-line pin it now sits one line under.
+- Expected Result 6 (full Playwright suite green with `networkidle` removed) is the one criterion this review cannot discharge. The helper change is the single riskiest part of the diff for flakiness, and `playlist-detail.spec.ts` → "filters the playlist by title text" is the named canary. QA should confirm it, ideally over more than one run.
+
+## [RH-73] Corrigir remount do AppLayout ao resolver a sessao — QA — 2026-09-15
+
+- The dev-server log during the e2e run emits a React hydration mismatch for `src/app/page.tsx:306` (`RepertoireDashboard`: server renders the `min-h-screen flex items-center justify-center bg-gray-50` loading shell, client renders the populated `flex flex-col h-full` header). `page.tsx` is untouched by this change and the suite is green, so this is pre-existing and out of scope, but it is the same class of first-render divergence RH-73 just removed from `AppLayout` and is worth a follow-up task.
+- The content wrapper is a `<div role="main">` rather than a `<main>` element. Semantically equivalent for AT, but a plain `<main>` with a conditional wrapper would avoid the role-vs-element split; the `role={undefined}` branch already reads a little indirect.
+- Staged alongside the RH-73 files are `docs/tasks/RH-74-spec.md` and `src/lib/scrollHost.ts` (comment-only rewording that follows from the `<main>` → `role="main"` change) and `docs/suggestions-log.md` is modified but unstaged. The scrollHost comment update is a legitimate consequence of this change; the RH-74 spec is unrelated to RH-73's expected results and, if it lands in this commit, the commit will carry a file no expected result covers. `docs/tasks/RH-53-spec.md` remains untracked and out of scope as noted.
+

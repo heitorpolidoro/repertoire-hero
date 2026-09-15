@@ -136,6 +136,23 @@ const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent),
   ssr: false,
 });
 
+/**
+ * The app chrome — one stable element tree across every session phase (RH-73).
+ *
+ * `children` are rendered from the single return below, always inside the same
+ * content wrapper at the same tree position, so React never unmounts the route
+ * subtree. Only the chrome elements and the wrappers' classes and role vary.
+ *
+ * Chrome visibility follows the session alone, never `mounted`: it is shown
+ * while `useSession()` is still pending — which keeps the server HTML and the
+ * first client render exactly what they were — and hidden only once the session
+ * has resolved to no user, in which case both wrappers go layout-neutral
+ * (`contents`) and the `main` landmark is withheld, so a chrome-less page such
+ * as the signed-out landing page lays itself out and owns its own landmarks.
+ *
+ * `mounted` survives only for the band-mode hydration guard below: the
+ * persisted context store can disagree with the SSR default.
+ */
 export default function AppLayout({ children, bands }: AppLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -143,19 +160,19 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
   const { setUserContext } = useBandContextStore();
   const loadSongs = useRepertoireStore((s) => s.loadSongs);
 
-  const { data: session } = authClient.useSession();
+  const { data: session, isPending } = authClient.useSession();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
-  // Guard against hydration mismatch — persisted store might differ from SSR default
-  const isBandMode = mounted && context.type === 'band';
-  const bandName = context.type === 'band' ? context.name : '';
-  const bandColor = context.type === 'band' ? context.color : null;
-  const theme = getBandThemeStyles(isBandMode ? bandColor : null);
+  const showChrome = isPending || !!session?.user;
+  const chrome = showChrome
+    ? { outer: 'flex h-screen', content: 'flex-1 overflow-y-auto bg-gray-50 pb-16 md:pb-0', role: 'main' as const }
+    : { outer: 'contents', content: 'contents', role: undefined };
 
-  if (mounted && !session?.user) {
-    return <>{children}</>;
-  }
+  const band = context.type === 'band' ? context : null;
+  const isBandMode = mounted && showChrome && band !== null;
+  const theme = getBandThemeStyles(isBandMode ? band.color : null);
+  const chromeStyle = isBandMode ? theme.style : undefined;
 
   const isActive = (href: string): boolean => {
     if (href === '/') return pathname === '/';
@@ -182,73 +199,72 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
     ? 'opacity-80 hover:opacity-100 hover:bg-white/10'
     : 'text-gray-300 hover:bg-gray-700 hover:text-white';
 
-  const sidebarBg = isBandMode ? '' : 'bg-gray-900';
+  const sidebarTheme = isBandMode ? '' : 'bg-gray-900 text-white';
   const borderColor = isBandMode ? 'border-white/15' : 'border-gray-700';
 
   return (
-    <div className="flex h-screen">
-      {/* Desktop sidebar */}
-      <nav
-        aria-label="Main navigation"
-        className={`hidden md:flex flex-col w-60 ${sidebarBg} ${isBandMode ? '' : 'text-white'} shrink-0 transition-colors duration-200`}
-        style={isBandMode ? theme.style : undefined}
-      >
-        {/* Header */}
-        <div className={`px-6 py-5 border-b ${borderColor}`}>
-          <span className="text-lg font-semibold tracking-tight">Repertoire Hero</span>
-          {isBandMode && (
-            <div className="mt-2">
-              <span
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-bold border"
-                style={theme.badgeStyle}
-              >
-                <span aria-hidden="true">🎸</span>
-                Band Mode
-              </span>
-            </div>
+    <div className={chrome.outer}>
+      {/* Desktop sidebar — chrome only */}
+      {showChrome && (
+        <nav
+          aria-label="Main navigation"
+          className={`hidden md:flex flex-col w-60 ${sidebarTheme} shrink-0 transition-colors duration-200`}
+          style={chromeStyle}
+        >
+          {/* Header */}
+          <div className={`px-6 py-5 border-b ${borderColor}`}>
+            <span className="text-lg font-semibold tracking-tight">Repertoire Hero</span>
+            {isBandMode && (
+              <div className="mt-2">
+                <span
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-bold border"
+                  style={theme.badgeStyle}
+                >
+                  <span aria-hidden="true">🎸</span>
+                  Band Mode
+                </span>
+              </div>
+            )}
+          </div>
+
+          <ContextSwitcher isBandMode={isBandMode} bands={bands} />
+
+          <ul className="flex-1 flex flex-col gap-1 px-3 py-4" role="list">
+            {NAV_ITEMS.map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  aria-current={isActive(item.href) ? 'page' : undefined}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isActive(item.href) ? activeNavClass : inactiveNavClass
+                  }`}
+                >
+                  <span aria-hidden="true">{item.icon}</span>
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          {process.env.NEXT_PUBLIC_APP_VERSION && (
+            <p className="px-6 pb-2 text-xs opacity-60">v{process.env.NEXT_PUBLIC_APP_VERSION}</p>
           )}
-        </div>
 
-        <ContextSwitcher isBandMode={isBandMode} bands={bands} />
+          <div className={`px-3 py-4 border-t ${borderColor}`}>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className={`flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${inactiveNavClass}`}
+            >
+              <span aria-hidden="true">🚪</span>
+              Sign Out
+            </button>
+          </div>
+        </nav>
+      )}
 
-        <ul className="flex-1 flex flex-col gap-1 px-3 py-4" role="list">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={isActive(item.href) ? 'page' : undefined}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive(item.href) ? activeNavClass : inactiveNavClass
-                }`}
-              >
-                <span aria-hidden="true">{item.icon}</span>
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-
-        {process.env.NEXT_PUBLIC_APP_VERSION && (
-          <p className="px-6 pb-2 text-xs opacity-60">
-            v{process.env.NEXT_PUBLIC_APP_VERSION}
-          </p>
-        )}
-
-        <div className={`px-3 py-4 border-t ${borderColor}`}>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className={`flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${inactiveNavClass}`}
-          >
-            <span aria-hidden="true">🚪</span>
-            Sign Out
-          </button>
-        </div>
-      </nav>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto bg-gray-50 pb-16 md:pb-0">
-        {/* Band mode banner */}
+      {/* Content wrapper — the same element in every session phase */}
+      <div className={chrome.content} role={chrome.role}>
         {isBandMode && (
           <div
             className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5 border-b text-sm shadow-sm transition-colors"
@@ -257,10 +273,8 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
             <span aria-hidden="true">🎸</span>
             <span className="font-bold">Band Mode</span>
             <span className="opacity-50" aria-hidden="true">·</span>
-            <span className="font-semibold truncate">{bandName}</span>
-            <span className="hidden sm:inline text-xs opacity-75 ml-1">
-              — Status is read-only, computed from all members
-            </span>
+            <span className="font-semibold truncate">{band.name}</span>
+            <span className="hidden sm:inline text-xs opacity-75 ml-1">— Status is read-only, computed from all members</span>
             <button
               type="button"
               onClick={handleExitBandMode}
@@ -273,68 +287,70 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
           </div>
         )}
         {children}
-      </main>
+      </div>
 
-      {/* Mobile bottom navigation */}
-      <nav
-        aria-label="Main navigation"
-        className={`md:hidden fixed bottom-0 inset-x-0 border-t z-10 transition-colors duration-200 ${
-          isBandMode ? '' : 'bg-gray-900 border-gray-700 text-white'
-        }`}
-        style={isBandMode ? theme.style : undefined}
-      >
-        {isBandMode && (
-          <div
-            className="flex items-center justify-between px-3 py-1.5 border-b text-xs font-semibold"
-            style={{ borderColor: theme.borderStyle.borderColor }}
-          >
-            <span className="flex items-center gap-1">
-              <span aria-hidden="true">🎸</span>
-              <span>Band Mode · {bandName}</span>
-            </span>
-            <button
-              type="button"
-              onClick={handleExitBandMode}
-              className="opacity-80 hover:opacity-100 transition-opacity"
+      {/* Mobile bottom navigation — chrome only */}
+      {showChrome && (
+        <nav
+          aria-label="Main navigation"
+          className={`md:hidden fixed bottom-0 inset-x-0 border-t z-10 transition-colors duration-200 ${
+            isBandMode ? '' : 'bg-gray-900 border-gray-700 text-white'
+          }`}
+          style={chromeStyle}
+        >
+          {isBandMode && (
+            <div
+              className="flex items-center justify-between px-3 py-1.5 border-b text-xs font-semibold"
+              style={{ borderColor: theme.borderStyle.borderColor }}
             >
-              ✕ Exit
-            </button>
-          </div>
-        )}
-        <ul className="flex" role="list">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.href} className="flex-1">
-              <Link
-                href={item.href}
-                aria-current={isActive(item.href) ? 'page' : undefined}
-                className={`flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
-                  isActive(item.href)
-                    ? isBandMode ? 'text-purple-300' : 'text-emerald-400'
-                    : isBandMode ? 'text-purple-400 hover:text-white' : 'text-gray-400 hover:text-white'
+              <span className="flex items-center gap-1">
+                <span aria-hidden="true">🎸</span>
+                <span>Band Mode · {band.name}</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleExitBandMode}
+                className="opacity-80 hover:opacity-100 transition-opacity"
+              >
+                ✕ Exit
+              </button>
+            </div>
+          )}
+          <ul className="flex" role="list">
+            {NAV_ITEMS.map((item) => (
+              <li key={item.href} className="flex-1">
+                <Link
+                  href={item.href}
+                  aria-current={isActive(item.href) ? 'page' : undefined}
+                  className={`flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
+                    isActive(item.href)
+                      ? isBandMode ? 'text-purple-300' : 'text-emerald-400'
+                      : isBandMode ? 'text-purple-400 hover:text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <span className="text-xl leading-none" aria-hidden="true">
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+
+            <li className="flex-1">
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className={`flex w-full flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
+                  isBandMode ? 'text-purple-400 hover:text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                <span className="text-xl leading-none" aria-hidden="true">
-                  {item.icon}
-                </span>
-                {item.label}
-              </Link>
+                <span className="text-xl leading-none" aria-hidden="true">🚪</span>
+                Sign Out
+              </button>
             </li>
-          ))}
-
-          <li className="flex-1">
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className={`flex w-full flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
-                isBandMode ? 'text-purple-400 hover:text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <span className="text-xl leading-none" aria-hidden="true">🚪</span>
-              Sign Out
-            </button>
-          </li>
-        </ul>
-      </nav>
+          </ul>
+        </nav>
+      )}
     </div>
   );
 }

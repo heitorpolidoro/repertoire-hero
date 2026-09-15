@@ -249,18 +249,20 @@ export async function createPlaylist(page: Page, name: string) {
  * discrete click queued during hydration, so a bare final assertion could be
  * raced into leaving the panel open.
  *
- * The quiet-network wait is the second half of the same problem and not a
- * sleep in disguise: `AppLayout` returns a bare `<>{children}</>` for the one
- * render between its mount and `authClient.useSession()` answering, so the DOM
- * carries two copies of every control for a few frames. The count assertion
- * below cannot replace it — it only samples, and it passes on the raw document
- * before the second copy mounts: measured, dropping this line fails `filters
- * the playlist by title text` on two filter inputs at once.
+ * There is no quiet-network wait here any more. One used to be needed because
+ * `AppLayout` returned a bare `<>{children}</>` for the one render between its
+ * mount and `authClient.useSession()` answering: `children` changed parent
+ * element and tree position, so React unmounted the route subtree and mounted a
+ * fresh copy, and for a few frames the document carried two copies of every
+ * control. A `toHaveCount(1)` probe could sample the raw document before the
+ * second copy mounted, so it could not replace the wait. RH-73 removed that
+ * window — `AppLayout` now renders `children` from a single return, inside the
+ * same wrapper element in every session phase, so a second copy is never
+ * mounted and the count assertion below is sufficient on its own.
  */
 export async function waitForPlaylistDetailHydrated(page: Page) {
   const toggle = page.getByRole('button', { name: 'Add songs' })
   await expect(toggle).toBeVisible({ timeout: 30_000 })
-  await page.waitForLoadState('networkidle', { timeout: 30_000 })
   await expect(async () => {
     await expect(toggle).toHaveCount(1, { timeout: 2_000 })
     await toggle.click()
