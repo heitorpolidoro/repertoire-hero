@@ -7396,3 +7396,108 @@ full-suite coverage gate passes.
 - The local Docker VM disk is full (57 GiB of a 61 GiB `Docker.raw`), which is why the Supabase
   stack could not start. This is unrelated to RH-70 but will block the next contributor's e2e run;
   a `docker image prune` is worth scheduling.
+
+## [RH-52] Decompor PlaylistDetailPage em SongPicker, useTagEditor e reducer de paineis (F11, F13) — 2026-09-15
+- Several ERs (ER8, ER9, ER11) quote prose that is hard-wrapped in `AGENTS.md`, so the
+  quoted string spans a line break in the file and a literal single-line `grep` for it
+  will not match. The ERs say "reads"/"contains the sentence fragment" rather than
+  giving a grep, so they remain verifiable by reading the file, but a QA agent may try
+  grep first. Adding "(whitespace/line wrapping normalised)" to those three would
+  remove the doubt.
+- ER14 ("version higher than every version in `git log`") is cheaper to check as a
+  comparison against the version on the previous commit; the current phrasing implies
+  scanning full history.
+
+## [RH-52] Decompor PlaylistDetailPage em SongPicker, useTagEditor e reducer de paineis (F11, F13) — spec review round 1 — 2026-09-15
+
+- ER4's `integrated and verified by RH-53` lands on T6, whose status already
+  ends "Both findings it covers are now closed." Saying where in the line the
+  phrase goes (the `Delivered by ...` clause, matching T5 at L546 and T8 at
+  L567) would remove a small styling choice.
+- The "Test criteria" paragraph asks the developer to record `wc -l` output for
+  the page, but no Expected Result mentions a line count. Either drop it or turn
+  it into a bounded ER.
+- ER10 restricts the diff to four paths; the commit for this task will also be
+  the one carrying the close-out line, so the spec could state the commit scope
+  (`docs(RH-52): ...`, as the numbering note already says) next to ER10.
+
+## [RH-72] Corrigir corrida de resposta obsoleta em repertoireStore.loadSongs — 2026-09-15 (RH-72-spec_review-1.md)
+
+- **Dedupe vs. generation allocation is under-specified.** "Every `loadSongs` call takes a
+  monotonically increasing request id and records it as the current one" read literally applies to
+  the second, deduped call too — which would make the shared in-flight request stale before it
+  lands and drop its result entirely, contradicting test criterion 3 ("both promises resolve with
+  the list applied once"). Criterion 3 does pin the observable outcome, so this is not blocking,
+  but the Behavior section should say plainly that a call that adopts an in-flight promise returns
+  it *before* allocating a new request id.
+- Consider naming the dedupe key explicitly (the `bandId`, `null` for personal context) so the
+  personal-context case is obviously covered by the same map.
+- ER1-ER3 are behavioral statements that QA can only check by reading the store and the new test
+  file; ER5 is what makes them mechanically checkable. Keeping ER5's named-test requirement is
+  worth extending to a named test per behavioral ER if the generator revises the list anyway.
+
+
+## [RH-72] Corrigir corrida de resposta obsoleta em repertoireStore.loadSongs — 2026-09-15 (RH-72-spec_review-2.md)
+- Consider having the implementation assert the in-flight count never goes
+  negative (a dev-only invariant), since the count is module-scoped and survives
+  `setState` resets between unit tests; a reset helper in the test file would
+  avoid cross-test leakage.
+
+## [RH-73] Corrigir remount do AppLayout ao resolver a sessao — 2026-09-15
+
+- ER4's "applies no chrome layout classes to the wrappers" would be sharper if it named the classes the
+  way the Approach section already does (`flex h-screen` on the outer wrapper; `flex-1 overflow-y-auto
+  bg-gray-50 pb-16 md:pb-0` on the content wrapper). QA sees only the results list, not the spec, so
+  spelling out the class strings removes the one place where a reviewer and an implementer could disagree
+  about what counts as "chrome layout".
+- The spec's "may not push either number above its current pin" (complexity 21 /
+  max-lines-per-function 202) is stricter than what `complexityBudget.test.ts` enforces, and the change
+  swaps one `if` for a conditional wrapper plus class ternaries — complexity could plausibly land at 22.
+  The spec gives no fallback. Naming one in advance (extract the sidebar or the bottom nav into a local
+  component in the same file) would keep a round from being spent discovering it.
+- The causal claim "the duplicate-DOM window is caused by the AppLayout remount" is well-supported by the
+  helper's own comment but is not independently proven; ER6 is what actually settles it. If the Playwright
+  suite still fails with `networkidle` removed, the residual cause is likelier to be App Router streaming
+  than `AppLayout`, and that should be treated as a new finding rather than as a failure of this fix.
+- Consider noting in the spec that `display: contents` on the signed-out wrappers is load-bearing for the
+  landing page only, so a later reader does not "clean it up" into a plain `div`.
+
+## [RH-52] Decompor PlaylistDetailPage — spec review round 3 — 2026-09-15
+
+- **The stale board field, not the spec, caused the question.** RH-52's
+  `description` on the board should be brought in line with the approved spec's Scope
+  — the six children are `done`, and the remaining deliverable is the documentation
+  close-out across four files. Leaving it as "waiting on the six children" will
+  produce the same question at the next gate.
+- **ER15 is the one result a QA agent holding only the list could misread.** It says
+  `git diff --stat` for this task touches only four files, but the working tree
+  carries unrelated changes from other tasks (`docs/suggestions-log.md` modified,
+  `docs/tasks/RH-73-spec.md` and `RH-74-spec.md` untracked). A QA agent running a bare
+  `git diff --stat` would see `docs/suggestions-log.md` and fail it. Scoping the ER to
+  the task's own commit (`git show --stat <commit>`) would remove the hazard. Carried
+  forward as a suggestion rather than raised as blocking: the ER does say "for this
+  task", the spec is unchanged since it was approved, and nothing in the tree made
+  this worse this round.
+- Carried forward unresolved from round 2, still applicable and still non-blocking:
+  ER8, ER9 and ER11 quote prose that is hard-wrapped in `AGENTS.md`, so a literal
+  single-line `grep` for the quoted string will not match even after a correct edit —
+  confirmed again this round, where the current stale equivalents only matched after
+  `tr '\n' ' '`. Adding "(whitespace/line wrapping normalised)" to those three would
+  spare QA a false negative.
+- ER14's "higher than every version in `git log`" is still cheaper to evaluate as a
+  comparison against the version on the previous commit.
+
+## [RH-72] Corrigir corrida de resposta obsoleta em repertoireStore.loadSongs — code review — 2026-09-15
+
+- `src/components/songs/SongForm.tsx:276` performs its own add-to-repertoire mutation and then calls
+  `loadSongs()` to refresh. That call does *not* bump the generation, so if an unrelated read for the
+  same band context happens to be in flight, the refresh adopts it via the dedupe slot and can settle
+  with a pre-add list. The window is narrow and the pre-change code had an equivalent (racier)
+  problem, and the spec explicitly scopes invalidation to `removeSong`/`updateStatus` — but if a
+  follow-up touches this area, routing the add through the store (or exporting an
+  `invalidateReads`-style refresh) would close it.
+- `type SetState = (partial: Partial<RepertoireState>) => void` narrows zustand's real `set`
+  signature (it also accepts an updater function and a `replace` flag). That is fine and arguably
+  clearer for `runLoad`'s needs; just note it would need widening if `runLoad` ever needs a
+  functional update.
+
