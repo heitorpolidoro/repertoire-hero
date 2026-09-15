@@ -127,7 +127,7 @@ src/
 │   ├── songs/[id]/fast-view/   Mobile-optimized "on stage / on stand" reading view
 │   ├── login/, signup/, forgot-password/, reset-password/
 │   │                           Auth pages
-│   ├── bandAdminActions.ts, fastView*Actions.ts
+│   ├── bandAdminActions.ts, fastView*Actions.ts, songPickerActions.ts
 │   │                           Typed Server Action bundles injected into client islands
 │   └── layout.tsx, page.tsx    Root layout and dashboard/home
 ├── components/                 Presentational React, one directory per feature area
@@ -147,11 +147,15 @@ src/
 │   ├── useBandPendingAction.ts Confirm-then-run state for the destructive band actions
 │   ├── useLyricsEditor.ts      Fast View lyrics: draft, save, version switch, Stage Mode
 │   ├── usePdfStage.ts          Fast View PDF Stage Mode: viewport, scroll lock, annotations
+│   ├── usePlaylistDetail.ts    /playlists/[id] controller: song list, both tag bars, picker, Spotify sync
 │   ├── usePlaylistNav.ts       Fast View setlist navigation (fetch, drawer, router pushes)
 │   ├── useSongEntry.ts         Fast View song entry: load, band-context reconciliation, patches
 │   ├── useSongLinks.ts         Fast View link add/delete (duplicate check, moderation queue)
+│   ├── useSongPicker.ts        Playlist add-song picker: debounced catalog + Spotify search, add commands
 │   ├── useSongStatus.ts        Fast View mastery-status dropdown + write
+│   ├── useSpotifySync.ts       Playlist Spotify sync: pull from Spotify, push local edits back
 │   ├── useTabLibrary.ts        Fast View tab library: fetch, upload destination, delete
+│   ├── useTagEditor.ts         Tag editing keyed by subject (playlist or song row): open, type, commit
 │   └── useToast.ts             Floating Toast state + 4s auto-dismiss (render with components/ui/Toast)
 ├── i18n/dictionaries/          en.json / pt-BR.json — landing-page copy only (see Internationalisation)
 ├── lib/                        Domain logic + data access (no ORM; parameterized SQL via `pg`)
@@ -338,23 +342,23 @@ here rather than left for the next reader to discover.
   is not an action and is not covered.
 - **Injected action bundles are `<Subject>Actions`** `(convention only)`. Because
   of the import direction rule (F21) a hook or component never imports a Server
-  Action; the page hands it down as one typed object. The eight bundles live in
-  five `src/app/<area>Actions.ts` files (`bandAdminActions.ts`,
+  Action; the page hands it down as one typed object. The nine bundles live in
+  six `src/app/<area>Actions.ts` files (`bandAdminActions.ts`,
   `fastViewEntryActions.ts`, `fastViewLyricsActions.ts`, `fastViewNavActions.ts`,
-  `fastViewTabActions.ts`) as SCREAMING_SNAKE consts -
+  `fastViewTabActions.ts`, `songPickerActions.ts`) as SCREAMING_SNAKE consts -
   `BAND_ADMIN_ACTIONS: BandAdminActions`, `SONG_ENTRY_ACTIONS: SongEntryActions`.
   An island that receives its actions from a Server Component page declares the
   same `<Subject>Actions` shape as a prop type (`BandsViewActions`,
   `ModerationQueueActions`).
 - **Hooks are `use<Subject>` in a file of exactly that name** `(guarded)`. All
-  eleven files under `src/hooks` are `use<Name>.ts` exporting
-  `export function use<Name>`. Ten of the eleven also annotate a
+  fifteen files under `src/hooks` are `use<Name>.ts` exporting
+  `export function use<Name>`. Fourteen of the fifteen also annotate a
   `<Subject>Controller` return type - `SongEntryController`,
   `TabLibraryController`, `BandAdminController` - which is the vocabulary behind
   the phrase "controller hook" `(convention only)`; `useToast.ts` is the one hook
   with no return annotation, and no test reads return types.
 - **Components are `PascalCase.tsx`** `(guarded)`, one component per file, named
-  after the file: 51 files under `src/components`, no exception.
+  after the file: 65 files under `src/components`, no exception.
 - **`src/lib` modules are `camelCase.ts`** `(convention only)`, named for the
   noun they own (`playlistNav.ts`, `songSanitizer.ts`, `stageHistory.ts`). Three
   legacy names stand outside that and stay: `auth-client.ts` and
@@ -364,7 +368,7 @@ here rather than left for the next reader to discover.
   `export function` / `export async function` - never
   `export const f = async () => {}`. The choice is arbitrary but settled:
   declarations hoist and produce better stack traces, and 45 of the 46 modules
-  already did it. RH-43 converted the last outlier, `src/lib/bands.ts`, so the
+  then in `src/lib` already did it. RH-43 converted the last outlier, `src/lib/bands.ts`, so the
   rule now has no exceptions and the guard allows none.
 - **Type vocabulary.** Domain nouns live in `src/types/database.ts`; a raw SQL
   projection is `<Subject>Row` in `src/lib/dbRows.ts` `(guarded)`, see Database
@@ -372,7 +376,7 @@ here rather than left for the next reader to discover.
   (`GlobalSongEditPayload`, `BandUpdatePayload`) `(convention only)`.
 - **Tests sit in `__tests__/` beside the code they test** `(convention only)`,
   named `<subject>.test.ts`, or `.test.tsx` for a DOM test. A test that needs a
-  live Postgres is `<subject>.db.test.ts` - nine of the 106 test files - which is
+  live Postgres is `<subject>.db.test.ts` - nine of the 125 test files - which is
   how a reader knows why it skipped. One file stands outside the
   one-test-file-per-subject shape:
   `src/components/ui/__tests__/feedbackSurfaces.test.tsx` covers `Toast` and `AlertBanner`
@@ -398,7 +402,7 @@ here rather than left for the next reader to discover.
   Internationalisation).
 
 **Server-only is decided by the `@/lib/db` import, not by a filename (F24).**
-Twelve of the 46 modules under `src/lib` import it at module scope - `auth.ts`,
+Twelve of the 52 modules under `src/lib` import it at module scope - `auth.ts`,
 `bands.ts`, `bands.server.ts`, `devProfiles.ts`, `moderation.ts`,
 `playlists.ts`, `profile.ts`, `songs.ts`, `spotifyAuth.ts`,
 `spotifyConnection.ts`, `spotifyPlaylistSync.ts`, `tabs.ts` - and three more pull
@@ -407,10 +411,13 @@ and `spotifyRouteAuth.ts` (via `@/lib/bands`, `@/lib/playlists` and
 `@/lib/spotifyAuth`, among others). None of those fifteen may be imported for its
 values from a file carrying `'use client'`. A type-only import is not a
 violation: `import type` is erased before bundling, so it pulls in no `pg`, and
-client files already use it against `src/lib` today. The other thirty-one modules
-are free of `pg`, and nineteen of them appear in the 60 client files - fifteen
-imported for their values (`playlistNav.ts`, `statusConfig.ts`, `auth-client.ts`,
-...) and the rest for their types only.
+client files already use it against `src/lib` today. Those fifteen plus `db.ts`
+itself are sixteen modules; the other thirty-six are free of `pg`, and
+twenty-three of them appear in the 73 client files - nineteen imported for their
+values (`playlistNav.ts`, `statusConfig.ts`, `auth-client.ts`, and `pdfWorker.ts`,
+whose only importer writes the bare side-effect form `import '@/lib/pdfWorker'`
+with no clause at all) and the remaining four (`lyricsEditor.ts`, `songEntry.ts`,
+`songLinks.ts`, `tabLibrary.ts`) for their types only.
 `src/lib/__tests__/namingConventions.test.ts` computes both sets from the source,
 counting only value imports as graph edges, follows the graph to a fixed point,
 and fails the run on any client value import of a server-only module.

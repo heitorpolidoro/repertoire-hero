@@ -7514,3 +7514,59 @@ full-suite coverage gate passes.
 - The content wrapper is a `<div role="main">` rather than a `<main>` element. Semantically equivalent for AT, but a plain `<main>` with a conditional wrapper would avoid the role-vs-element split; the `role={undefined}` branch already reads a little indirect.
 - Staged alongside the RH-73 files are `docs/tasks/RH-74-spec.md` and `src/lib/scrollHost.ts` (comment-only rewording that follows from the `<main>` → `role="main"` change) and `docs/suggestions-log.md` is modified but unstaged. The scrollHost comment update is a legitimate consequence of this change; the RH-74 spec is unrelated to RH-73's expected results and, if it lands in this commit, the commit will carry a file no expected result covers. `docs/tasks/RH-53-spec.md` remains untracked and out of scope as noted.
 
+
+## [RH-52] Decompor PlaylistDetailPage — code review round 1 — 2026-09-15
+
+- Non-blocking, and pre-existing rather than introduced here: "The other
+  thirty-seven modules are free of `pg`" counts 52 − 15 = 37, which includes
+  `src/lib/db.ts` itself — the one module that is emphatically not free of `pg`.
+  The true pg-free count is 36. The previous text had the identical off-by-one
+  (46 − 15 = 31), the spec explicitly prescribes the 37, and `db.ts` is never
+  imported by a client file so no other number moves. Worth a separate task to
+  reword the root module out of the subtraction rather than fixing it here.
+- When the blocking finding is fixed, update the spec's Expected Results lines
+  that quote the now-superseded figures (the `124 test files` line, and the
+  Module Layout line quoting "twenty-two ... nineteen"), so the checklist and the
+  file agree for the next reader.
+
+## [RH-52] Decompor PlaylistDetailPage — code review round 2 — 2026-09-15
+
+- The verification block at `docs/tasks/RH-53-spec.md:115-122` would be more
+  durable if the client-file line named the population rather than the tool, e.g.
+  "files declaring `'use client'`, excluding `__tests__/` and `*.test.ts(x)`, per
+  `serverOnlyModules`/`clientFiles` in `src/lib/__tests__/namingConventions.test.ts`
+  = 73". The bare grep is what produced three independent wrong measurements in
+  this task; retiring it from the spec removes the trap.
+- AGENTS.md:415-418 could add a four-word parenthetical that "client files" means
+  files carrying the directive, non-test — the guard enforces it, but a reader
+  reaching for grep will get 76 again.
+- `AGENTS.md:371` now reads "and 45 of the 46 modules then in `src/lib` already
+  did it." at 88 characters, noticeably past the surrounding wrap width. Purely
+  cosmetic; reflow when next editing that bullet.
+
+
+## [RH-52] Decompor PlaylistDetailPage — code review round 3 — 2026-09-15
+
+1. `docs/suggestions-log.md` carries an unstaged +30-line modification (` M` in `git status --porcelain`).
+   It predates this round (it is already ` M` in the session-start snapshot) and is not part of the staged
+   change, so the spec's "git diff --stat touches only four files" criterion holds for the staged set — but
+   the working tree is not clean, and whoever commits should confirm that file is intentionally left out.
+2. The Expected Result "`AGENTS.md` contains the sentence fragment `45 of the 46 modules then in `src/lib`
+   already did it`" is not satisfiable by a single-line `grep`: the sentence wraps across `AGENTS.md:370-371`.
+   It *is* satisfied on newline-normalized text (verified below). If a future spec restates this criterion,
+   phrase it as a wrap-tolerant check.
+3. `AGENTS.md:371` is now ~92 characters, noticeably longer than the ~80-column wrap the rest of the file
+   keeps, because "then in `src/lib`" was inserted without re-flowing. Cosmetic; re-flowing would have
+   enlarged the diff beyond the "only inserted words" constraint the spec imposed, so leaving it is defensible.
+
+
+## [RH-52] Decompor PlaylistDetailPage — QA — 2026-09-15
+
+- The Module Layout paragraph now carries six interlocking counts (16 / 36 / 23 / 73 / 19 / 4).
+  Every one is currently correct, but only the server-only-import invariant is machine-enforced;
+  the census numbers are prose that will drift on the next component added. A cheap follow-up would
+  be to have `namingConventions.test.ts` assert the numbers it already computes against the strings
+  in AGENTS.md, the same way `complexityBudget.test.ts` pins the eslint override count.
+- The version jumps 0.1.109 → 0.1.112 with no 0.1.110/0.1.111 in history. Harmless (monotonic, which
+  is what the rule requires) but worth a glance in case two bumps were lost.
+
