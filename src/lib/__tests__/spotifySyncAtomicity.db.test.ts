@@ -22,11 +22,9 @@ import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { getRequiredUserId } from '@/lib/auth-session'
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const admin = createAdminTestClient()
-
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const TRACK_TITLE = 'RH-36 Track'
 const TRACK_ARTIST = 'RH-36 Track Artist'
 
@@ -46,7 +44,7 @@ const oneTrackPage = {
   next: null,
 }
 
-describe.skipIf(!SERVICE_ROLE_KEY)('the Spotify pull resync (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => {
   const suffix = Date.now()
 
   let ownerId: string
@@ -88,9 +86,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)('the Spotify pull resync (real database)', ()
        $fn$ LANGUAGE plpgsql`,
     )
 
-    ownerId = await createTestUser(admin, { email: `rh36-sync-owner-${suffix}@example.com` })
-    memberOneId = await createTestUser(admin, { email: `rh36-sync-m1-${suffix}@example.com` })
-    memberTwoId = await createTestUser(admin, { email: `rh36-sync-m2-${suffix}@example.com` })
+    ownerId = await createTestUser({ email: `rh36-sync-owner-${suffix}@example.com` })
+    memberOneId = await createTestUser({ email: `rh36-sync-m1-${suffix}@example.com` })
+    memberTwoId = await createTestUser({ email: `rh36-sync-m2-${suffix}@example.com` })
 
     bandId = await createBand(ownerId, `RH-36 Sync Band ${suffix}`, null, null)
     for (const member of [memberOneId, memberTwoId]) {
@@ -155,7 +153,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('the Spotify pull resync (real database)', ()
 
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
     for (const user of [ownerId, memberOneId, memberTwoId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     for (const song of [songOneId, songTwoId]) {
       if (song) await query('DELETE FROM global_songs WHERE id = $1', [song])

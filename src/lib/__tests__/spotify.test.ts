@@ -1,40 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
-import { createClient as createOriginalClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
-import { createAdminTestClient, createTestUserWithGoTrue, deleteTestUserWithGoTrue } from './test-helpers'
+import { createTestUserWithGoTrue, deleteTestUserWithGoTrue } from './test-helpers'
+import { query } from '@/lib/db'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
-const skip = !SERVICE_ROLE_KEY || !ANON_KEY
-
-// Mock Supabase server and client creation to use a shared mock client
-const mockTestClient = createOriginalClient(SUPABASE_URL, ANON_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
-
-const admin = createAdminTestClient()
-
-let activeServerClient: any = mockTestClient
-
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => Promise.resolve(activeServerClient),
-}))
-
-vi.mock('@/lib/supabase/admin', async () => {
-  const { createClient: createAdminOriginal } = await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js')
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321'
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-  const adminClient = createAdminOriginal(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  return { createAdminClient: () => adminClient }
-})
-
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => mockTestClient,
-}))
+const skip = !RUN_DB_TESTS
 
 vi.mock('@/lib/auth-session', () => ({
   getRequiredUserId: vi.fn(),
@@ -48,6 +19,22 @@ vi.mock('@/lib/logger', () => ({
     warn: vi.fn(),
   },
 }))
+
+/**
+ * The one repeated write in this file: a `spotify_tokens` row for a user. Spelt
+ * out here rather than through a generic table helper (the repo has no ORM).
+ */
+async function insertSpotifyToken(
+  userId: string,
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: string,
+): Promise<void> {
+  await query(
+    'INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at) VALUES ($1, $2, $3, $4)',
+    [userId, accessToken, refreshToken, expiresAt],
+  )
+}
 
 // Save original fetch
 const originalFetch = global.fetch
@@ -77,86 +64,76 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
   beforeAll(async () => {
     // Preventively clean up Songs A and B to avoid constraint violations in test reruns
-    await admin.from('global_songs').delete().ilike('title', 'Song A')
-    await admin.from('global_songs').delete().ilike('title', 'Song B')
+    await query("DELETE FROM global_songs WHERE title ILIKE 'Song A'")
+    await query("DELETE FROM global_songs WHERE title ILIKE 'Song B'")
 
-    // Create in GoTrue (for signInWithPassword) + Better Auth tables (for FK constraints)
-    ;({ userId: userAId } = await createTestUserWithGoTrue(admin, { email: USER_A.email, password: USER_A.password }))
-    ;({ userId: userBId } = await createTestUserWithGoTrue(admin, { email: USER_B.email, password: USER_B.password }))
+    // Create the Better Auth user + profile rows the FK constraints need
+    ;({ userId: userAId } = await createTestUserWithGoTrue({ email: USER_A.email, password: USER_A.password }))
+    ;({ userId: userBId } = await createTestUserWithGoTrue({ email: USER_B.email, password: USER_B.password }))
 
     // 3. Create a Band
-    const { data: band, error: bandErr } = await admin
-      .from('bands')
-      .insert({
-        name: `Spotify Test Band ${suffix}`,
-        invite_code: `SPOTIFY${suffix.toString().slice(-5)}`,
-      })
-      .select('id')
-      .single()
-    if (bandErr) throw bandErr
-    bandId = band!.id
+    const band = await query<{ id: string }>(
+      'INSERT INTO bands (name, invite_code) VALUES ($1, $2) RETURNING id',
+      [`Spotify Test Band ${suffix}`, `SPOTIFY${suffix.toString().slice(-5)}`],
+    )
+    bandId = band.rows[0].id
     createdBands.push(bandId)
 
     // Add User A (admin) and User B (member) to band_members
-    const { error: membersErr } = await admin.from('band_members').insert([
-      { band_id: bandId, user_id: userAId, role: 'admin' },
-      { band_id: bandId, user_id: userBId, role: 'member' },
-    ])
-    if (membersErr) throw membersErr
+    await query(
+      `INSERT INTO band_members (band_id, user_id, role)
+       VALUES ($1, $2, 'admin'), ($1, $3, 'member')`,
+      [bandId, userAId, userBId],
+    )
   })
 
   afterAll(async () => {
-    // Sign out any active sessions on the mock client
-    await mockTestClient.auth.signOut()
-
     // Restore fetch spy
     if (fetchSpy) fetchSpy.mockRestore()
     global.fetch = originalFetch
 
     // 1. Delete playlist songs links
     if (createdPlaylists.length > 0) {
-      await admin.from('playlist_songs').delete().in('playlist_id', createdPlaylists)
-      await admin.from('playlists').delete().in('id', createdPlaylists)
+      await query('DELETE FROM playlist_songs WHERE playlist_id = ANY($1)', [createdPlaylists])
+      await query('DELETE FROM playlists WHERE id = ANY($1)', [createdPlaylists])
     }
 
     // 2. Delete band members and bands
     if (createdBands.length > 0) {
-      await admin.from('band_members').delete().in('band_id', createdBands)
-      await admin.from('bands').delete().in('id', createdBands)
+      await query('DELETE FROM band_members WHERE band_id = ANY($1)', [createdBands])
+      await query('DELETE FROM bands WHERE id = ANY($1)', [createdBands])
     }
 
     // 3. Delete repertoires
     if (userAId) {
-      await admin.from('repertoire').delete().eq('user_id', userAId)
+      await query('DELETE FROM repertoire WHERE user_id = $1', [userAId])
     }
     if (userBId) {
-      await admin.from('repertoire').delete().eq('user_id', userBId)
+      await query('DELETE FROM repertoire WHERE user_id = $1', [userBId])
     }
     if (createdBands.length > 0) {
-      await admin.from('repertoire').delete().in('band_id', createdBands)
+      await query('DELETE FROM repertoire WHERE band_id = ANY($1)', [createdBands])
     }
 
     // 4. Delete spotify tokens
     if (userAId) {
-      await admin.from('spotify_tokens').delete().eq('user_id', userAId)
+      await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userAId])
     }
     if (userBId) {
-      await admin.from('spotify_tokens').delete().eq('user_id', userBId)
+      await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userBId])
     }
 
     // 5. Delete global songs
     if (createdSongs.length > 0) {
-      await admin.from('global_songs').delete().in('id', createdSongs)
+      await query('DELETE FROM global_songs WHERE id = ANY($1)', [createdSongs])
     }
 
-    // 6. Delete users (Better Auth + GoTrue)
-    if (userAId) await deleteTestUserWithGoTrue(admin, userAId)
-    if (userBId) await deleteTestUserWithGoTrue(admin, userBId)
+    // 6. Delete users
+    if (userAId) await deleteTestUserWithGoTrue(userAId)
+    if (userBId) await deleteTestUserWithGoTrue(userBId)
   })
 
   beforeEach(() => {
-    activeServerClient = mockTestClient
-
     // Setup selective fetch mock
     fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.url
@@ -283,30 +260,25 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
         return Promise.resolve({ ok: true } as any)
       }
 
-      // Delegate all other calls (Supabase DB, Auth API, etc.) to the original fetch
+      // Delegate all other calls (the Postgres driver, etc.) to the original fetch
       return originalFetch(input, init)
     })
   })
 
   afterEach(() => {
     if (fetchSpy) fetchSpy.mockRestore()
-    activeServerClient = mockTestClient
   })
 
   describe('spotifyAuth.ts -> getSpotifyAccessToken', () => {
     beforeEach(async () => {
       // Ensure we delete any existing token row for User A before each test
-      await admin.from('spotify_tokens').delete().eq('user_id', userAId)
+      await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userAId])
       // Set environment variables for credentials
       process.env.SPOTIFY_CLIENT_ID = 'test-client-id'
       process.env.SPOTIFY_CLIENT_SECRET = 'test-client-secret'
     })
 
     it('should return null when the user has not connected their Spotify account', async () => {
-      // Sign in mockClient as User A
-      const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(error).toBeNull()
-
       const token = await getSpotifyAccessToken(userAId)
       expect(token).toBeNull()
     })
@@ -314,16 +286,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
     it('should return the active token directly from the database if it is still valid', async () => {
       // Insert a valid token in the DB (expiry is 1 hour in the future)
       const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString()
-      const { error: insertErr } = await admin.from('spotify_tokens').insert({
-        user_id: userAId,
-        access_token: 'valid-access-token',
-        refresh_token: 'valid-refresh-token',
-        expires_at: expiresAt,
-      })
-      expect(insertErr).toBeNull()
-
-      const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(error).toBeNull()
+      await insertSpotifyToken(userAId, 'valid-access-token', 'valid-refresh-token', expiresAt)
 
       const token = await getSpotifyAccessToken(userAId)
       expect(token).toBe('valid-access-token')
@@ -339,16 +302,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
     it('should refresh the token automatically when it is within the buffer or expired', async () => {
       // Insert an expired token in the DB (expiry is 10 seconds in the past)
       const expiresAt = new Date(Date.now() - 10 * 1000).toISOString()
-      const { error: insertErr } = await admin.from('spotify_tokens').insert({
-        user_id: userAId,
-        access_token: 'expired-access-token',
-        refresh_token: 'valid-refresh-token',
-        expires_at: expiresAt,
-      })
-      expect(insertErr).toBeNull()
-
-      const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(error).toBeNull()
+      await insertSpotifyToken(userAId, 'expired-access-token', 'valid-refresh-token', expiresAt)
 
       const token = await getSpotifyAccessToken(userAId)
       expect(token).toBe('new-refreshed-access-token')
@@ -361,30 +315,22 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       expect(spotifyCalls).toHaveLength(1)
 
       // Verify the refreshed token is persisted in the database
-      const { data: row } = await admin
-        .from('spotify_tokens')
-        .select('*')
-        .eq('user_id', userAId)
-        .single()
-      expect(row).not.toBeNull()
-      expect(row!.access_token).toBe('new-refreshed-access-token')
-      expect(row!.refresh_token).toBe('new-refresh-token')
-      const newExpiry = new Date(row!.expires_at).getTime()
+      const tokenRows = await query<{ access_token: string; refresh_token: string; expires_at: string }>(
+        'SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1',
+        [userAId],
+      )
+      expect(tokenRows.rows).toHaveLength(1)
+      const row = tokenRows.rows[0]
+      expect(row.access_token).toBe('new-refreshed-access-token')
+      expect(row.refresh_token).toBe('new-refresh-token')
+      const newExpiry = new Date(row.expires_at).getTime()
       expect(newExpiry).toBeGreaterThan(Date.now() + 3500 * 1000)
     })
 
     it('should return null and log an error when refresh call to Spotify fails', async () => {
       // Expired token
       const expiresAt = new Date(Date.now() - 10 * 1000).toISOString()
-      await admin.from('spotify_tokens').insert({
-        user_id: userAId,
-        access_token: 'expired-access-token',
-        refresh_token: 'bad-refresh-token',
-        expires_at: expiresAt,
-      })
-
-      const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(error).toBeNull()
+      await insertSpotifyToken(userAId, 'expired-access-token', 'bad-refresh-token', expiresAt)
 
       // Override global fetch mock for this specific failure case
       fetchSpy.mockImplementation((input: any, init?: any) => {
@@ -405,15 +351,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
     it('should return null when client credentials are missing', async () => {
       // Expired token
       const expiresAt = new Date(Date.now() - 10 * 1000).toISOString()
-      await admin.from('spotify_tokens').insert({
-        user_id: userAId,
-        access_token: 'expired-access-token',
-        refresh_token: 'valid-refresh-token',
-        expires_at: expiresAt,
-      })
-
-      const { error } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(error).toBeNull()
+      await insertSpotifyToken(userAId, 'expired-access-token', 'valid-refresh-token', expiresAt)
 
       // Delete credentials
       delete process.env.SPOTIFY_CLIENT_ID
@@ -457,19 +395,16 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       vi.mocked(authSession.getRequiredUserId).mockResolvedValue(userAId)
 
       // Setup token for User A
-      await admin.from('spotify_tokens').delete().eq('user_id', userAId)
-      await admin.from('spotify_tokens').insert({
-        user_id: userAId,
-        access_token: 'import-access-token',
-        refresh_token: 'import-refresh-token',
-        expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
-      })
+      await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userAId])
+      await insertSpotifyToken(
+        userAId,
+        'import-access-token',
+        'import-refresh-token',
+        new Date(Date.now() + 3600 * 1000).toISOString(),
+      )
     })
 
     it('should import a playlist and add songs to the user repertoire (UC4.1)', async () => {
-      const { error: authErr } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(authErr).toBeNull()
-
       const request = new NextRequest(
         new URL('http://localhost/api/spotify/playlists/spotify-playlist-123/import'),
         {
@@ -491,40 +426,23 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       createdPlaylists.push(data.id)
 
       // Verify the song was created in global_songs
-      const { data: song } = await admin
-        .from('global_songs')
-        .select('*')
-        .ilike('title', 'Song A')
-        .single()
-      
-      expect(song).not.toBeNull()
-      createdSongs.push(song!.id)
+      const songRows = await query<{ id: string }>(
+        "SELECT id FROM global_songs WHERE title ILIKE 'Song A'",
+      )
+      expect(songRows.rows).toHaveLength(1)
+      const songId = songRows.rows[0].id
+      createdSongs.push(songId)
 
       // Verify it was added to User A's repertoire
-      const { data: rep } = await admin
-        .from('repertoire')
-        .select('*')
-        .eq('user_id', userAId)
-        .eq('song_id', song!.id)
-        .single()
-      
-      expect(rep).not.toBeNull()
-      expect(rep!.status).toBe('unknown')
+      const repRows = await query<{ status: string }>(
+        'SELECT status FROM repertoire WHERE user_id = $1 AND song_id = $2',
+        [userAId, songId],
+      )
+      expect(repRows.rows).toHaveLength(1)
+      expect(repRows.rows[0].status).toBe('unknown')
     })
 
     it('should propagate imported songs to all band members when importing a band playlist (UC4.1)', async () => {
-      // User A (admin) imports
-      const { error: authErr } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(authErr).toBeNull()
-
-      // Enable admin service role client temporarily to simulate server-side administrative propagation
-      activeServerClient = admin
-      // Mock getUser on admin client to return User A so token and user queries inside the route succeed
-      const getUserSpy = vi.spyOn(admin.auth, 'getUser').mockResolvedValue({
-        data: { user: { id: userAId } as any },
-        error: null,
-      })
-
       const request = new NextRequest(
         new URL('http://localhost/api/spotify/playlists/band-playlist-123/import'),
         {
@@ -537,51 +455,30 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
         params: Promise.resolve({ id: 'band-playlist-123' }),
       })
 
-      // Restore back to normal client
-      activeServerClient = mockTestClient
-      getUserSpy.mockRestore()
-
       expect(response.status).toBe(201)
       const data = await response.json()
       expect(data.band_id).toBe(bandId)
       createdPlaylists.push(data.id)
 
       // Find created song
-      const { data: song } = await admin
-        .from('global_songs')
-        .select('*')
-        .ilike('title', 'Song B')
-        .single()
-      
-      expect(song).not.toBeNull()
-      createdSongs.push(song!.id)
+      const songRows = await query<{ id: string }>(
+        "SELECT id FROM global_songs WHERE title ILIKE 'Song B'",
+      )
+      expect(songRows.rows).toHaveLength(1)
+      const songId = songRows.rows[0].id
+      createdSongs.push(songId)
 
       // 1. Verify in Band Repertoire
-      const { data: bandRep } = await admin
-        .from('repertoire')
-        .select('*')
-        .eq('band_id', bandId)
-        .eq('song_id', song!.id)
-        .single()
-      expect(bandRep).not.toBeNull()
+      const bandRep = await query('SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2', [bandId, songId])
+      expect(bandRep.rows).toHaveLength(1)
 
       // 2. Verify in User A repertoire (admin)
-      const { data: repA } = await admin
-        .from('repertoire')
-        .select('*')
-        .eq('user_id', userAId)
-        .eq('song_id', song!.id)
-        .single()
-      expect(repA).not.toBeNull()
+      const repA = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [userAId, songId])
+      expect(repA.rows).toHaveLength(1)
 
       // 3. Verify propagated in User B repertoire (member)
-      const { data: repB } = await admin
-        .from('repertoire')
-        .select('*')
-        .eq('user_id', userBId)
-        .eq('song_id', song!.id)
-        .single()
-      expect(repB).not.toBeNull()
+      const repB = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [userBId, songId])
+      expect(repB.rows).toHaveLength(1)
     })
   })
 
@@ -592,36 +489,34 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
     beforeAll(async () => {
       // Clean up previous runs if any to prevent unique key constraint violations (title, album)
-      await admin.from('global_songs').delete().ilike('title', 'Sync Song A')
-      await admin.from('global_songs').delete().ilike('title', 'Sync Song B')
+      await query("DELETE FROM global_songs WHERE title ILIKE 'Sync Song A'")
+      await query("DELETE FROM global_songs WHERE title ILIKE 'Sync Song B'")
 
       // 1. Create global songs with Spotify links and exact albums matching the Spotify mock
-      const { data: songA, error: errA } = await admin
-        .from('global_songs')
-        .insert({
-          title: 'Sync Song A',
-          artist: 'Sync Artist A',
-          album: 'Album A',
-          links: [{ label: 'spotify', url: 'https://open.spotify.com/track/spotify-track-a' }],
-        })
-        .select('id')
-        .single()
-      if (errA) console.error('INSERT SONGA ERR:', errA)
-      songIdA = songA!.id
+      const songA = await query<{ id: string }>(
+        `INSERT INTO global_songs (title, artist, album, links)
+         VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
+        [
+          'Sync Song A',
+          'Sync Artist A',
+          'Album A',
+          JSON.stringify([{ label: 'spotify', url: 'https://open.spotify.com/track/spotify-track-a' }]),
+        ],
+      )
+      songIdA = songA.rows[0].id
       createdSongs.push(songIdA)
 
-      const { data: songB, error: errB } = await admin
-        .from('global_songs')
-        .insert({
-          title: 'Sync Song B',
-          artist: 'Sync Artist B',
-          album: 'Album B',
-          links: [{ label: 'spotify', url: 'https://open.spotify.com/track/spotify-track-b' }],
-        })
-        .select('id')
-        .single()
-      if (errB) console.error('INSERT SONGB ERR:', errB)
-      songIdB = songB!.id
+      const songB = await query<{ id: string }>(
+        `INSERT INTO global_songs (title, artist, album, links)
+         VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
+        [
+          'Sync Song B',
+          'Sync Artist B',
+          'Album B',
+          JSON.stringify([{ label: 'spotify', url: 'https://open.spotify.com/track/spotify-track-b' }]),
+        ],
+      )
+      songIdB = songB.rows[0].id
       createdSongs.push(songIdB)
     })
 
@@ -630,46 +525,40 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       vi.mocked(authSession.getRequiredUserId).mockResolvedValue(userAId)
 
       // Setup token for User A
-      await admin.from('spotify_tokens').delete().eq('user_id', userAId)
-      await admin.from('spotify_tokens').insert({
-        user_id: userAId,
-        access_token: 'sync-access-token',
-        refresh_token: 'sync-refresh-token',
-        expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
-      })
+      await query('DELETE FROM spotify_tokens WHERE user_id = $1', [userAId])
+      await insertSpotifyToken(
+        userAId,
+        'sync-access-token',
+        'sync-refresh-token',
+        new Date(Date.now() + 3600 * 1000).toISOString(),
+      )
 
       // Create a local playlist linked to Spotify
-      const { data: playlist } = await admin
-        .from('playlists')
-        .insert({
-          user_id: userAId,
-          name: 'Local Playlist for Sync',
-          spotify_playlist_id: 'spotify-linked-123',
-          sync_with_spotify: true,
-        })
-        .select('id')
-        .single()
-      localPlaylistId = playlist!.id
+      const playlist = await query<{ id: string }>(
+        `INSERT INTO playlists (user_id, name, spotify_playlist_id, sync_with_spotify)
+         VALUES ($1, $2, $3, true) RETURNING id`,
+        [userAId, 'Local Playlist for Sync', 'spotify-linked-123'],
+      )
+      localPlaylistId = playlist.rows[0].id
       createdPlaylists.push(localPlaylistId)
 
       // Add only Song A initially to local playlist
-      await admin.from('playlist_songs').insert({
-        playlist_id: localPlaylistId,
-        song_id: songIdA,
-        position: 1,
-      })
+      await query(
+        'INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, 1)',
+        [localPlaylistId, songIdA],
+      )
 
       // Add both to User A's repertoire
-      await admin.from('repertoire').upsert([
-        { user_id: userAId, song_id: songIdA, status: 'learning' },
-        { user_id: userAId, song_id: songIdB, status: 'practicing' },
-      ])
+      await query(
+        `INSERT INTO repertoire (user_id, song_id, status)
+         VALUES ($1, $2, 'learning'), ($1, $3, 'practicing')
+         ON CONFLICT (user_id, song_id) WHERE user_id IS NOT NULL
+         DO UPDATE SET status = EXCLUDED.status`,
+        [userAId, songIdA, songIdB],
+      )
     })
 
     it('should pull tracks from Spotify: add new ones, remove obsolete ones, but keep them in the repertoire (UC4.2)', async () => {
-      const { error: authErr } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(authErr).toBeNull()
-
       const request = new NextRequest(
         new URL(`http://localhost/api/spotify/playlists/${localPlaylistId}/sync`),
         {
@@ -690,71 +579,56 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       expect(data.removed).toBe(1)
 
       // Verify playlist contents: should now have only Song B
-      const { data: localSongs } = await admin
-        .from('playlist_songs')
-        .select('song_id')
-        .eq('playlist_id', localPlaylistId)
-      
-      expect(localSongs).toHaveLength(1)
-      expect(localSongs![0].song_id).toBe(songIdB)
+      const localSongs = await query<{ song_id: string }>(
+        'SELECT song_id FROM playlist_songs WHERE playlist_id = $1',
+        [localPlaylistId],
+      )
+      expect(localSongs.rows).toHaveLength(1)
+      expect(localSongs.rows[0].song_id).toBe(songIdB)
 
       // SECURITY CRITICAL EDGE CASE check: Song A is removed from the playlist,
       // but MUST REMAIN in the user's repertoire
-      const { data: repA } = await admin
-        .from('repertoire')
-        .select('*')
-        .eq('user_id', userAId)
-        .eq('song_id', songIdA)
-        .single()
-      
-      expect(repA).not.toBeNull()
-      expect(repA!.status).toBe('learning') // Unmodified status
+      const repA = await query<{ status: string }>(
+        'SELECT status FROM repertoire WHERE user_id = $1 AND song_id = $2',
+        [userAId, songIdA],
+      )
+      expect(repA.rows).toHaveLength(1)
+      expect(repA.rows[0].status).toBe('learning') // Unmodified status
     })
 
     it('should push tracks to Spotify and handle batching (> 100 songs) (UC4.3)', async () => {
-      const { error: authErr } = await mockTestClient.auth.signInWithPassword(USER_A)
-      expect(authErr).toBeNull()
-
       // Let's create a large playlist with 105 songs to trigger batching
-      const { data: playlist } = await admin
-        .from('playlists')
-        .insert({
-          user_id: userAId,
-          name: 'Large Local Playlist',
-          spotify_playlist_id: 'large-spotify-id',
-          sync_with_spotify: true,
-        })
-        .select('id')
-        .single()
-      createdPlaylists.push(playlist!.id)
+      const largePlaylist = await query<{ id: string }>(
+        `INSERT INTO playlists (user_id, name, spotify_playlist_id, sync_with_spotify)
+         VALUES ($1, $2, $3, true) RETURNING id`,
+        [userAId, 'Large Local Playlist', 'large-spotify-id'],
+      )
+      const largePlaylistId = largePlaylist.rows[0].id
+      createdPlaylists.push(largePlaylistId)
 
       // Create 105 mock songs in global_songs in bulk to avoid DB overhead
-      const bulkSongs = Array.from({ length: 105 }).map((_, i) => ({
-        title: `Bulk Song ${i}`,
-        artist: 'Bulk Artist',
-        links: [{ label: 'spotify', url: `https://open.spotify.com/track/bulktrackid${i}` }],
-      }))
+      const bulkTitles = Array.from({ length: 105 }, (_, i) => `Bulk Song ${i}`)
+      const bulkLinks = bulkTitles.map((_, i) =>
+        JSON.stringify([{ label: 'spotify', url: `https://open.spotify.com/track/bulktrackid${i}` }]),
+      )
 
-      const { data: insertedSongs, error: songErr } = await admin
-        .from('global_songs')
-        .insert(bulkSongs)
-        .select('id')
-      
-      expect(songErr).toBeNull()
-      expect(insertedSongs).toHaveLength(105)
-      createdSongs.push(...insertedSongs!.map(s => s.id))
+      const insertedSongs = await query<{ id: string }>(
+        `INSERT INTO global_songs (title, artist, links)
+         SELECT t, 'Bulk Artist', l::jsonb
+         FROM unnest($1::text[], $2::text[]) AS s(t, l)
+         RETURNING id`,
+        [bulkTitles, bulkLinks],
+      )
+      expect(insertedSongs.rows).toHaveLength(105)
+      const bulkSongIds = insertedSongs.rows.map((r) => r.id)
+      createdSongs.push(...bulkSongIds)
 
       // Add to playlist_songs in bulk
-      const bulkPlaylistSongs = insertedSongs!.map((s, idx) => ({
-        playlist_id: playlist!.id,
-        song_id: s.id,
-        position: idx + 1,
-      }))
-
-      const { error: playlistSongsErr } = await admin
-        .from('playlist_songs')
-        .insert(bulkPlaylistSongs)
-      expect(playlistSongsErr).toBeNull()
+      await query(
+        `INSERT INTO playlist_songs (playlist_id, song_id, position)
+         SELECT $1, s, ordinality FROM unnest($2::uuid[]) WITH ORDINALITY AS t(s, ordinality)`,
+        [largePlaylistId, bulkSongIds],
+      )
 
       // Monitor fetch calls to verify batching.
       // Expect 1 PUT call (first 100 tracks) and 1 POST call (remaining 5 tracks).
@@ -776,7 +650,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       })
 
       const request = new NextRequest(
-        new URL(`http://localhost/api/spotify/playlists/${playlist!.id}/sync`),
+        new URL(`http://localhost/api/spotify/playlists/${largePlaylistId}/sync`),
         {
           method: 'POST',
           body: JSON.stringify({ direction: 'push' }),
@@ -784,7 +658,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       )
 
       const response = await syncPOST(request, {
-        params: Promise.resolve({ id: playlist!.id }),
+        params: Promise.resolve({ id: largePlaylistId }),
       })
 
       expect(response.status).toBe(200)

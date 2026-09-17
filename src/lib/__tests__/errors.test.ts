@@ -146,7 +146,7 @@ beforeEach(() => {
   });
 });
 
-describe("Supabase Error Handling", () => {
+describe("Data Layer Error Handling", () => {
   describe("playlists.ts errors", () => {
     it("getUserPlaylists throws on DB error", async () => {
       await expect(getUserPlaylists("mock-user-id")).rejects.toThrow(

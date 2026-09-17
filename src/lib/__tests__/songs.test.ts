@@ -2,14 +2,14 @@
  * Integration test for songs.ts
  *
  * Verifies that all repertoire and global song operations work correctly
- * against a local running Supabase instance.
+ * against a local running Postgres instance.
  *
  * The test is fully self-contained: it creates temporary users in beforeAll
  * and deletes all created resources in afterAll.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
-import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser } from './test-helpers'
 
 // RH-45 — `applySongLinkUpdate` auto-labels a blank link label through
 // `fetchUrlTitle`; the network is never touched from a test.
@@ -38,10 +38,8 @@ import type { SongLink, SongStatus } from '@/types/database'
 /** An id that is syntactically valid but matches nothing. */
 const MISSING_ID = '00000000-0000-0000-0000-000000000000'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const skip = !SERVICE_ROLE_KEY
-
-const admin = createAdminTestClient()
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
+const skip = !RUN_DB_TESTS
 
 describe.skipIf(skip)('songs service integration tests', () => {
   // Unique suffix so parallel runs don't collide
@@ -54,7 +52,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
   const createdGlobalSongIds = new Set<string>()
 
   beforeAll(async () => {
-    userId = await createTestUser(admin, { email: TEST_USER.email })
+    userId = await createTestUser({ email: TEST_USER.email })
     bandId = await createBand(userId, `Songs Band ${suffix}`, null, null)
   })
 
@@ -67,9 +65,9 @@ describe.skipIf(skip)('songs service integration tests', () => {
     if (userId) {
       // Global songs first (contributor_id FK), then deleteTestUser cascades the rest
       if (createdGlobalSongIds.size > 0) {
-        await admin.from('global_songs').delete().in('id', Array.from(createdGlobalSongIds))
+        await query('DELETE FROM global_songs WHERE id = ANY($1)', [Array.from(createdGlobalSongIds)])
       }
-      await deleteTestUser(admin, userId)
+      await deleteTestUser(userId)
     }
   })
 
@@ -143,18 +141,12 @@ describe.skipIf(skip)('songs service integration tests', () => {
   })
 
   it('addSongToRepertoire adds an existing global song to user repertoire', async () => {
-    // Create global song using admin client to act as an already existing global song
-    const { data: globalSong, error } = await admin
-      .from('global_songs')
-      .insert({
-        title: `Global Song D_${suffix}`,
-        artist: 'Artist D',
-        contributor_id: userId,
-      })
-      .select('id')
-      .single()
-    expect(error).toBeNull()
-    const songId = globalSong!.id
+    // Insert the global song directly, so it acts as an already existing global song
+    const inserted = await query<{ id: string }>(
+      'INSERT INTO global_songs (title, artist, contributor_id) VALUES ($1, $2, $3) RETURNING id',
+      [`Global Song D_${suffix}`, 'Artist D', userId],
+    )
+    const songId = inserted.rows[0].id
     createdGlobalSongIds.add(songId)
 
     const entry = await addSongToRepertoire({ userId: userId }, songId)

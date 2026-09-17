@@ -103,10 +103,10 @@ jobs:
     name: "Coverage (vitest)"
     runs-on: ubuntu-latest
 
-    # Six test files are gated on a live database via
-    # describe.skipIf(!process.env.SUPABASE_SERVICE_ROLE_KEY); without both the
-    # database and the key they skip and the coverage gate measures far less
-    # than it claims to. The service + env below mirror the e2e job's setup.
+    # Several test files are gated on a live database via
+    # describe.skipIf(!process.env.RUN_DB_TESTS); without both the database and
+    # the switch they skip and the coverage gate measures far less than it
+    # claims to. The service + env below mirror the e2e job's setup.
     services:
       postgres:
         image: postgres:16
@@ -124,9 +124,9 @@ jobs:
 
     env:
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/repertoire_hero_test"
-      # Only used as the "the database is really there" switch for the
-      # integration describes — the app itself no longer talks to Supabase.
-      SUPABASE_SERVICE_ROLE_KEY: "ci-integration-tests-enabled" # pragma: allowlist secret
+      # The "the database is really there, run the DB suites" switch for the
+      # integration describes. Not a credential — it holds no secret.
+      RUN_DB_TESTS: "1"
       # RH-42: the email-change suites build real Better Auth tokens, which are
       # signed with this secret. Outside production Better Auth falls back to a
       # default when it is unset, so the tests would pass either way — but the

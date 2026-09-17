@@ -23,14 +23,12 @@ import {
   removeBandMemberAction,
   createBandPlaylistAction,
 } from '../bands'
-import { asUser, countRows, SERVICE_ROLE_KEY } from './authzFixtures'
+import { asUser, countRows, RUN_DB_TESTS } from './authzFixtures'
 import { query } from '@/lib/db'
 import { createBand } from '@/lib/bands'
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 
-const admin = createAdminTestClient()
-
-describe.skipIf(!SERVICE_ROLE_KEY)('band actions refuse non-admins and non-members (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('band actions refuse non-admins and non-members (real database)', () => {
   const suffix = Date.now()
 
   let userAId: string
@@ -51,9 +49,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)('band actions refuse non-admins and non-membe
     countRows('SELECT count(*)::int AS count FROM playlists WHERE band_id = $1', [bandId])
 
   beforeAll(async () => {
-    userAId = await createTestUser(admin, { email: `rh34-bands-a-${suffix}@example.com` })
-    userBId = await createTestUser(admin, { email: `rh34-bands-b-${suffix}@example.com` })
-    userCId = await createTestUser(admin, { email: `rh34-bands-c-${suffix}@example.com` })
+    userAId = await createTestUser({ email: `rh34-bands-a-${suffix}@example.com` })
+    userBId = await createTestUser({ email: `rh34-bands-b-${suffix}@example.com` })
+    userCId = await createTestUser({ email: `rh34-bands-c-${suffix}@example.com` })
 
     bandId = await createBand(userAId, `RH-34 Band ${suffix}`, 'authz fixture', null, '#1d4ed8')
 
@@ -71,9 +69,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)('band actions refuse non-admins and non-membe
 
   afterAll(async () => {
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
-    if (userAId) await deleteTestUser(admin, userAId)
-    if (userBId) await deleteTestUser(admin, userBId)
-    if (userCId) await deleteTestUser(admin, userCId)
+    if (userAId) await deleteTestUser(userAId)
+    if (userBId) await deleteTestUser(userBId)
+    if (userCId) await deleteTestUser(userCId)
   })
 
   describe('mutations fail closed and change nothing', () => {

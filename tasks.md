@@ -2,7 +2,7 @@
  
  ## Phase 1: Infrastructure & Project Setup
 - [x] **T1.1:** Initialize Next.js project with Tailwind CSS and TypeScript.
-- [x] **T1.2:** Configure Supabase Client and Environment Variables (including local bypass toggle).
+- [x] **T1.2:** Configure the PostgreSQL connection pool and environment variables (including local bypass toggle).
 - [x] **T1.3:** Create database schema migrations (profiles, songs, and enums).
 - [x] **T1.4:** Setup Seed script for local development with `heitor.polidoro@gmail.com`.
  
@@ -21,12 +21,12 @@
 - [x] **T4.1:** Implement "Fast View" mode for mobile performance/shows.
 - [x] **T4.2:** Add visual indicators for song progress (color-coded statuses).
 - [x] **T4.3:** Setup basic unit tests for song filtering logic.
-- [ ] **T4.4:** Write E2E tests for the song CRUD happy path (add, edit, delete) using Playwright. DoD: CI run passes; test covers all three actions end-to-end against a Supabase local instance.
+- [ ] **T4.4:** Write E2E tests for the song CRUD happy path (add, edit, delete) using Playwright. DoD: CI run passes; test covers all three actions end-to-end against a local PostgreSQL instance.
 - [ ] **T4.5:** Write E2E tests for authentication flows (production login and local auto-login bypass). DoD: Both auth paths are exercised; CI run passes.
 - [ ] **T4.6:** Write E2E tests for "Fast View" mode on a mobile viewport. DoD: Playwright device emulation confirms the correct layout and song search behavior at mobile breakpoints.
  
  ## Phase 5: Audit & Deployment
-- [x] **T5.1:** Perform security audit on Supabase RLS policies.
+- [x] **T5.1:** Perform security audit on the server-side authorization checks in `src/lib` and `src/app/actions`.
 - [x] **T5.2:** Configure Vercel deployment pipeline.
  
  ## Phase 6: CI/CD & Quality Gates
@@ -52,7 +52,7 @@
 - [x] **T7.2:** Enable Vercel Analytics and Speed Insights on the Vercel project. DoD: Core Web Vitals (LCP, CLS, FID) are visible in the Vercel dashboard; no additional instrumentation code is required beyond the package import.
  
  ### T7.3 – Structured Client-Side Logging
-- [x] **T7.3:** Define a thin logging utility (`src/lib/logger.ts`) that wraps `console.error`/`console.warn` in production and forwards critical events to Sentry as breadcrumbs. DoD: All Supabase API error paths in the data layer call `logger.error`; Sentry breadcrumbs confirm event delivery in a staging test.
+- [x] **T7.3:** Define a thin logging utility (`src/lib/logger.ts`) that wraps `console.error`/`console.warn` in production and forwards critical events to Sentry as breadcrumbs. DoD: All database error paths in the data layer call `logger.error`; Sentry breadcrumbs confirm event delivery in a staging test.
  
  ## Phase 8: Internationalization (i18n)
 - [x] **RH-14:** Add i18n support (PT-BR and EN) with browser detection (`Accept-Language` / `navigator.language`) and cookie persistence when changed manually.

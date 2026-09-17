@@ -133,7 +133,7 @@ beforeEach(() => {
   })
 })
 
-describe('Supabase Edge Cases', () => {
+describe('Data Layer Edge Cases', () => {
   describe('playlists.ts edge cases', () => {
     it('addSongToPlaylist handles null count in playlist_songs', async () => {
       mockCount = null

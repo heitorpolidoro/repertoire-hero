@@ -31,9 +31,17 @@ const loadEnv = (fileName: string) => {
 loadEnv('.env.local')
 loadEnv('.env.development.local')
 
-// CI or local test fallback to Supabase's local port (54322) when no DATABASE_URL is explicitly set
+// CI and local runs fall back to the local Postgres port (54322) when no DATABASE_URL is explicitly set
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+}
+
+// The DB-backed suites (`*.db.test.ts` and friends) are opt-in behind RUN_DB_TESTS.
+// The check is falsiness-based on purpose: `loadEnv` above assigns '' for a bare
+// `KEY=` line, so a variable that is set-but-empty must warn exactly like an unset
+// one — otherwise `cp .env.example .env.local` silently disables the DB coverage.
+if (!process.env.RUN_DB_TESTS) {
+  console.warn('[vitest] RUN_DB_TESTS is not set — database-backed suites will skip. See AGENTS.md.')
 }
 
 export default defineConfig({
@@ -41,7 +49,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
-    setupFiles: ['./src/lib/__tests__/setup.ts'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

@@ -7570,3 +7570,51 @@ full-suite coverage gate passes.
 - The version jumps 0.1.109 → 0.1.112 with no 0.1.110/0.1.111 in history. Harmless (monotonic, which
   is what the rule requires) but worth a glance in case two bumps were lost.
 
+
+## [RH-75] Purge Supabase from application code, tests and dependencies — 2026-09-17 (RH-75-spec_review-1.md)
+
+- **`src/lib/__tests__/spotify.test.ts` will newly execute in CI, and the spec does not say so.** Its gate today is `!SERVICE_ROLE_KEY || !ANON_KEY`, and `.github/workflows/ci.yml` sets no `NEXT_PUBLIC_SUPABASE_ANON_KEY` — so those 12 tests skip in the `Coverage (vitest)` job today and pass locally only because `.env.local` carries an anon key. Dropping the `|| !ANON_KEY` term turns them on in CI for the first time, against a fresh `postgres:16`. That is an improvement, but it moves the coverage numbers and is the most likely source of a red CI on merge; worth one sentence in Decision 1 so it is not read as a surprise.
+- **The chain inventory is slightly off.** `admin.from(...)` occurrences: `spotify.test.ts` 26 statements (42 lines counting multi-line continuations, vs the spec's 43), `playlists.test.ts` 13 via `adminTestClient.from(` (matches), `songs.test.ts` 2 (matches), and `src/app/actions/__tests__/authzTabs.db.test.ts` **0** — its only `.from(` is `Buffer.from`; it merely holds a `const admin = createAdminTestClient()` to pass to helpers. The "59 chains ... 1 in authzTabs" figure should be corrected so the implementer does not hunt for a chain that is not there.
+- `createTestUserWithGoTrue` / `deleteTestUserWithGoTrue` keep Supabase-era naming (GoTrue is Supabase's auth service). It survives ER6 because it does not match `supabase`, but renaming it in the same pass would finish the job.
+- `npm run lint:dead` (knip) appears in the test criteria but in no ER; removing a dependency and several exports is exactly what knip guards. Consider promoting it to an ER alongside ER9.
+- The setup.ts either/or ("comment-only module or delete it and the `setupFiles` line together") is an explicitly sanctioned choice with both outcomes verifiable, so it is not a blocking ambiguity — noting it only so a later reviewer does not re-raise it.
+
+
+## [RH-75] Purge Supabase from application code, tests and dependencies — 2026-09-17 (RH-75-spec_review-2.md)
+
+- ER10's three commands depend on `RUN_DB_TESTS` being absent from `.env.local` and
+  `.env.development.local`, because `vitest.config.ts`'s `loadEnv` overwrites
+  `process.env` and so defeats `env -u`. It is correct behaviour (the banner should
+  reflect the effective gate value), but an implementer who puts `RUN_DB_TESTS=1`
+  into their own `.env.local` to satisfy ER8 will see ER10 fail spuriously. Consider
+  adding the precondition "with no `RUN_DB_TESTS` line in `.env.local` or
+  `.env.development.local`" to ER10, and exporting the variable (as ER8 already
+  says) rather than putting it in `.env.local`.
+- The spec leaves `src/lib/__tests__/setup.ts` as "keep it as a comment-only module
+  or delete it and the `setupFiles` line together — either is acceptable". Both
+  branches are safe and ER2/ER6 cover either outcome, so it is not blocking, but
+  naming one would make the diff more predictable for review.
+- `npm run lint:dead` (knip) appears in the Test criteria but in no ER. ER9 only
+  covers `npm run lint`. Promoting the knip check to an ER would catch a
+  `@supabase/supabase-js` removal that leaves dead exports behind.
+
+## [RH-75] Purge Supabase from application code, tests and dependencies — code review round 1 — 2026-09-17
+
+- `src/lib/__tests__/test-helpers.ts:19-30` — with the fake client gone, `createTestUserWithGoTrue` differs from `createTestUser` only by returning `password`, and `deleteTestUserWithGoTrue` is byte-identical to `deleteTestUser`. The `GoTrue` suffix is Supabase's auth-server name and now describes nothing — it survives the purge only because ER6 greps for the string "supabase". Collapsing the pairs (or at least renaming away from `GoTrue`) is the natural follow-up; the spec explicitly kept the four helpers, so it is out of scope for this round.
+- `plan.md:66` — the Security section still reads "Row Level Security (RLS): Enabled on all tables. Users can only see and edit their own songs (`user_id = auth.uid()`)". `auth.uid()` and RLS are Supabase constructs and the app uses neither; the paragraph passes ER7 only because it does not contain the literal word "supabase". Same treatment as the other plan.md rewordings would finish the job.
+- `.env.example` / `.env.local.example` — see section 3 below; a tracked template (or moving the `RUN_DB_TESTS=1` instruction into a tracked file) would make ER12 real for a fresh clone.
+
+---
+
+
+## [RH-75] Purge Supabase — code review round 2 — 2026-09-17
+
+- `AGENTS.md:97` still documents the ratchet as failing "on the list growing past **19** entries", while `complexityBudget.test.ts:49` now enforces 18. The enforcement is authoritative and cannot be loosened by the prose, so this is not blocking — but the ratchet's entire purpose is preventing regrowth, and a doc that reads "19" invites someone to re-add the very override this change removed. Worth correcting to 18 in the same commit, since AGENTS.md is already an edited file in this change set.
+- `vitest.config.ts` is flagged by Vite as using ESM syntax while loaded as CommonJS (`configLoader: 'native'` warning). Pre-existing and unrelated to RH-75, but it will become an error in a future Vite major — a candidate for the suggestions log.
+
+## [RH-75] Purge Supabase — QA — 2026-09-17
+
+- **Patch step is +2, not +1.** HEAD is `0.1.112`; the bump lands on `0.1.114`, skipping `0.1.113`, which appears nowhere in `git log`. AGENTS.md says "increase the patch/bugfix version by default" and, separately, "must only ever go up" — monotonicity holds, so this is not a violation, but if `0.1.113` was reserved for sibling task RH-76 it would be worth a note, and if not, a plain +1 is the literal reading of the rule. Non-blocking.
+- **`createTestUserWithGoTrue` / `deleteTestUserWithGoTrue` keep a Supabase-era name.** GoTrue is Supabase's auth service; the helpers now sit in `src/lib/__tests__/test-helpers.ts` and are imported by `spotify.test.ts`. They do not match `grep -i supabase`, so every expected result still passes, but the name is a leftover of the vendor this task removed and will read as confusing once the memory fades. Renaming to something like `createTestUser` would finish the cleanup. Non-blocking, and arguably better folded into RH-76 than reopened here.
+- **`vitest.config.ts` emits a Vite config-loader deprecation** on every run ("ESM syntax in a file loaded as CommonJS … Use a `.mjs` extension or set `type: module`"). Pre-existing, unrelated to this task, but it sits directly on the file this task edited and adds noise to exactly the warning channel ER10 depends on.
+

@@ -37,14 +37,14 @@ import { auth } from '@/lib/auth'
 import { query } from '@/lib/db'
 import { requestEmailChange } from '@/lib/emailChange'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
 const PASSWORD = 'rh42-correct-horse'
 
 /** The token Better Auth put in the link it just "sent". */
 const tokenOf = (url: string) => new URL(url).searchParams.get('token') as string
 
-describe.skipIf(!SERVICE_ROLE_KEY)('verified email change (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('verified email change (real database)', () => {
   const suffix = Date.now()
   const address = (label: string) => `rh42-${label}-${suffix}@example.com`
 

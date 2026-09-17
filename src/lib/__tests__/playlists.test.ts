@@ -1,14 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser } from './test-helpers'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const skip = !SERVICE_ROLE_KEY
-
-const adminTestClient = createAdminTestClient()
-
-vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => adminTestClient,
-}))
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
+const skip = !RUN_DB_TESTS
 
 /**
  * RH-45 — `query` becomes a pass-through spy over the real implementation, so
@@ -50,28 +44,28 @@ describe.skipIf(skip)('playlists integration tests', () => {
   const createdBands: string[] = []
 
   beforeAll(async () => {
-    userAId = await createTestUser(adminTestClient, { email: USER_A.email })
-    userBId = await createTestUser(adminTestClient, { email: USER_B.email })
+    userAId = await createTestUser({ email: USER_A.email })
+    userBId = await createTestUser({ email: USER_B.email })
   })
 
   afterAll(async () => {
     // Delete playlist songs + playlists (before user cascade)
     if (createdPlaylists.length > 0) {
-      await adminTestClient.from('playlist_songs').delete().in('playlist_id', createdPlaylists)
-      await adminTestClient.from('playlists').delete().in('id', createdPlaylists)
+      await query('DELETE FROM playlist_songs WHERE playlist_id = ANY($1)', [createdPlaylists])
+      await query('DELETE FROM playlists WHERE id = ANY($1)', [createdPlaylists])
     }
     // Delete bands
     if (createdBands.length > 0) {
-      await adminTestClient.from('band_members').delete().in('band_id', createdBands)
-      await adminTestClient.from('bands').delete().in('id', createdBands)
+      await query('DELETE FROM band_members WHERE band_id = ANY($1)', [createdBands])
+      await query('DELETE FROM bands WHERE id = ANY($1)', [createdBands])
     }
     // Delete global songs
     if (createdSongs.length > 0) {
-      await adminTestClient.from('global_songs').delete().in('id', createdSongs)
+      await query('DELETE FROM global_songs WHERE id = ANY($1)', [createdSongs])
     }
     // Delete users (CASCADE handles repertoire, profiles, etc.)
-    if (userAId) await deleteTestUser(adminTestClient, userAId)
-    if (userBId) await deleteTestUser(adminTestClient, userBId)
+    if (userAId) await deleteTestUser(userAId)
+    if (userBId) await deleteTestUser(userBId)
   })
 
   it('should successfully create, read, update, and delete a playlist', async () => {
@@ -135,22 +129,14 @@ describe.skipIf(skip)('playlists integration tests', () => {
   })
 
   it('should successfully add and remove songs to/from a playlist', async () => {
-    // 1. Create a test global song first via admin
+    // 1. Create a test global song first
     const songTitle = `Playlist Song ${suffix}`
-    const { data: songData, error: songError } = await adminTestClient
-      .from('global_songs')
-      .insert({
-        title: songTitle,
-        artist: 'Test Artist',
-        album: 'Test Album',
-        duration_seconds: 240,
-        links: [],
-      })
-      .select('id')
-      .single()
-
-    if (songError) throw songError
-    const songId = songData!.id
+    const songInsert = await query<{ id: string }>(
+      `INSERT INTO global_songs (title, artist, album, duration_seconds, links)
+       VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`,
+      [songTitle, 'Test Artist', 'Test Album', 240, JSON.stringify([])],
+    )
+    const songId = songInsert.rows[0].id
     createdSongs.push(songId)
 
     // 2. Create playlist for User A
@@ -199,54 +185,36 @@ describe.skipIf(skip)('playlists integration tests', () => {
   })
 
   it('should autogest repertoire and propagate to members when adding song to a band playlist (UC3.2)', async () => {
-    // 1. Create a band using admin client to set it up easily
-    const { data: band, error: bandError } = await adminTestClient
-      .from('bands')
-      .insert({
-        name: `Band Playlists ${suffix}`,
-        description: 'Test band for playlists autogestion',
-      })
-      .select('id')
-      .single()
-
-    if (bandError) throw bandError
-    const bandId = band!.id
+    // 1. Create a band directly, to set it up easily
+    const bandInsert = await query<{ id: string }>(
+      'INSERT INTO bands (name, description) VALUES ($1, $2) RETURNING id',
+      [`Band Playlists ${suffix}`, 'Test band for playlists autogestion'],
+    )
+    const bandId = bandInsert.rows[0].id
     createdBands.push(bandId)
 
     // 2. Add User A (admin) and User B (member) to the band members list
-    const { error: membersError } = await adminTestClient.from('band_members').insert([
-      { band_id: bandId, user_id: userAId, role: 'admin' },
-      { band_id: bandId, user_id: userBId, role: 'member' }
-    ])
-    if (membersError) throw membersError
+    await query(
+      `INSERT INTO band_members (band_id, user_id, role)
+       VALUES ($1, $2, 'admin'), ($1, $3, 'member')`,
+      [bandId, userAId, userBId],
+    )
 
-    // 3. Create a band playlist using admin
-    const { data: playlist, error: playlistError } = await adminTestClient
-      .from('playlists')
-      .insert({
-        band_id: bandId,
-        name: `Band Setlist ${suffix}`,
-      })
-      .select('id')
-      .single()
-
-    if (playlistError) throw playlistError
-    const playlistId = playlist!.id
+    // 3. Create a band playlist directly
+    const playlistInsert = await query<{ id: string }>(
+      'INSERT INTO playlists (band_id, name) VALUES ($1, $2) RETURNING id',
+      [bandId, `Band Setlist ${suffix}`],
+    )
+    const playlistId = playlistInsert.rows[0].id
     createdPlaylists.push(playlistId)
 
     // 4. Create a global song
     const songTitle = `Autogest Song ${suffix}`
-    const { data: song, error: songError } = await adminTestClient
-      .from('global_songs')
-      .insert({
-        title: songTitle,
-        artist: 'Band Autogest Artist',
-      })
-      .select('id')
-      .single()
-
-    if (songError) throw songError
-    const songId = song!.id
+    const songInsert = await query<{ id: string }>(
+      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      [songTitle, 'Band Autogest Artist'],
+    )
+    const songId = songInsert.rows[0].id
     createdSongs.push(songId)
 
     // 5. User A adds the song to the band playlist
@@ -254,37 +222,25 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
     // 6. Verify that:
     // A. The song was added to the band repertoire
-    const { data: bandRep, error: bandRepErr } = await adminTestClient
-      .from('repertoire')
-      .select('id')
-      .eq('band_id', bandId)
-      .eq('song_id', songId)
-      .single()
-
-    expect(bandRepErr).toBeNull()
-    expect(bandRep).not.toBeNull()
+    const bandRep = await query<{ id: string }>(
+      'SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2',
+      [bandId, songId],
+    )
+    expect(bandRep.rows).toHaveLength(1)
 
     // B. The song was automatically propagated to User A's personal repertoire
-    const { data: userARep, error: userARepErr } = await adminTestClient
-      .from('repertoire')
-      .select('id')
-      .eq('user_id', userAId)
-      .eq('song_id', songId)
-      .single()
-
-    expect(userARepErr).toBeNull()
-    expect(userARep).not.toBeNull()
+    const userARep = await query<{ id: string }>(
+      'SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      [userAId, songId],
+    )
+    expect(userARep.rows).toHaveLength(1)
 
     // C. The song was NOT automatically propagated to User B's personal repertoire (correct for client-side RLS)
-    const { data: userBRep, error: userBRepErr } = await adminTestClient
-      .from('repertoire')
-      .select('id')
-      .eq('user_id', userBId)
-      .eq('song_id', songId)
-      .maybeSingle()
-
-    expect(userBRepErr).toBeNull()
-    expect(userBRep).toBeNull()
+    const userBRep = await query<{ id: string }>(
+      'SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      [userBId, songId],
+    )
+    expect(userBRep.rows).toHaveLength(0)
 
     // D. The song is in the playlist songs list
     const playlistWithSongs = await getPlaylistWithSongs(playlistId, userAId)

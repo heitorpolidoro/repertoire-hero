@@ -17,8 +17,8 @@ vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@vercel/blob', () => ({ put: vi.fn(), del: vi.fn() }))
 
-import { asUser, countRows, createTestSong, SERVICE_ROLE_KEY } from './authzFixtures'
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import { put, del } from '@vercel/blob'
@@ -30,8 +30,6 @@ import {
   getTabsAction,
 } from '../tabs'
 import type { Stroke } from '@/types/database'
-
-const admin = createAdminTestClient()
 
 const SEEDED_URL = 'https://blob.example/rh45/seeded.pdf'
 const UPLOADED_URL = 'https://blob.example/rh45/uploaded.pdf'
@@ -67,7 +65,7 @@ async function refusalMessage(run: () => Promise<unknown>): Promise<string> {
   }
 }
 
-describe.skipIf(!SERVICE_ROLE_KEY)('tab actions are band-scoped (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('tab actions are band-scoped (real database)', () => {
   const suffix = Date.now()
 
   let userAId: string
@@ -88,8 +86,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)('tab actions are band-scoped (real database)'
   }
 
   beforeAll(async () => {
-    userAId = await createTestUser(admin, { email: `rh45-tabs-a-${suffix}@example.com` })
-    userCId = await createTestUser(admin, { email: `rh45-tabs-c-${suffix}@example.com` })
+    userAId = await createTestUser({ email: `rh45-tabs-a-${suffix}@example.com` })
+    userCId = await createTestUser({ email: `rh45-tabs-c-${suffix}@example.com` })
 
     bandId = await createBand(userAId, `RH-45 Tabs Band ${suffix}`, null, null)
 
@@ -110,7 +108,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('tab actions are band-scoped (real database)'
   afterAll(async () => {
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
     for (const user of [userAId, userCId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     if (songId) await query('DELETE FROM global_songs WHERE id = $1', [songId])
   })

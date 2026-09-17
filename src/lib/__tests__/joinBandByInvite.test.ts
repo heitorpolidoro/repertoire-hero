@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser } from './test-helpers'
 import {
   createBand,
   deleteBand,
@@ -23,10 +23,8 @@ import {
 import { joinBandByInviteServer } from '../bands.server'
 import { query } from '@/lib/db'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const skip = !SERVICE_ROLE_KEY
-
-const admin = createAdminTestClient()
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
+const skip = !RUN_DB_TESTS
 
 describe.skipIf(skip)('join_band_by_invite already_member semantics (real database)', () => {
   // Unique suffix so parallel/repeated runs don't collide
@@ -59,8 +57,8 @@ describe.skipIf(skip)('join_band_by_invite already_member semantics (real databa
   }
 
   beforeAll(async () => {
-    userAId = await createTestUser(admin, { email: USER_A.email })
-    userBId = await createTestUser(admin, { email: USER_B.email })
+    userAId = await createTestUser({ email: USER_A.email })
+    userBId = await createTestUser({ email: USER_B.email })
 
     bandId = await createBand(userAId, BAND_NAME, 'RH-18 invite semantics fixture', null)
 
@@ -73,8 +71,8 @@ describe.skipIf(skip)('join_band_by_invite already_member semantics (real databa
     // Delete the band first: `deleteTestUser` cascades user -> profiles -> band_members,
     // but the `bands` table has no owner FK, so it must be removed explicitly.
     if (bandId) await deleteBand(bandId, userAId)
-    if (userAId) await deleteTestUser(admin, userAId)
-    if (userBId) await deleteTestUser(admin, userBId)
+    if (userAId) await deleteTestUser(userAId)
+    if (userBId) await deleteTestUser(userBId)
   })
 
   it('reports already_member = false on a fresh join and inserts exactly one row', async () => {

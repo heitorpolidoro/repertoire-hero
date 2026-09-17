@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Migration: 0001_initial_schema
 -- Description: Consolidated schema for Repertoire Hero.
---              No RLS or Supabase-specific dependencies.
+--              No RLS or vendor-specific dependencies.
 --              Auth managed via Better Auth tables in public schema.
 -- =============================================================================
 

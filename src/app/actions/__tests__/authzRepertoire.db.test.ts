@@ -14,8 +14,8 @@ vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { getRequiredUserId } from '@/lib/auth-session'
-import { asUser, countRows, createTestSong, SERVICE_ROLE_KEY } from './authzFixtures'
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import {
@@ -33,12 +33,10 @@ import {
 import { reviewGlobalSongEditAction } from '../moderation'
 import type { Repertoire, SongLink } from '@/types/database'
 
-const admin = createAdminTestClient()
-
 const ORIGINAL_LINK: SongLink = { label: 'Chords', url: 'https://tabs.example/rh34-original' }
 const ADDED_LINK: SongLink = { label: 'Video', url: 'https://youtu.be/rh34' }
 
-describe.skipIf(!SERVICE_ROLE_KEY)('repertoire actions are band-scoped (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real database)', () => {
   const suffix = Date.now()
 
   let userAId: string
@@ -76,9 +74,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)('repertoire actions are band-scoped (real dat
   }
 
   beforeAll(async () => {
-    userAId = await createTestUser(admin, { email: `rh34-rep-a-${suffix}@example.com` })
-    userCId = await createTestUser(admin, { email: `rh34-rep-c-${suffix}@example.com` })
-    adminUserId = await createTestUser(admin, { email: `rh34-rep-admin-${suffix}@example.com` })
+    userAId = await createTestUser({ email: `rh34-rep-a-${suffix}@example.com` })
+    userCId = await createTestUser({ email: `rh34-rep-c-${suffix}@example.com` })
+    adminUserId = await createTestUser({ email: `rh34-rep-admin-${suffix}@example.com` })
     await query('UPDATE profiles SET is_system_admin = true WHERE id = $1', [adminUserId])
 
     bandId = await createBand(userAId, `RH-34 Repertoire Band ${suffix}`, null, null)
@@ -101,7 +99,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('repertoire actions are band-scoped (real dat
   afterAll(async () => {
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
     for (const user of [userAId, userCId, adminUserId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     for (const song of createdSongIds) {
       await query('DELETE FROM global_songs WHERE id = $1', [song])

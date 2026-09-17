@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.112-202609151625",
+  "version": "0.1.114-202609171603",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "@sentry/nextjs": "^10.69.0",
-    "@supabase/supabase-js": "^2.105.4",
     "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^2.6.1",
     "bcryptjs": "^3.0.3",

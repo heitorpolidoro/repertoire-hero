@@ -3,7 +3,7 @@
 ## 1. Proposed Architecture
 The application will follow a **Full-stack Serverless** pattern.
 - **Frontend:** Next.js (React) hosted on Vercel.
-- **Backend/Database:** Supabase (PostgreSQL + PostgREST + Auth).
+- **Backend/Database:** PostgreSQL, reached directly from the Next.js server through `pg` (`src/lib/db.ts`); no separate backend service.
 - **Client-Side State:** React Context or Zustand for song filtering and UI state.
 
 ## 2. Data Schema (PostgreSQL)
@@ -59,19 +59,19 @@ The application will follow a **Full-stack Serverless** pattern.
 - A unique constraint on `(user_id, song_id)` in `user_repertoire` to prevent duplicate entries of the same song for one user.
 
 ## 3. Auth Strategy & Local Bypass
-- **Production:** Supabase Auth (Email/OTP or Social).
+- **Production:** Better Auth (email/password), backed by the same PostgreSQL database.
 - **Local/Development:** 
     - A custom middleware or initialization script will check for the `NEXT_PUBLIC_AUTO_LOGIN` environment variable.
     - If enabled, the app will automatically sign in using a pre-seeded JWT or session for `heitor.polidoro@gmail.com`.
 
 ## 4. Requirements Mapping
 - **Mobile + Desktop:** Handled by Next.js Responsive Design (Tailwind CSS).
-- **CRUD & Status:** Handled by Supabase auto-generated REST API.
-- **Local Seed:** A `seed.sql` file will be provided in the Supabase migrations folder.
+- **CRUD & Status:** Handled by Next.js Server Actions over hand-written parameterized SQL.
+- **Local Seed:** A `seed.sql` file is provided for the local docker-compose database.
 
 ## 5. Trade-offs Analysis
 - **Alternative:** Custom Node.js Express API + RDS.
-- **Why not:** Increased maintenance overhead and higher cost for the initial phase. Supabase provides the same PostgreSQL power with zero initial configuration.
+- **Why not:** Increased maintenance overhead and higher cost for the initial phase. A managed PostgreSQL plus Next.js Server Actions gives the same power with far less configuration.
 
 ## 6. Security
 - **Row Level Security (RLS):** Enabled on all tables. Users can only see and edit their own songs (`user_id = auth.uid()`).

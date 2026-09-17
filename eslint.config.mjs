@@ -83,8 +83,7 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },
-  { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 804] } },
-  { name: "complexity-budget/override", files: ["src/lib/__tests__/test-helpers.ts"], rules: { complexity: ["error", 25] } },
+  { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 678] } },
   // END:complexity-budget-overrides
   // Override default ignores of eslint-config-next.
   globalIgnores([

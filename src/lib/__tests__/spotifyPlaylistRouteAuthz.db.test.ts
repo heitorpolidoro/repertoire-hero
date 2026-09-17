@@ -24,7 +24,7 @@ vi.mock('@/lib/logger', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { createBand } from '@/lib/bands'
@@ -33,9 +33,7 @@ import { POST as syncPOST } from '@/app/api/spotify/playlists/[id]/sync/route'
 import { POST as importPOST } from '@/app/api/spotify/playlists/[id]/import/route'
 import { GET as tracksGET } from '@/app/api/spotify/playlists/[id]/tracks/route'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const admin = createAdminTestClient()
-
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 /** Well-formed, but names nothing. */
 const ABSENT_UUID = '00000000-0000-0000-0000-0000000000ff'
 const TRACK_TITLE = 'RH-35 Track'
@@ -63,7 +61,7 @@ const oneTrackPage = {
   next: null,
 }
 
-describe.skipIf(!SERVICE_ROLE_KEY)('spotify playlist routes refuse foreign resources (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources (real database)', () => {
   const suffix = Date.now()
 
   let userAId: string
@@ -122,9 +120,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)('spotify playlist routes refuse foreign resou
     )
 
   beforeAll(async () => {
-    userAId = await createTestUser(admin, { email: `rh35-a-${suffix}@example.com` })
-    userBId = await createTestUser(admin, { email: `rh35-b-${suffix}@example.com` })
-    userCId = await createTestUser(admin, { email: `rh35-c-${suffix}@example.com` })
+    userAId = await createTestUser({ email: `rh35-a-${suffix}@example.com` })
+    userBId = await createTestUser({ email: `rh35-b-${suffix}@example.com` })
+    userCId = await createTestUser({ email: `rh35-c-${suffix}@example.com` })
 
     bandYId = await createBand(userAId, `RH-35 Band Y ${suffix}`, null, null)
     await query("INSERT INTO band_members (band_id, user_id, role) VALUES ($1, $2, 'member')", [
@@ -165,7 +163,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('spotify playlist routes refuse foreign resou
       if (band) await query('DELETE FROM bands WHERE id = $1', [band])
     }
     for (const user of [userAId, userBId, userCId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     if (songOneId) await query('DELETE FROM global_songs WHERE id = $1', [songOneId])
     await query('DELETE FROM global_songs WHERE title = $1 AND artist = $2', [

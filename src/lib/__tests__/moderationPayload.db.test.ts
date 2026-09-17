@@ -11,16 +11,14 @@
  * appears here (see `transactionGuard.test.ts`).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { query } from '@/lib/db'
 import { submitGlobalSongEdit, reviewGlobalSongEdit } from '@/lib/moderation'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const admin = createAdminTestClient()
-
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const BAD_DURATION = 'Invalid global song edit: duration_seconds must be a non-negative integer or null'
 
-describe.skipIf(!SERVICE_ROLE_KEY)('global song edit payload validation (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real database)', () => {
   const suffix = Date.now()
   const songTitle = `RH-55 Song ${suffix}`
 
@@ -41,8 +39,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)('global song edit payload validation (real da
   }
 
   beforeAll(async () => {
-    userId = await createTestUser(admin, { email: `rh55-user-${suffix}@example.com` })
-    adminUserId = await createTestUser(admin, { email: `rh55-admin-${suffix}@example.com` })
+    userId = await createTestUser({ email: `rh55-user-${suffix}@example.com` })
+    adminUserId = await createTestUser({ email: `rh55-admin-${suffix}@example.com` })
     await query('UPDATE profiles SET is_system_admin = true WHERE id = $1', [adminUserId])
 
     const song = await one(
@@ -55,7 +53,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('global song edit payload validation (real da
   afterAll(async () => {
     if (songId) await query('DELETE FROM global_song_edits WHERE song_id = $1', [songId])
     for (const user of [userId, adminUserId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     if (songId) await query('DELETE FROM global_songs WHERE id = $1', [songId])
   })

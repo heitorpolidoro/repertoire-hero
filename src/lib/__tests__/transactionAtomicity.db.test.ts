@@ -13,16 +13,14 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { query, withTransaction } from '@/lib/db'
 import { updateSong } from '@/lib/songs'
 import { reviewGlobalSongEdit } from '@/lib/moderation'
 import { addSongToPlaylist, removeSongFromPlaylist } from '@/lib/playlists'
 import type { Repertoire } from '@/types/database'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const admin = createAdminTestClient()
-
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 /** The position-computing insert `addSongToPlaylist` runs, verbatim. */
 const POSITION_INSERT = `
   INSERT INTO playlist_songs (playlist_id, song_id, position)
@@ -46,7 +44,7 @@ function deferred<T = void>(): Deferred<T> {
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms))
 
-describe.skipIf(!SERVICE_ROLE_KEY)('multi-statement writes are atomic (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database)', () => {
   const suffix = Date.now()
 
   let userId: string
@@ -89,8 +87,8 @@ describe.skipIf(!SERVICE_ROLE_KEY)('multi-statement writes are atomic (real data
        $fn$ LANGUAGE plpgsql`,
     )
 
-    userId = await createTestUser(admin, { email: `rh36-user-${suffix}@example.com` })
-    adminUserId = await createTestUser(admin, { email: `rh36-admin-${suffix}@example.com` })
+    userId = await createTestUser({ email: `rh36-user-${suffix}@example.com` })
+    adminUserId = await createTestUser({ email: `rh36-admin-${suffix}@example.com` })
     await query('UPDATE profiles SET is_system_admin = true WHERE id = $1', [adminUserId])
 
     const song = await one(
@@ -138,7 +136,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('multi-statement writes are atomic (real data
   afterAll(async () => {
     if (playlistId) await query('DELETE FROM playlists WHERE id = $1', [playlistId])
     for (const user of [userId, adminUserId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     for (const song of [songId, ...extraSongIds]) {
       if (song) await query('DELETE FROM global_songs WHERE id = $1', [song])

@@ -13,8 +13,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 
 vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 
-import { createAdminTestClient, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
-import { asUser, countRows, createTestSong, SERVICE_ROLE_KEY } from './authzFixtures'
+import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
 import {
   updatePlaylistAction,
   deletePlaylistAction,
@@ -26,9 +26,7 @@ import {
 import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 
-const admin = createAdminTestClient()
-
-describe.skipIf(!SERVICE_ROLE_KEY)('playlist actions refuse non-owners (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real database)', () => {
   const suffix = Date.now()
 
   let userAId: string
@@ -50,9 +48,9 @@ describe.skipIf(!SERVICE_ROLE_KEY)('playlist actions refuse non-owners (real dat
     countRows('SELECT count(*)::int AS count FROM playlist_songs WHERE playlist_id = $1', [playlistId])
 
   beforeAll(async () => {
-    userAId = await createTestUser(admin, { email: `rh34-pl-a-${suffix}@example.com` })
-    userBId = await createTestUser(admin, { email: `rh34-pl-b-${suffix}@example.com` })
-    userCId = await createTestUser(admin, { email: `rh34-pl-c-${suffix}@example.com` })
+    userAId = await createTestUser({ email: `rh34-pl-a-${suffix}@example.com` })
+    userBId = await createTestUser({ email: `rh34-pl-b-${suffix}@example.com` })
+    userCId = await createTestUser({ email: `rh34-pl-c-${suffix}@example.com` })
 
     bandYId = await createBand(userAId, `RH-34 Playlist Band ${suffix}`, null, null)
     await query("INSERT INTO band_members (band_id, user_id, role) VALUES ($1, $2, 'member')", [
@@ -90,7 +88,7 @@ describe.skipIf(!SERVICE_ROLE_KEY)('playlist actions refuse non-owners (real dat
       if (band) await query('DELETE FROM bands WHERE id = $1', [band])
     }
     for (const user of [userAId, userBId, userCId]) {
-      if (user) await deleteTestUser(admin, user)
+      if (user) await deleteTestUser(user)
     }
     for (const song of [songOneId, songTwoId]) {
       if (song) await query('DELETE FROM global_songs WHERE id = $1', [song])

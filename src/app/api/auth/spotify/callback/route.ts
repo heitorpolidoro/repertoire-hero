@@ -16,7 +16,7 @@ function redirectTo(request: NextRequest, path: string): NextResponse {
 // GET /api/auth/spotify/callback
 // Handles the redirect from Spotify after the user grants (or denies) access.
 // Verifies the CSRF state cookie, exchanges the authorization code for tokens,
-// fetches the Spotify user profile, and upserts the token row in Supabase.
+// fetches the Spotify user profile, and upserts the token row in Postgres.
 // ---------------------------------------------------------------------------
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = request.nextUrl

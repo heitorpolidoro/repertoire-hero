@@ -10,7 +10,7 @@ import { getRequiredUserId } from '@/lib/auth-session'
 import { query } from '@/lib/db'
 
 /** The suites are skipped without it, exactly like the `src/lib` DB tests. */
-export const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+export const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
 /** Points the mocked session at one user for the next action call. */
 export function asUser(userId: string): void {

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { createAdminTestClient, createTestUser, deleteTestUser } from "./test-helpers";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createTestUser, deleteTestUser } from "./test-helpers";
 import {
   getBands,
   getBandWithMembers,
@@ -16,14 +16,8 @@ import {
 } from "../bands";
 import { getBandByInviteCodeServer } from "../bands.server";
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-const skip = !SERVICE_ROLE_KEY;
-
-const adminClient = createAdminTestClient();
-
-vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => adminClient,
-}));
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? "";
+const skip = !RUN_DB_TESTS;
 
 describe.skipIf(skip)("bands integration tests", () => {
   const suffix = Date.now();
@@ -37,13 +31,13 @@ describe.skipIf(skip)("bands integration tests", () => {
   let playlistId: string;
 
   beforeAll(async () => {
-    userAId = await createTestUser(adminClient, { email: USER_A.email });
-    userBId = await createTestUser(adminClient, { email: USER_B.email });
+    userAId = await createTestUser({ email: USER_A.email });
+    userBId = await createTestUser({ email: USER_B.email });
   });
 
   afterAll(async () => {
-    if (userAId) await deleteTestUser(adminClient, userAId);
-    if (userBId) await deleteTestUser(adminClient, userBId);
+    if (userAId) await deleteTestUser(userAId);
+    if (userBId) await deleteTestUser(userBId);
   });
 
   it("should allow User A to create a band", async () => {

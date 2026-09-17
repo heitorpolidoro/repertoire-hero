@@ -1,17 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { createAdminTestClient, createTestUser, deleteTestUser } from './test-helpers'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { createTestUser, deleteTestUser } from './test-helpers'
 import { getProfile, updateProfile } from '../profile'
 
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const skip = !SERVICE_ROLE_KEY
-
-const adminTestClient = createAdminTestClient()
-
-// profile.ts calls createAdminClient() internally — replace with service role client
-// so queries bypass RLS without needing a GoTrue session.
-vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => adminTestClient,
-}))
+const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
+const skip = !RUN_DB_TESTS
 
 describe.skipIf(skip)('profile integration tests', () => {
   const suffix = Date.now()
@@ -19,14 +11,14 @@ describe.skipIf(skip)('profile integration tests', () => {
   let userId: string
 
   beforeAll(async () => {
-    userId = await createTestUser(adminTestClient, {
+    userId = await createTestUser({
       email: USER.email,
       name: 'Original Test Name',
     })
   })
 
   afterAll(async () => {
-    if (userId) await deleteTestUser(adminTestClient, userId)
+    if (userId) await deleteTestUser(userId)
   })
 
   it('getProfile retrieves the current user profile', async () => {
@@ -58,11 +50,11 @@ describe.skipIf(skip)('profile branches not reached by the happy path', () => {
   let userId: string
 
   beforeAll(async () => {
-    userId = await createTestUser(adminTestClient, { email: EMAIL, name: 'Branch User' })
+    userId = await createTestUser({ email: EMAIL, name: 'Branch User' })
   })
 
   afterAll(async () => {
-    if (userId) await deleteTestUser(adminTestClient, userId)
+    if (userId) await deleteTestUser(userId)
   })
 
   it('getProfile returns null for an id with no profile row', async () => {
