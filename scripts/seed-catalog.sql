@@ -1,21 +1,20 @@
 -- =============================================================================
--- Seed: supabase/seed.sql
+-- Seed catalogue: scripts/seed-catalog.sql
 -- Description: Populates global_songs with a diverse catalogue of songs
 --              spanning rock, bossa nova, samba, pop, and jazz genres.
 --
 -- Usage:
---   supabase db seed
+--   Applied automatically on the first boot of the bundled compose Postgres,
+--   by docker/init-migrations.sh (mounted at /seed/catalog.sql).
+--   On the host it is applied by `npm run seed` (scripts/dev-seed), after that
+--   script's own users/profiles/band inserts.
 --
 -- Notes:
---   - This file only populates global_songs. Auth users must be created
---     separately — run: npm run seed
+--   - This file only populates global_songs. Auth users are created by
+--     scripts/dev-seed — run: npm run seed
 --   - Running this file multiple times is safe: the ON CONFLICT clause
 --     skips rows whose (title, artist) pair already exists.
 --   - The `links` column stores a JSON array of {label, url} objects.
--- =============================================================================
-
--- =============================================================================
--- Catalogue songs
 -- =============================================================================
 
 INSERT INTO global_songs (title, artist, standard_key, links)
@@ -140,27 +139,3 @@ VALUES
     )
 
 ON CONFLICT DO NOTHING;
-
--- =============================================================================
--- Example user_repertoire rows (commented out — requires a real user_id)
---
--- Replace '<your-user-uuid>' with the UUID from auth.users for the target user.
--- Typical usage in local dev: run `supabase status` to get the local API URL,
--- sign up with heitor.polidoro@gmail.com, then find the UUID in auth.users.
---
--- INSERT INTO user_repertoire (user_id, song_id, status, personal_key, tags)
--- SELECT
---     '<your-user-uuid>',
---     id,
---     status_value::song_status,
---     NULL,
---     tags_array
--- FROM (VALUES
---     ('Hotel California',          'mastered',   ARRAY['rock', 'setlist']),
---     ('Garota de Ipanema',         'polishing',  ARRAY['bossa nova']),
---     ('Autumn Leaves',             'practicing', ARRAY['jazz']),
---     ('Come As You Are',           'learning',   ARRAY['rock']),
---     ('All The Things You Are',    'unknown',    ARRAY['jazz'])
--- ) AS t(song_title, status_value, tags_array)
--- JOIN global_songs gs ON gs.title = t.song_title;
--- =============================================================================

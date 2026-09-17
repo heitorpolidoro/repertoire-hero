@@ -35,7 +35,13 @@ done
 
 # Seed data is deliberately tolerant: it may legitimately fail on re-run and
 # must not break initialization. It is not recorded in _migrations.
-echo "==> Applying seed data..."
-psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f "/docker-entrypoint-initdb.d/seed.sql" || true
+#
+# The catalogue is mounted at /seed/catalog.sql, deliberately OUTSIDE
+# /docker-entrypoint-initdb.d/: the postgres entrypoint runs every `*.sql` it
+# finds there in alphabetical order with ON_ERROR_STOP=1, so a `seed.sql` would
+# run BEFORE this script (`99-migrations.sh`) and abort initialisation against a
+# schema-less database.
+echo "==> Applying seed catalogue..."
+psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f "/seed/catalog.sql" || true
 
 echo "==> Database initialization complete!"

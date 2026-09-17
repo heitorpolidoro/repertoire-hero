@@ -1,0 +1,39 @@
+# Keep the image build reproducible: the builder stage does `COPY . .` on top of the
+# `npm ci` node_modules from the deps stage, so anything listed here that is NOT
+# excluded would override the image's own dependencies and build output with whatever
+# happens to be on the developer's machine.
+#
+# Measured symptom before this file existed (RH-76): the host's stale `.next/` was
+# copied in, and the runner stage then shipped a months-old `.next/standalone` — an
+# older Next.js and an older compiled proxy matcher than the source in the image.
+
+# Dependencies and build output — rebuilt inside the image.
+node_modules
+.next
+out
+build
+coverage
+playwright-report
+test-results
+
+# VCS, agent and editor state.
+.git
+.gitignore
+.github
+.idea
+.vercel
+.claude
+.gemini
+.agents
+.meridian
+
+# Local environment files — never bake a credential into an image layer.
+.env
+.env.*
+!.env.example
+
+# Docs and test assets the build does not need.
+docs
+e2e
+*.md
+!AGENTS.md

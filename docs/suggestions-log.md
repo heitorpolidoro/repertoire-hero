@@ -7618,3 +7618,99 @@ full-suite coverage gate passes.
 - **`createTestUserWithGoTrue` / `deleteTestUserWithGoTrue` keep a Supabase-era name.** GoTrue is Supabase's auth service; the helpers now sit in `src/lib/__tests__/test-helpers.ts` and are imported by `spotify.test.ts`. They do not match `grep -i supabase`, so every expected result still passes, but the name is a leftover of the vendor this task removed and will read as confusing once the memory fades. Renaming to something like `createTestUser` would finish the cleanup. Non-blocking, and arguably better folded into RH-76 than reopened here.
 - **`vitest.config.ts` emits a Vite config-loader deprecation** on every run ("ESM syntax in a file loaded as CommonJS … Use a `.mjs` extension or set `type: module`"). Pre-existing, unrelated to this task, but it sits directly on the file this task edited and adds noise to exactly the warning channel ER10 depends on.
 
+
+## [RH-76] Replace the Supabase docker stack with a poli-runner-ready compose — 2026-09-17 (RH-76-spec_review-1.md)
+
+- **Approach §6's initdb rationale is inverted.** It argues that a `*.sql` file
+  in `/docker-entrypoint-initdb.d/` "would run before `99-migrations.sh`".
+  The entrypoint globs and sorts, so `99-migrations.sh` sorts *before*
+  `seed.sql` ('9' < 's'); that is why the current arrangement works at all
+  today. The real benefit of the `/seed/catalog.sql` mount is that it stops the
+  catalogue being applied twice (once by `init-migrations.sh`, once by the
+  entrypoint's own pass) and keeps `docker/init-migrations.sh` the single
+  applier. The instruction is unambiguous either way — only the justification
+  is wrong. Worth fixing so the next reader does not inherit the wrong model.
+- **`.env.example`'s own header will contradict the new instruction.** Its
+  opening comment currently tells the reader to `cp .env.example .env.local`
+  (for the `RUN_DB_TESTS` opt-in). §7 adds a `cp .env.example .env` line. The
+  file will then carry two different copy instructions; say explicitly that it
+  is the template for both, and which variables belong to which copy.
+- **The `POSTGRES_URL`-not-`DATABASE_URL` deviation is worth a line in
+  `AGENTS.md`.** It departs from the runner README's worked example
+  (`DATABASE_URL: postgresql://…@host.docker.internal:54321/myapp`) for a good,
+  repo-specific reason. §2 argues it well; since `AGENTS.md` is already being
+  edited, record the decision there so a future contributor does not "fix" it
+  back.
+- **Name the `poli-postgres` credentials** the `local` scenario injects.
+  cash_lens sidesteps this by injecting `DATABASE_HOST`/`DATABASE_PORT` only;
+  this spec injects a full URL, which needs a user and password for the shared
+  server. `scripts/ensure-db.sh` needs the same, plus `psql`/`node` on the host.
+- ER6 is the weakest of the passing ERs: "defines `integrations.postgres.local`
+  setting `COMPOSE_PROFILES` and the Postgres connection variable" leaves the
+  variable unnamed. Once B3 fixes the name, quote it in ER6.
+
+## [RH-76] Replace the Supabase docker stack with a poli-runner-ready compose — 2026-09-17 (RH-76-spec_review-2.md)
+- §8's `scripts/ensure-db.sh` says it runs `node scripts/migrate.mjs` against
+  `postgresql://postgres:postgres@127.0.0.1:54321/repertoire_hero`. As written that is not
+  achievable by exporting `DATABASE_URL`: `scripts/migrate.mjs` lines 33-34 call
+  `loadEnv('.env.local')` / `loadEnv('.env.development.local')` and those helpers assign
+  `process.env[key] = val` unconditionally, so the developer's `.env.local`
+  (`DATABASE_URL=…@127.0.0.1:54322/postgres` on this machine) silently overrides the
+  exported value and the migrations land on the bundled/Homebrew database instead. Not
+  raised as blocking because ER9's `/` is a client component that answers 200 regardless,
+  so no expected result detects it — but the script should apply the migrations via a path
+  that the env-file loader cannot override (e.g. `psql -f` per migration, or a
+  `DATABASE_URL` the loader does not reset), and §8 should say which.
+- The "Files touched" description of the `app` service (lines 152-156) does not mention a
+  published port, yet ER9 curls `http://localhost:3000/`. Mechanically forced by ER9, but
+  worth naming `ports: ["3000:3000"]` explicitly alongside the healthcheck.
+- ER9's healthcheck probes `http://127.0.0.1:3000/` inside the container while the host
+  curl needs the server bound on `0.0.0.0`. Next 16 standalone defaults `HOSTNAME` to
+  `0.0.0.0` and `Dockerfile` is out of scope, so this should hold — but if the host curl
+  ever refuses the connection while the healthcheck is green, `HOSTNAME` is the cause.
+
+## [RH-76] Replace the Supabase docker stack with a poli-runner-ready compose — 2026-09-17 (RH-76-spec_review-3.md)
+- ER8's trailing `(§9)` is a spec-internal cross-reference that will be
+  meaningless to `meridian:qa`, which receives only the `expected_results` list.
+  Harmless — it carries no assertion — but the board copy is cleaner without it.
+
+## [RH-76] Replace the Supabase docker stack — code review — 2026-09-17
+
+- `scripts/migrate.mjs:29` — the guard also reverses precedence *between* `.env.local` and
+  `.env.development.local` (first-wins now, last-wins before, which was Next.js's order). No
+  live effect today (`DATABASE_URL` lives only in `.env.local`), but the comment above it
+  only documents the process-env half. Either say so in the comment, or load the files in the
+  other order. Related: the same loader is now triplicated with two different precedence
+  rules across `scripts/migrate.mjs`, `scripts/deduplicate-songs.mjs` and `vitest.config.ts`
+  — a shared `scripts/loadEnv.mjs` would end the drift (out of scope here).
+- `.gitignore` — `!.env*.example` is broader than the single tracked template it exists for;
+  `!.env.example` cannot ever un-ignore a future `.env.<anything>.example`.
+- `.dockerignore` — `!AGENTS.md` and `!.env.example` re-include files the image never reads.
+  Dropping both lines makes the file say only what it means.
+- `scripts/ensure-db.sh:22` hardcodes port 54321 in `DATABASE_URL` while the container name
+  and database name are both overridable; a `POLI_POSTGRES_PORT:-54321` would be consistent.
+- Stop path: consider `docker compose down --remove-orphans` (or an AGENTS.md line) so a
+  bundled `postgres` started in standalone mode does not survive a profile switch, as
+  observed above.
+
+## [RH-76] Replace the Supabase docker stack — QA — 2026-09-17
+
+- `docker compose down` without `COMPOSE_PROFILES` set leaves `repertoire-hero-postgres-1`
+  running: the profiled service is invisible to a profile-less subcommand. Observed here
+  because the machine's pre-existing untracked `.env` predates this change and has no
+  `COMPOSE_PROFILES` line. The docs already say `cp .env.example .env` is step one, so this
+  is correct-by-construction for a fresh clone; a one-line note in AGENTS.md ("a `down`
+  that leaves postgres up means your `.env` lacks `COMPOSE_PROFILES`") would save the next
+  person the puzzle.
+- `scripts/ensure-db.sh` applies migrations to the shared `repertoire_hero` database but
+  not `scripts/seed-catalog.sql` (`global_songs` = 0 there, versus 12 in the bundled
+  standalone database). Not required by any ER, but the two modes differ in starting data;
+  consider applying the catalogue there too, since it is `ON CONFLICT DO NOTHING`.
+- With a bare environment, `POST /api/auth/sign-in/email` returns 500 and the app logs
+  `BetterAuthError: You are using the default secret`, because `BETTER_AUTH_SECRET` is a
+  passthrough that `.env.example` ships empty. Correct for a secret slot, and out of ER
+  scope (ER9 only asks for `/` → 200), but a README/AGENTS pointer that auth is dead until
+  the secret is filled would help.
+- `!.env*.example` is broader than the single file it exists for; `!/.env.example` would
+  un-ignore exactly the tracked template and could not be surprised by a future
+  `.env.production.example` holding real values. No such file exists today.

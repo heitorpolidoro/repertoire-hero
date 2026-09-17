@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the tracked template: `cp .env.example .env` is step one of setup for
+# everyone, runner or not, so the template has to survive a fresh clone (RH-76).
+!.env*.example
 
 # vercel
 .vercel
@@ -40,9 +43,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /.idea/
-
-# Supabase Temp
-supabase/.temp/
 
 # AI Assistants Local State
 .claude/worktrees/

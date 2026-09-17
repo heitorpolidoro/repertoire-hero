@@ -50,13 +50,13 @@ Key architectural decisions:
 - **Never externalize a React-exposing package**: `next.config.ts`'s `serverExternalPackages` may contain only Node-only packages (`pg`, `kysely`, the Kysely adapter). Listing a package that ships React hooks — `better-auth` did, via `better-auth/react` — leaves it unbundled, so it loads its own `react` instead of Next's vendored SSR React and every SSR render dies with `Cannot read properties of null (reading 'useRef')` (RH-32). Enforced by `src/lib/__tests__/serverExternalPackages.test.ts`.
 - **One bundler everywhere: Turbopack (RH-72)**. Next.js 16 defaults `next dev` and `next build` to Turbopack, so dev, `npm run build`, Vercel and the production-build e2e runs (`PLAYWRIGHT_WEB_SERVER="npx next start ..."`) all use it. The `--webpack` opt-in flag must not be reintroduced into the `dev` script: under Next 16's webpack dev runtime `pdfjs-dist`'s ESM build dies with `TypeError: Object.defineProperty called on non-object`, and because Fast View imports `FastViewOverlays` -> `PdfStageOverlay` -> `TabDrawingStage` -> `react-pdf` eagerly, that failure takes the whole `/songs/[id]/fast-view` client graph down and the route renders Next.js's client error shell instead of the song — which is also what the `E2E Tests (Playwright)` job hits, since it starts the server with `npm run dev`. Enforced by `src/lib/__tests__/devBundler.test.ts`. (`next.config.ts` still carries a `webpack(config, ...)` key and `webpack` is still a dependency; both survive only for an ad-hoc `next dev|build --webpack`, nothing in the repo runs them.)
 - **Band vs. personal ownership**: most domain tables (`repertoire`, `playlists`) use a mutually-exclusive `user_id` / `band_id` pair rather than a separate join table, enforced by a DB CHECK constraint. A Postgres trigger (`sync_band_repertoire_on_member_update`) keeps a band's aggregate song status in sync as the MIN status across its members whenever a member's personal status changes.
-- **File storage**: PDF tab uploads go to **Vercel Blob** (`@vercel/blob`), not the database or Supabase Storage.
+- **File storage**: PDF tab uploads go to **Vercel Blob** (`@vercel/blob`), not into the database and not into any other object store.
 - **State**: `zustand` (with `persist`) is used client-side only for lightweight UI state — currently just which "context" (personal vs. a specific band) the user is browsing in (`src/store/bandContextStore.ts`).
 - **Observability**: Sentry (`@sentry/nextjs`) is wired for client, server, and edge configs.
 - **Identity fields change only through Better Auth's verified flows (RH-42).** `"user".email` is the login identity: no SQL under `src/` may `UPDATE` the `"user"` table, and no application code writes `profiles.email`. A user-facing change goes through `requestEmailChange` (`src/lib/emailChange.ts`) -> `auth.api.changeEmail`, which mails a verification link and leaves the row untouched until the link is opened at `/api/auth/verify-email`; `profiles.email` follows automatically through the `sync_profile_email_on_user_update` trigger (`migrations/0008_sync_profile_email.sql`), in the same transaction as the write, so the two identity rows cannot diverge. Enforced by `src/lib/__tests__/identityWriteGuard.test.ts`.
 - **Fast View is a composition root (RH-38).** `src/app/songs/[id]/fast-view/page.tsx` holds no `useState`, no `useEffect` and no data access: it wires seven controller hooks (`usePlaylistNav`, `useTabLibrary`, `usePdfStage`, `useLyricsEditor`, `useSongEntry`, `useSongStatus`, `useSongLinks`) to the presentational components under `src/components/fastview/`, and the pure decisions live in `src/lib` (`playlistNav.ts`, `tabLibrary.ts`, `scrollHost.ts`, `stageHistory.ts`, `lyricsMarkdown.ts`, `lyricsEditor.ts`, `songEntry.ts`, `songStatus.ts`, `songLinks.ts`). Because of the import-direction rule below, no hook or component may import a Server Action: the page injects them as typed dependency objects from `src/app/fastViewNavActions.ts`, `fastViewTabActions.ts`, `fastViewLyricsActions.ts` and `fastViewEntryActions.ts`. New Fast View behaviour goes into a lib function, its hook and its component - never back into the page.
 
-Legacy/unused code to be aware of: the live data model is `src/types/database.ts`. The app's persistence and auth run on plain Postgres via Better Auth; RH-75 removed the last Supabase traces from the application source, the vitest suite and the dependency tree (the `supabase/` directory retains only `config.toml` and `seed.sql` for the local docker-compose stack; the Supabase CLI migration flow is disabled — see `[db.migrations] enabled = false`).
+Legacy/unused code to be aware of: the live data model is `src/types/database.ts`. The app's persistence and auth run on plain Postgres via Better Auth. The repository was originally built on a BaaS platform; RH-75 removed the last traces of it from the application source, the vitest suite and the dependency tree, and RH-76 removed the rest — the vendor directory and the ten-service local compose stack are gone, and the one live thing inside them, the `global_songs` catalogue, now lives at `scripts/seed-catalog.sql`. A repo-wide, case-insensitive grep of the tracked files for the vendor's name matches exactly one path, `src/lib/__tests__/migrationsSingleSource.test.ts`, whose prose and `SKIPPED_DIRECTORY_NAMES` record why that guardrail exists; keep it that way.
 
 # Key Technologies & Stack
 
@@ -103,7 +103,11 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 
 **Deployment**
 - Vercel (`vercel.json`, `.vercel/`) is the target platform
-- A `Dockerfile` and `docker-compose.yml` also exist for local/self-hosted Postgres + app orchestration (`docker/` has Kong/Supabase-style local env config)
+- A `Dockerfile` and `docker-compose.yml` also exist for local/self-hosted Postgres + app orchestration. `docker-compose.yml` has exactly two services, `postgres` and `app`, and **two modes selected by `COMPOSE_PROFILES`** (RH-76):
+  - **standalone** (`COMPOSE_PROFILES=standalone`, the default, read from `.env`): the repo starts its own `postgres`, published on `${POSTGRES_PORT:-54322}`, and `app` reaches it over the compose network at `postgres:5432`.
+  - **poli-runner** (`COMPOSE_PROFILES=poli-runner`, injected by [poli-runner](../polidoro-runner/README.md) from `poli-runner.yml`): no service declares that profile, so the bundled `postgres` stays down and `POSTGRES_URL` points at the shared `poli-postgres` cluster's `repertoire_hero` database instead. `scripts/ensure-db.sh` creates and migrates it first; it exits 0 with a notice when that cluster is down, so `--no-deps` falls back to standalone.
+  - The compose-level connection variable is **`POSTGRES_URL`**, mapped into the container as `DATABASE_URL=${POSTGRES_URL}`. It is deliberately not called `DATABASE_URL` at the compose level: the host-side tooling (`scripts/migrate.mjs`, `scripts/deduplicate-songs.mjs`, `vitest.config.ts`) reads `DATABASE_URL` from `.env.local`, and a compose-network host under that name would be ambiguous. `postgres` carries `profiles: [standalone]`, `app` carries none (so it always stops), and `app`'s `depends_on.postgres` needs `required: false` or an inactive profile invalidates the whole project.
+  - **`.env.example` is the tracked template** (`.gitignore` negates `.env*` for it with `!.env*.example`) and `cp .env.example .env` is step one of setup for everyone, runner or not — Compose reads `.env` in *every* subcommand. No secret slot in it carries a value.
 
 # Directory Structure
 
@@ -192,8 +196,15 @@ migrations/                     Hand-written SQL migrations — the SINGLE sourc
                                  a second migrations directory; a vitest guard
                                  (src/lib/__tests__/migrationsSingleSource.test.ts) enforces this.
 e2e/                            Playwright end-to-end specs (auth, songs CRUD, mobile fast view)
-docker/                         Local Postgres/Kong env config + Dockerfile support files
-scripts/                        migrate.mjs (schema migration runner), dev-seed (local data seeding)
+docker/                         init-migrations.sh — the bundled Postgres's first-boot entrypoint:
+                                 applies migrations/ into the _migrations ledger, then the seed
+                                 catalogue mounted at /seed/catalog.sql (outside initdb.d on
+                                 purpose — a *.sql there would run before this script)
+poli-runner.yml                 Makes the repo discoverable by poli-runner: commands, the
+                                 `postgres` integration point and its `local` scenario
+scripts/                        migrate.mjs (schema migration runner), dev-seed (local data
+                                 seeding), seed-catalog.sql (the shared global_songs catalogue),
+                                 ensure-db.sh (provisions repertoire_hero on the shared Postgres)
 docs/                           security-audit.md, test-coverage-plan.md, suggestions-log.md,
                                  plans/ (code-quality-review.md, mobile-app-analysis.md) and
                                  tasks/ (one <id>-spec.md per Meridian task)

@@ -5,7 +5,12 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// Load environment variables
+// Load environment variables.
+//
+// A value already present in the real process environment WINS over the file:
+// that is dotenv's own precedence rule, and scripts/ensure-db.sh relies on it to
+// point this runner at the shared poli-postgres database while a developer's
+// .env.local still names their own local one.
 const loadEnv = (fileName) => {
   try {
     const envPath = path.resolve(__dirname, '..', fileName)
@@ -21,7 +26,7 @@ const loadEnv = (fileName) => {
           if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
             val = val.substring(1, val.length - 1)
           }
-          process.env[key] = val
+          if (process.env[key] === undefined) process.env[key] = val
         }
       })
     }
