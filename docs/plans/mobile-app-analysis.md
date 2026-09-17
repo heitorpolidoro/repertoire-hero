@@ -21,6 +21,15 @@ Every claim below is grounded in the code as of `v0.1.50-202609012115`. File and
 > argued partly from claim (1), so correcting the text means re-deriving the
 > conclusion, which is a follow-up task and not a text edit.
 
+> **Correction note (RH-74, 2026-09-17).** §1.2 below opens by noting that the
+> `NEXT_PUBLIC_SUPABASE_*` entries are "still sitting in `.env.example`" and the
+> `@supabase/*` packages "still in `package.json`". Neither is true any more:
+> RH-75 removed the packages from `package.json` (and the vendor's client code
+> from `src/`), and RH-76 rewrote `.env.example` as the tracked Compose template,
+> which carries no `NEXT_PUBLIC_SUPABASE_*` slot. The paragraph's actual point -
+> that the app does not use that vendor's auth, and runs on Better Auth over
+> `pg` - is unchanged and still correct. The snapshot prose is left standing.
+
 ---
 
 ## 1. Current-state inventory

@@ -1,5 +1,19 @@
 # Security Audit — Repertoire Hero
 
+> **⚠️ Historical record (banner added by RH-74, 2026-09-17).** The architecture
+> audited below no longer exists. RH-75 removed the vendor's client, SDK and
+> environment wiring from the application, and RH-76 removed the vendor
+> directory (including the `supabase/migrations/**` files this audit reviews)
+> and the ten-service local Compose stack. Repertoire Hero now runs on **plain
+> PostgreSQL** - hand-written SQL through `pg`, schema in `/migrations` - with
+> **Better Auth** for sessions, and **there is no RLS layer**: authorization is
+> enforced in application code (Server Actions and `src/lib`), not by row-level
+> security policies. `src/middleware.ts` is likewise gone; its successor is
+> `src/proxy.ts`, a redirect convenience and explicitly not an authorization
+> boundary (see AGENTS.md, RH-65). Read what follows as a record of what was
+> found and fixed in May 2026, not as a statement about the app today. No
+> finding below has been edited.
+
 **Date:** 2026-05-13
 **Scope:** Supabase RLS policies, application data layer, dev-login mechanism
 **Files reviewed:**

@@ -7714,3 +7714,71 @@ full-suite coverage gate passes.
 - `!.env*.example` is broader than the single file it exists for; `!/.env.example` would
   un-ignore exactly the tracked template and could not be surprised by a future
   `.env.production.example` holding real values. No such file exists today.
+
+## [RH-74] Remove Supabase remnants and adopt the poli-runner convention — 2026-09-17 (RH-74-spec_review-1.md)
+
+- Split step 4 into "corrections" (the four documents that state the current
+  architecture wrongly) and "additions" (README). ER15 is a new-documentation
+  decision, not a repair, and grouping it with the corrections hides that the
+  spec's own rationale does not cover it.
+- ER11 says the paragraph must name `RUN_DB_TESTS` but does not say whether the
+  now-dead `SUPABASE_SERVICE_ROLE_KEY` string may remain in it. Append-only leaves
+  both names in one paragraph. State which, so the diff is not a judgement call.
+- ER15 names `docker compose up` while the body prescribes
+  `docker compose up -d --wait`. The ER's string is a substring of the body's, so
+  it passes either way, but make them identical to avoid a reviewer flagging it.
+- Record the `.env`/`.env.local` split explicitly in the README section: compose
+  reads `.env`, the host-side tooling and `vitest.config.ts` read `.env.local`.
+  That distinction is the single thing most likely to cost a newcomer an hour,
+  and the compose file's own header comment already explains it.
+- Consider adding `shasum .env .env.local tsconfig.tsbuildinfo` before/after to
+  the PR-body evidence list, since `git status` structurally cannot protect them.
+
+## [RH-74] Remove Supabase remnants and adopt the poli-runner convention — 2026-09-17 (RH-74-spec_review-2.md)
+
+- ER9 attributes the effective `DATABASE_URL` to "`vitest.config.ts`'s fallback". On
+  this machine the value comes from `.env.local`, whose `loadEnv` assignment precedes
+  the `if (!process.env.DATABASE_URL)` guard, so the fallback branch never executes. The
+  value is byte-identical, so the result stands, but wording it as "the effective
+  `DATABASE_URL` resolves to ... (whether from `.env.local` or the config fallback)"
+  would be exact. Note the same overwrite means a shell-level `DATABASE_URL=` would also
+  be ignored — worth knowing if anyone later tries to point the suite at 54323.
+- Step 5 and ER15 embed the literal line `cp .env.example .env` as README copy. The
+  implementer must write it, never run it: `.env` on this machine still holds the old
+  vendor stack's values, and running the copy would overwrite a protected file. A
+  half-sentence ("this is README text; do not execute it during verification") would
+  remove the last way to misread the section.
+- Step 5 puts `POSTGRES_PORT=54323` into the README as the recommended command, but
+  54323 was chosen only because the maintainer's 54322 is occupied. Committing a
+  machine-specific port into the shared setup document is odd for a reader whose 54322
+  is free; consider documenting the plain command plus a one-line note that
+  `POSTGRES_PORT` overrides the default when the port is taken.
+- ER10's lint baseline (8 errors / 12 warnings / 14 file-rule pairs at `47f32f2`) was not
+  re-measured this round — it was untouched by the four findings and is outside a
+  findings-only pass. It was accepted in round 1 and the implementer will re-measure it
+  anyway per the Test criteria.
+
+## [RH-74] Remove Supabase remnants and adopt the poli-runner convention — code review — 2026-09-17
+
+- `README.md:9-10` — `cp .env.example .env.local` is unguarded. A returning developer
+  who already has a populated `.env.local` (Spotify, Sentry, Better Auth secrets) and
+  follows the section top-to-bottom will silently clobber it. A parenthetical such as
+  "(skip if you already have one)" would cost one clause. Note this mirrors
+  `.env.example`'s own header, so if it is worth fixing it is worth fixing in both.
+- `README.md:16-19` — the `POSTGRES_PORT=54323` override moves the *container's*
+  published port but not `DATABASE_URL` in the freshly copied `.env.local`, which
+  still says 54322. A reader who took the override then runs `npm run seed` or
+  `RUN_DB_TESTS=1 npx vitest run` will hit a different Postgres than the one just
+  started. One sentence — `npm run seed postgresql://postgres:postgres@127.0.0.1:54323/postgres`,
+  which `scripts/dev-seed` already accepts as `$1` — would close it.
+- `docs/security-audit.md` — the banner covers the RLS framing well, but F3
+  (open redirect in `/api/auth/dev-login`) and F4/F6 (`NEXT_PUBLIC_DEV_*`) are not
+  vendor-specific and may still be live concerns on the current stack. Worth a
+  follow-up task to re-check those three against today's code rather than leaving them
+  filed under an architecture that no longer exists. Out of scope here.
+
+## [RH-74] Remove Supabase remnants and adopt the poli-runner convention — QA — 2026-09-17
+
+- `poli-runner start repertoire_hero` only resolves when invoked from `/Users/heitor/workspace` (the runner scans one directory level below CWD). The new README "Local development" section presents the command bare; a half-line noting it is run from the workspace root would save the next person the `unknown system(s)` detour. Non-blocking — ER15 asks only that the command be named, and the behaviour is poli-runner's, not this repo's.
+- `.env.example` keeps `POSTGRES_PASSWORD=postgres` and `NEXT_PUBLIC_DEV_USER_PASSWORD=devpassword` populated. Both are documented local-only placeholders and correct as-is; flagging only because a reader scanning for "no value in a secret slot" may pause on them.
+

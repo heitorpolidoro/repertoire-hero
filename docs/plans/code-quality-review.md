@@ -19,7 +19,10 @@ lists them verbatim; section 2 quotes their output at `13da8b2`.
 `DATABASE_URL` (default `postgresql://postgres:postgres@127.0.0.1:54322/postgres`)
 with `npm run db:migrate` applied, plus a non-empty `SUPABASE_SERVICE_ROLE_KEY`
 in the environment or `.env.local`; without them six DB-backed files skip 51
-tests. The "production file set" used throughout is the git-tracked `.ts`/`.tsx`
+tests. (RH-75 renamed that gate: the variable is now `RUN_DB_TESTS`, an opt-in
+switch rather than a credential, so a re-run today uses `RUN_DB_TESTS=1`. The
+measurements below are left as they were taken at `13da8b2`.) The "production
+file set" used throughout is the git-tracked `.ts`/`.tsx`
 files under `src/` excluding `__tests__`.
 
 **M1 - production file sizes**

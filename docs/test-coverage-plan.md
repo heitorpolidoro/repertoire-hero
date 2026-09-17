@@ -16,7 +16,7 @@
 >
 > For the live rules — the coverage universe, what deliberately sits outside it,
 > the jsdom docblock convention for `*.test.tsx`, and the live-Postgres +
-> `SUPABASE_SERVICE_ROLE_KEY` precondition — read the **"Testing & quality"**
+> `RUN_DB_TESTS` precondition — read the **"Testing & quality"**
 > section of `AGENTS.md`. Read `docs/tasks/RH-24-spec.md` for the measurements and
 > the reasoning behind them.
 
