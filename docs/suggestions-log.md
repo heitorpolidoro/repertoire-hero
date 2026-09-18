@@ -7782,3 +7782,79 @@ full-suite coverage gate passes.
 - `poli-runner start repertoire_hero` only resolves when invoked from `/Users/heitor/workspace` (the runner scans one directory level below CWD). The new README "Local development" section presents the command bare; a half-line noting it is run from the workspace root would save the next person the `unknown system(s)` detour. Non-blocking — ER15 asks only that the command be named, and the behaviour is poli-runner's, not this repo's.
 - `.env.example` keeps `POSTGRES_PASSWORD=postgres` and `NEXT_PUBLIC_DEV_USER_PASSWORD=devpassword` populated. Both are documented local-only placeholders and correct as-is; flagging only because a reader scanning for "no value in a secret slot" may pause on them.
 
+
+## [RH-77] Convert / to a Server Component — 2026-09-17 (RH-77-spec_review-1.md)
+
+- ER9's "at most 18 entries" tolerates leaving `MAX_OVERRIDES = 18` while the
+  list drops to 17, which `complexityBudget.test.ts`'s own ratchet comment
+  forbids. Consider "the number of entries equals `MAX_OVERRIDES`" so the two
+  branches of the "Files touched" note are both pinned.
+- ER10 does not mention that the island now requires an `actions` prop; naming
+  the minimal stub in the ER would remove one judgement call at QA time.
+- ER6 pins 35 specs; since TC2 strengthens an existing test rather than adding
+  one, consider saying so in the ER so a future reader does not read 35 as a
+  target that the task was supposed to raise.
+- B4's rationale for not reading the repertoire on the server is the strongest
+  paragraph in the spec and is worth carrying into the follow-up task's
+  description when the band-context-cookie work is filed.
+
+## [RH-77] Convert / to a Server Component — 2026-09-17 (RH-77-spec_review-2.md)
+
+- ER9 asserts "at most 18 entries" and leans on `complexityBudget.test.ts` to
+  catch a `MAX_OVERRIDES` that no longer matches the list. That is sound, but
+  the spec's own `Files touched` bullet describes the 17-entry branch (delete
+  the `src/app/page.tsx` entry, lower `MAX_OVERRIDES`) while ER9 does not
+  mention `MAX_OVERRIDES` at all. Non-blocking, since the test enforces the
+  pairing mechanically, but an explicit "`MAX_OVERRIDES` equals the list
+  length" clause would make ER9 self-contained.
+- ER5's "in that same log, captured the same way" is a back-reference to ER4.
+  It resolves fine because QA receives the whole list, but repeating the two
+  setup lines would make ER5 independently executable if the results are ever
+  read one at a time.
+- TC1 and ER4 use `/tmp/rh77-dev.log`. A path under the repo's ignored scratch
+  area, or a `mktemp` per measurement, would remove the (small) chance of a
+  stale log from an earlier run being mistaken for a fresh one — the spec
+  already guards this with `rm -f` and the positive control, so this is
+  cosmetic.
+
+
+## [RH-77] Convert / to a Server Component — code review — 2026-09-17
+
+- **`src/hooks/useHydrated.ts` is defence-in-depth, not load-bearing — verified, not assumed.**
+  See "Point 3" below for the experiment. ER12 mandates the hook, the hook is correct and
+  is directly unit-tested, so this is not blocking; but the repository should know that the
+  guard can be deleted without changing any observable behaviour under zustand 5.0.13, and
+  that `src/components/songs/__tests__/repertoireDashboard.test.tsx` cannot detect its removal.
+  If the hook is kept, consider a comment recording that zustand v5's `getInitialState`
+  server snapshot already covers this case and the hook is belt-and-braces for stores that
+  may not have one — otherwise a future reader will assume the test is guarding it.
+- **`eslint.config.mjs`: the re-pinned ceiling went up, not down.** The old
+  `src/app/page.tsx` entry was `complexity 18 / max-lines-per-function 511 / max-lines 640`;
+  the new `src/components/songs/RepertoireDashboard.tsx` entry is `18 / 530 / 579`.
+  `max-lines` drops 61 as the spec predicted, but `max-lines-per-function` **rises by 19** —
+  exactly the lines the hydration guard and the `songFormActions` `useMemo` added inside the
+  component body. The entry count is unchanged at 18, `complexityBudget.test.ts` pins
+  ceilings to the file's exact worst number and passes, so no guard is violated; the note is
+  that the one number that grew grew because of the guard discussed above.
+- `repertoireDashboard.test.tsx`'s second case (`vi.resetModules()` + dynamic re-import to
+  simulate `persist` rehydrating at store creation) duplicates the first case's assertion for
+  a code path the first case already covers. Harmless, mildly expensive, could be dropped.
+- The dashboard test registers `afterEach(cleanup)` per AGENTS.md but never uses RTL `render`
+  (only `renderToString`), so `cleanup` is a no-op there. Fine to keep for convention.
+
+
+## [RH-77] Convert / to a Server Component — QA — 2026-09-17
+
+- The F15 addendum states "the five `Hydration failed` browser errors the
+  placeholder produced across a full Playwright run are gone". My independent
+  baseline run at `cc31134`, under identical traffic (positive control
+  `GET / 200` = 17 in both runs), measured **9**, not five — with 9 matching
+  `at RepertoireDashboard (` frames. The direction and the conclusion are
+  correct (baseline nonzero, HEAD zero); only the magnitude is understated, and
+  it appears to vary between runs. Consider either re-measuring and quoting the
+  observed number, or softening to "the hydration errors ... are gone" so the
+  document does not pin a figure that does not reproduce.
+- `docs/suggestions-log.md` is modified but unstaged and was declared out of
+  scope; it remains unstaged, so it will not enter the commit. Flagging only so
+  the state is not a surprise at commit time.
+

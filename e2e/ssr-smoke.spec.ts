@@ -25,6 +25,11 @@ test('GET / signed out returns a 200 SSR document', async ({ request }) => {
   expect(body).not.toContain(ERROR_DOCUMENT_MARKER)
   expect(body).not.toContain(HOOK_CRASH_MARKER)
   expect(body).toContain('Repertoire Hero')
+  // RH-77: `/` is a Server Component, so the document a crawler receives is the
+  // landing page itself and not the session-gate placeholder it used to be
+  // (0 `href="/signup"` and 1 `>Loading...<` at cc31134).
+  expect(body).toContain('href="/signup"')
+  expect(body).not.toContain('>Loading...<')
 })
 
 test('signed-out / renders the landing page in a browser', async ({ page }) => {
