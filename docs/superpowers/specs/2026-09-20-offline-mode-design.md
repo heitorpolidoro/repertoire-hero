@@ -88,6 +88,19 @@ is the precedent to follow.
 The service worker is configured through `@serwist/next`. `next-pwa` is
 unmaintained and is not an option.
 
+> **Correction note (RH-28 split, 2026-09-20).** The sentence above stands as
+> what this design assumed; the mechanism is wrong and RH-78 carries the
+> replacement. `@serwist/next@9.5.12` depends on `@serwist/webpack-plugin`, and
+> its own source states it does not support Turbopack. This repository runs
+> Turbopack everywhere (`AGENTS.md:51`, enforced by
+> `src/lib/__tests__/devBundler.test.ts`, RH-72) because `pdfjs-dist` dies under
+> the webpack dev runtime and takes the whole `/songs/[id]/fast-view` client
+> graph down with it — the very route this feature exists to serve. The
+> `withSerwist` wrapper is therefore forbidden here. RH-78 uses the package's
+> Turbopack-compatible configurator mode instead, and that is the riskiest
+> unknown in the feature: if it does not hold, nothing downstream has a floor.
+> `next-pwa` remains ruled out for the reason already given.
+
 ## Data flow
 
 ### Download
@@ -123,6 +136,20 @@ Blob domain, cross-origin to the app.
 the fallback is to serve tab files through a same-origin route handler that
 streams the blob. That adds one endpoint, and it *tightens* rather than loosens
 the system: today that URL is public and passes no authorization gate at all.
+
+> **Correction note (RH-28 split, 2026-09-20).** Measured, so this is no longer
+> an open question and the heading's "verify before choosing" is spent. Vercel
+> Blob public store hosts return `access-control-allow-origin: *` and
+> `access-control-allow-headers: content-type` on GET **and** on an OPTIONS
+> preflight, from two independent store subdomains, with an explicit
+> cross-origin `Origin` header. The non-store apex `public.blob.vercel-storage.com`
+> 404s carrying no `access-control-*` header at all, which shows the header comes
+> from the Blob store itself rather than a shared edge default. Responses are
+> therefore normal, not opaque: RH-79 caches `fetch(fileUrl)` directly and
+> asserts `response.type !== 'opaque'` and `response.ok`. **The same-origin
+> streaming route handler is out of scope** — it stays documented here only as
+> the fallback that would apply if this ever changes. The authorization
+> observation about `access: 'public'` stands on its own and is unaffected.
 
 ### Reading offline
 
