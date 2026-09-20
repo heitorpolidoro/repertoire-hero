@@ -1,0 +1,15 @@
+{
+  // RH-78 — the service worker is typechecked on its own (`npm run typecheck:sw`).
+  // It needs the `webworker` lib, whose `self`, `caches` and `fetch` declarations
+  // conflict with the app's `dom` lib, which is why `src/app/sw.ts` is in the base
+  // config's `exclude` list rather than sharing it.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext", "webworker"],
+    "types": [],
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": ["src/app/sw.ts"],
+  "exclude": []
+}

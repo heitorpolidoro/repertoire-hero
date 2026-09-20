@@ -1,5 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreExportsUsedInFile": true,
-  "ignoreDependencies": ["kysely", "webpack", "@sentry/browser", "@better-auth/utils"]
+  "ignoreDependencies": [
+    "kysely",
+    "webpack",
+    "@sentry/browser",
+    "@better-auth/utils",
+    "esbuild",
+    "@serwist/cli"
+  ],
+  "entry": [
+    "serwist.config.js",
+    "src/app/sw.ts"
+  ]
 }

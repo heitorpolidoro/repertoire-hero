@@ -56,3 +56,7 @@ next-env.d.ts
 
 # Build artifact: copied from node_modules by scripts/copy-pdf-worker.mjs
 /public/pdf.worker.min.mjs
+
+# Build artifact: emitted by the `serwist build` stage of `npm run build` (RH-78)
+/public/sw.js
+/public/sw.js.map

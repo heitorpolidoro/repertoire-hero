@@ -7858,3 +7858,134 @@ full-suite coverage gate passes.
   scope; it remains unstaged, so it will not enter the commit. Flagging only so
   the state is not a surprise at commit time.
 
+
+## [RH-78] PWA shell: service worker, manifest, offline signal — 2026-09-20 (RH-78-spec_review-1.md)
+
+- **Vercel and the post-`next build` artefact.** The `build` script writes `public/sw.js` *after*
+  `next build` returns (necessarily — the manifest is globbed from the finished `.next`). That is
+  correct for `next start`, which reads `public/` from disk at request time and is what the
+  production e2e path uses. It is worth one sentence in the spec confirming Vercel collects
+  `public/**` after the whole build command exits rather than during `next build`, since a
+  wrong answer there means `/sw.js` 404s in production while every local gate stays green.
+- **`globPatterns` includes `public/**/*`** (verified empirically above), so the precache will
+  pull in `public/pdf.worker.min.mjs` — roughly a megabyte, per the comment at
+  `eslint.config.mjs:96`. For RH-80's offline PDF reading that is probably desirable, but it is an
+  unstated consequence of the default glob; either affirm it or narrow `globPatterns`.
+- **`/offline` must actually prerender to `.next/server/app/offline.html`** for the precache entry
+  to exist (the third glob pattern). The root layout takes no request-scoped API so this should
+  hold, but the spec asserts the entry's existence without saying it depends on `/offline` staying
+  fully static. A one-line note (and a guard in `pwaShell.test.ts` asserting the manifest contains
+  a `/offline` entry, not merely "≥1 entry") would make ER4 sharper.
+- **`typecheck:sw`** is added to `package.json` but no ER or test criterion runs it, and no
+  existing CI job would. Either wire it into a gate or drop it.
+- **The smoke test's coverage boundary is worth stating.** The spec's end-to-end smoke test used
+  `@serwist/cli` + `serwist` only, with no Next.js present, so it did not exercise
+  `@serwist/next/config` (which requires Next — it `require`s `next/dist/server/config.js`). I
+  closed that gap myself by running the configurator against this repo's real `next.config.ts`;
+  recording that in the spec would stop a later reader re-deriving it.
+- `useOfflineStatus.ts` ships with no production consumer in this task (RH-79/RH-80 consume it).
+  knip's non-production mode counts its vitest suite as a reference, so `lint:dead` should be
+  fine, but it is close enough to the line to be worth a sentence.
+
+
+## [RH-78] PWA shell: service worker, manifest, offline signal — 2026-09-20 (RH-78-spec_review-3.md)
+
+- **State the `distDir` normalisation explicitly.** `nextConfig.distDir` is
+  `".next"` with no trailing slash, while the spec writes
+  `<distDir>server/app/offline.html` and `generateGlobPatterns(distDir)` — both
+  of which expect the slash-terminated form that `serwist()` computes
+  internally and does *not* hand to the `withNextConfig` callback. I measured
+  the naive version (`${nextConfig.distDir}server/app/offline.html` and
+  `generateGlobPatterns(nextConfig.distDir)`): it produces the patterns
+  `.nextstatic/**/*` and `.nextserver/app/offline.html`, and a manifest of
+  `["/icons/icon-192.png","/icons/icon-512.png","/pdf.worker.min.mjs"]` — no
+  `/offline`, no static assets. ER4 and ER4b both catch it loudly, which is why
+  this is not blocking, but one line in the spec
+  (`const distDir = nextConfig.distDir.replace(/^\//, '').replace(/\/?$/, '/')`)
+  would save a build cycle.
+- **Prefer `serwist.config.mjs`.** The repo's `package.json` has no `"type"`
+  field, and every ESM file at this repo's root uses `.mjs`
+  (`eslint.config.mjs`, `scripts/*.mjs`). A `.js` config with `import` still
+  loads — I verified the CLI succeeds against a typeless `package.json` on
+  Node 24 — but only via Node's ESM auto-detection, which prints
+  `MODULE_TYPELESS_PACKAGE_JSON` into every production build's output. `.mjs`
+  is both the convention here and warning-free. If the rename is taken, ER2 and
+  the `knip.json` entry in ER12 must name the same filename.
+- **Fix the two "Measured, not argued" URL lists** to include
+  `/icons/icon-512.png` and `/pdf.worker.min.mjs`; as written they understate
+  what the real build will print, and a reader comparing the CLI's URL count
+  against the spec will think something is wrong. While there, consider a
+  sentence acknowledging that `public/**/*` precaches the 1 MB
+  `pdf.worker.min.mjs` on install — that is a deliberate-looking consequence
+  that the spec currently never mentions.
+- **Correct the key order in ER4b's illustrative literal** to
+  `{revision:"…",url:"…"}`, which is what esbuild actually emits.
+- **ER numbering / persistence.** The dispatch describes the current results as
+  "14, renumbered ER1–ER14", but `docs/tasks/RH-79-spec.md` still labels them
+  ER1–ER12 with `ER4b` and `ER5b` interleaved, and the RH-78 record in
+  `.meridian/tasks.jsonl` carries no `expected_results` key at all. The spec is
+  internally consistent under its own labels (§5's "which ER5 repeats verbatim"
+  and §9's "ER5 asserts on it" both point at the Playwright result, correctly),
+  so this is not a content defect and does not block. But the `work` skill
+  should persist exactly these 14 items, and if it renumbers `ER4b`→ER5 on
+  persist it must also update the §5 and §9 cross-references in the spec, or
+  they will point at the precache guard instead of the Playwright spec.
+
+## [RH-78] PWA shell — code review — 2026-09-20
+
+- `src/lib/__tests__/pwaShell.test.ts:200-203` — the "wired both the
+  runtime-caching route and the fallback plugin" assertion checks only that the
+  strings `registerCapture` and `handlerDidError` appear in `public/sw.js`. Both
+  live in bundled library code (`handlerDidError` occurs at offsets 17596, 25670
+  and 28644, the first of which is generic `StrategyHandler` machinery), so this
+  case would very likely still pass against a worker whose `fallbacks` had been
+  silently discarded — the exact failure ER7 exists to catch. A strictly
+  stronger and equally cheap assertion is to match the emitted constructor call:
+  `expect(sw).toMatch(/runtimeCaching:\[\{matcher:/)` and
+  `expect(sw).toMatch(/fallbacks:\{entries:\[\{url:"\/offline"/)`. The
+  source-level guards at lines 132-139 and the production Playwright spec do
+  carry the real proof today, so this is a hardening, not a gap.
+- The precache is 2.97 MB, of which `/pdf.worker.min.mjs` is ~1 MB and
+  `/icons/icon-512.png` ~152 KB — everything under `public/**` that
+  `generateGlobPatterns` sweeps in. That is spec-conformant and arguably right
+  (the PDF worker is exactly what an offline Fast View will need in RH-80), but
+  it is a install-time download worth revisiting in RH-79/RH-80 if mobile
+  install cost shows up.
+- `npm run typecheck:sw` is not wired into any gate or CI job, so `src/app/sw.ts`
+  — now excluded from the base `tsconfig.json` — is only type-checked when
+  someone runs that script by hand. Consider folding it into the existing
+  typecheck job in a follow-up.
+- Second e2e case (`e2e/pwa-shell.spec.ts:68-77`) runs in a fresh context with
+  no registered worker, so it mostly asserts that `/login` is a normal 200. It
+  is cheap and harmless, but it does not really test the online path through the
+  worker; registering first would make it load-bearing.
+- Deviation follow-ups: rename `serwist.config.js` → `.mjs` (removes the
+  `MODULE_TYPELESS_PACKAGE_JSON` warning on every build) and drop the two knip
+  `ignoreDependencies` hints — both require touching the spec text, so they
+  belong to a follow-up rather than this task.
+
+
+## [RH-78] PWA shell — QA — 2026-09-20
+
+1. **knip prints two configuration hints** (non-blocking; exit code is 0 and knip classifies
+   these as "Configuration hints", not issues):
+   ```
+   esbuild         knip.json  Remove from ignoreDependencies
+   @serwist/cli    knip.json  Remove from ignoreDependencies
+   ```
+   knip now resolves both as genuinely used (via the `serwist.config.js` entry and the
+   `serwist build` step), so the two `ignoreDependencies` entries are redundant. ER14
+   explicitly *requires* them to be listed, so I did not treat this as a failure — but a
+   follow-up could drop them and keep `lint:dead` output completely silent. Worth folding
+   into RH-79 rather than reopening this task.
+
+2. **`.env.production.local` carries an empty `BETTER_AUTH_SECRET`** (pre-existing, outside
+   this task's diff). It silently shadows the real value in `.env.local` for anything run
+   under `next start`, which is why the ER6 command fails out of the box on this machine
+   with a 500 from global-setup. Any future prod-mode e2e work will hit the same wall.
+   Not this task's to fix, but worth a line in the local setup notes.
+
+3. **`serwist.config.js` triggers a Node warning** on every build:
+   `[MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of .../serwist.config.js is not
+   specified and it doesn't parse as CommonJS. Reparsing as ES module...`. Harmless and
+   the build is exit 0; renaming the file to `serwist.config.mjs` would remove the noise.

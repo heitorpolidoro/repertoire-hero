@@ -30,5 +30,15 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "**/__tests__/**", "**/*.test.ts", "**/*.spec.ts", "e2e/**"]
+  "exclude": [
+    "node_modules",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "e2e/**",
+    // RH-78: the service worker needs `lib: ["esnext","webworker"]`, which
+    // conflicts with the app's `dom` lib. It is typechecked by tsconfig.sw.json
+    // (`npm run typecheck:sw`) instead.
+    "src/app/sw.ts"
+  ]
 }
