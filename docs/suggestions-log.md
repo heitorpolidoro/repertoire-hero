@@ -7989,3 +7989,111 @@ full-suite coverage gate passes.
    `[MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of .../serwist.config.js is not
    specified and it doesn't parse as CommonJS. Reparsing as ES module...`. Harmless and
    the build is exit 0; renaming the file to `serwist.config.mjs` would remove the noise.
+
+## [RH-79] Offline snapshot store and per-playlist download — 2026-09-20 (RH-79-spec_review-1.md)
+
+- **Mock/spec drift in the idle state.** `docs/tasks/RH-80-mock.html:138-142`
+  renders the idle control with a trailing `~48 MB` size estimate. §6 specifies
+  idle as just "Available offline", and nothing in the data model gives a
+  pre-download size (`repertoire_tabs` has no size column; `RepertoireTab` has no
+  byte field), so that figure is not derivable. Either drop it from the mock or
+  say in §6 that idle shows no estimate. Everything else in the mock matches: the
+  three states with `aria-busy` and an `x / y` counter, the inline `role="alert"`
+  error, the settings total as the sum of row `bytes` with the toggleable quota
+  line, per-row `Remove …` labels, and the sign-out purge ordering.
+- **Inaccurate justification in §2.** "it is a same-origin URL, which `cache.put`
+  requires" — the Cache API does not require same-origin request keys (it rejects
+  on non-http(s) schemes and on a 206 response, not on origin). The synthetic key
+  is still the right choice for the stated reasons (prefix-scoped removal,
+  stability across a `file_url` change); just fix the reason so a later reader
+  does not inherit a wrong constraint.
+- Consider stating where `OfflineTabSnapshot.bytes` comes from (the fetched
+  response's real byte length, measured during step 1 and passed into the pure
+  `buildOfflineSnapshot`). It is inferable from §2 + §4 ordering, but one
+  sentence removes the inference.
+- §3's conditional `vitest.config.ts` coverage exclusion for
+  `offlineBackends.ts` is well-guarded ("only if the thresholds actually drop"),
+  but ER13 does not mention it; a reader comparing ER13 to §3 may wonder whether
+  the exclusion is permitted. A clause in ER13 would close that.
+
+---
+
+
+## [RH-79] Offline snapshot store and per-playlist download — 2026-09-20 (RH-79-spec_review-2.md)
+
+- **ER label drift between the spec file and the persisted list.** The
+  checkbox list in `docs/tasks/RH-80-spec.md:374-389` is labelled ER1, ER2,
+  ER2b, ER2c, ER3, ER3b, ER4 … ER13 (16 items), while the dispatch reports the
+  persisted `expected_results` as renumbered ER1–ER16. The offsets line up
+  exactly (spec ER3b = persisted ER6, spec ER7 = persisted ER10, spec ER10 =
+  persisted ER13, spec ER12 = persisted ER15), so nothing is lost — but the
+  spec's three internal cross-references ("ER3b's assertion" in Files touched,
+  "which is what makes ER10 true" in §2, "(ER12: `src/app/settings/page.tsx`
+  already carries one)" in §7) then point at different items in the
+  authoritative list. Non-blocking, because each ER is verifiable from its own
+  text regardless of its label. Worth fixing by renumbering the spec file's list
+  to ER1–ER16 and updating those three cross-references, so the two artifacts
+  read the same. Note `.meridian/tasks.jsonl` currently records
+  `expected_results: []` for RH-79 — expected at `spec_review`, since the `work`
+  skill persists them on approval; worth asserting the count is 16 at that
+  point.
+- **How `bytes` is measured is left open.** §2 defines `bytes` as "the sum of
+  every cached PDF's real byte length plus the UTF-8 length of the serialized
+  snapshot JSON", but a `Response` body can only be consumed once, and
+  `cache.put(key, response)` consumes it. The implementer must either
+  `response.clone()` before the put or read the length back via `match(key)`.
+  Both yield the same observable result and no ER discriminates between them, so
+  this is not ambiguity in the blocking sense — but one clause naming the clone
+  would save a debugging session. (Section untouched by this round's fix, so
+  raised only as a suggestion.)
+- **`useOfflineLibrary`'s module-level cache is "keyed by nothing".** §3 notes
+  this and argues correctly that refreshing *through the passed store* makes an
+  injected fake readable. The residual hazard is cross-test leakage: two tests in
+  one file injecting different fakes share the one cache slot, so the first
+  render of the second test reads the first test's rows until `refresh()`
+  settles. `await`-ing a `findBy*` query covers it, but exporting a small reset
+  for `afterEach` would make the isolation explicit rather than incidental.
+- **Minor prose contradiction on dependency ordering.** §3 lists the hook's two
+  injected dependencies as "`actions` … and `store`", while §5 says "It is the
+  hook's **second** injected dependency; the first is `store`". Both are members
+  of one destructured options object, so no implementation is ambiguous; the
+  ordinals simply disagree and could be dropped.
+- **`Response` and `DOMException` under the jsdom environment.** The fake fetch
+  and the quota injection both rely on these being present. They come from Node,
+  not jsdom, and are available in this repository's Node version — worth a
+  moment's confirmation on the first test run rather than a spec change.
+
+## [RH-79] Offline snapshot store and per-playlist download — code review — 2026-09-21
+- `src/components/playlists/__tests__/PlaylistDetailView.test.tsx:120` renders
+  `OfflineDownloadButton` with no `store` prop, so the mount read falls through to the real
+  `OFFLINE_STORE` under jsdom: `resolvePorts()` dynamically imports `offlineBackends`, which
+  throws on the missing `indexedDB` global. The rejection *is* caught
+  (`useOfflinePlaylist.ts:151`) and the suite passes, but it logs an error on every render of
+  that suite. Passing `store={createOfflineStore(createFakePorts())}` there would keep the
+  test output honest and the test deterministic.
+- `useOfflineLibrary.ts:38-59` keeps `library` in an unkeyed module-level cache. This is the
+  `useOfflineStatus.ts` precedent and is what avoids the `set-state-in-effect` error, so it is
+  the right call today — but two `OfflineStorageSection`s mounted with *different* stores
+  would share one cache, and rows published by one leak into the other. Worth a line of
+  comment, or a store-identity key, if RH-80 adds a second consumer.
+- `AppLayout.tsx:203` — `const handleSignOut = () => void signOutAndPurge(router)` discards a
+  rejection from `authClient.signOut()`. The pre-existing `async` handler had the same
+  exposure via `onClick`, so this is not a regression, but `.catch((e) => logger.error(...))`
+  would close it while the function is being touched anyway.
+- `readValidSnapshot` (`offlineSnapshot.ts:168-176`) validates `entry` and `repertoire` only
+  as "is an object" (`isSongSnapshot`). Tabs are validated field by field, songs are not. A
+  corrupted `entry` would therefore read back as valid and surface as a render-time
+  `undefined` in RH-80. Given the writer is the only producer, this is defensible; if RH-80
+  starts trusting the snapshot for navigation, tighten `isSongSnapshot` to check
+  `entry.repertoireId` / `entry.songId` / `repertoire.id` at least.
+- Keep an eye on `src/lib/offlineBackends.ts` in RH-80. It is decision-free today and that is
+  the only reason 23% is acceptable. If the read path adds any branching there (a cache-miss
+  fallback, a version negotiation), that logic should move into `offlineStore.ts` behind the
+  ports rather than grow inside the untested adapter.
+
+## [RH-79] Offline snapshot store and per-playlist download — QA — 2026-09-21
+
+- **ER9 wording vs shape**: `clearAllOfflineData` is a *method* on the `OfflineStore` interface reached as `OFFLINE_STORE.clearAllOfflineData()`, not a standalone named export from `src/lib/offlineStore.ts`. The ER's substance is fully met (it is declared and implemented in that module, publicly reachable from it, and the test asserts both stores empty), and a method is the right shape given the port-injection design — but the ER text reads as a named export, so anyone re-verifying by `grep "export.*clearAllOfflineData"` will find nothing. Worth a word in the ER or a one-line re-export.
+- `src/lib/offlineBackends.ts` sits at 23% statements / 0% branches inside the gated coverage universe. The aggregate absorbs it comfortably today, but it is decision-free glue by design and a candidate for the documented `coverage.exclude` list (alongside `imageCompressor.ts`), or for an explicit note that it is e2e/manual-QA territory — otherwise it quietly eats headroom from every future change.
+- `useOfflineLibrary` publishes through a *module-level* cache (`let library`) shared by every mounted consumer. Correct for the single `/settings` section today, and the tests pass, but two simultaneously-mounted consumers with different injected stores would fight over one cache. Worth a comment if RH-80 adds another reader.
+

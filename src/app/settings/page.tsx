@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { OfflineStorageSection } from '@/components/settings/OfflineStorageSection';
 import type { SpotifyPlaylist } from '@/types/database';
 
 const SettingsPage = () => {
@@ -134,6 +135,9 @@ const SettingsPage = () => {
             </div>
           )}
         </section>
+
+        {/* Offline storage — what this device keeps, and how to give it back */}
+        <OfflineStorageSection />
 
         {/* App Info / Version section */}
         <section className="flex flex-col gap-1 border-t border-gray-100 pt-6 mt-2">

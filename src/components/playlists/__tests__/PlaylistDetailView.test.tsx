@@ -20,6 +20,7 @@ const { replace, refresh } = router
 
 import { PlaylistDetailView } from '../PlaylistDetailView'
 import type { PlaylistDetailActions } from '@/hooks/usePlaylistDetail'
+import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
 import type { SongPickerActions } from '@/hooks/useSongPicker'
 import type { Playlist, PlaylistSong, Repertoire } from '@/types/database'
 
@@ -97,6 +98,18 @@ const PICKER_ACTIONS = {
   getPlaylistWithSongs: vi.fn().mockResolvedValue(playlist()),
 }
 
+/**
+ * RH-79: the island renders the "Available offline" control, so it needs the
+ * download action bundle. Nothing here triggers a download, and the control
+ * falls back to the real `OFFLINE_STORE`, whose ports stay unconstructed until
+ * a method is called — the store's own suite covers its behaviour.
+ */
+const OFFLINE_ACTIONS = {
+  getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Rock Night', entries: [] }),
+  getSongEntry: vi.fn().mockResolvedValue(null),
+  getTabs: vi.fn().mockResolvedValue([]),
+} as unknown as OfflineDownloadActions
+
 function setup(props: Partial<React.ComponentProps<typeof PlaylistDetailView>> = {}) {
   for (const action of Object.values(ACTIONS)) action.mockClear()
   render(
@@ -106,6 +119,7 @@ function setup(props: Partial<React.ComponentProps<typeof PlaylistDetailView>> =
       currentUserId={props.currentUserId ?? 'u1'}
       actions={(props.actions ?? ACTIONS) as unknown as PlaylistDetailActions}
       pickerActions={PICKER_ACTIONS as unknown as SongPickerActions}
+      offlineActions={props.offlineActions ?? OFFLINE_ACTIONS}
     />,
   )
 }

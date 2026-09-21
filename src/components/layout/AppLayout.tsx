@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
+import { OFFLINE_STORE } from '@/lib/offlineStore';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
 import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
@@ -132,6 +133,26 @@ function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
   );
 }
 
+/**
+ * The sign-out sequence (RH-79).
+ *
+ * At module scope, taking the router structurally, for two reasons: the purge
+ * has to be awaited *first*, and `AppLayout` sits at its `max-lines-per-function`
+ * ceiling, so adding these lines in place would break the complexity budget.
+ *
+ * `clearAllOfflineData()` runs before the context reset and before
+ * `authClient.signOut()`, and is awaited, because the offline cache answers
+ * before the network and therefore bypasses `src/proxy.ts`'s redirect entirely:
+ * a snapshot left on the device would still be readable by whoever signs in
+ * next. It never throws, so a purge failure cannot strand the user signed in.
+ */
+async function signOutAndPurge(router: { push: (href: string) => void }): Promise<void> {
+  await OFFLINE_STORE.clearAllOfflineData();
+  useBandContextStore.getState().setUserContext();
+  await authClient.signOut();
+  router.push('/login');
+}
+
 const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent), {
   ssr: false,
 });
@@ -179,11 +200,7 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
     return pathname.startsWith(href);
   };
 
-  const handleSignOut = async (): Promise<void> => {
-    useBandContextStore.getState().setUserContext();
-    await authClient.signOut();
-    router.push('/login');
-  };
+  const handleSignOut = () => void signOutAndPurge(router);
 
   const handleExitBandMode = () => {
     setUserContext();

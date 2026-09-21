@@ -11,14 +11,34 @@
  * third test prove a context switch reloads the song list).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import type { BandOption } from '@/types/database'
 
-const { loadSongsSpy, pushSpy, useSessionSpy, signOutSpy } = vi.hoisted(() => ({
-  loadSongsSpy: vi.fn(),
-  pushSpy: vi.fn(),
-  useSessionSpy: vi.fn(),
-  signOutSpy: vi.fn(),
+const { loadSongsSpy, pushSpy, useSessionSpy, signOutSpy, signOutSteps } = vi.hoisted(() => {
+  const signOutSteps: string[] = []
+  return {
+    loadSongsSpy: vi.fn(),
+    pushSpy: vi.fn(),
+    useSessionSpy: vi.fn(),
+    signOutSpy: vi.fn(() => {
+      signOutSteps.push('signOut')
+    }),
+    signOutSteps,
+  }
+})
+
+/**
+ * RH-79: the sign-out path purges the offline cache. The store is mocked here
+ * only to record *when* the purge happens relative to the sign-out — the store
+ * itself is exercised for real in `src/lib/__tests__/offlineStore.test.ts`.
+ */
+vi.mock('@/lib/offlineStore', () => ({
+  OFFLINE_STORE: {
+    clearAllOfflineData: vi.fn(async () => {
+      await Promise.resolve()
+      signOutSteps.push('clearAllOfflineData')
+    }),
+  },
 }))
 
 vi.mock('@/lib/auth-client', () => ({
@@ -58,6 +78,7 @@ const SIGNED_OUT = { data: null, isPending: false }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  signOutSteps.length = 0
   useSessionSpy.mockReturnValue(SESSION)
   useBandContextStore.getState().setUserContext()
 })
@@ -190,5 +211,21 @@ describe('AppLayout keeps one stable tree across session resolution (RH-73)', ()
     expect(outerWrapper?.className).toBe('contents')
     expect(container.querySelector('.h-screen')).toBeNull()
     expect(container.querySelector('.bg-gray-50')).toBeNull()
+  })
+})
+
+describe('AppLayout signs the device out as well as the session (RH-79)', () => {
+  it('awaits the offline purge before signing out, because the cache bypasses the proxy', async () => {
+    render(
+      <AppLayout bands={BANDS}>
+        <p>page body</p>
+      </AppLayout>,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: /sign out/i })[0])
+
+    await waitFor(() => expect(pushSpy).toHaveBeenCalledWith('/login'))
+    expect(signOutSteps).toEqual(['clearAllOfflineData', 'signOut'])
+    expect(useBandContextStore.getState().context).toEqual({ type: 'user' })
   })
 })

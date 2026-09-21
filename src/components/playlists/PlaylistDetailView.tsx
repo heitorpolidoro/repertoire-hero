@@ -5,12 +5,14 @@ import { PlaylistDetailHeader } from "@/components/playlists/PlaylistDetailHeade
 import { PlaylistSongList } from "@/components/playlists/PlaylistSongList";
 import { PlaylistSummary } from "@/components/playlists/PlaylistSummary";
 import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
+import { OfflineDownloadButton } from "@/components/playlists/OfflineDownloadButton";
 import { SongPicker } from "@/components/playlists/SongPicker";
 import { TagFilterBar } from "@/components/playlists/TagFilterBar";
 import {
   usePlaylistDetail,
   type PlaylistDetailActions,
 } from "@/hooks/usePlaylistDetail";
+import type { OfflineDownloadActions } from "@/hooks/useOfflinePlaylist";
 import type { SongPickerActions } from "@/hooks/useSongPicker";
 import type { Playlist, Repertoire } from "@/types/database";
 
@@ -23,6 +25,8 @@ export interface PlaylistDetailViewProps {
   currentUserId: string | null;
   actions: PlaylistDetailActions;
   pickerActions: SongPickerActions;
+  /** Injected by the page (F21) — the three reads one offline copy is made of. */
+  offlineActions: OfflineDownloadActions;
 }
 
 /**
@@ -41,6 +45,7 @@ export function PlaylistDetailView({
   currentUserId,
   actions,
   pickerActions,
+  offlineActions,
 }: PlaylistDetailViewProps) {
   const router = useRouter();
   const detail = usePlaylistDetail({
@@ -70,6 +75,14 @@ export function PlaylistDetailView({
         playlist={detail.playlist}
         currentUserId={currentUserId}
         editor={detail.playlistTagEditor}
+      />
+
+      {/* Offline: download this playlist's songs, tabs and lyrics to the device */}
+      <OfflineDownloadButton
+        playlistId={playlist.id}
+        playlistName={playlist.name}
+        bandId={playlist.band_id}
+        actions={offlineActions}
       />
 
       {/* Playlist level summary */}
