@@ -1,18 +1,9 @@
 name: repertoire-hero
 
-# Two modes, one file — see "Making a compose repo runner-ready" in
-# ../polidoro-runner/README.md.
+# Local development stack: Postgres plus the app.
 #
-#   standalone     COMPOSE_PROFILES=standalone (the default, from .env) — this repo starts
-#                  its own Postgres, published on ${POSTGRES_PORT:-54322}, and `app` talks
-#                  to it over the compose network as `postgres:5432`.
-#   poli-runner    COMPOSE_PROFILES=poli-runner (injected by poli-runner) — no service
-#                  declares that profile, so the bundled `postgres` stays down and
-#                  POSTGRES_URL points at the shared Postgres instead. That target is
-#                  declared in poli-runner.yml, not here.
-#
-# `cp .env.example .env` is step one either way: Compose reads .env in every subcommand
-# (up, stop, down), so the file has to exist for any of them to behave.
+# `cp .env.example .env` is step one: Compose reads .env in every subcommand (up, stop,
+# down), so the file has to exist for any of them to behave.
 #
 # The connection variable is POSTGRES_URL, not DATABASE_URL, on purpose: the host-side
 # tooling (scripts/migrate.mjs, scripts/deduplicate-songs.mjs, vitest.config.ts) reads
@@ -21,7 +12,6 @@ name: repertoire-hero
 
 services:
   postgres:
-    profiles: [standalone]        # bundled Postgres — omitted in poli-runner mode
     image: postgres:16-alpine
     ports:
       # 54322 is the repository default: vitest.config.ts falls back to it and AGENTS.md
@@ -51,8 +41,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # POSTGRES_URL comes from .env in standalone mode and from poli-runner.yml's
-      # `local` scenario in poli-runner mode; the inline default keeps a bare
       # `docker compose up` working even before `cp .env.example .env`.
       - DATABASE_URL=${POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/postgres}
       # Next.js's standalone server binds to $HOSTNAME, which Docker sets to the
@@ -74,7 +62,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-        required: false           # without this, an inactive profile invalidates the project
 
 volumes:
   postgres-data:
