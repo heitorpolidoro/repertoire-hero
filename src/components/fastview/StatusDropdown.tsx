@@ -5,6 +5,12 @@ import { STATUS_CONFIG } from '@/lib/statusConfig'
 
 export interface StatusDropdownProps {
   controller: SongStatusController
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-80). Passed down
+   * from the page's single `useOfflineStatus()` call; this component never
+   * reads the signal itself. Optional and `false` by default.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -15,7 +21,7 @@ export interface StatusDropdownProps {
  * (RH-52). The list maps the `SongStatus`-typed `STATUS_OPTIONS` rather than
  * `Object.entries(STATUS_CONFIG)`, which is what removed the page's `as any`.
  */
-export function StatusDropdown({ controller }: StatusDropdownProps) {
+export function StatusDropdown({ controller, readOnly = false }: StatusDropdownProps) {
   const cfg = STATUS_CONFIG[controller.status]
 
   return (
@@ -23,7 +29,7 @@ export function StatusDropdown({ controller }: StatusDropdownProps) {
       <button
         type="button"
         onClick={controller.toggleDropdown}
-        disabled={controller.updating}
+        disabled={controller.updating || readOnly}
         className={`px-3 py-1 rounded-full text-sm font-medium transition-colors border hover:shadow-sm flex items-center gap-1.5 focus:outline-none ${cfg.bgColor} ${cfg.textColor} border-transparent hover:border-gray-300/40`}
       >
         <span>{cfg.label}</span>

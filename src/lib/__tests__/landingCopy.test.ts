@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import en from '@/i18n/dictionaries/en.json'
 import ptBR from '@/i18n/dictionaries/pt-BR.json'
 
@@ -57,6 +59,35 @@ describe('landing copy', () => {
   it('PT catalog card mentions the shared catalog', () => {
     expect(ptBR.landing.f1Desc).toMatch(/outros músicos/i)
     expect(ptBR.landing.f1Desc).toMatch(/preenchid/i)
+  })
+
+  it('EN f7 card sells the offline mode (RH-80)', () => {
+    expect(en.landing.f7Title).toMatch(/offline/i)
+
+    for (const term of ['download', 'playlist', 'offline']) {
+      expect(en.landing.f7Desc).toMatch(new RegExp(term, 'i'))
+    }
+  })
+
+  it('PT f7 card sells the offline mode (RH-80)', () => {
+    expect(ptBR.landing.f7Title).toMatch(/offline/i)
+
+    for (const term of ['baix', 'playlist', 'offline']) {
+      expect(ptBR.landing.f7Desc).toMatch(new RegExp(term, 'i'))
+    }
+  })
+
+  it('the landing page renders a card for every feature key it has copy for', () => {
+    const source = readFileSync(
+      resolve(__dirname, '../../components/landing/LandingPage.tsx'),
+      'utf8',
+    )
+
+    for (const index of [1, 2, 3, 4, 5, 6, 7]) {
+      expect(source, `no card renders landing.f${index}Title`).toContain(`f${index}Title`)
+      expect(source, `no card renders landing.f${index}Desc`).toContain(`f${index}Desc`)
+    }
+    expect(source).not.toContain('f8Title')
   })
 
   it('landing copy never mentions moderation or corrections', () => {

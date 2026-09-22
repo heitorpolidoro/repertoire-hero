@@ -7,6 +7,8 @@ import { StatusDropdown } from './StatusDropdown'
 export interface SongIdentityHeaderProps {
   identity: SongIdentity
   status: SongStatusController
+  /** Forwarded to `StatusDropdown`: the page's offline signal (RH-80). */
+  readOnly?: boolean
 }
 
 /**
@@ -16,7 +18,7 @@ export interface SongIdentityHeaderProps {
  * Presentational only — the three fields come from `songIdentity()` and the
  * status write belongs to `useSongStatus` (RH-52).
  */
-export function SongIdentityHeader({ identity, status }: SongIdentityHeaderProps) {
+export function SongIdentityHeader({ identity, status, readOnly = false }: SongIdentityHeaderProps) {
   return (
     <section aria-label="Song details" className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -26,7 +28,7 @@ export function SongIdentityHeader({ identity, status }: SongIdentityHeaderProps
             <p className="mt-1 text-lg text-gray-500">{identity.artist}</p>
           )}
         </div>
-        <StatusDropdown controller={status} />
+        <StatusDropdown controller={status} readOnly={readOnly} />
       </div>
 
       {identity.key && (

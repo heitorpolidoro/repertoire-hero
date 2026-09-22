@@ -5,13 +5,28 @@ export interface TabViewerProps {
   title: string
   onOpenStage: () => void
   onClose: () => void
+  /**
+   * True while the browser has no network. Passed down from the page's single
+   * `useOfflineStatus()` call — this component never reads the signal itself
+   * (RH-38/RH-52). Optional and `false` by default, so the online card and
+   * every other call site are unchanged.
+   */
+  offline?: boolean
 }
 
 /**
  * The embedded viewer card for the selected tab. Renders nothing without an
  * active tab, so the page keeps no conditional of its own.
+ *
+ * Offline (RH-80) the header row is untouched and only the body changes. The
+ * body is a cross-origin `docs.google.com/gview` iframe, which with no network
+ * paints a blank 550px card — and because this card's `Stage` button is the
+ * only `onOpenStage` trigger in the app, a blank card would hide the one
+ * renderer that *does* work offline (Stage Mode's `react-pdf` reads the
+ * same-origin cache key `src/app/sw.ts` answers). So offline the iframe is
+ * replaced by a panel that says so and points at Stage Mode.
  */
-export function TabViewer({ url, title, onOpenStage, onClose }: TabViewerProps) {
+export function TabViewer({ url, title, onOpenStage, onClose, offline = false }: TabViewerProps) {
   if (!url) return null
 
   return (
@@ -37,11 +52,27 @@ export function TabViewer({ url, title, onOpenStage, onClose }: TabViewerProps) 
           </button>
         </div>
       </div>
-      <iframe
-        src={`https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`}
-        className="w-full h-[550px] rounded-lg border border-gray-150"
-        title={title}
-      />
+      {offline ? (
+        <div
+          data-testid="tab-viewer-offline"
+          className="w-full rounded-lg border border-dashed border-emerald-300 bg-emerald-50/50 px-6 py-10 flex flex-col items-center gap-2 text-center"
+        >
+          <span aria-hidden="true" className="text-3xl">
+            📴
+          </span>
+          <p className="text-sm font-semibold text-gray-700">Preview needs a connection</p>
+          <p className="max-w-xs text-xs text-gray-500">
+            This chart is downloaded and ready. Open <span className="font-medium">Stage</span>{' '}
+            above to read it offline.
+          </p>
+        </div>
+      ) : (
+        <iframe
+          src={`https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`}
+          className="w-full h-[550px] rounded-lg border border-gray-150"
+          title={title}
+        />
+      )}
     </div>
   )
 }

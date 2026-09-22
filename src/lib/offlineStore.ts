@@ -33,8 +33,15 @@ import {
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, RepertoireTab } from '@/types/database'
 
-/** The Cache Storage cache the tab PDFs live in. */
-export const OFFLINE_TAB_CACHE = 'rh-offline-tabs-v1'
+/**
+ * The Cache Storage cache the tab PDFs live in.
+ *
+ * Re-exported, not defined here: `src/app/sw.ts` needs the same name and must
+ * not reach this module, whose graph (`@/lib/logger` → `@sentry/nextjs`) needs
+ * node builtins a browser bundle cannot resolve. See
+ * `src/lib/offlineCacheNames.ts` (RH-80).
+ */
+export { OFFLINE_TAB_CACHE } from '@/lib/offlineCacheNames'
 
 /** The IndexedDB database and object store holding the snapshots. */
 export const OFFLINE_DB_NAME = 'repertoire-hero-offline'

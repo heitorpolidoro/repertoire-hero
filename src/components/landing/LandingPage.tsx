@@ -18,6 +18,28 @@ function getLocaleCookie(): Locale {
   return val === "en" ? "en" : "pt-BR";
 }
 
+/**
+ * One selling-point card of the features grid.
+ *
+ * Extracted from `LandingPage` when RH-80 added the seventh card: six inline
+ * copies of this markup were 60 of the component's lines, and the seventh would
+ * have pushed it past its `max-lines-per-function` ceiling. F20 says to bring
+ * the code under the budget rather than relax the budget, so the markup moved
+ * out here — and the file's `complexity-budget/override` entry could then be
+ * dropped altogether, which is the direction that list is allowed to move.
+ */
+function FeatureCard({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+  return (
+    <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
+      <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+        {icon}
+      </div>
+      <h3 className="text-lg font-bold text-white">{title}</h3>
+      <p className="text-sm text-gray-400 leading-relaxed">{desc}</p>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [devProfiles, setDevProfiles] = useState<DevProfile[]>([]);
   const [locale, setLocale] = useState<Locale>("pt-BR");
@@ -133,71 +155,13 @@ export default function LandingPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* Feature 1 */}
-              <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                  📚
-                </div>
-                <h3 className="text-lg font-bold text-white">{dict.landing.f1Title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {dict.landing.f1Desc}
-                </p>
-              </div>
-
-              {/* Feature 2 */}
-              <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                  🎯
-                </div>
-                <h3 className="text-lg font-bold text-white">{dict.landing.f2Title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {dict.landing.f2Desc}
-                </p>
-              </div>
-
-              {/* Feature 3 */}
-              <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                  👥
-                </div>
-                <h3 className="text-lg font-bold text-white">{dict.landing.f3Title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {dict.landing.f3Desc}
-                </p>
-              </div>
-
-              {/* Feature 4 */}
-              <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                  ⚡
-                </div>
-                <h3 className="text-lg font-bold text-white">{dict.landing.f4Title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {dict.landing.f4Desc}
-                </p>
-              </div>
-
-              {/* Feature 5 */}
-              <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                  📄
-                </div>
-                <h3 className="text-lg font-bold text-white">{dict.landing.f5Title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {dict.landing.f5Desc}
-                </p>
-              </div>
-
-              {/* Feature 6 */}
-              <div className="p-6 rounded-2xl bg-gray-900 border border-gray-800 hover:border-emerald-800/50 transition-all flex flex-col gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-950/80 border border-emerald-800/40 text-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                  🎧
-                </div>
-                <h3 className="text-lg font-bold text-white">{dict.landing.f6Title}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {dict.landing.f6Desc}
-                </p>
-              </div>
+              <FeatureCard icon="📚" title={dict.landing.f1Title} desc={dict.landing.f1Desc} />
+              <FeatureCard icon="🎯" title={dict.landing.f2Title} desc={dict.landing.f2Desc} />
+              <FeatureCard icon="👥" title={dict.landing.f3Title} desc={dict.landing.f3Desc} />
+              <FeatureCard icon="⚡" title={dict.landing.f4Title} desc={dict.landing.f4Desc} />
+              <FeatureCard icon="📄" title={dict.landing.f5Title} desc={dict.landing.f5Desc} />
+              <FeatureCard icon="🎧" title={dict.landing.f6Title} desc={dict.landing.f6Desc} />
+              <FeatureCard icon="📴" title={dict.landing.f7Title} desc={dict.landing.f7Desc} />
             </div>
           </div>
         </section>

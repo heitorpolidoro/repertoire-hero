@@ -46,7 +46,12 @@ const BASE: Record<BudgetRule, number> = {
 
 // The override list is a ratchet. Lower this number when an override is
 // removed; never raise it.
-const MAX_OVERRIDES = 18
+//
+// 18 -> 17 (RH-80): `src/components/landing/LandingPage.tsx` no longer needs
+// one. Adding the seventh feature card would have pushed the component past its
+// 208-line ceiling, so the repeated card markup became a `FeatureCard`
+// component and the function came in under the 200-line base budget instead.
+const MAX_OVERRIDES = 17
 
 type ConfigEntry = {
   name?: string

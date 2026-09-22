@@ -8,6 +8,13 @@ export interface LyricsSectionProps {
   controller: LyricsEditorController
   /** True while the member's own entry is still loading. Page state (RH-52). */
   loadingPersonal: boolean
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-80). Only the
+   * Edit/Add button is disabled — Stage Mode and the version switcher are
+   * reads, and reading is exactly what offline is for. Optional, `false` by
+   * default, so no other call site changes.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -18,7 +25,7 @@ export interface LyricsSectionProps {
  * Presentational only — every piece of state and every action belongs to
  * `useLyricsEditor`, which supplies the controller (RH-51).
  */
-export function LyricsSection({ controller, loadingPersonal }: LyricsSectionProps) {
+export function LyricsSection({ controller, loadingPersonal, readOnly = false }: LyricsSectionProps) {
   return (
     <section aria-label="Lyrics" className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -50,6 +57,7 @@ export function LyricsSection({ controller, loadingPersonal }: LyricsSectionProp
             <button
               type="button"
               onClick={controller.startEditing}
+              disabled={readOnly}
               className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none"
             >
               {controller.displayedLyrics ? 'Edit' : 'Add'}

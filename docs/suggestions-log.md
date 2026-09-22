@@ -8097,3 +8097,111 @@ full-suite coverage gate passes.
 - `src/lib/offlineBackends.ts` sits at 23% statements / 0% branches inside the gated coverage universe. The aggregate absorbs it comfortably today, but it is decision-free glue by design and a candidate for the documented `coverage.exclude` list (alongside `imageCompressor.ts`), or for an explicit note that it is e2e/manual-QA territory — otherwise it quietly eats headroom from every future change.
 - `useOfflineLibrary` publishes through a *module-level* cache (`let library`) shared by every mounted consumer. Correct for the single `/settings` section today, and the tests pass, but two simultaneously-mounted consumers with different injected stores would fight over one cache. Worth a comment if RH-80 adds another reader.
 
+
+## [RH-80] Fast View offline read path and cold-start proof — 2026-09-21 (RH-80-spec_review-1.md)
+
+- §2: say whether `ports` is a whole `OfflineFirstPorts` or a `Partial` merged
+  over the defaults. Both fields and their defaults are declared, so this is not
+  a half-declared seam, but a test passing only `{ store }` is currently two
+  readings.
+- §4: state the registration position of the new entry and why it does not
+  matter (the document matcher is false for a pdf.js subresource), so a later
+  reader does not have to re-derive first-wins ordering.
+- §7 test 2: type the seeded literal as `OfflineSnapshotRecord` via a `import type`
+  in the spec file and set `schemaVersion: OFFLINE_SCHEMA_VERSION` — a wrong
+  version makes `readOfflineSnapshot` answer `null` and the failure reads as
+  "not downloaded" rather than as a bad seed. Note also that the `page.evaluate`
+  must create the object store itself if the DB does not yet exist.
+- §4: even with the bundling finding resolved, prefer a constant with a leaf
+  import graph; `@/lib/offlineSnapshot` is type-only-import clean today, which
+  is why `offlineTabCacheKey` would have been safe and `OFFLINE_TAB_CACHE` is not.
+
+## [RH-80] Fast View offline read path and cold-start proof — 2026-09-21 (RH-80-spec_review-2.md)
+
+- **Hand-off condition, not a spec defect: the ERs are not persisted yet.** The
+  RH-80 record in `.meridian/tasks.jsonl` carries **no `expected_results` field
+  at all** (I dumped the record; it has `last_review_findings` from round 1 but
+  no results array), and no Meridian API was reachable on the usual ports to
+  check a newer copy. The dispatch states the current set is ER1–ER11, so the
+  eleven live in the caller's context — but QA receives only this field. All
+  eleven must be written to the task, with `ER1`…`ER11` prefixes and a count
+  assertion, before the task leaves `spec_review`; the spec's own line "the
+  authoritative wording … lives on the Meridian task's `expected_results`" is
+  false until that write happens.
+- Run `npm run lint:dead` (knip) once after the `offlineStore.ts` re-export
+  lands. The re-export is genuinely consumed (`offlineBackends.ts:18`), so it
+  should be fine, but a re-export barrel is the shape knip most often flags.
+- The Fast View page is 222 lines with a ~177-line component against a 200-line
+  `max-lines-per-function` budget and is deliberately not in the override
+  ratchet. §5 adds a hook call, a banner, a branch swap and two props to that
+  function. If it crosses 200, extract — do not add a nineteenth override entry;
+  the list may only shrink.
+- §4's `CacheOnly` miss path is now well understood (error propagates, react-pdf
+  shows its `Failed to load PDF.` panel). Worth one sentence in the
+  implementation's `sw.ts` comment so the next reader does not mistake the
+  absence of a fallback for an oversight.
+
+## [RH-80] Fast View offline read path — code review — 2026-09-22
+
+1. **`rh-offline-pages-v1` has no expiration and no version cleanup**
+   (`src/app/sw.ts:152`). The `NetworkFirst` handler is constructed with a
+   `cacheName` only — no `ExpirationPlugin`, no `maxEntries`, no
+   `maxAgeSeconds`, and `cleanupOutdatedCaches` covers the *precache*, not this
+   one. Two consequences: (a) the cache grows one entry per distinct Fast View
+   URL visited online, forever; (b) after a deploy the stored HTML still points
+   at the previous build's content-hashed `_next/static` chunks, which the new
+   precache no longer holds, so an offline cold start on a stale entry can boot
+   into a broken tree rather than into the snapshot. Entry (b) is the one worth
+   a follow-up; a `maxAgeSeconds` or a build-id-suffixed cache name would close
+   it. Non-blocking: it degrades to the same failure the user had before this
+   task (no offline read), never to wrong data.
+
+2. **The stored document is keyed by full URL including the query string.** The
+   `sw.ts` comment says "stored per URL", which is accurate but understates it:
+   the Fast View is normally reached as
+   `/songs/<id>/fast-view?returnTo=/playlists/<pid>`, and `cacheMatch` is called
+   with no `ignoreSearch`, so an offline reload whose query differs from the one
+   visited online misses and falls back to `/offline`. Worth one sentence in
+   that comment, or `matchOptions: { ignoreSearch: true }`.
+
+3. **A signed-out navigation is cacheable.** `/songs/(.*)` is in `src/proxy.ts`'s
+   matcher, so a visitor with no session cookie gets a 307. In a fetch handler a
+   navigation request carries `redirect: 'manual'`, so `fetch` yields an
+   `opaqueredirect` (status 0), and serwist's `NetworkFirst` unshifts
+   `cacheOkAndOpaquePlugin`, whose `cacheWillUpdate` admits status 0
+   (`node_modules/serwist/dist/chunks/printInstallDetails-ESDOoMBE.js`). That
+   entry, if stored, is useless offline. No data exposure — the document carries
+   no user data (see §"NetworkFirst" below) and RH-79 clears the snapshots on
+   sign-out — but a `cacheWillUpdate` restricted to `response.status === 200 &&
+   !response.redirected` would make the intent explicit.
+
+4. **The spec's §4 still says "Add exactly one `runtimeCaching` entry"**
+   (`docs/tasks/RH-81-spec.md:152`) while the implementation adds two. The spec
+   file is itself part of this staged change, so the inconsistency ships. The
+   `sw.ts` header documents the second entry thoroughly and the board's ER set
+   does not contradict it, so this is editorial: amend §4 rather than change the
+   code.
+
+5. `updateLinks` resolving `{ success: false }` into a hook that ignores the
+   envelope is a known gap — it is called out in `src/lib/offlineFirst.ts:47-52`
+   and in the spec's Out of Scope. Recording it here only so the next reader of
+   the offline feature finds it in one place.
+
+---
+
+
+## [RH-80] Fast View offline read path — QA — 2026-09-22
+
+- The offline Fast View document is cached **per URL** and only after an online visit, which the worker
+  comments state plainly and the spec puts out of scope. Worth keeping visible as a follow-up: a
+  musician who downloads a playlist but never opens a given song online still gets the `/offline` shell
+  for it. Having the download warm `rh-offline-pages-v1` would close the last gap in the feature's
+  promise.
+- `updateLinks` is classified as an `envelopeWrite`, so offline it resolves `{success:false}` while
+  `useSongLinks.submit` ignores the envelope and shows an optimistic success toast. The module documents
+  this as a known gap and the spec puts it out of scope; it is the one place where an offline write
+  looks like it worked. A small follow-up on the hook would remove the last misleading affordance.
+- `src/lib/offlineFirst.ts` line 250 and the 133-134 branch are the only uncovered spots in an otherwise
+  100 % file (the non-function own-property pass-through and one comparator branch). Cheap to close if
+  the ratchet ever tightens.
+

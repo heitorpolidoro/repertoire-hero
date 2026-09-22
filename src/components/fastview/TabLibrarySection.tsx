@@ -11,10 +11,17 @@ export interface TabLibrarySectionProps {
   loadingPersonal: boolean
   /** Opens PDF Stage Mode, which is still page state. */
   onOpenStage: () => void
+  /** Pass-through to `TabViewer`: the page's offline signal (RH-80). */
+  offline?: boolean
 }
 
 /** The whole "Tabs (PDF)" section: the list, the embedded viewer and the upload form. */
-export function TabLibrarySection({ library, loadingPersonal, onOpenStage }: TabLibrarySectionProps) {
+export function TabLibrarySection({
+  library,
+  loadingPersonal,
+  onOpenStage,
+  offline = false,
+}: TabLibrarySectionProps) {
   return (
     <section aria-label="Tabs" className="flex flex-col gap-4">
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tabs (PDF)</h2>
@@ -32,6 +39,7 @@ export function TabLibrarySection({ library, loadingPersonal, onOpenStage }: Tab
             title={library.activeTabTitle}
             onOpenStage={onOpenStage}
             onClose={library.closeActiveTab}
+            offline={offline}
           />
         </div>
       ) : loadingPersonal ? (
