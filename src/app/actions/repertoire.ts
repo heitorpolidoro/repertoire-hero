@@ -36,9 +36,19 @@ export async function getRepertoireAction(bandId?: string | null) {
   return getRepertoire(owner)
 }
 
-export async function addSongAction(songId: string, bandId?: string | null) {
+/**
+ * `seedStatusFromBandId` selects a band row to *read a status from*, so it is
+ * authorized exactly like an owner would be: it arrives from the client, and a
+ * band the caller is not a member of throws before any INSERT (RH-83 ER16).
+ */
+export async function addSongAction(
+  songId: string,
+  bandId?: string | null,
+  seedStatusFromBandId?: string | null,
+) {
   const owner = await resolveOwner(bandId)
-  const result = await addSongToRepertoire(owner, songId)
+  if (seedStatusFromBandId) await assertBandMember(seedStatusFromBandId, await getRequiredUserId())
+  const result = await addSongToRepertoire(owner, songId, seedStatusFromBandId ?? null)
   revalidatePath('/')
   return result
 }

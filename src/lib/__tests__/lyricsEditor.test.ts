@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   clampLyricsFontSize,
-  hasDifferentPersonalLyrics,
+  hasPersonalVersion,
   resolveLyricsSaveTarget,
+  resolveLyricsVersion,
+  seedLyricsDraft,
   selectDisplayedLyrics,
   stepLyricsFontSize,
   type LyricsSource,
@@ -39,45 +41,81 @@ describe('lyricsEditor', () => {
     expect(stepLyricsFontSize(12, -2)).toBe(12)
   })
 
-  it('hasDifferentPersonalLyrics is false outside a band', () => {
-    expect(hasDifferentPersonalLyrics(SOLO_ENTRY, PERSONAL_ENTRY)).toBe(false)
-    // A null entry (the route has not loaded yet) is the same "no badge" case.
-    expect(hasDifferentPersonalLyrics(null, PERSONAL_ENTRY)).toBe(false)
+  // ---------------------------------------------------------------------
+  // RH-83 ER1 — which version is read, with no interaction at all.
+  // ---------------------------------------------------------------------
+
+  it('resolveLyricsVersion is band outside a band, whatever the personal row says', () => {
+    expect(resolveLyricsVersion(SOLO_ENTRY, PERSONAL_ENTRY)).toBe('band')
+    expect(resolveLyricsVersion(null, PERSONAL_ENTRY)).toBe('band')
   })
 
-  it('hasDifferentPersonalLyrics is false when there is no personal entry', () => {
-    expect(hasDifferentPersonalLyrics(BAND_ENTRY, null)).toBe(false)
+  it('resolveLyricsVersion is band when the member has no personal row', () => {
+    expect(resolveLyricsVersion(BAND_ENTRY, null)).toBe('band')
   })
 
-  it('hasDifferentPersonalLyrics is false when the personal lyrics are empty', () => {
-    expect(hasDifferentPersonalLyrics(BAND_ENTRY, { band_id: null, lyrics: '' })).toBe(false)
-    expect(hasDifferentPersonalLyrics(BAND_ENTRY, { band_id: null, lyrics: null })).toBe(false)
+  it('resolveLyricsVersion is band when the personal lyrics are empty or whitespace only', () => {
+    expect(resolveLyricsVersion(BAND_ENTRY, { band_id: null, lyrics: null })).toBe('band')
+    expect(resolveLyricsVersion(BAND_ENTRY, { band_id: null, lyrics: '' })).toBe('band')
+    expect(resolveLyricsVersion(BAND_ENTRY, { band_id: null, lyrics: '   \n\t ' })).toBe('band')
   })
 
-  it('hasDifferentPersonalLyrics is false when the personal lyrics match the band ones', () => {
-    expect(hasDifferentPersonalLyrics(BAND_ENTRY, { band_id: null, lyrics: 'band words' })).toBe(false)
+  it('resolveLyricsVersion is personal when a band member has a non-empty personal version', () => {
+    expect(resolveLyricsVersion(BAND_ENTRY, PERSONAL_ENTRY)).toBe('personal')
+    // Identical text still counts: what matters is that a version exists.
+    expect(resolveLyricsVersion(BAND_ENTRY, { band_id: null, lyrics: 'band words' })).toBe('personal')
   })
 
-  it('hasDifferentPersonalLyrics is true when a band member has their own different version', () => {
-    expect(hasDifferentPersonalLyrics(BAND_ENTRY, PERSONAL_ENTRY)).toBe(true)
+  it('hasPersonalVersion is false outside a band and without a personal version', () => {
+    expect(hasPersonalVersion(SOLO_ENTRY, PERSONAL_ENTRY)).toBe(false)
+    expect(hasPersonalVersion(null, PERSONAL_ENTRY)).toBe(false)
+    expect(hasPersonalVersion(BAND_ENTRY, null)).toBe(false)
+    expect(hasPersonalVersion(BAND_ENTRY, { band_id: null, lyrics: '' })).toBe(false)
+    expect(hasPersonalVersion(BAND_ENTRY, { band_id: null, lyrics: '  ' })).toBe(false)
+  })
+
+  it('hasPersonalVersion is true even when the personal version matches the band one', () => {
+    expect(hasPersonalVersion(BAND_ENTRY, PERSONAL_ENTRY)).toBe(true)
+    expect(hasPersonalVersion(BAND_ENTRY, { band_id: null, lyrics: 'band words' })).toBe(true)
   })
 
   it('selectDisplayedLyrics shows the entry lyrics outside a band', () => {
-    expect(selectDisplayedLyrics(SOLO_ENTRY, PERSONAL_ENTRY, true)).toBe('my only words')
-    expect(selectDisplayedLyrics(SOLO_ENTRY, PERSONAL_ENTRY, false)).toBe('my only words')
-    expect(selectDisplayedLyrics(null, PERSONAL_ENTRY, false)).toBeNull()
+    expect(selectDisplayedLyrics(SOLO_ENTRY, PERSONAL_ENTRY, 'personal')).toBe('my only words')
+    expect(selectDisplayedLyrics(SOLO_ENTRY, PERSONAL_ENTRY, 'band')).toBe('my only words')
+    expect(selectDisplayedLyrics(null, PERSONAL_ENTRY, 'band')).toBeNull()
   })
 
-  it('selectDisplayedLyrics shows the band lyrics while the band version is selected', () => {
-    expect(selectDisplayedLyrics(BAND_ENTRY, PERSONAL_ENTRY, false)).toBe('band words')
+  it('selectDisplayedLyrics shows the band lyrics on the band version', () => {
+    expect(selectDisplayedLyrics(BAND_ENTRY, PERSONAL_ENTRY, 'band')).toBe('band words')
   })
 
-  it('selectDisplayedLyrics shows the personal lyrics while the personal version is selected', () => {
-    expect(selectDisplayedLyrics(BAND_ENTRY, PERSONAL_ENTRY, true)).toBe('my words')
+  it('selectDisplayedLyrics shows the personal lyrics on the personal version', () => {
+    expect(selectDisplayedLyrics(BAND_ENTRY, PERSONAL_ENTRY, 'personal')).toBe('my words')
   })
 
   it('selectDisplayedLyrics falls back to the band lyrics when no personal entry has loaded', () => {
-    expect(selectDisplayedLyrics(BAND_ENTRY, null, true)).toBe('band words')
+    expect(selectDisplayedLyrics(BAND_ENTRY, null, 'personal')).toBe('band words')
+  })
+
+  // ---------------------------------------------------------------------
+  // RH-83 ER5 — the draft a chosen version starts from.
+  // ---------------------------------------------------------------------
+
+  it('seedLyricsDraft seeds the band text for the band version, personal version on screen or not', () => {
+    expect(seedLyricsDraft('band', BAND_ENTRY, PERSONAL_ENTRY)).toBe('band words')
+    expect(seedLyricsDraft('band', BAND_ENTRY, null)).toBe('band words')
+    expect(seedLyricsDraft('band', { band_id: 'band-1', lyrics: null }, null)).toBe('')
+    expect(seedLyricsDraft('band', null, null)).toBe('')
+  })
+
+  it('seedLyricsDraft seeds an existing personal version with itself', () => {
+    expect(seedLyricsDraft('personal', BAND_ENTRY, PERSONAL_ENTRY)).toBe('my words')
+  })
+
+  it('seedLyricsDraft seeds a first personal version from the band text', () => {
+    expect(seedLyricsDraft('personal', BAND_ENTRY, null)).toBe('band words')
+    expect(seedLyricsDraft('personal', BAND_ENTRY, { band_id: null, lyrics: '' })).toBe('band words')
+    expect(seedLyricsDraft('personal', BAND_ENTRY, { band_id: null, lyrics: '  \n ' })).toBe('band words')
   })
 
   it('resolveLyricsSaveTarget targets the entry itself outside a band', () => {
@@ -86,29 +124,29 @@ describe('lyricsEditor', () => {
         entryId: 'rep-1',
         entryBandId: null,
         personalRepertoireId: null,
-        showPersonalLyrics: true,
+        version: 'personal',
       }),
     ).toEqual({ repertoireId: 'rep-1', bandId: null, toPersonalEntry: false })
   })
 
-  it('resolveLyricsSaveTarget targets the band entry while the band version is selected', () => {
+  it('resolveLyricsSaveTarget targets the band entry on the band version', () => {
     expect(
       resolveLyricsSaveTarget({
         entryId: 'band-rep',
         entryBandId: 'band-1',
         personalRepertoireId: 'personal-rep',
-        showPersonalLyrics: false,
+        version: 'band',
       }),
     ).toEqual({ repertoireId: 'band-rep', bandId: 'band-1', toPersonalEntry: false })
   })
 
-  it('resolveLyricsSaveTarget targets the personal entry with a null band id while the personal version is selected', () => {
+  it('resolveLyricsSaveTarget targets the personal entry with a null band id on the personal version', () => {
     expect(
       resolveLyricsSaveTarget({
         entryId: 'band-rep',
         entryBandId: 'band-1',
         personalRepertoireId: 'personal-rep',
-        showPersonalLyrics: true,
+        version: 'personal',
       }),
     ).toEqual({ repertoireId: 'personal-rep', bandId: null, toPersonalEntry: true })
   })
@@ -119,7 +157,7 @@ describe('lyricsEditor', () => {
         entryId: 'band-rep',
         entryBandId: 'band-1',
         personalRepertoireId: null,
-        showPersonalLyrics: true,
+        version: 'personal',
       }),
     ).toEqual({ repertoireId: null, bandId: null, toPersonalEntry: true })
   })

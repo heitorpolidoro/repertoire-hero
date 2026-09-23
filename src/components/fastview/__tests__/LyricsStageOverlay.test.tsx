@@ -11,10 +11,24 @@ afterEach(cleanup)
  * member of it is inert here, so the fixtures below name only the stage ones.
  */
 function editingMembers() {
-  const flags = { isBandEntry: false, hasDifferentPersonalLyrics: false, showPersonalLyrics: false }
+  const flags = {
+    isBandEntry: false,
+    activeVersion: 'band' as const,
+    hasPersonalVersion: false,
+    isVersionChoiceOpen: false,
+    personalRepertoireId: null,
+    editTarget: null,
+    canDiscardPersonal: false,
+    isDiscardPending: false,
+  }
   const editState = { isEditing: false, draft: '', saving: false, fetching: false }
   const callbacks = {
     toggleVersion: vi.fn(),
+    chooseVersion: vi.fn(),
+    cancelVersionChoice: vi.fn(),
+    requestDiscard: vi.fn(),
+    cancelDiscard: vi.fn(),
+    confirmDiscard: vi.fn().mockResolvedValue(undefined),
     setDraft: vi.fn(),
     startEditing: vi.fn(),
     cancelEditing: vi.fn(),

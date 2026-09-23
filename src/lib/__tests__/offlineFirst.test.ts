@@ -59,7 +59,7 @@ interface SeededPlaylist {
   playlistId: string
   playlistName: string
   savedAt: string
-  songs: { repertoireId: string; tabs?: RepertoireTab[] }[]
+  songs: { repertoireId: string; tabs?: RepertoireTab[]; personalLyrics?: string }[]
 }
 
 /** The real store over in-memory ports, with the given playlists downloaded. */
@@ -74,6 +74,9 @@ async function seededStore(playlists: SeededPlaylist[]): Promise<OfflineStore> {
       songs: playlist.songs.map((song) => ({
         entry: entry(song.repertoireId, `Song ${song.repertoireId}`),
         repertoire: repertoire(song.repertoireId),
+        personalRepertoire: song.personalLyrics
+          ? { ...repertoire(`personal-${song.repertoireId}`), band_id: null, song_id: `song-${song.repertoireId}`, lyrics: song.personalLyrics }
+          : null,
         tabs: song.tabs ?? [],
       })),
     })
@@ -101,7 +104,7 @@ const ONE_PLAYLIST: SeededPlaylist[] = [
     playlistName: 'Friday Set',
     savedAt: '2026-09-20T10:00:00.000Z',
     songs: [
-      { repertoireId: 'rep-1', tabs: [tab('tab-1', 'rep-1', '2026-01-02T00:00:00.000Z')] },
+      { repertoireId: 'rep-1', tabs: [tab('tab-1', 'rep-1', '2026-01-02T00:00:00.000Z')], personalLyrics: 'my cues' },
       { repertoireId: 'rep-2' },
     ],
   },
@@ -331,13 +334,20 @@ describe('offlineFirst — the offline readers', () => {
     await expect(wrapped.getTabs('rep-nope')).resolves.toEqual([])
   })
 
-  it('always answers getPersonalEntryForSong with null', async () => {
+  // RH-83 ER10: the snapshot now carries the member's own row, so the badge and
+  // the resolved version are the same offline as online, through the same code.
+  it('answers getPersonalEntryForSong from the snapshot, by song id', async () => {
     const wrapped = offlineFirst(
       { getPersonalEntryForSong: () => Promise.reject(new Error('unreachable')) },
       await offlinePorts(ONE_PLAYLIST),
     )
 
-    await expect(wrapped.getPersonalEntryForSong('song-rep-1')).resolves.toBeNull()
+    const found = await wrapped.getPersonalEntryForSong('song-rep-1')
+    expect((found as { lyrics: string }).lyrics).toBe('my cues')
+
+    // A captured song with no personal row, and a song in no snapshot at all.
+    await expect(wrapped.getPersonalEntryForSong('song-rep-2')).resolves.toBeNull()
+    await expect(wrapped.getPersonalEntryForSong('song-nope')).resolves.toBeNull()
   })
 
   it('answers getAnnotations with an empty annotation set, never an error envelope', async () => {

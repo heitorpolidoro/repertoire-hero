@@ -11,7 +11,7 @@
  * site of either component changed.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { StatusDropdown } from '../StatusDropdown'
 import { SongIdentityHeader } from '../SongIdentityHeader'
 import { LyricsSection } from '../LyricsSection'
@@ -39,9 +39,14 @@ function makeLyrics(overrides: Partial<LyricsEditorController> = {}): LyricsEdit
   return {
     isBandEntry: true,
     displayedLyrics: 'band words',
-    hasDifferentPersonalLyrics: false,
-    showPersonalLyrics: false,
+    activeVersion: 'band',
+    hasPersonalVersion: false,
     toggleVersion: vi.fn(),
+    isVersionChoiceOpen: false,
+    personalRepertoireId: null,
+    chooseVersion: vi.fn(),
+    cancelVersionChoice: vi.fn(),
+    editTarget: null,
     isEditing: false,
     draft: '',
     setDraft: vi.fn(),
@@ -49,6 +54,11 @@ function makeLyrics(overrides: Partial<LyricsEditorController> = {}): LyricsEdit
     cancelEditing: vi.fn(),
     saving: false,
     save: vi.fn().mockResolvedValue(undefined),
+    canDiscardPersonal: false,
+    isDiscardPending: false,
+    requestDiscard: vi.fn(),
+    cancelDiscard: vi.fn(),
+    confirmDiscard: vi.fn().mockResolvedValue(undefined),
     fetching: false,
     autoImport: vi.fn().mockResolvedValue(undefined),
     isStageOpen: false,
@@ -100,6 +110,18 @@ describe('read-only offline controls (RH-80 ER4)', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Add' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  // RH-83 ER10: offline stays read-only, so the band-or-personal choice dialog
+  // has no way to open — the only control that opens it is this button.
+  it('cannot start an edit, and so cannot open the version dialog, when read-only', () => {
+    const controller = makeLyrics()
+    render(<LyricsSection controller={controller} loadingPersonal={false} readOnly />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(controller.startEditing).not.toHaveBeenCalled()
+    expect(controller.isVersionChoiceOpen).toBe(false)
   })
 
   it('keeps lyrics Stage Mode reachable when read-only — reading is not a write', () => {

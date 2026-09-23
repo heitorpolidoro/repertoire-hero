@@ -59,6 +59,9 @@ function makeActions(): OfflineDownloadActions {
     getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Gig', entries: ENTRIES }),
     getSongEntry: vi.fn((repertoireId: string) => Promise.resolve(repertoire(repertoireId))),
     getTabs: vi.fn((repertoireId: string) => Promise.resolve([tabRow(`tab-${repertoireId}`, repertoireId)])),
+    getPersonalEntryForSong: vi.fn((songId: string) =>
+      Promise.resolve({ ...repertoire(`personal-${songId}`), band_id: null, song_id: songId }),
+    ),
   }
 }
 
@@ -127,6 +130,41 @@ describe('useOfflinePlaylist — the happy path', () => {
       'rep-1',
       'rep-2',
     ])
+  })
+
+  // RH-83 ER10 — the personal row is captured in band context and only there.
+  it('captures the member own repertoire row once per song, in band context', async () => {
+    const actions = makeActions()
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(vi.mocked(actions.getPersonalEntryForSong).mock.calls).toEqual([
+      ['song-rep-1'],
+      ['song-rep-2'],
+    ])
+    const songs = ports.records.rows.get('pl-1')?.snapshot.songs ?? []
+    expect(songs.map((song) => song.personalRepertoire?.id)).toEqual([
+      'personal-song-rep-1',
+      'personal-song-rep-2',
+    ])
+  })
+
+  it('never reads the personal row outside a band context', async () => {
+    const actions = makeActions()
+    const { result, ports } = setup({ actions, bandId: null })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(actions.getPersonalEntryForSong).not.toHaveBeenCalled()
+    const songs = ports.records.rows.get('pl-1')?.snapshot.songs ?? []
+    expect(songs.map((song) => song.personalRepertoire)).toEqual([null, null])
   })
 
   it('reports downloaded on mount when the playlist is already stored', async () => {

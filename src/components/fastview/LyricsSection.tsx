@@ -31,10 +31,13 @@ export function LyricsSection({ controller, loadingPersonal, readOnly = false }:
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Lyrics</h2>
+          {/* The badge answers "which version am I reading?", a question that
+              has an answer before any text exists — so it is rendered even
+              when the resolved lyrics are empty (RH-83 ER3). */}
           {controller.isBandEntry && (
-            controller.showPersonalLyrics ? (
+            controller.activeVersion === 'personal' ? (
               <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                👤 Personal
+                👤 My version
               </span>
             ) : (
               <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
@@ -66,16 +69,18 @@ export function LyricsSection({ controller, loadingPersonal, readOnly = false }:
         </div>
       </div>
 
-      {/* Lyrics version switcher banner (only in band mode if personal differs) */}
-      {controller.hasDifferentPersonalLyrics && !controller.isEditing && (
+      {/* Version switcher banner — offered whenever the member has a version of
+          their own, differing or not: seeing the band's text is how they decide
+          whether to keep theirs (RH-83). */}
+      {controller.hasPersonalVersion && !controller.isEditing && (
         <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 shadow-sm text-xs text-blue-700">
-          <span className="font-medium">💡 You have a different personal lyrics version for this song.</span>
+          <span className="font-medium">💡 You have your own version of these lyrics.</span>
           <button
             type="button"
             onClick={controller.toggleVersion}
             className="font-bold underline hover:text-blue-900 transition-colors focus:outline-none shrink-0"
           >
-            {controller.showPersonalLyrics ? 'View Band lyrics (👥)' : 'View my lyrics (👤)'}
+            {controller.activeVersion === 'personal' ? 'View Band lyrics (👥)' : 'View my lyrics (👤)'}
           </button>
         </div>
       )}

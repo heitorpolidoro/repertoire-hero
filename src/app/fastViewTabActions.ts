@@ -19,7 +19,9 @@ export const TAB_LIBRARY_ACTIONS: TabLibraryActions = {
   getTabs: getTabsAction,
   uploadTab: uploadTabAction,
   deleteTab: deleteTabAction,
-  addSong: addSongAction,
+  // Same shape as the lyrics root: the second argument seeds the new personal
+  // row's status from the band, it does not own the row (RH-83 ER16).
+  addSong: (songId, seedFromBandId) => addSongAction(songId, null, seedFromBandId),
 }
 
 /**

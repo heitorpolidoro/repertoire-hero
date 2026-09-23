@@ -26,7 +26,8 @@ export interface TabLibraryActions {
   getTabs: (repertoireId: string) => Promise<RepertoireTab[]>
   uploadTab: (formData: FormData) => Promise<{ data?: RepertoireTab; error?: string }>
   deleteTab: (tabId: string, repertoireId: string) => Promise<{ success?: boolean; error?: string }>
-  addSong: (songId: string) => Promise<Repertoire>
+  /** `seedStatusFromBandId` seeds the new personal row's status (RH-83 ER16). */
+  addSong: (songId: string, seedStatusFromBandId: string | null) => Promise<Repertoire>
 }
 
 export interface UseTabLibraryOptions {
@@ -183,7 +184,7 @@ export function useTabLibrary({
         let targetId = target.repertoireId
         if (targetId === null) {
           if (!songId) return
-          const created = await actions.addSong(songId)
+          const created = await actions.addSong(songId, entryBandId)
           createdPersonalId.current = created.id
           onPersonalEntryCreated(created)
           targetId = created.id

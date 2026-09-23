@@ -17,12 +17,16 @@
  *     `new Set(snapshot.songs.map(s => s.repertoireId))` is therefore exactly
  *     the "was this captured?" predicate: an id *in* the set with an empty
  *     `tabs` array is a genuinely tab-less song, an id *outside* it was never
- *     captured. The member's personal repertoire row is deliberately not
- *     captured (see docs/tasks/RH-80-spec.md §1), so RH-80 answers
- *     `getPersonalEntryForSong` with `null` and the second `getTabs` call never
- *     fires offline.
+ *     captured.
+ *   - `OfflineSongSnapshot.personalRepertoire` is the member's own repertoire
+ *     row for the song, captured at download time in band context (RH-83).
+ *     RH-80 deliberately did *not* capture it and answered
+ *     `getPersonalEntryForSong` with `null`; that decision is revised here on
+ *     purpose, because the band-vs-personal lyrics indicator would otherwise
+ *     lie offline. Personal **tabs** are still not captured — those PDFs were
+ *     never downloaded — so the second `getTabs` call correctly finds nothing.
  *
- * See docs/tasks/RH-80-spec.md §1 for the full reasoning.
+ * See docs/tasks/RH-80-spec.md §1 and docs/tasks/RH-84-spec.md §5.
  */
 
 import type { PlaylistEntry } from '@/lib/playlistNav'
@@ -31,8 +35,15 @@ import type { Repertoire, RepertoireTab } from '@/types/database'
 /**
  * The stored shape's version. A snapshot written under any other number is read
  * back as absent rather than migrated — a photograph is cheap to retake.
+ *
+ * 1 -> 2 (RH-83): songs gained `personalRepertoire`, and a v1 snapshot cannot
+ * tell "this member has no personal version" from "it was never captured". An
+ * indicator that might be wrong is worse than no offline copy, so v1 records
+ * are discarded — and `listOfflinePlaylists` purges them, so a playlist
+ * downloaded before this shipped shows as not downloaded instead of claiming a
+ * copy Fast View then reports unavailable.
  */
-export const OFFLINE_SCHEMA_VERSION = 1
+export const OFFLINE_SCHEMA_VERSION = 2
 
 /** One tab PDF, as stored: the row's fields plus where its bytes live and how many. */
 export interface OfflineTabSnapshot {
@@ -60,6 +71,12 @@ export interface OfflineSongSnapshot {
   repertoireId: string
   entry: PlaylistEntry
   repertoire: Repertoire
+  /**
+   * The member's own row for this song, or `null` — both in band context (they
+   * genuinely have none) and always outside one, where there is no second
+   * version to have. Its `lyrics` is what the offline badge reads (RH-83).
+   */
+  personalRepertoire: Repertoire | null
   tabs: OfflineTabSnapshot[]
 }
 
@@ -84,6 +101,7 @@ export interface OfflineTabMaterial {
 export interface OfflineSongMaterial {
   entry: PlaylistEntry
   repertoire: Repertoire
+  personalRepertoire: Repertoire | null
   tabs: OfflineTabMaterial[]
 }
 
@@ -131,6 +149,7 @@ export function buildOfflineSnapshot(input: BuildOfflineSnapshotInput): OfflineS
       repertoireId: song.entry.repertoireId,
       entry: song.entry,
       repertoire: song.repertoire,
+      personalRepertoire: song.personalRepertoire,
       tabs: song.tabs.map((tab) => toTabSnapshot(input.playlistId, tab)),
     })),
   }
@@ -170,6 +189,10 @@ function isSongSnapshot(value: unknown): boolean {
   if (!isRecord(value)) return false
   if (!isString(value.repertoireId)) return false
   if (!isRecord(value.entry) || !isRecord(value.repertoire)) return false
+  // Absent is not null: a v1 song carried no such field, and reading it as
+  // "no personal version" is exactly the wrong answer the bump avoids.
+  if (!('personalRepertoire' in value)) return false
+  if (value.personalRepertoire !== null && !isRecord(value.personalRepertoire)) return false
   return Array.isArray(value.tabs) && value.tabs.every(isTabSnapshot)
 }
 

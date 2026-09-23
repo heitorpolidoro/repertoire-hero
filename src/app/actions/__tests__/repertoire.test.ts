@@ -105,7 +105,7 @@ const DELEGATIONS: Array<{
     label: 'addSongAction',
     lib: () => vi.mocked(addSongToRepertoire),
     run: (bandId) => addSongAction(SONG_ID, bandId),
-    tail: [SONG_ID],
+    tail: [SONG_ID, null],
     revalidates: true,
   },
   {
@@ -219,6 +219,29 @@ describe('owner resolution', () => {
     expect(fetchUrlTitle).toHaveBeenCalledWith('https://example.com')
 
     expect(getRequiredUserId).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('addSongAction status seeding (RH-83 ER16)', () => {
+  it('passes the band to seed the new row\'s status from, after checking membership', async () => {
+    await addSongAction(SONG_ID, null, BAND_ID)
+
+    expect(assertBandMember).toHaveBeenCalledWith(BAND_ID, USER_ID)
+    expect(addSongToRepertoire).toHaveBeenCalledExactlyOnceWith({ userId: USER_ID }, SONG_ID, BAND_ID)
+  })
+
+  it('seeds nothing when no band is named — the dashboard and the song picker path', async () => {
+    await addSongAction(SONG_ID)
+
+    expect(addSongToRepertoire).toHaveBeenCalledExactlyOnceWith({ userId: USER_ID }, SONG_ID, null)
+  })
+
+  it('refuses a seed band the caller is not a member of, without inserting', async () => {
+    vi.mocked(assertBandMember).mockRejectedValueOnce(new Error('Access denied: not a member of this band'))
+
+    await expect(addSongAction(SONG_ID, null, BAND_ID)).rejects.toThrow('Access denied')
+    expect(addSongToRepertoire).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 })
 

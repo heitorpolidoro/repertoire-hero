@@ -8205,3 +8205,76 @@ full-suite coverage gate passes.
   100 % file (the non-function own-property pass-through and one comparator branch). Cheap to close if
   the ratchet ever tightens.
 
+
+## [RH-83] Band vs personal lyrics version — 2026-09-22 (RH-83-spec_review-1.md)
+- Correct §3(c): the lyrics `addSong` branch is currently unreachable (the version
+  toggle only renders when a personal row with non-empty lyrics already exists), so
+  this task makes it live rather than merely "deliberate"; the tab-upload comparison
+  is the accurate precedent and is worth keeping.
+- Fix the trigger name: `trg_sync_band_repertoire` is the trigger,
+  `sync_band_repertoire_on_member_update` the function.
+- Say in §3(b) that the discard must also push `''` into the page's `personalEntry`
+  state (`onPersonalLyricsSaved('')`), or ER8's fallback only appears after a reload.
+- Disambiguate `updateLyrics` in ER6 vs ER9 by naming the module
+  (`LyricsEditorActions.updateLyrics` vs `src/lib/songs.ts`'s owner-first function).
+- Consider one ER for the switcher-banner condition change
+  (`hasPersonalVersion` replacing `hasDifferentPersonalLyrics`) — §1 changes it, no
+  ER observes it.
+- Decide explicitly whether the mock's in-editor target chip and its two new toast
+  strings are in scope; today they are promised by the mock and absent from the spec.
+
+## [RH-83] Band vs personal lyrics version — 2026-09-22 (RH-83-spec_review-2.md)
+- Non-blocking, for the implementer: `TabDestinationModal.tsx` has no test file
+  at HEAD, so `LyricsDestinationModal.test.tsx` cannot be copied from a
+  sibling — budget for writing it from scratch.
+- Non-blocking, for the operator: the seeded row can **hold the band's status
+  back** once other members advance, because a member who was previously
+  invisible to the `MIN` now carries a stale claim. It can never make the band
+  look more advanced. A future task could make the trigger exclude rows never
+  touched by their owner (e.g. a `status_set_at` or a `seeded` marker), which
+  would be the fully correct semantics; today's "Back-filling the status of
+  personal rows already created as `unknown`" out-of-scope line is the natural
+  place for it to live.
+- Non-blocking: §3(d) says the seed parameter "is ignored when `owner` is a
+  band". The implementer should realize this by forcing `$4` to `null` on the
+  band branch rather than relying on the caller, so the statement holds
+  structurally the way the personal-context `COALESCE` does.
+
+## [RH-83] Band vs personal lyrics version — code review — 2026-09-23
+
+1. `src/app/actions/repertoire.ts:50` — `if (seedStatusFromBandId)` is a truthiness
+   guard, so an empty-string `seedStatusFromBandId` skips `assertBandMember` and
+   reaches the SQL as `$4 = ''`. That is not a leak (an empty string against a
+   `uuid` column raises `invalid input syntax for type uuid`, which the
+   `addSongToRepertoire` try/catch turns into `Failed to add song`), so it still
+   fails closed — but it fails closed as a 500-shaped DB error rather than as an
+   authorization rejection. `if (seedStatusFromBandId != null)` plus a UUID-shape
+   check, or simply treating `''` as `null`, would make the intent explicit.
+2. `src/components/fastview/__tests__/offlineReadOnlyControls.test.tsx` (new case
+   "cannot start an edit, and so cannot open the version dialog, when read-only")
+   — the second assertion `expect(controller.isVersionChoiceOpen).toBe(false)`
+   reads back a literal from the test's own mock factory and can never fail. The
+   first assertion (`startEditing` not called) is the one carrying ER10, and it is
+   sound; the second is decorative and slightly misrepresents what is pinned.
+3. `src/hooks/useLyricsEditor.ts:118-124` — choosing "My version" with
+   `personalRepertoireId === null` and then saving an *empty* draft still calls
+   `actions.addSong(...)` before writing `''`. The result is a personal repertoire
+   row with no lyrics — harmless (ER16 seeding means its status cannot lower the
+   band's) and consistent with ER6 as written, but a musician who opens the
+   editor, clears it and saves gets a repertoire row they did not ask for. Worth a
+   follow-up decision rather than a change here.
+
+---
+
+
+## [RH-83] Band vs personal lyrics version — QA — 2026-09-23
+- ER15's seed-sentence assertion matches the full string `"Private to you. Starts as a copy
+  of the band's lyrics."` because the two sentences share one `<span>`. A future rewording
+  of the first half would fail the test for a reason unrelated to the disclosure it exists
+  to protect. Splitting the span (or matching only the ER's exact sentence) would keep the
+  assertion aimed at what ER15 names. Non-blocking: the assertion does fail when the
+  protected sentence is removed, which is what the ER requires.
+- `offlineFirst.getPersonalEntryForSong` returning `null` for a song in no downloaded
+  playlist is indistinguishable from "this member has no version of their own". The comment
+  says so, and the badge then reads `Band`, which is the safe direction; worth a note in the
+  offline design doc if a future ER wants to distinguish the two.

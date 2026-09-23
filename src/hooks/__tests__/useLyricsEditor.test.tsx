@@ -69,13 +69,16 @@ function setup(overrides: Partial<UseLyricsEditorOptions> = {}) {
 }
 
 describe('useLyricsEditor', () => {
-  it('starts with the band lyrics, not editing and not in Stage Mode', () => {
+  it('starts on the personal version when the member has one, not editing and not in Stage Mode', () => {
     const { result } = setup()
 
-    expect(result.current.displayedLyrics).toBe('band words')
+    // ER2: personal wins on first paint, with no interaction at all.
+    expect(result.current.displayedLyrics).toBe('my words')
     expect(result.current.isBandEntry).toBe(true)
-    expect(result.current.hasDifferentPersonalLyrics).toBe(true)
-    expect(result.current.showPersonalLyrics).toBe(false)
+    expect(result.current.hasPersonalVersion).toBe(true)
+    expect(result.current.activeVersion).toBe('personal')
+    expect(result.current.isVersionChoiceOpen).toBe(false)
+    expect(result.current.editTarget).toBeNull()
     expect(result.current.isEditing).toBe(false)
     expect(result.current.draft).toBe('')
     expect(result.current.saving).toBe(false)
@@ -85,17 +88,80 @@ describe('useLyricsEditor', () => {
     expect(result.current.isDarkMode).toBe(false)
   })
 
-  it('seeds the draft from the displayed lyrics when editing starts', () => {
+  it('opens the choice dialog instead of the editor in band context (ER4)', () => {
     const { result } = setup()
 
     act(() => result.current.startEditing())
 
+    expect(result.current.isVersionChoiceOpen).toBe(true)
+    expect(result.current.isEditing).toBe(false)
+    expect(result.current.editTarget).toBeNull()
+  })
+
+  it('opens the choice dialog every time, including once a personal version exists (ER4)', () => {
+    const { result } = setup()
+
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
+    act(() => result.current.cancelEditing())
+    act(() => result.current.startEditing())
+
+    expect(result.current.isVersionChoiceOpen).toBe(true)
+    expect(result.current.isEditing).toBe(false)
+  })
+
+  it('cancelling the choice dialog edits nothing and creates nothing', () => {
+    const { result, actions } = setup({ personalEntry: null })
+
+    act(() => result.current.startEditing())
+    act(() => result.current.cancelVersionChoice())
+
+    expect(result.current.isVersionChoiceOpen).toBe(false)
+    expect(result.current.isEditing).toBe(false)
+    expect(actions.addSong).not.toHaveBeenCalled()
+    expect(actions.updateLyrics).not.toHaveBeenCalled()
+  })
+
+  it('opens the editor directly in personal context, with no dialog (ER4)', () => {
+    const { result } = setup({ entry: PERSONAL_ENTRY, personalEntry: null })
+
+    act(() => result.current.startEditing())
+
+    expect(result.current.isVersionChoiceOpen).toBe(false)
     expect(result.current.isEditing).toBe(true)
-    expect(result.current.draft).toBe('band words')
+    expect(result.current.draft).toBe('my words')
+  })
+
+  it('seeds the draft from the chosen version (ER5)', () => {
+    // My version, with one already there: seeded with it.
+    const existing = setup()
+    act(() => existing.result.current.startEditing())
+    act(() => existing.result.current.chooseVersion('personal'))
+    expect(existing.result.current.isEditing).toBe(true)
+    expect(existing.result.current.editTarget).toBe('personal')
+    expect(existing.result.current.draft).toBe('my words')
+    cleanup()
+
+    // My version, with none yet: seeded from the band's text.
+    const first = setup({ personalEntry: null })
+    act(() => first.result.current.startEditing())
+    act(() => first.result.current.chooseVersion('personal'))
+    expect(first.result.current.draft).toBe('band words')
+    cleanup()
+
+    // Band lyrics, while the personal version is the one on screen.
+    const band = setup()
+    expect(band.result.current.activeVersion).toBe('personal')
+    act(() => band.result.current.startEditing())
+    act(() => band.result.current.chooseVersion('band'))
+    expect(band.result.current.editTarget).toBe('band')
+    expect(band.result.current.draft).toBe('band words')
+    cleanup()
 
     // An entry with no lyrics at all seeds an empty draft, never `null`.
     const empty = setup({ entry: { ...BAND_ENTRY, lyrics: null }, personalEntry: null })
     act(() => empty.result.current.startEditing())
+    act(() => empty.result.current.chooseVersion('band'))
     expect(empty.result.current.draft).toBe('')
   })
 
@@ -103,19 +169,22 @@ describe('useLyricsEditor', () => {
     const { result } = setup()
 
     act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
     act(() => result.current.setDraft('half-typed verse'))
     expect(result.current.draft).toBe('half-typed verse')
 
     act(() => result.current.cancelEditing())
 
     expect(result.current.isEditing).toBe(false)
-    expect(result.current.draft).toBe('band words')
+    expect(result.current.editTarget).toBeNull()
+    expect(result.current.draft).toBe('my words')
   })
 
   it('saves the band lyrics against the entry id and its band id', async () => {
     const { result, actions, notify, onEntryLyricsSaved, onPersonalLyricsSaved } = setup()
 
     act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('band'))
     act(() => result.current.setDraft('new band words'))
     await act(async () => {
       await result.current.save()
@@ -125,6 +194,9 @@ describe('useLyricsEditor', () => {
     expect(actions.addSong).not.toHaveBeenCalled()
     expect(onEntryLyricsSaved).toHaveBeenCalledWith('new band words')
     expect(onPersonalLyricsSaved).not.toHaveBeenCalled()
+    // ER7: the version just edited is the one left on screen.
+    expect(result.current.activeVersion).toBe('band')
+    expect(result.current.displayedLyrics).toBe('band words')
     expect(result.current.isEditing).toBe(false)
     expect(result.current.saving).toBe(false)
     expect(notify).toHaveBeenCalledWith('Lyrics saved successfully!', 'success')
@@ -133,8 +205,8 @@ describe('useLyricsEditor', () => {
   it('saves the personal lyrics against the personal entry with a null band id', async () => {
     const { result, actions, onEntryLyricsSaved, onPersonalLyricsSaved } = setup()
 
-    act(() => result.current.toggleVersion())
     act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
     act(() => result.current.setDraft('new personal words'))
     await act(async () => {
       await result.current.save()
@@ -149,14 +221,15 @@ describe('useLyricsEditor', () => {
   it('creates the personal entry before saving when the member has none', async () => {
     const { result, actions, onPersonalEntryCreated, onPersonalLyricsSaved } = setup({ personalEntry: null })
 
-    act(() => result.current.toggleVersion())
     act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
     act(() => result.current.setDraft('my first version'))
     await act(async () => {
       await result.current.save()
     })
 
-    expect(actions.addSong).toHaveBeenCalledWith('song-1')
+    // ER6/ER16: the second argument is the band the new row seeds its status from.
+    expect(actions.addSong).toHaveBeenCalledWith('song-1', 'band-1')
     expect(onPersonalEntryCreated).toHaveBeenCalledWith(PERSONAL_ENTRY)
     expect(actions.updateLyrics).toHaveBeenCalledWith('personal-rep', 'my first version', null)
     expect(onPersonalLyricsSaved).toHaveBeenCalledWith('my first version')
@@ -168,6 +241,7 @@ describe('useLyricsEditor', () => {
     const { result, notify, onEntryLyricsSaved } = setup({ actions: actions as unknown as LyricsEditorActions })
 
     act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('band'))
     await act(async () => {
       await result.current.save()
     })
@@ -243,12 +317,122 @@ describe('useLyricsEditor', () => {
 
     act(() => result.current.toggleVersion())
 
-    expect(result.current.showPersonalLyrics).toBe(true)
-    expect(result.current.displayedLyrics).toBe('my words')
+    expect(result.current.activeVersion).toBe('band')
+    expect(result.current.displayedLyrics).toBe('band words')
 
     act(() => result.current.toggleVersion())
 
-    expect(result.current.showPersonalLyrics).toBe(false)
+    expect(result.current.activeVersion).toBe('personal')
+    expect(result.current.displayedLyrics).toBe('my words')
+  })
+
+  // -----------------------------------------------------------------------
+  // RH-83 ER8 — discarding a personal version.
+  // -----------------------------------------------------------------------
+
+  it('offers Discard my version only while editing an existing personal version', () => {
+    const { result } = setup()
+    expect(result.current.canDiscardPersonal).toBe(false)
+
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('band'))
+    expect(result.current.canDiscardPersonal).toBe(false)
+
+    act(() => result.current.cancelEditing())
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
+    expect(result.current.canDiscardPersonal).toBe(true)
+
+    // Nothing to discard when there is no personal version yet.
+    cleanup()
+    const fresh = setup({ personalEntry: null })
+    act(() => fresh.result.current.startEditing())
+    act(() => fresh.result.current.chooseVersion('personal'))
+    expect(fresh.result.current.canDiscardPersonal).toBe(false)
+  })
+
+  it('discards a personal version by writing an empty string to the personal row', async () => {
+    const { result, actions, onPersonalLyricsSaved, rerender, initialProps } = setup()
+
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
+    act(() => result.current.requestDiscard())
+    expect(result.current.isDiscardPending).toBe(true)
+
+    act(() => result.current.cancelDiscard())
+    expect(result.current.isDiscardPending).toBe(false)
+
+    act(() => result.current.requestDiscard())
+    await act(async () => {
+      await result.current.confirmDiscard()
+    })
+
+    expect(actions.updateLyrics).toHaveBeenCalledWith('personal-rep', '', null)
+    expect(onPersonalLyricsSaved).toHaveBeenCalledWith('')
+    expect(result.current.isEditing).toBe(false)
+    expect(result.current.isDiscardPending).toBe(false)
+
+    // The page applies the write; the section then reads the band's text.
+    rerender({ ...initialProps, personalEntry: { ...PERSONAL_ENTRY, lyrics: '' } })
+    expect(result.current.activeVersion).toBe('band')
+    expect(result.current.displayedLyrics).toBe('band words')
+    expect(result.current.hasPersonalVersion).toBe(false)
+  })
+
+  it('reports a failed discard and keeps the personal version on screen', async () => {
+    const actions = makeActions()
+    actions.updateLyrics.mockRejectedValue(new Error('offline'))
+    const { result, notify, onPersonalLyricsSaved } = setup({
+      actions: actions as unknown as LyricsEditorActions,
+    })
+
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
+    act(() => result.current.requestDiscard())
+    await act(async () => {
+      await result.current.confirmDiscard()
+    })
+
+    expect(notify).toHaveBeenCalledWith('Failed to discard your lyrics version', 'error')
+    expect(onPersonalLyricsSaved).not.toHaveBeenCalled()
+    expect(result.current.isEditing).toBe(true)
+    expect(result.current.activeVersion).toBe('personal')
+    expect(result.current.saving).toBe(false)
+  })
+
+  it('does nothing at all while the route entry has not loaded', async () => {
+    const { result, actions } = setup({ entry: null, personalEntry: null })
+
+    act(() => result.current.startEditing())
+    await act(async () => {
+      await result.current.save()
+    })
+    await act(async () => {
+      await result.current.confirmDiscard()
+    })
+
+    expect(result.current.isEditing).toBe(false)
+    expect(result.current.isVersionChoiceOpen).toBe(false)
+    expect(result.current.displayedLyrics).toBeNull()
+    expect(actions.updateLyrics).not.toHaveBeenCalled()
+    expect(actions.addSong).not.toHaveBeenCalled()
+  })
+
+  it('saving a whitespace-only personal draft discards the version the same way', async () => {
+    const { result, actions, onPersonalLyricsSaved, rerender, initialProps } = setup()
+
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
+    act(() => result.current.setDraft('   \n  '))
+    await act(async () => {
+      await result.current.save()
+    })
+
+    expect(actions.updateLyrics).toHaveBeenCalledWith('personal-rep', '', null)
+    expect(onPersonalLyricsSaved).toHaveBeenCalledWith('')
+
+    rerender({ ...initialProps, personalEntry: { ...PERSONAL_ENTRY, lyrics: '' } })
+    expect(result.current.activeVersion).toBe('band')
     expect(result.current.displayedLyrics).toBe('band words')
   })
 

@@ -51,6 +51,7 @@ function saveInput(playlistId: string, tabIds: string[]): SaveOfflinePlaylistInp
       {
         entry: { repertoireId: 'rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
         repertoire: repertoire('rep-1'),
+        personalRepertoire: { ...repertoire('personal-1'), band_id: null, user_id: 'user-1', lyrics: 'my cues' },
         tabs: tabIds.map((tabId) => tabRow(tabId, 'rep-1')),
       },
     ],
@@ -99,6 +100,8 @@ describe('saveOfflinePlaylist / readOfflineSnapshot / removeOfflinePlaylist', ()
     expect(snapshot?.playlistName).toBe('Playlist pl-1')
     expect(snapshot?.songs[0].repertoireId).toBe('rep-1')
     expect(snapshot?.songs[0].tabs[0].createdAt).toBe('2026-05-01T00:00:00Z')
+    // RH-83 ER10: the member's own row travels with the song.
+    expect(snapshot?.songs[0].personalRepertoire?.lyrics).toBe('my cues')
     expect(listed.map((row) => row.playlistId)).toEqual(['pl-1'])
     expect(listed[0].bytes).toBe(ports.records.rows.get('pl-1')?.bytes)
   })
@@ -115,6 +118,26 @@ describe('saveOfflinePlaylist / readOfflineSnapshot / removeOfflinePlaylist', ()
       stored.snapshot = { ...stored.snapshot, schemaVersion: OFFLINE_SCHEMA_VERSION + 1 }
     }
     expect(await store.readOfflineSnapshot('pl-1')).toBeNull()
+  })
+
+  // RH-83 ER11: a v1 record is discarded rather than listed as "Downloaded"
+  // while Fast View reports the playlist unavailable. A photograph is cheap to
+  // retake; an indicator that might be wrong is not.
+  it('drops and purges a record written under another schema version', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await store.saveOfflinePlaylist(saveInput('pl-stale', ['tab-a']))
+    await store.saveOfflinePlaylist(saveInput('pl-current', ['tab-b']))
+    const stale = ports.records.rows.get('pl-stale')
+    if (stale) stale.schemaVersion = OFFLINE_SCHEMA_VERSION - 1
+
+    const listed = await store.listOfflinePlaylists()
+
+    expect(listed.map((row) => row.playlistId)).toEqual(['pl-current'])
+    // Purged, not merely hidden: the record and its cached bytes are both gone.
+    expect(ports.records.rows.has('pl-stale')).toBe(false)
+    expect(ports.blobs.keysFor('pl-stale')).toEqual([])
+    expect(ports.blobs.keysFor('pl-current')).toEqual(['/__offline-tab/pl-current/tab-b'])
   })
 
   it('removes one playlist without disturbing another', async () => {

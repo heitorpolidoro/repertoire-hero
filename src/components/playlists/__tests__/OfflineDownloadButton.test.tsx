@@ -58,6 +58,8 @@ function makeActions(hold?: Promise<void>): OfflineDownloadActions {
       if (hold && repertoireId === 'rep-2') await hold
       return [tabRow(repertoireId)]
     }),
+    // RH-83: the download captures the member's own row in band context.
+    getPersonalEntryForSong: vi.fn(() => Promise.resolve(null)),
   }
 }
 

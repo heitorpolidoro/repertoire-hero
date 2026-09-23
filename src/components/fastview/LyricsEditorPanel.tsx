@@ -1,5 +1,6 @@
 'use client'
 
+import { ConfirmPanel } from '@/components/ui/ConfirmPanel'
 import type { LyricsEditorController } from '@/lib/lyricsEditor'
 
 export interface LyricsEditorPanelProps {
@@ -20,16 +21,64 @@ function ButtonSpinner({ className }: { className: string }) {
   )
 }
 
+const TARGET_LABEL = {
+  band: '👥 Editing the band lyrics',
+  personal: '👤 Editing my version',
+} as const
+
+const TARGET_STYLE = {
+  band: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  personal: 'text-blue-700 bg-blue-50 border-blue-200',
+} as const
+
 /**
- * The lyrics editor: the draft textarea, the online auto-import button and the
+ * The lyrics editor: which version is being written, the draft textarea, the
+ * online auto-import button, the Discard my version control and the
  * Cancel / Save pair.
  *
  * Presentational only — the draft, the two in-flight flags and every action
- * belong to `useLyricsEditor`, which supplies the controller (RH-51).
+ * belong to `useLyricsEditor`, which supplies the controller (RH-51). The
+ * discard confirmation is the shared `ConfirmPanel`, never `window.confirm`
+ * (AGENTS.md — "NO Browser Alerts").
  */
 export function LyricsEditorPanel({ controller }: LyricsEditorPanelProps) {
+  const target = controller.editTarget
+
   return (
     <div className="flex flex-col gap-3">
+      {(target || controller.canDiscardPersonal) && (
+        <div className="flex items-center justify-between gap-2">
+          {target ? (
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${TARGET_STYLE[target]}`}>
+              {TARGET_LABEL[target]}
+            </span>
+          ) : (
+            <span />
+          )}
+          {controller.canDiscardPersonal && !controller.isDiscardPending && (
+            <button
+              type="button"
+              onClick={controller.requestDiscard}
+              disabled={controller.saving}
+              className="text-[11px] font-semibold text-red-600 hover:text-red-800 transition-colors focus:outline-none"
+            >
+              🗑 Discard my version
+            </button>
+          )}
+        </div>
+      )}
+
+      {controller.isDiscardPending && (
+        <ConfirmPanel
+          message="Discard your version? The band's lyrics will be shown instead. Your status, tags and tabs for this song are untouched."
+          confirmLabel="Discard"
+          busyLabel="Discarding..."
+          busy={controller.saving}
+          onConfirm={controller.confirmDiscard}
+          onCancel={controller.cancelDiscard}
+        />
+      )}
+
       <textarea
         className="w-full min-h-[250px] p-4 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-sans resize-y leading-relaxed text-gray-800"
         value={controller.draft}

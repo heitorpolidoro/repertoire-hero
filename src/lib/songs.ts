@@ -8,6 +8,18 @@ import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/datab
 export type RepertoireOwner = { userId: string } | { bandId: string }
 
 /**
+ * The `song` column every repertoire read returns: the joined `global_songs`
+ * row as JSON. Spelled once because five queries embed it — five copies is
+ * what kept this file pressed against its `max-lines` ceiling (F20).
+ */
+const SONG_JSON = `json_build_object(
+             'id', s.id, 'contributor_id', s.contributor_id, 'title', s.title,
+             'artist', s.artist, 'album', s.album, 'standard_key', s.standard_key,
+             'cover_url', s.cover_url, 'duration_seconds', s.duration_seconds,
+             'links', s.links, 'created_at', s.created_at
+           ) as song`
+
+/**
  * The repertoire row the caller may act on, or throws. Reachable when the row
  * is the caller's own or belongs to a band they are a member of; a
  * non-existent id throws the same message, so existence is not leaked.
@@ -37,18 +49,7 @@ export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[
   const id = isBand ? owner.bandId : owner.userId
   const sql = `
     SELECT r.*,
-           json_build_object(
-             'id', s.id,
-             'contributor_id', s.contributor_id,
-             'title', s.title,
-             'artist', s.artist,
-             'album', s.album,
-             'standard_key', s.standard_key,
-             'cover_url', s.cover_url,
-             'duration_seconds', s.duration_seconds,
-             'links', s.links,
-             'created_at', s.created_at
-           ) as song
+           ${SONG_JSON}
     FROM repertoire r
     JOIN global_songs s ON r.song_id = s.id
     WHERE ${isBand ? 'r.band_id = $1' : 'r.user_id = $1'}
@@ -64,34 +65,43 @@ export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[
   }
 }
 
-export async function addSongToRepertoire(owner: RepertoireOwner, songId: string): Promise<Repertoire> {
+/**
+ * Adds a catalog song to a personal or band repertoire.
+ *
+ * `seedStatusFromBandId` is the band whose current status for this song the new
+ * row copies (RH-83 ER16). It matters because `unknown` is the *floor* of
+ * `song_status` and `sync_band_repertoire_on_member_update` recomputes the band
+ * row as `MIN(status)` over every member's row: a row inserted as `unknown`
+ * would drag the band's displayed status to Unknown at the next status change
+ * by anyone. The band row's own status is already that `MIN`, so a row equal to
+ * it cannot lower it.
+ *
+ * Conditional by construction: a `NULL` $4 matches no row and the `COALESCE`
+ * yields `'unknown'` — byte-for-byte the old behaviour, which is what personal
+ * context, the song picker and the dashboard keep getting. Ignored for a band
+ * owner; a band row is never seeded from itself.
+ */
+export async function addSongToRepertoire(
+  owner: RepertoireOwner,
+  songId: string,
+  seedStatusFromBandId: string | null = null,
+): Promise<Repertoire> {
   const isBand = 'bandId' in owner
   const userId = isBand ? null : owner.userId
   const bandId = isBand ? owner.bandId : null
   const sql = `
     WITH inserted AS (
       INSERT INTO repertoire (song_id, user_id, band_id, status)
-      VALUES ($1, $2, $3, 'unknown')
+      VALUES ($1, $2, $3, COALESCE((SELECT b.status FROM repertoire b WHERE b.band_id = $4 AND b.song_id = $1), 'unknown'))
       RETURNING *
     )
     SELECT i.*,
-           json_build_object(
-             'id', s.id,
-             'contributor_id', s.contributor_id,
-             'title', s.title,
-             'artist', s.artist,
-             'album', s.album,
-             'standard_key', s.standard_key,
-             'cover_url', s.cover_url,
-             'duration_seconds', s.duration_seconds,
-             'links', s.links,
-             'created_at', s.created_at
-           ) as song
+           ${SONG_JSON}
     FROM inserted i
     JOIN global_songs s ON i.song_id = s.id
   `
   try {
-    const res = await query<Repertoire>(sql, [songId, userId, bandId])
+    const res = await query<Repertoire>(sql, [songId, userId, bandId, isBand ? null : seedStatusFromBandId])
     return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -199,18 +209,7 @@ export async function getSongEntry(owner: RepertoireOwner, repertoireId: string)
   const id = isBand ? owner.bandId : owner.userId
   const sql = `
     SELECT r.*,
-           json_build_object(
-             'id', s.id,
-             'contributor_id', s.contributor_id,
-             'title', s.title,
-             'artist', s.artist,
-             'album', s.album,
-             'standard_key', s.standard_key,
-             'cover_url', s.cover_url,
-             'duration_seconds', s.duration_seconds,
-             'links', s.links,
-             'created_at', s.created_at
-           ) as song
+           ${SONG_JSON}
     FROM repertoire r
     JOIN global_songs s ON r.song_id = s.id
     WHERE r.id = $1 AND ${isBand ? 'r.band_id = $2' : 'r.user_id = $2'}
@@ -379,18 +378,7 @@ export async function createAndAddSong(
         RETURNING *
       )
       SELECT i.*,
-             json_build_object(
-               'id', s.id,
-               'contributor_id', s.contributor_id,
-               'title', s.title,
-               'artist', s.artist,
-               'album', s.album,
-               'standard_key', s.standard_key,
-               'cover_url', s.cover_url,
-               'duration_seconds', s.duration_seconds,
-               'links', s.links,
-               'created_at', s.created_at
-             ) as song
+             ${SONG_JSON}
       FROM inserted i
       JOIN global_songs s ON i.song_id = s.id
     `
@@ -404,11 +392,9 @@ export async function createAndAddSong(
 }
 
 /**
- * Writes the owner-scoped lyrics of one repertoire entry.
- *
- * Deliberately no `RETURNING id` row-count check: an id the owner does not
- * match has always been a silent no-op here, and turning it into a "not found"
- * throw would change behaviour the fast view relies on.
+ * Writes the owner-scoped lyrics of one repertoire entry, and fails closed:
+ * an `(id, owner)` pair that matches no row throws instead of reporting the
+ * success the musician would otherwise be shown (RH-83 ER9).
  */
 export async function updateLyrics(
   owner: RepertoireOwner,
@@ -417,18 +403,19 @@ export async function updateLyrics(
 ): Promise<void> {
   const isBand = 'bandId' in owner
   const id = isBand ? owner.bandId : owner.userId
-  const sql = `
-    UPDATE repertoire
-    SET lyrics = $1
-    WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}
-  `
+  const sql = `UPDATE repertoire SET lyrics = $1
+    WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'} RETURNING id`
+  let res
   try {
-    await query<never>(sql, [lyrics, repertoireId, id])
+    res = await query<{ id: string }>(sql, [lyrics, repertoireId, id])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update lyrics', err, { repertoireId })
     throw new Error(`Failed to update lyrics: ${err.message}`)
   }
+
+  // Outside the wrapper (convention L1a): the UI shows this message verbatim.
+  if (res.rowCount === 0) throw new Error('Lyrics entry not found or not editable')
 }
 
 /**
@@ -501,18 +488,7 @@ export async function getPersonalEntryForSong(
 ): Promise<Repertoire | null> {
   const sql = `
     SELECT r.*,
-           json_build_object(
-             'id', s.id,
-             'contributor_id', s.contributor_id,
-             'title', s.title,
-             'artist', s.artist,
-             'album', s.album,
-             'standard_key', s.standard_key,
-             'cover_url', s.cover_url,
-             'duration_seconds', s.duration_seconds,
-             'links', s.links,
-             'created_at', s.created_at
-           ) as song
+           ${SONG_JSON}
     FROM repertoire r
     JOIN global_songs s ON r.song_id = s.id
     WHERE r.song_id = $1 AND r.user_id = $2

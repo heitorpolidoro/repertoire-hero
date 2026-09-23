@@ -226,7 +226,10 @@ describe('useTabLibrary', () => {
       await result.current.chooseDestination('personal')
     })
 
-    expect(actions.addSong).toHaveBeenCalledWith('song-1')
+    // RH-83 ER16: the band id is passed so the new personal row copies the
+    // band's status instead of being inserted as `unknown`, which the band
+    // status recompute would then read as the new MIN.
+    expect(actions.addSong).toHaveBeenCalledWith('song-1', 'band-1')
     expect(onPersonalEntryCreated).toHaveBeenCalledWith(PERSONAL_ENTRY)
     const formData = actions.uploadTab.mock.calls[0][0] as FormData
     expect(formData.get('repertoireId')).toBe('rep-created')

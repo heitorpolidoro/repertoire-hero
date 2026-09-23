@@ -148,6 +148,25 @@ async function findSong(
   return null
 }
 
+/**
+ * The first downloaded snapshot that captured this *song*, newest first.
+ *
+ * The scan is over `song.repertoire.song_id` rather than `repertoireId`,
+ * because `getPersonalEntryForSong` is called with the song id and the member's
+ * own row has a different repertoire id from the band row on screen (RH-83).
+ */
+async function findSongBySongId(
+  ports: OfflineFirstPorts,
+  songId: string,
+): Promise<OfflineSongSnapshot | null> {
+  for (const summary of orderSnapshotCandidates(await ports.store.listOfflinePlaylists())) {
+    const snapshot = await ports.store.readOfflineSnapshot(summary.playlistId)
+    const song = snapshot?.songs.find((candidate) => candidate.repertoire.song_id === songId)
+    if (song) return song
+  }
+  return null
+}
+
 function detailsFromSnapshot(snapshot: OfflineSnapshot) {
   return {
     name: snapshot.playlistName,
@@ -186,9 +205,14 @@ const OFFLINE_READERS: Record<string, OfflineReader> = {
     }))
   },
 
-  // The member's own repertoire row is not captured (RH-79). `null` is what
-  // leaves `shouldLoadPersonalEntry` false and the second `getTabs` unfired.
-  getPersonalEntryForSong: () => Promise.resolve(null),
+  // Answered from the snapshot since RH-83: the band-vs-personal lyrics badge
+  // would otherwise lie offline. `null` still means "this member has no version
+  // of their own", or "this song is in no downloaded playlist". The second
+  // `getTabs` call then fires with the personal id, finds no snapshot song under
+  // it and returns `[]` — correct, those PDFs were never downloaded.
+  getPersonalEntryForSong: async (ports, [songId]) => {
+    return (await findSongBySongId(ports, String(songId)))?.personalRepertoire ?? null
+  },
 
   // An empty annotation set, not an error envelope: Stage Mode then renders the
   // PDF with no strokes and no failure panel.

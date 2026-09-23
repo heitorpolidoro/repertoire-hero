@@ -36,22 +36,63 @@ export function stepLyricsFontSize(current: number, delta: number): number {
   return clampLyricsFontSize(current + delta)
 }
 
-/** True when a band entry's member has their own, non-empty, different lyrics. */
-export function hasDifferentPersonalLyrics(
+/** Which of the two lyrics texts a band entry is reading or writing. */
+export type LyricsVersion = 'band' | 'personal'
+
+/** True when a string holds something other than whitespace. */
+function isNonEmpty(text: string | null | undefined): boolean {
+  return !!text && text.trim().length > 0
+}
+
+/**
+ * Which version is read with no interaction at all: the member's own whenever
+ * it holds text, the band's otherwise — the "personal wins" rule the tab
+ * library already applies. Outside a band there is only one version, so it is
+ * always `'band'` (RH-83 ER1).
+ */
+export function resolveLyricsVersion(
+  entry: LyricsSource | null,
+  personalEntry: LyricsSource | null,
+): LyricsVersion {
+  return entry?.band_id && isNonEmpty(personalEntry?.lyrics) ? 'personal' : 'band'
+}
+
+/**
+ * True when a band entry's member has a non-empty version of their own —
+ * differing from the band's or not. Seeing the band's text is how they decide
+ * whether to keep theirs, so the switcher is offered either way (RH-83).
+ */
+export function hasPersonalVersion(
   entry: LyricsSource | null,
   personalEntry: LyricsSource | null,
 ): boolean {
-  return !!(entry?.band_id && personalEntry && personalEntry.lyrics && personalEntry.lyrics !== entry.lyrics)
+  return !!entry?.band_id && isNonEmpty(personalEntry?.lyrics)
 }
 
-/** Which lyrics text is on screen: the personal version only in a band, only when selected, only when loaded. */
+/** Which lyrics text is on screen: the personal one only in a band, only on that version, only when loaded. */
 export function selectDisplayedLyrics(
   entry: LyricsSource | null,
   personalEntry: LyricsSource | null,
-  showPersonalLyrics: boolean,
+  version: LyricsVersion,
 ): string | null {
   if (!entry) return null
-  return (entry.band_id && showPersonalLyrics && personalEntry) ? personalEntry.lyrics : entry.lyrics
+  return (entry.band_id && version === 'personal' && personalEntry) ? personalEntry.lyrics : entry.lyrics
+}
+
+/**
+ * The text a freshly opened editor starts from (RH-83 ER5).
+ *
+ * A first personal version is seeded with the band's text rather than empty:
+ * the dominant use is "the band's chart with my cues", and clearing a seeded
+ * draft is one select-all-delete while re-pasting it is not.
+ */
+export function seedLyricsDraft(
+  version: LyricsVersion,
+  entry: LyricsSource | null,
+  personalEntry: LyricsSource | null,
+): string {
+  if (version === 'personal' && isNonEmpty(personalEntry?.lyrics)) return personalEntry?.lyrics ?? ''
+  return entry?.lyrics ?? ''
 }
 
 /** Where a lyrics save is issued. A null `repertoireId` means "create the personal entry first". */
@@ -67,9 +108,9 @@ export function resolveLyricsSaveTarget(args: {
   entryId: string
   entryBandId: string | null
   personalRepertoireId: string | null
-  showPersonalLyrics: boolean
+  version: LyricsVersion
 }): LyricsSaveTarget {
-  if (args.entryBandId && args.showPersonalLyrics) {
+  if (args.entryBandId && args.version === 'personal') {
     return { repertoireId: args.personalRepertoireId, bandId: null, toPersonalEntry: true }
   }
   return { repertoireId: args.entryId, bandId: args.entryBandId, toPersonalEntry: false }
@@ -80,9 +121,19 @@ export interface LyricsEditorController {
   /** `entry.band_id` is set: drives the Band/Personal badge. */
   isBandEntry: boolean
   displayedLyrics: string | null
-  hasDifferentPersonalLyrics: boolean
-  showPersonalLyrics: boolean
+  /** The version on screen: the badge and the switcher label both read it. */
+  activeVersion: LyricsVersion
+  /** A band member has a non-empty version of their own: the switcher banner. */
+  hasPersonalVersion: boolean
   toggleVersion: () => void
+  /** True while the band-or-personal choice dialog is open (band context only). */
+  isVersionChoiceOpen: boolean
+  /** `personalEntry?.id ?? null` — null is what the dialog discloses (ER15). */
+  personalRepertoireId: string | null
+  chooseVersion: (version: LyricsVersion) => void
+  cancelVersionChoice: () => void
+  /** Which version the open editor writes to; null while not editing. */
+  editTarget: LyricsVersion | null
   isEditing: boolean
   draft: string
   setDraft: (text: string) => void
@@ -90,6 +141,12 @@ export interface LyricsEditorController {
   cancelEditing: () => void
   saving: boolean
   save: () => Promise<void>
+  /** Editing an existing personal version: the Discard my version control. */
+  canDiscardPersonal: boolean
+  isDiscardPending: boolean
+  requestDiscard: () => void
+  cancelDiscard: () => void
+  confirmDiscard: () => Promise<void>
   fetching: boolean
   autoImport: () => Promise<void>
   isStageOpen: boolean

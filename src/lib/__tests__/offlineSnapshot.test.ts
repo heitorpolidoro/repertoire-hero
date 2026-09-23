@@ -75,6 +75,7 @@ function buildOne(): OfflineSnapshot {
       {
         entry: { repertoireId: 'rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
         repertoire: repertoire('rep-1'),
+        personalRepertoire: { ...repertoire('personal-1'), band_id: null, user_id: 'user-1', song_id: 'song-of-rep-1', lyrics: 'my cues' },
         tabs: [
           { tab: tabRow('tab-old', '2026-01-01T00:00:00Z'), bytes: 100 },
           { tab: tabRow('tab-new', '2026-06-01T00:00:00Z'), bytes: 200 },
@@ -83,6 +84,7 @@ function buildOne(): OfflineSnapshot {
       {
         entry: { repertoireId: 'rep-2', songId: 'song-of-rep-2', title: 'Faroeste', artist: null },
         repertoire: repertoire('rep-2'),
+        personalRepertoire: null,
         tabs: [],
       },
     ],
@@ -90,6 +92,20 @@ function buildOne(): OfflineSnapshot {
 }
 
 describe('buildOfflineSnapshot', () => {
+  // RH-83 ER10: the shape gained `personalRepertoire`, and a v1 snapshot cannot
+  // tell "no personal version" from "not captured", so the number moved.
+  it('is at schema version 2', () => {
+    expect(OFFLINE_SCHEMA_VERSION).toBe(2)
+  })
+
+  it('captures the member own repertoire row per song, or null (ER10)', () => {
+    const snapshot = buildOne()
+
+    expect(snapshot.songs[0].personalRepertoire?.id).toBe('personal-1')
+    expect(snapshot.songs[0].personalRepertoire?.lyrics).toBe('my cues')
+    expect(snapshot.songs[1].personalRepertoire).toBeNull()
+  })
+
   it('stamps the current schema version and the savedAt it was given', () => {
     const snapshot = buildOne()
 
@@ -174,6 +190,16 @@ describe('readValidSnapshot', () => {
     expect(readValidSnapshot({ ...snapshot, songs: [{ ...snapshot.songs[0], tabs: {} }] })).toBeNull()
     expect(readValidSnapshot({ ...snapshot, songs: ['nope'] })).toBeNull()
     expect(readValidSnapshot({ ...snapshot, songs: [{ ...snapshot.songs[0], tabs: ['nope'] }] })).toBeNull()
+  })
+
+  it('rejects a song whose personalRepertoire is neither a row nor null (ER10)', () => {
+    const snapshot = buildOne()
+
+    expect(readValidSnapshot({ ...snapshot, songs: [{ ...snapshot.songs[0], personalRepertoire: 7 }] })).toBeNull()
+    // Absent is not null: a v1 song carried no such field and must not validate.
+    const withoutField: Record<string, unknown> = { ...snapshot.songs[0] }
+    delete withoutField.personalRepertoire
+    expect(readValidSnapshot({ ...snapshot, songs: [withoutField] })).toBeNull()
   })
 
   it('rejects a tab that carries no createdAt — the field mergeTabs sorts on', () => {

@@ -9,6 +9,7 @@ import type { TabLibraryController } from '@/lib/tabLibrary'
 import type { ToastTone } from '@/lib/uiTones'
 import type { Stroke, TabAnnotations } from '@/types/database'
 import { LinkDeleteConfirm } from './LinkDeleteConfirm'
+import { LyricsDestinationModal } from './LyricsDestinationModal'
 import { LyricsStageOverlay } from './LyricsStageOverlay'
 import { PdfStageOverlay } from './PdfStageOverlay'
 import { TabDeleteConfirm } from './TabDeleteConfirm'
@@ -78,6 +79,17 @@ export function FastViewOverlays({
         annotationsError={pdfStage.annotationsError}
         onSaveAnnotations={pdfStage.saveAnnotations}
         onClose={pdfStage.close}
+      />
+
+      {/* Band-or-personal lyrics choice (band entries only, and never offline:
+          the Edit/Add button that opens it is `readOnly`-disabled there). Here
+          rather than inside the Lyrics section for the fixed-position reason
+          above — `<main>` would otherwise be its containing block. */}
+      <LyricsDestinationModal
+        open={lyrics.isVersionChoiceOpen}
+        personalRepertoireId={lyrics.personalRepertoireId}
+        onChoose={lyrics.chooseVersion}
+        onCancel={lyrics.cancelVersionChoice}
       />
 
       {/* Upload Destination Choice Modal (Only in band mode) */}

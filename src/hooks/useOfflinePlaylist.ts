@@ -15,10 +15,12 @@ import type { Repertoire, RepertoireTab } from '@/types/database'
  * so `src/hooks` never points back into the App Router tree (F21).
  * Required and never defaulted — a default would have to import that tree.
  *
- * Three existing actions, no new one and no new SQL. `getPersonalEntryForSong`
- * is deliberately absent: an offline playlist is the owner context's photograph
- * of the setlist, not a merge of two contexts, so the member's own repertoire
- * row and its tabs are not captured (docs/tasks/RH-80-spec.md §1).
+ * Four existing actions, no new one and no new SQL. `getPersonalEntryForSong`
+ * joined them in RH-83: the snapshot has to carry the member's own row or the
+ * band-vs-personal lyrics badge lies offline. It is read once per song and only
+ * in band context; the action already catches and returns `null`, so the read
+ * is fail-soft and cannot break a download. Personal **tabs** are still not
+ * captured (docs/tasks/RH-84-spec.md §5).
  */
 export interface OfflineDownloadActions {
   getPlaylistDetailsWithEntries: (
@@ -27,6 +29,7 @@ export interface OfflineDownloadActions {
   ) => Promise<{ name: string; entries: PlaylistEntry[] }>
   getSongEntry: (repertoireId: string, bandId?: string | null) => Promise<Repertoire | null>
   getTabs: (repertoireId: string) => Promise<RepertoireTab[]>
+  getPersonalEntryForSong: (songId: string) => Promise<Repertoire | null>
 }
 
 export interface UseOfflinePlaylistOptions {
@@ -101,7 +104,10 @@ async function gatherSongs(
     const repertoire = await actions.getSongEntry(entry.repertoireId, bandId)
     if (!repertoire) continue
     const tabs = await actions.getTabs(entry.repertoireId)
-    songs.push({ entry, repertoire, tabs })
+    // Only in band context: outside one there is no second version to capture,
+    // and `repertoire` already *is* the member's own row.
+    const personalRepertoire = bandId ? await actions.getPersonalEntryForSong(repertoire.song_id) : null
+    songs.push({ entry, repertoire, personalRepertoire, tabs })
   }
   return songs
 }

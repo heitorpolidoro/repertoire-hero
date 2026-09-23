@@ -14,5 +14,7 @@ import type { LyricsEditorActions } from '@/hooks/useLyricsEditor'
 export const LYRICS_EDITOR_ACTIONS: LyricsEditorActions = {
   updateLyrics: updateLyricsAction,
   fetchLyrics: fetchLyricsAction,
-  addSong: addSongAction,
+  // `(songId, seedFromBandId)`, never `(songId, bandId)`: the new row is always
+  // the member's own, and the band id only says which status to copy (RH-83).
+  addSong: (songId, seedFromBandId) => addSongAction(songId, null, seedFromBandId),
 }

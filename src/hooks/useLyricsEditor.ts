@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
-import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
+import { useCallback, useState } from 'react'
 import {
-  LYRICS_FONT_DEFAULT,
-  LYRICS_FONT_STEP,
-  hasDifferentPersonalLyrics as hasDifferentPersonalLyricsFor,
   resolveLyricsSaveTarget,
-  selectDisplayedLyrics,
-  stepLyricsFontSize,
+  seedLyricsDraft,
   type LyricsEditorController,
+  type LyricsVersion,
 } from '@/lib/lyricsEditor'
+import { useLyricsStage } from '@/hooks/useLyricsStage'
+import { useLyricsVersionChoice } from '@/hooks/useLyricsVersionChoice'
 import type { ToastTone } from '@/lib/uiTones'
 import type { Repertoire } from '@/types/database'
 
@@ -20,8 +18,14 @@ import type { Repertoire } from '@/types/database'
 export interface LyricsEditorActions {
   updateLyrics: (repertoireId: string, lyrics: string, bandId: string | null) => Promise<void>
   fetchLyrics: (artist: string, title: string) => Promise<string | null>
-  /** Creates the member's own entry the first time they save personal lyrics. */
-  addSong: (songId: string) => Promise<Repertoire>
+  /**
+   * Creates the member's own entry the first time they save personal lyrics.
+   * `seedStatusFromBandId` is the band whose current status for the song the
+   * new row copies, so writing a lyric note cannot drag the band's mastery to
+   * Unknown (RH-83 ER16). Never "the owner of the new row" — that is always
+   * the session's own user.
+   */
+  addSong: (songId: string, seedStatusFromBandId: string | null) => Promise<Repertoire>
 }
 
 export interface UseLyricsEditorOptions {
@@ -45,9 +49,13 @@ export interface UseLyricsEditorOptions {
 /**
  * Fast View's lyrics controller: it owns the edit state and its draft, the save
  * (band or personal, creating the member's own entry when there is none yet),
- * the online auto-import, the band/personal version switch and the lyrics Stage
- * Mode — its open state, its font size, its dark mode and the back-button
- * intercept that closes it.
+ * the online auto-import, the band/personal choice dialog and version switch
+ * and the discard of a personal version.
+ *
+ * Two siblings hold the rest of the controller it returns:
+ * `useLyricsVersionChoice` (which version is read, which one is being written)
+ * and `useLyricsStage` (the full-screen reading surface). Both were split out
+ * in RH-83 for the `max-lines-per-function` reason documented in each.
  *
  * All the decisions themselves live in `@/lib/lyricsEditor` and are unit-tested
  * without React; what is left here is the state, the effect and the wiring to
@@ -68,45 +76,58 @@ export function useLyricsEditor({
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [fetching, setFetching] = useState(false)
-  const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)
-  const [isStageOpen, setIsStageOpen] = useState(false)
-  const [fontSize, setFontSize] = useState(LYRICS_FONT_DEFAULT)
-  const [isDarkMode, setIsDarkMode] = useState(false)
+  const stage = useLyricsStage()
+  const choice = useLyricsVersionChoice(entry, personalEntry)
+  const displayed = choice.displayedLyrics
 
-  const displayed = selectDisplayedLyrics(entry, personalEntry, showPersonalLyrics)
+  const chooseVersion = useCallback(
+    (version: LyricsVersion) => {
+      setDraft(seedLyricsDraft(version, entry, personalEntry))
+      choice.startEditingVersion(version)
+      setIsEditing(true)
+    },
+    [choice, entry, personalEntry],
+  )
 
+  // Band context always asks, including once a personal version exists: the
+  // operator chose consistency over fewer taps (RH-83 ER4).
   const startEditing = useCallback(() => {
-    setDraft(displayed ?? '')
-    setIsEditing(true)
-  }, [displayed])
+    if (!entry) return
+    if (entry.band_id) choice.openChoice()
+    else chooseVersion('band')
+  }, [choice, chooseVersion, entry])
 
   const cancelEditing = useCallback(() => {
     setDraft(displayed ?? '')
     setIsEditing(false)
-  }, [displayed])
-
-  const toggleVersion = useCallback(() => setShowPersonalLyrics((prev) => !prev), [])
+    choice.stopEditing()
+  }, [choice, displayed])
 
   const save = useCallback(async () => {
     if (!entry) return
     try {
       setSaving(true)
+      const version = choice.editTarget ?? choice.activeVersion
       const target = resolveLyricsSaveTarget({
         entryId: entry.id,
         entryBandId: entry.band_id,
         personalRepertoireId: personalEntry?.id ?? null,
-        showPersonalLyrics,
+        version,
       })
+      // A whitespace-only personal draft is the same act as Discard my version:
+      // an empty personal `lyrics` is exactly "no personal version" (ER8).
+      const text = target.toPersonalEntry && !draft.trim() ? '' : draft
       let repertoireId = target.repertoireId
       if (repertoireId === null) {
-        const created = await actions.addSong(entry.song_id)
+        const created = await actions.addSong(entry.song_id, entry.band_id)
         onPersonalEntryCreated(created)
         repertoireId = created.id
       }
-      await actions.updateLyrics(repertoireId, draft, target.bandId)
-      if (target.toPersonalEntry) onPersonalLyricsSaved(draft)
-      else onEntryLyricsSaved(draft)
+      await actions.updateLyrics(repertoireId, text, target.bandId)
+      if (target.toPersonalEntry) onPersonalLyricsSaved(text)
+      else onEntryLyricsSaved(text)
       setIsEditing(false)
+      choice.finishEditing(target.toPersonalEntry && text === '' ? null : version)
       notify('Lyrics saved successfully!', 'success')
     } catch {
       // The reason never reaches the user beyond this Toast; the editor stays
@@ -117,6 +138,7 @@ export function useLyricsEditor({
     }
   }, [
     actions,
+    choice,
     draft,
     entry,
     notify,
@@ -124,8 +146,29 @@ export function useLyricsEditor({
     onPersonalEntryCreated,
     onPersonalLyricsSaved,
     personalEntry,
-    showPersonalLyrics,
   ])
+
+  /**
+   * Discarding writes an empty personal `lyrics`, which the resolution rule
+   * reads as "no personal version". The row itself is never deleted — it also
+   * carries the member's status, tags and tabs for this song (ER8).
+   */
+  const confirmDiscard = useCallback(async () => {
+    if (!personalEntry) return
+    try {
+      setSaving(true)
+      await actions.updateLyrics(personalEntry.id, '', null)
+      onPersonalLyricsSaved('')
+      setDraft('')
+      setIsEditing(false)
+      choice.finishEditing(null)
+      notify('Your personal lyrics version was discarded.', 'success')
+    } catch {
+      notify('Failed to discard your lyrics version', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [actions, choice, notify, onPersonalLyricsSaved, personalEntry])
 
   const autoImport = useCallback(async () => {
     if (!artist) {
@@ -150,49 +193,17 @@ export function useLyricsEditor({
     }
   }, [actions, artist, notify, songTitle])
 
-  const openStage = useCallback(() => setIsStageOpen(true), [])
-
-  const closeStage = useCallback(() => {
-    setIsStageOpen(false)
-    if (isStageHistoryEntry(window.history.state)) {
-      window.history.back()
-    }
-  }, [])
-
-  // Mobile back button intercept for the lyrics Stage Mode. PDF Stage Mode owns
-  // the mirror image of this effect inside `usePdfStage`; both push the same
-  // marker, from `@/lib/stageHistory`.
-  useEffect(() => {
-    if (!isStageOpen) return
-
-    window.history.pushState(stageHistoryState(), '')
-
-    const handlePopState = () => setIsStageOpen(false)
-
-    window.addEventListener('popstate', handlePopState)
-    return () => {
-      window.removeEventListener('popstate', handlePopState)
-    }
-  }, [isStageOpen])
-
-  const increaseFont = useCallback(
-    () => setFontSize((prev) => stepLyricsFontSize(prev, LYRICS_FONT_STEP)),
-    [],
-  )
-
-  const decreaseFont = useCallback(
-    () => setFontSize((prev) => stepLyricsFontSize(prev, -LYRICS_FONT_STEP)),
-    [],
-  )
-
-  const toggleDarkMode = useCallback(() => setIsDarkMode((prev) => !prev), [])
-
   return {
     isBandEntry: !!entry?.band_id,
     displayedLyrics: displayed,
-    hasDifferentPersonalLyrics: hasDifferentPersonalLyricsFor(entry, personalEntry),
-    showPersonalLyrics,
-    toggleVersion,
+    activeVersion: choice.activeVersion,
+    hasPersonalVersion: choice.hasPersonalVersion,
+    toggleVersion: choice.toggleVersion,
+    isVersionChoiceOpen: choice.isVersionChoiceOpen,
+    personalRepertoireId: personalEntry?.id ?? null,
+    chooseVersion,
+    cancelVersionChoice: choice.cancelVersionChoice,
+    editTarget: choice.editTarget,
     isEditing,
     draft,
     setDraft,
@@ -200,15 +211,13 @@ export function useLyricsEditor({
     cancelEditing,
     saving,
     save,
+    canDiscardPersonal: choice.editTarget === 'personal' && choice.hasPersonalVersion,
+    isDiscardPending: choice.isDiscardPending,
+    requestDiscard: choice.requestDiscard,
+    cancelDiscard: choice.cancelDiscard,
+    confirmDiscard,
     fetching,
     autoImport,
-    isStageOpen,
-    openStage,
-    closeStage,
-    fontSize,
-    increaseFont,
-    decreaseFont,
-    isDarkMode,
-    toggleDarkMode,
+    ...stage,
   }
 }

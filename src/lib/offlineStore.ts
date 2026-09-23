@@ -23,6 +23,7 @@
 
 import { logger } from '@/lib/logger'
 import {
+  OFFLINE_SCHEMA_VERSION,
   buildOfflineSnapshot,
   offlineTabCacheKey,
   readValidSnapshot,
@@ -88,6 +89,8 @@ export interface OfflineStorePorts {
 export interface OfflineSongInput {
   entry: PlaylistEntry
   repertoire: Repertoire
+  /** The member's own row for the song; `null` outside a band (RH-83 ER10). */
+  personalRepertoire: Repertoire | null
   tabs: RepertoireTab[]
 }
 
@@ -108,6 +111,7 @@ export interface OfflineStore {
   saveOfflinePlaylist(input: SaveOfflinePlaylistInput): Promise<OfflineSnapshotRecord>
   /** `null` when nothing is stored *or* the stored schema is not this one. */
   readOfflineSnapshot(playlistId: string): Promise<OfflineSnapshot | null>
+  /** Never lists a record of another schema version — it purges it instead. */
   listOfflinePlaylists(): Promise<OfflinePlaylistSummary[]>
   removeOfflinePlaylist(playlistId: string): Promise<void>
   matchOfflineTab(playlistId: string, tabId: string): Promise<Response | undefined>
@@ -194,7 +198,12 @@ export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
       for (const tab of song.tabs) {
         tabs.push(await cacheOneTab(active, input.playlistId, tab))
       }
-      songs.push({ entry: song.entry, repertoire: song.repertoire, tabs })
+      songs.push({
+        entry: song.entry,
+        repertoire: song.repertoire,
+        personalRepertoire: song.personalRepertoire,
+        tabs,
+      })
       input.onProgress?.(songs.length, input.songs.length)
     }
 
@@ -243,7 +252,19 @@ export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
 
     async listOfflinePlaylists() {
       const active = await resolvePorts()
-      return (await active.records.list()).map(toSummary)
+      const rows = await active.records.list()
+      const current: OfflinePlaylistSummary[] = []
+      for (const record of rows) {
+        // Purged, not merely skipped: a record listed as "Downloaded" while
+        // Fast View reports the playlist unavailable is the worst of both
+        // (RH-83 ER11). `removeOfflinePlaylist` drops the cached PDFs too.
+        if (record.schemaVersion !== OFFLINE_SCHEMA_VERSION) {
+          await removeOfflinePlaylist(record.playlistId)
+          continue
+        }
+        current.push(toSummary(record))
+      }
+      return current
     },
 
     removeOfflinePlaylist,
