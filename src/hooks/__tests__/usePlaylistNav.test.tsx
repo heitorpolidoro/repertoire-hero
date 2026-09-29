@@ -217,4 +217,70 @@ describe('usePlaylistNav', () => {
 
     expect(navigate).not.toHaveBeenCalled()
   })
+
+  describe('arrow keys', () => {
+    function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = document.body) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+      act(() => { target.dispatchEvent(event) })
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      return event
+    }
+
+    it('ArrowRight slides left to the next entry and ArrowLeft slides right to the previous one', async () => {
+      const { navigate } = setup()
+      await flush()
+
+      const event = press('ArrowRight')
+      expect(event.defaultPrevented).toBe(true)
+      expect(navigate).toHaveBeenLastCalledWith('/songs/rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7')
+
+      press('ArrowLeft')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/rep-1/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7')
+    })
+
+    it('queues a single push for a key pressed again during the slide-out', async () => {
+      const { result, navigate } = setup()
+      await flush()
+
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }))
+      })
+      expect(result.current.slideOut).toBe('left')
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+
+      expect(navigate).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores the keys while typing in a text field', async () => {
+      const { navigate } = setup()
+      await flush()
+      const textarea = document.createElement('textarea')
+      document.body.appendChild(textarea)
+
+      const event = press('ArrowRight', {}, textarea)
+
+      expect(event.defaultPrevented).toBe(false)
+      expect(navigate).not.toHaveBeenCalled()
+      textarea.remove()
+    })
+
+    it('ignores the keys when keyboardEnabled is false', async () => {
+      const { navigate } = setup({ keyboardEnabled: false })
+      await flush()
+
+      press('ArrowRight')
+
+      expect(navigate).not.toHaveBeenCalled()
+    })
+
+    it('ignores the keys outside a playlist', async () => {
+      const { navigate } = setup({ returnTo: null })
+      await flush()
+
+      press('ArrowRight')
+
+      expect(navigate).not.toHaveBeenCalled()
+    })
+  })
 })

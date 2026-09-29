@@ -123,6 +123,46 @@ export function swipeTarget(
   return nav.prevId ? { repertoireId: nav.prevId, direction: 'right' } : null
 }
 
+/**
+ * The parts of a `keydown` event the arrow-key navigation decides on, already
+ * read off the DOM by the caller so this module stays DOM-free.
+ */
+export interface NavKeyPress {
+  key: string
+  altKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+  /** The event was already handled by something else on the page. */
+  defaultPrevented: boolean
+  /** Focus sits in an input, textarea, select or contenteditable element. */
+  editableTarget: boolean
+}
+
+/**
+ * Where an arrow key lands: ArrowRight goes to the next song, ArrowLeft to the
+ * previous one, mirroring the swipe directions.
+ *
+ * Null without a nav, for any other key, for a modified key (Alt+Left is the
+ * browser's history back), while the musician is typing, when something else
+ * already handled the event, and at either end of the setlist.
+ */
+export function keyboardTarget(
+  press: NavKeyPress,
+  nav: PlaylistNav | null,
+): { repertoireId: string; direction: SlideDirection } | null {
+  if (!nav || press.defaultPrevented || press.editableTarget) return null
+  if (press.altKey || press.ctrlKey || press.metaKey || press.shiftKey) return null
+
+  if (press.key === 'ArrowRight') {
+    return nav.nextId ? { repertoireId: nav.nextId, direction: 'left' } : null
+  }
+  if (press.key === 'ArrowLeft') {
+    return nav.prevId ? { repertoireId: nav.prevId, direction: 'right' } : null
+  }
+  return null
+}
+
 /** The full className of the page's `<main>`, including the transform. */
 export function slideOutClassName(slideOut: SlideDirection | null): string {
   if (slideOut === 'left') return `${MAIN_CLASSES}-translate-x-full`

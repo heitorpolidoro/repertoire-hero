@@ -93,17 +93,6 @@ export default function FastViewPage() {
     actions: PDF_STAGE_ACTIONS,
   })
 
-  // Playlist navigation: the setlist fetch, the drawer, the slide-out and every
-  // router push the setlist UI can trigger live in this controller (RH-48).
-  const playlist = usePlaylistNav({
-    currentRepertoireId: id,
-    returnTo,
-    bandId: queryBandId,
-    actions: PLAYLIST_NAV_ACTIONS,
-    navigate: (href) => router.push(href),
-    navigateBack: () => router.back(),
-  })
-
   // Lyrics: the edit draft with its save and online auto-import, the band vs
   // personal version switch and the lyrics Stage Mode (its font size, its dark
   // mode and its back-button intercept) live in this controller (RH-51).
@@ -117,6 +106,19 @@ export default function FastViewPage() {
     onPersonalLyricsSaved: song.applyPersonalLyrics,
     onPersonalEntryCreated: song.adoptPersonalEntry,
     notify: showToast,
+  })
+
+  // Playlist navigation: the setlist fetch, the drawer, the slide-out and every
+  // router push the setlist UI can trigger live in this controller (RH-48).
+  // The arrow keys stay off while either Stage Mode surface is up.
+  const playlist = usePlaylistNav({
+    currentRepertoireId: id,
+    returnTo,
+    bandId: queryBandId,
+    actions: PLAYLIST_NAV_ACTIONS,
+    navigate: (href) => router.push(href),
+    navigateBack: () => router.back(),
+    keyboardEnabled: !pdfStage.isOpen && !lyrics.isStageOpen,
   })
 
   if (song.loading) return <SongLoading />
