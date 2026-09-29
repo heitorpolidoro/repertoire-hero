@@ -2,6 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useToast } from '@/hooks/useToast'
+import { useWakeLock } from '@/hooks/useWakeLock'
 import { slideOutClassName } from '@/lib/playlistNav'
 import { usePlaylistNav } from '@/hooks/usePlaylistNav'
 import { PLAYLIST_NAV_ACTIONS } from '@/app/fastViewNavActions'
@@ -46,6 +47,8 @@ export default function FastViewPage() {
 
   // One Toast for the whole page: every controller reports through it.
   const { toast, showToast, dismissToast } = useToast()
+
+  useWakeLock() // the screen stays on while a song is open on a music stand
 
   // The route's entry, the band-context reconciliation of the member's own
   // entry and the five patches the writes below apply (RH-52).
