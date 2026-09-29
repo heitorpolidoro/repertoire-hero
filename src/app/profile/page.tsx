@@ -25,6 +25,7 @@ import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";
 import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BAND_PROFILE_LOAD_POLICY } from "@/lib/bandAdminLoad";
 import type { Profile } from "@/types/database";
+import { PendingButton } from "@/components/ui/PendingButton";
 
 /**
  * The page owns the Server Action and hands it to the island (F21). Module-level
@@ -302,14 +303,12 @@ function BandProfileView({ bandId }: { bandId: string }) {
               required
               className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
-            <button
+            <PendingButton
               type="submit"
-              disabled={newPlaylist.creating}
+              pending={newPlaylist.creating} label="Create" pendingLabel="Creating…" spinnerClassName="text-current"
               className="rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60 transition-colors"
               style={theme.style}
-            >
-              {newPlaylist.creating ? "..." : "Create"}
-            </button>
+            />
             <button
               type="button"
               onClick={newPlaylist.close}

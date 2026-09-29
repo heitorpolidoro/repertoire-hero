@@ -12,6 +12,7 @@ import { Toast } from "@/components/ui/Toast";
 import { useToast } from "@/hooks/useToast";
 import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BANDS_PAGE_LOAD_POLICY } from "@/lib/bandAdminLoad";
+import { PendingButton } from "@/components/ui/PendingButton";
 
 /** Module-level so the hook's `load` callback stays referentially stable. */
 const BAND_PAGE_MESSAGES = { save: "Failed to save" };
@@ -317,13 +318,11 @@ export default function BandDetailPage() {
                 required
                 className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <button
+              <PendingButton
                 type="submit"
-                disabled={newPlaylist.creating}
+                pending={newPlaylist.creating} label="Create" pendingLabel="Creating…" spinnerClassName="text-white"
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
-              >
-                {newPlaylist.creating ? "..." : "Create"}
-              </button>
+              />
               <button
                 type="button"
                 onClick={newPlaylist.close}

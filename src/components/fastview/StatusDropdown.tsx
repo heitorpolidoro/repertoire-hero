@@ -1,5 +1,6 @@
 'use client'
 
+import { Spinner } from '@/components/ui/Spinner'
 import { STATUS_OPTIONS, type SongStatusController } from '@/lib/songStatus'
 import { STATUS_CONFIG } from '@/lib/statusConfig'
 
@@ -20,6 +21,9 @@ export interface StatusDropdownProps {
  * Presentational only — the open state and the write belong to `useSongStatus`
  * (RH-52). The list maps the `SongStatus`-typed `STATUS_OPTIONS` rather than
  * `Object.entries(STATUS_CONFIG)`, which is what removed the page's `as any`.
+ *
+ * While a change is saving, the badge's caret becomes a spinner and the options
+ * lock, so the tap visibly landed even though the list closes only on success.
  */
 export function StatusDropdown({ controller, readOnly = false }: StatusDropdownProps) {
   const cfg = STATUS_CONFIG[controller.status]
@@ -30,10 +34,15 @@ export function StatusDropdown({ controller, readOnly = false }: StatusDropdownP
         type="button"
         onClick={controller.toggleDropdown}
         disabled={controller.updating || readOnly}
+        aria-busy={controller.updating}
         className={`px-3 py-1 rounded-full text-sm font-medium transition-colors border hover:shadow-sm flex items-center gap-1.5 focus:outline-none ${cfg.bgColor} ${cfg.textColor} border-transparent hover:border-gray-300/40`}
       >
         <span>{cfg.label}</span>
-        <span className="text-[10px] opacity-70" aria-hidden="true">&#9662;</span>
+        {controller.updating ? (
+          <Spinner />
+        ) : (
+          <span className="text-[10px] opacity-70" aria-hidden="true">&#9662;</span>
+        )}
       </button>
 
       {controller.isDropdownOpen && (
@@ -53,7 +62,8 @@ export function StatusDropdown({ controller, readOnly = false }: StatusDropdownP
                   <button
                     type="button"
                     onClick={() => controller.change(option.status)}
-                    className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-gray-50 flex items-center justify-between transition-colors ${
+                    disabled={controller.updating}
+                    className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-wait flex items-center justify-between transition-colors ${
                       isSelected ? 'text-emerald-700 bg-emerald-50/50' : 'text-gray-700'
                     }`}
                   >

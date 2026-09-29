@@ -146,6 +146,8 @@ export interface TabLibraryController {
   uploadTitle: string
   uploadFile: File | null
   uploading: boolean
+  /** Which destination the upload in flight goes to, so its button can spin. */
+  uploadDestination: TabOrigin | null
   uploadError: string | null
   fileInputRef: RefObject<HTMLInputElement | null>
   setUploadTitle: (title: string) => void

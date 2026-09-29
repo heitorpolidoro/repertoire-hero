@@ -25,6 +25,16 @@ describe('TabViewer (RH-80)', () => {
     expect(container.querySelector('[data-testid="tab-viewer-offline"]')).toBeNull()
   })
 
+  it('shows a loading status over the iframe until it loads', () => {
+    const { container } = render(
+      <TabViewer url="https://blob.example/a.pdf" title="Riff" onOpenStage={vi.fn()} onClose={vi.fn()} />,
+    )
+
+    expect(screen.getByRole('status').textContent).toContain('Loading preview')
+    fireEvent.load(container.querySelector('iframe') as HTMLIFrameElement)
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('replaces the iframe with the offline panel when offline', () => {
     const { container } = render(
       <TabViewer

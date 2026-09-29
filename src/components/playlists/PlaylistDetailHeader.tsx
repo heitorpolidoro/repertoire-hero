@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, type Dispatch } from "react";
+import { useCallback, useState, type Dispatch } from "react";
 import { PlaylistSpotifyStrip } from "@/components/playlists/PlaylistSpotifyStrip";
 import { SongPickerToggle } from "@/components/playlists/SongPickerToggle";
+import { Spinner } from "@/components/ui/Spinner";
 import {
   renameDraft,
   type PlaylistPanel,
@@ -51,6 +52,16 @@ export function PlaylistDetailHeader({
   onSync,
 }: PlaylistDetailHeaderProps) {
   const renaming = panel.kind === "rename";
+  // The rename in flight: Save says so and cannot fire twice.
+  const [saving, setSaving] = useState(false);
+
+  const rename = () => {
+    if (saving) return;
+    setSaving(true);
+    onRename()
+      .catch(console.error)
+      .finally(() => setSaving(false));
+  };
 
   // Focus on mount, instead of the page's deleted effect and instead of
   // `autoFocus`, which is avoided here for the accessibility reason the page's
@@ -108,25 +119,33 @@ export function PlaylistDetailHeader({
                 dispatch({ type: "change-rename-draft", draft: ev.target.value })
               }
               onKeyDown={(ev) => {
-                if (ev.key === "Enter") onRename().catch(console.error);
+                if (ev.key === "Enter") rename();
                 if (ev.key === "Escape") dispatch({ type: "close" });
               }}
-              className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              disabled={saving}
+              className="flex-1 rounded border border-emerald-300 px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60"
               aria-label="Playlist name"
             />
             <button
               type="button"
-              onClick={() => {
-                onRename().catch(console.error);
-              }}
-              className="text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline"
+              onClick={() => rename()}
+              disabled={saving}
+              className="flex items-center gap-1 text-xs text-emerald-600 font-medium hover:text-emerald-800 focus:outline-none focus:underline disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Save
+              {saving ? (
+                <>
+                  <Spinner />
+                  Saving…
+                </>
+              ) : (
+                "Save"
+              )}
             </button>
             <button
               type="button"
               onClick={() => dispatch({ type: "close" })}
-              className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+              disabled={saving}
+              className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline disabled:opacity-50"
             >
               Cancel
             </button>
@@ -166,25 +185,10 @@ export function PlaylistDetailHeader({
             </button>
 
             {panel.kind === "delete-confirm" ? (
-              <span className="flex items-center gap-1 text-xs px-1">
-                <span className="text-gray-600">Sure?</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onDelete().catch(console.error);
-                  }}
-                  className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline"
-                >
-                  Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => dispatch({ type: "close" })}
-                  className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
-                >
-                  No
-                </button>
-              </span>
+              <PlaylistDeleteConfirm
+                onDelete={onDelete}
+                onCancel={() => dispatch({ type: "close" })}
+              />
             ) : (
               <button
                 type="button"
@@ -217,5 +221,54 @@ export function PlaylistDetailHeader({
         onSync={onSync}
       />
     </header>
+  );
+}
+
+/**
+ * The inline "Sure? Yes / No" of the delete button. While the delete (and the
+ * redirect that follows it) runs, both answers give way to a spinner, so the
+ * click visibly landed and cannot be repeated.
+ */
+function PlaylistDeleteConfirm({
+  onDelete,
+  onCancel,
+}: {
+  onDelete: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  if (deleting) {
+    return (
+      <span className="flex items-center gap-1 text-xs px-1 text-gray-600" role="status">
+        <Spinner />
+        Deleting…
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1 text-xs px-1">
+      <span className="text-gray-600">Sure?</span>
+      <button
+        type="button"
+        onClick={() => {
+          setDeleting(true);
+          onDelete()
+            .catch(console.error)
+            .finally(() => setDeleting(false));
+        }}
+        className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline"
+      >
+        Yes
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+      >
+        No
+      </button>
+    </span>
   );
 }

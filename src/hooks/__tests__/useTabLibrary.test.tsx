@@ -185,6 +185,30 @@ describe('useTabLibrary', () => {
     expect(actions.uploadTab).not.toHaveBeenCalled()
   })
 
+  it('reports the chosen destination while its upload is in flight', async () => {
+    const { result, actions } = setup()
+    await flush()
+    let finish: (value: { data?: unknown }) => void = () => {}
+    actions.uploadTab.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+
+    act(() => result.current.pickFile(pdf()))
+    await act(async () => result.current.submitUpload())
+    let pending: Promise<void> = Promise.resolve()
+    act(() => { pending = result.current.chooseDestination('band') })
+    await flush()
+
+    expect(result.current.uploadDestination).toBe('band')
+    expect(result.current.uploading).toBe(true)
+    expect(result.current.isDestinationModalOpen).toBe(true)
+
+    await act(async () => {
+      finish({ data: undefined })
+      await pending
+    })
+    expect(result.current.uploadDestination).toBeNull()
+    expect(result.current.uploading).toBe(false)
+  })
+
   it('uploads straight to the personal entry when the entry has no band', async () => {
     const { result, actions } = setup({ repertoireId: 'rep-mine', entryBandId: null })
     await flush()

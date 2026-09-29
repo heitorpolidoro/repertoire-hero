@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
-import { OFFLINE_STORE } from '@/lib/offlineStore';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
+import { SignOutButton } from '@/components/layout/SignOutButton';
 import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
 import type { BandOption } from '@/types/database';
 
@@ -133,26 +133,6 @@ function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
   );
 }
 
-/**
- * The sign-out sequence (RH-79).
- *
- * At module scope, taking the router structurally, for two reasons: the purge
- * has to be awaited *first*, and `AppLayout` sits at its `max-lines-per-function`
- * ceiling, so adding these lines in place would break the complexity budget.
- *
- * `clearAllOfflineData()` runs before the context reset and before
- * `authClient.signOut()`, and is awaited, because the offline cache answers
- * before the network and therefore bypasses `src/proxy.ts`'s redirect entirely:
- * a snapshot left on the device would still be readable by whoever signs in
- * next. It never throws, so a purge failure cannot strand the user signed in.
- */
-async function signOutAndPurge(router: { push: (href: string) => void }): Promise<void> {
-  await OFFLINE_STORE.clearAllOfflineData();
-  useBandContextStore.getState().setUserContext();
-  await authClient.signOut();
-  router.push('/login');
-}
-
 const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent), {
   ssr: false,
 });
@@ -199,8 +179,6 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   };
-
-  const handleSignOut = () => void signOutAndPurge(router);
 
   const handleExitBandMode = () => {
     setUserContext();
@@ -268,14 +246,9 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
           )}
 
           <div className={`px-3 py-4 border-t ${borderColor}`}>
-            <button
-              type="button"
-              onClick={handleSignOut}
+            <SignOutButton
               className={`flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${inactiveNavClass}`}
-            >
-              <span aria-hidden="true">🚪</span>
-              Sign Out
-            </button>
+            />
           </div>
         </nav>
       )}
@@ -354,16 +327,12 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
             ))}
 
             <li className="flex-1">
-              <button
-                type="button"
-                onClick={handleSignOut}
+              <SignOutButton
                 className={`flex w-full flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
                   isBandMode ? 'text-purple-400 hover:text-white' : 'text-gray-400 hover:text-white'
                 }`}
-              >
-                <span className="text-xl leading-none" aria-hidden="true">🚪</span>
-                Sign Out
-              </button>
+                iconClassName="text-xl leading-none"
+              />
             </li>
           </ul>
         </nav>

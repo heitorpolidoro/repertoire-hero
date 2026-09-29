@@ -95,7 +95,7 @@ export function FastViewOverlays({
       {/* Upload Destination Choice Modal (Only in band mode) */}
       <TabDestinationModal
         open={tabLibrary.isDestinationModalOpen}
-        uploading={tabLibrary.uploading}
+        uploadDestination={tabLibrary.uploadDestination}
         onChoose={tabLibrary.chooseDestination}
         onCancel={tabLibrary.cancelDestination}
       />
