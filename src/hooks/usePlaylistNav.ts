@@ -3,6 +3,7 @@ import {
   backTarget,
   computePlaylistNav,
   fastViewHref,
+  keyboardTarget,
   playlistIdFromReturnTo,
   slideDirection,
   swipeTarget,
@@ -34,6 +35,12 @@ export interface UsePlaylistNavOptions {
   navigate: (href: string) => void
   /** `router.back` */
   navigateBack: () => void
+  /**
+   * Whether ArrowLeft / ArrowRight move through the setlist. Off while a Stage
+   * Mode surface is up, so a key press never yanks the musician out of it.
+   * Defaults to true.
+   */
+  keyboardEnabled?: boolean
 }
 
 export interface PlaylistNavController {
@@ -69,6 +76,7 @@ export function usePlaylistNav({
   actions,
   navigate,
   navigateBack,
+  keyboardEnabled = true,
 }: UsePlaylistNavOptions): PlaylistNavController {
   const [nav, setNav] = useState<PlaylistNav | null>(null)
   const [entries, setEntries] = useState<PlaylistEntry[]>([])
@@ -148,6 +156,35 @@ export function usePlaylistNav({
     [nav, slideAwayTo],
   )
 
+  // Arrow keys (and the Bluetooth page-turner pedals that emit them) move
+  // through the setlist exactly like a swipe does.
+  useEffect(() => {
+    if (!keyboardEnabled || !nav) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // One slide at a time: a held key must not queue a second push.
+      if (slideTimer.current !== null) return
+      const target = keyboardTarget(
+        {
+          key: event.key,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+          defaultPrevented: event.defaultPrevented,
+          editableTarget: isEditableTarget(event.target),
+        },
+        nav,
+      )
+      if (!target) return
+      event.preventDefault()
+      slideAwayTo(target.repertoireId, target.direction)
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [keyboardEnabled, nav, slideAwayTo])
+
   const goBack = useCallback(() => {
     const target = backTarget(returnTo)
     if (target.kind === 'push') {
@@ -173,4 +210,10 @@ export function usePlaylistNav({
     onTouchStart,
     onTouchEnd,
   }
+}
+
+/** Focus in a text field, a select or a contenteditable element. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 }

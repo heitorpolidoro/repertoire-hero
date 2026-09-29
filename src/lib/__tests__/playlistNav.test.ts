@@ -5,9 +5,11 @@ import {
   fastViewHref,
   slideDirection,
   swipeTarget,
+  keyboardTarget,
   slideOutClassName,
   backTarget,
   SWIPE_THRESHOLD_PX,
+  type NavKeyPress,
   type PlaylistEntry,
   type PlaylistNav,
 } from '../playlistNav'
@@ -143,6 +145,52 @@ describe('swipeTarget', () => {
   it('returns null when the requested direction has no neighbour', () => {
     expect(swipeTarget(140, navAt(2))).toBeNull()
     expect(swipeTarget(-140, navAt(0))).toBeNull()
+  })
+})
+
+describe('keyboardTarget', () => {
+  const press = (overrides: Partial<NavKeyPress> = {}): NavKeyPress => ({
+    key: 'ArrowRight',
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    defaultPrevented: false,
+    editableTarget: false,
+    ...overrides,
+  })
+
+  it('advances to the next entry on ArrowRight', () => {
+    expect(keyboardTarget(press(), navAt(1))).toEqual({ repertoireId: 'rep-3', direction: 'left' })
+  })
+
+  it('returns to the previous entry on ArrowLeft', () => {
+    expect(keyboardTarget(press({ key: 'ArrowLeft' }), navAt(1))).toEqual({
+      repertoireId: 'rep-1',
+      direction: 'right',
+    })
+  })
+
+  it('returns null at either end of the setlist', () => {
+    expect(keyboardTarget(press(), navAt(2))).toBeNull()
+    expect(keyboardTarget(press({ key: 'ArrowLeft' }), navAt(0))).toBeNull()
+  })
+
+  it('returns null without a nav and for any other key', () => {
+    expect(keyboardTarget(press(), null)).toBeNull()
+    expect(keyboardTarget(press({ key: 'ArrowDown' }), navAt(1))).toBeNull()
+    expect(keyboardTarget(press({ key: 'Enter' }), navAt(1))).toBeNull()
+  })
+
+  it('returns null for a modified key, so browser shortcuts like Alt+Left keep working', () => {
+    for (const modifier of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey'] as const) {
+      expect(keyboardTarget(press({ [modifier]: true }), navAt(1))).toBeNull()
+    }
+  })
+
+  it('returns null while typing or when the event was already handled', () => {
+    expect(keyboardTarget(press({ editableTarget: true }), navAt(1))).toBeNull()
+    expect(keyboardTarget(press({ defaultPrevented: true }), navAt(1))).toBeNull()
   })
 })
 
