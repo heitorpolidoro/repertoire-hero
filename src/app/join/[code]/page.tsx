@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { getSession } from "@/lib/auth-session";
+import { PendingSubmitButton } from "@/components/ui/PendingSubmitButton";
 import {
   getBandByInviteCodeServer,
   joinBandByInviteServer,
@@ -211,12 +212,12 @@ export default async function JoinBandPage({ params, searchParams }: Props) {
 
                 <div className="flex flex-col gap-2.5 pt-2">
                   <form action={handleAccept}>
-                    <button
-                      type="submit"
-                      className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-950/20 transition-all transform active:scale-95"
-                    >
-                      Accept Invitation & Join
-                    </button>
+                    <PendingSubmitButton
+                      label="Accept Invitation & Join"
+                      pendingLabel="Joining…"
+                      spinnerClassName="text-white"
+                      className="w-full justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-70 disabled:cursor-wait shadow-md shadow-emerald-950/20 transition-all transform active:scale-95"
+                    />
                   </form>
                   <Link
                     href="/"

@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Spinner } from '@/components/ui/Spinner';
 import type { SpotifyPlaylist } from '@/types/database';
 
 const SettingsPage = () => {
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const loadSpotifyStatus = useCallback(async () => {
     try {
@@ -26,11 +28,15 @@ const SettingsPage = () => {
   }, [loadSpotifyStatus]);
 
   const handleDisconnect = async () => {
+    setDisconnecting(true);
     try {
-      await fetch('/api/auth/spotify/disconnect', { method: 'POST' });
+      const res = await fetch('/api/auth/spotify/disconnect', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to disconnect Spotify');
       setSpotifyConnected(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect Spotify');
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -127,9 +133,17 @@ const SettingsPage = () => {
               <button
                 type="button"
                 onClick={() => handleDisconnect().catch(console.error)}
-                className="text-xs text-gray-400 hover:text-gray-600 focus:outline-none focus:underline"
+                disabled={disconnecting}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 focus:outline-none focus:underline disabled:cursor-wait"
               >
-                Disconnect
+                {disconnecting ? (
+                  <>
+                    <Spinner />
+                    Disconnecting…
+                  </>
+                ) : (
+                  'Disconnect'
+                )}
               </button>
             </div>
           )}

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { Spinner } from "@/components/ui/Spinner";
 import type { SpotifyPlaylist } from "@/types/database";
 
 export interface PendingImport {
@@ -52,9 +53,16 @@ export const SpotifyImportListItem = ({
               type="button"
               onClick={onConfirm}
               disabled={importingId === sp.id}
-              className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-70 disabled:cursor-wait transition-colors"
             >
-              {importingId === sp.id ? "Importing..." : "Import"}
+              {importingId === sp.id ? (
+                <>
+                  <Spinner colorClassName="text-white" />
+                  Importing…
+                </>
+              ) : (
+                "Import"
+              )}
             </button>
             <button
               type="button"

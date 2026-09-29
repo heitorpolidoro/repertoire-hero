@@ -62,6 +62,15 @@ describe('SongIdentityHeader', () => {
     expect(controller.toggleDropdown).toHaveBeenCalledTimes(1)
   })
 
+  it('StatusDropdown spins on the trigger and locks the options while a change saves', () => {
+    render(<StatusDropdown controller={makeStatus({ isDropdownOpen: true, updating: true })} />)
+
+    const [trigger, ...options] = screen.getAllByRole('button') as HTMLButtonElement[]
+    expect(trigger.querySelector('svg.animate-spin')).not.toBeNull()
+    expect(options).toHaveLength(5)
+    expect(options.every((option) => option.disabled)).toBe(true)
+  })
+
   it('StatusDropdown lists the five statuses in mastery order while open', () => {
     render(<StatusDropdown controller={makeStatus({ isDropdownOpen: true })} />)
 

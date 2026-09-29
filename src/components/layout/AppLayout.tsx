@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
+import { SignOutButton } from '@/components/layout/SignOutButton';
 import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
 import type { BandOption } from '@/types/database';
 
@@ -162,12 +163,6 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
     return pathname.startsWith(href);
   };
 
-  const handleSignOut = async (): Promise<void> => {
-    useBandContextStore.getState().setUserContext();
-    await authClient.signOut();
-    router.push('/login');
-  };
-
   const handleExitBandMode = () => {
     setUserContext();
     loadSongs();
@@ -235,14 +230,9 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
         )}
 
         <div className={`px-3 py-4 border-t ${borderColor}`}>
-          <button
-            type="button"
-            onClick={handleSignOut}
+          <SignOutButton
             className={`flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${inactiveNavClass}`}
-          >
-            <span aria-hidden="true">🚪</span>
-            Sign Out
-          </button>
+          />
         </div>
       </nav>
 
@@ -322,16 +312,12 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
           ))}
 
           <li className="flex-1">
-            <button
-              type="button"
-              onClick={handleSignOut}
+            <SignOutButton
               className={`flex w-full flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
                 isBandMode ? 'text-purple-400 hover:text-white' : 'text-gray-400 hover:text-white'
               }`}
-            >
-              <span className="text-xl leading-none" aria-hidden="true">🚪</span>
-              Sign Out
-            </button>
+              iconClassName="text-xl leading-none"
+            />
           </li>
         </ul>
       </nav>

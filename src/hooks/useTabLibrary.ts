@@ -122,7 +122,8 @@ export function useTabLibrary({
   const [active, setActive] = useState<ActiveTab | null>(null)
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
+  /** The destination of the upload in flight, null when none is running. */
+  const [uploadDestination, setUploadDestination] = useState<TabOrigin | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isDestinationModalOpen, setIsDestinationModalOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<PendingTabDelete | null>(null)
@@ -171,7 +172,7 @@ export function useTabLibrary({
       }
 
       try {
-        setUploading(true)
+        setUploadDestination(destination)
         setUploadError(null)
 
         const target = resolveUploadTarget({
@@ -211,7 +212,7 @@ export function useTabLibrary({
         const message = err instanceof Error ? err.message : undefined
         setUploadError(message || 'Failed to upload tab')
       } finally {
-        setUploading(false)
+        setUploadDestination(null)
         setIsDestinationModalOpen(false)
       }
     },
@@ -284,7 +285,8 @@ export function useTabLibrary({
     closeActiveTab,
     uploadTitle,
     uploadFile,
-    uploading,
+    uploading: uploadDestination !== null,
+    uploadDestination,
     uploadError,
     fileInputRef,
     setUploadTitle,

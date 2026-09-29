@@ -31,6 +31,7 @@ function makeLibrary(overrides: Partial<TabLibraryController> = {}): TabLibraryC
     uploadTitle: '',
     uploadFile: null,
     uploading: false,
+    uploadDestination: null,
     uploadError: null,
     fileInputRef: { current: null },
     setUploadTitle: vi.fn(),
@@ -97,7 +98,7 @@ describe('TabViewer', () => {
 describe('TabDestinationModal', () => {
   it('TabDestinationModal renders nothing while it is closed', () => {
     const { container } = render(
-      <TabDestinationModal open={false} uploading={false} onChoose={vi.fn()} onCancel={vi.fn()} />,
+      <TabDestinationModal open={false} uploadDestination={null} onChoose={vi.fn()} onCancel={vi.fn()} />,
     )
     expect(container.innerHTML).toBe('')
   })
@@ -105,7 +106,7 @@ describe('TabDestinationModal', () => {
   it('TabDestinationModal offers the personal and band destinations and reports the chosen one', () => {
     const onChoose = vi.fn()
     render(
-      <TabDestinationModal open uploading={false} onChoose={onChoose} onCancel={vi.fn()} />,
+      <TabDestinationModal open uploadDestination={null} onChoose={onChoose} onCancel={vi.fn()} />,
     )
 
     expect(screen.getByText('Upload Destination')).toBeDefined()
@@ -119,16 +120,30 @@ describe('TabDestinationModal', () => {
   it('TabDestinationModal cancels without uploading', () => {
     const onCancel = vi.fn()
     const onChoose = vi.fn()
-    const busy = render(<TabDestinationModal open uploading onChoose={onChoose} onCancel={onCancel} />)
+    const busy = render(<TabDestinationModal open uploadDestination="band" onChoose={onChoose} onCancel={onCancel} />)
     // Every button is disabled while an upload is in flight.
     const disabled = screen.getAllByRole('button') as HTMLButtonElement[]
     expect(disabled.every((button) => button.disabled)).toBe(true)
     busy.unmount()
 
-    render(<TabDestinationModal open uploading={false} onChoose={onChoose} onCancel={onCancel} />)
+    render(<TabDestinationModal open uploadDestination={null} onChoose={onChoose} onCancel={onCancel} />)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancel).toHaveBeenCalledTimes(1)
     expect(onChoose).not.toHaveBeenCalled()
+  })
+})
+
+describe('TabDestinationModal while uploading', () => {
+  it('spins on the chosen destination only and announces the upload', () => {
+    render(<TabDestinationModal open uploadDestination="band" onChoose={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(screen.getByRole('status').textContent).toBe('Uploading PDF, please wait…')
+    const band = screen.getByText(/Band files/).closest('button') as HTMLButtonElement
+    const personal = screen.getByText(/Personal studies/).closest('button') as HTMLButtonElement
+    expect(band.textContent).toContain('Uploading…')
+    expect(band.querySelector('svg.animate-spin')).not.toBeNull()
+    expect(personal.textContent).not.toContain('Uploading…')
+    expect(personal.textContent).toContain('Private')
   })
 })
 

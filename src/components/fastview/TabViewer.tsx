@@ -1,5 +1,8 @@
 'use client'
 
+import { useState } from 'react'
+import { Spinner } from '@/components/ui/Spinner'
+
 export interface TabViewerProps {
   url: string | null
   title: string
@@ -37,10 +40,35 @@ export function TabViewer({ url, title, onOpenStage, onClose }: TabViewerProps) 
           </button>
         </div>
       </div>
+      <GviewFrame key={url} url={url} title={title} />
+    </div>
+  )
+}
+
+/**
+ * The Google viewer iframe, with a spinner over it until it loads: gview often
+ * takes seconds and paints nothing meanwhile. Keyed by url at the call site, so
+ * picking another tab starts from "loading" again.
+ */
+function GviewFrame({ url, title }: { url: string; title: string }) {
+  const [loaded, setLoaded] = useState(false)
+
+  return (
+    <div className="relative">
+      {!loaded && (
+        <div
+          className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-gray-50 text-xs text-gray-500"
+          role="status"
+        >
+          <Spinner />
+          Loading preview…
+        </div>
+      )}
       <iframe
         src={`https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`}
         className="w-full h-[550px] rounded-lg border border-gray-150"
         title={title}
+        onLoad={() => setLoaded(true)}
       />
     </div>
   )

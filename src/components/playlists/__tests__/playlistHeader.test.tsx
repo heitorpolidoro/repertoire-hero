@@ -119,14 +119,41 @@ describe('PlaylistDetailHeader', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'change-rename-draft', draft: 'Set two' })
   })
 
-  it('commits the rename on Enter and on the Save button', () => {
+  it('commits the rename on Enter and on the Save button', async () => {
     const { onRename } = renderHeader({ panel: { kind: 'rename', draft: 'Set two' } })
 
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Playlist name' }), { key: 'Enter' })
     expect(onRename).toHaveBeenCalledTimes(1)
+    await screen.findByRole('button', { name: 'Save' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(onRename).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a spinner on Save and ignores a second submit while the rename runs', async () => {
+    const { onRename } = renderHeader({ panel: { kind: 'rename', draft: 'Set two' } })
+    let finish: () => void = () => {}
+    onRename.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const saving = screen.getByRole('button', { name: /Saving/ }) as HTMLButtonElement
+    expect(saving.disabled).toBe(true)
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Playlist name' }), { key: 'Enter' })
+    expect(onRename).toHaveBeenCalledTimes(1)
+
+    finish()
+    expect(await screen.findByRole('button', { name: 'Save' })).toBeDefined()
+  })
+
+  it('replaces Yes / No with a spinner while the delete runs', () => {
+    const { onDelete } = renderHeader({ panel: { kind: 'delete-confirm' } })
+    onDelete.mockReturnValueOnce(new Promise<void>(() => {}))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+
+    expect(screen.getByRole('status').textContent).toContain('Deleting')
+    expect(screen.queryByRole('button', { name: 'Yes' })).toBeNull()
+    expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
   it('closes the rename panel on Escape and on Cancel', () => {
