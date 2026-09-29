@@ -3,6 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useToast } from '@/hooks/useToast'
 import { useOfflineStatus } from '@/hooks/useOfflineStatus'
+import { useWakeLock } from '@/hooks/useWakeLock'
 // The seven bundles, offline-first. Imported from the one composition root that
 // wraps them (RH-80) instead of from the four `fastView*Actions.ts` files,
 // which are unchanged and keep their other consumers.
@@ -68,6 +69,7 @@ export default function FastViewPage() {
 
   // The page's single offline reader — see the note above the component.
   const isOffline = useOfflineStatus()
+  useWakeLock() // the screen stays on while a song is open on a music stand
 
   // The route's entry, the band-context reconciliation of the member's own
   // entry and the five patches the writes below apply (RH-52).
