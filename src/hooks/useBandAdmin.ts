@@ -274,6 +274,7 @@ export function useBandAdmin({
     isMember,
     editDraft: edit.editDraft,
     saving: edit.saving,
+    processingCover: edit.processingCover,
     invite,
     pending,
     newPlaylist,

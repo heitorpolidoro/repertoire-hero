@@ -147,7 +147,7 @@ describe('BandsView', () => {
     openCreateForm()
     const file = new File(['x'], 'cover.png', { type: 'image/png' })
     fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } })
-    await waitFor(() => expect(screen.getByAltText('Cover preview')).toBeDefined())
+    await waitFor(() => expect(screen.getByAltText('Band cover preview')).toBeDefined())
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Band' }))
 
