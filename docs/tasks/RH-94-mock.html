@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-94 - Lyrics formatting guide (mock)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  .chord { color:#047857; background:#ecfdf5; padding:.125rem .25rem; border-radius:.25rem; border:1px solid #d1fae5; font-size:.75rem; font-weight:600; }
+</style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans">
+<div class="max-w-6xl mx-auto p-6 flex flex-col gap-10">
+
+  <header class="flex flex-col gap-1">
+    <h1 class="text-xl font-bold">RH-94 - Formatting guide beside the lyrics editor</h1>
+    <p class="text-sm text-gray-500">Fast View, Lyrics section, after pressing <b>Edit</b>. Each guide entry shows the text to type and its preview, rendered with the same four rules the parser uses. Edit the text and press <b>Save</b> to see it rendered on the lyrics card, or <b>Cancel</b>: outside edit mode the guide disappears. <b>Edit</b> brings it back.</p>
+  </header>
+
+  <!-- ============ Desktop ============ -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Wide screen (sm and up) - guide beside the textarea</h2>
+    <p class="text-sm text-gray-600 max-w-3xl">Auto-import, Cancel and Save sit directly under the textarea and end where the textarea ends; nothing runs under the guide column. The guide is always open here (no "Formatting help" line).</p>
+    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-6">
+      <div class="max-w-xl mx-auto" data-lyrics-root></div>
+    </div>
+  </section>
+
+  <!-- ============ Phone (option B, chosen) ============ -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Phone placement - option B (chosen)</h2>
+    <p class="text-sm text-gray-600 max-w-3xl">Under the textarea there is one "Formatting help" line, closed by default. Tapping it shows the four entries as a 2x2 grid between the textarea and the buttons; tapping again hides them. Both phones are live - the left one starts closed, the right one starts open.</p>
+    <div class="flex flex-wrap gap-8">
+      <div class="flex flex-col items-center gap-2">
+        <span class="text-sm font-bold">Collapsed (default)</span>
+        <div class="w-[390px] bg-gray-50 border-8 border-gray-800 rounded-[2rem] px-6 py-6">
+          <div data-lyrics-root data-phone="closed"></div>
+        </div>
+      </div>
+      <div class="flex flex-col items-center gap-2">
+        <span class="text-sm font-bold">Expanded (after tapping "Formatting help")</span>
+        <div class="w-[390px] bg-gray-50 border-8 border-gray-800 rounded-[2rem] px-6 py-6">
+          <div data-lyrics-root data-phone="open"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  // Mirrors the single rule table in src/lib/lyricsMarkdown.ts (order = parse order).
+  const RULES = [
+    { id: 'bold', label: 'Bold', syntax: '**bold**', re: /\*\*([\s\S]*?)\*\*/g, rep: '<strong>$1</strong>' },
+    { id: 'italic', label: 'Italic', syntax: '*italic*', re: /\*([\s\S]*?)\*/g, rep: '<em>$1</em>' },
+    { id: 'underline', label: 'Underline', syntax: '__underline__', re: /__([\s\S]*?)__/g, rep: '<u>$1</u>' },
+    { id: 'badge', label: 'Chord / cue badge', syntax: '[Am]', re: /\[(.*?)\]/g, rep: '<strong class="chord">$1</strong>' },
+  ];
+  function parse(t) {
+    t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return RULES.reduce((s, r) => s.replace(r.re, r.rep), t);
+  }
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const SAMPLE = "[Intro] [Am] [F] [C] [G]\n\n**Verse 1**\nI walked along the *empty* road\nThe __night__ was [Em] cold\n\n**Chorus**\n[C] Sing it *softly*, sing it __slow__";
+
+  function guideItems(compact) {
+    return RULES.map(r => `
+      <li class="flex ${compact ? 'flex-col gap-0.5' : 'flex-col gap-0.5'} rounded-lg bg-white border border-gray-100 px-2 py-1.5">
+        <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">${r.label}</span>
+        <div class="flex items-center justify-between gap-2">
+          <code class="text-xs font-mono text-gray-700 bg-gray-50 rounded px-1">${esc(r.syntax)}</code>
+          <span class="text-sm">${parse(r.syntax)}</span>
+        </div>
+      </li>`).join('');
+  }
+
+  function guide(mode, open, listId) {
+    // mode: 'side' (sm and up, always open) | 'phone' (collapsed behind a toggle)
+    if (mode === 'side') {
+      return `<aside aria-label="Lyrics formatting" class="w-44 shrink-0 rounded-xl border border-gray-200 bg-gray-50/60 p-2">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1"><i data-lucide="type" class="w-3.5 h-3.5"></i> Formatting</h3>
+        <ul class="flex flex-col gap-1.5">${guideItems(false)}</ul>
+      </aside>`;
+    }
+    return `<aside aria-label="Lyrics formatting" class="rounded-xl border border-gray-200 bg-gray-50/60 p-2">
+      <button type="button" data-act="toggle" aria-expanded="${open}" aria-controls="${listId}" class="w-full text-left text-xs font-semibold text-gray-500 flex items-center gap-1">
+        <i data-lucide="type" class="w-3.5 h-3.5"></i> Formatting help
+        <i data-lucide="${open ? 'chevron-up' : 'chevron-down'}" class="w-3.5 h-3.5 ml-auto"></i>
+      </button>
+      <ul id="${listId}" class="${open ? 'grid' : 'hidden'} grid-cols-2 gap-1.5 mt-2">${guideItems(true)}</ul>
+    </aside>`;
+  }
+
+  function render(root, state) {
+    const mode = root.dataset.phone ? 'phone' : 'side';
+    const header = `<div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2"><h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Lyrics</h2>
+      <span class="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full uppercase tracking-wider">Band</span></div>
+      ${state.editing ? '' : `<div class="flex gap-3"><button class="text-xs font-semibold text-emerald-600">Stage Mode</button><button data-act="edit" class="text-xs font-semibold text-emerald-600">Edit</button></div>`}
+    </div>`;
+    if (!state.editing) {
+      root.innerHTML = header + `<div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm text-sm leading-relaxed whitespace-pre-wrap">${parse(state.text)}</div>`;
+    } else {
+      const textarea = `<textarea class="w-full min-h-[250px] p-4 rounded-xl border border-gray-200 shadow-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 text-sm leading-relaxed">${esc(state.draft ?? state.text)}</textarea>`;
+      const buttons = `<div class="flex items-center justify-between gap-2">
+          <button class="px-3 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50/50 text-xs font-semibold rounded-lg">Auto-import</button>
+          <div class="flex gap-2">
+            <button data-act="cancel" class="px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-medium rounded-lg">Cancel</button>
+            <button data-act="save" class="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-sm">Save</button>
+          </div>
+        </div>`;
+      if (mode === 'side') {
+        // Outer row: [editor column: textarea + buttons] [guide]. Buttons never extend under the guide.
+        root.innerHTML = header + `<div class="flex flex-row gap-3 items-start">
+          <div class="flex-1 min-w-0 flex flex-col gap-3">${textarea}${buttons}</div>
+          ${guide('side')}
+        </div>`;
+      } else {
+        // Phone: visual order textarea, "Formatting help", buttons (CSS order in the real component).
+        root.innerHTML = header + `<div class="flex flex-col gap-3">${textarea}${guide('phone', state.open, 'guide-list-' + root.dataset.phone)}${buttons}</div>`;
+      }
+      root.querySelector('textarea').addEventListener('input', e => { state.draft = e.target.value; });
+    }
+    root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+      const a = b.dataset.act;
+      if (a === 'edit') { state.editing = true; state.draft = state.text; state.open = false; }
+      if (a === 'cancel') { state.editing = false; }
+      if (a === 'save') { state.text = state.draft ?? state.text; state.editing = false; }
+      if (a === 'toggle') { state.open = !state.open; }
+      render(root, state);
+    }));
+    if (window.lucide) lucide.createIcons();
+  }
+
+  document.querySelectorAll('[data-lyrics-root]').forEach(root => render(root, { editing: true, text: SAMPLE, draft: SAMPLE, open: root.dataset.phone === 'open' }));
+</script>
+</body>
+</html>

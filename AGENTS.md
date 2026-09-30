@@ -137,7 +137,7 @@ src/
 ├── components/                 Presentational React, one directory per feature area
 │   ├── admin/                  ModerationQueue and the pending-edit cards
 │   ├── bands/                  BandsView island, BandColorPicker
-│   ├── fastview/               The 27 Fast View pieces (setlist, tabs, lyrics, PDF stage)
+│   ├── fastview/               The 31 Fast View pieces (setlist, tabs, lyrics, PDF stage)
 │   ├── landing/                LandingPage — the only dictionary-driven component
 │   ├── layout/                 AppLayout, ConditionalLayout, LanguageSelector
 │   ├── playlists/              PlaylistsView island, cards, Spotify import panel

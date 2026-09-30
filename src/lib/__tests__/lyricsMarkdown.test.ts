@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLyricsMarkdown } from '@/lib/lyricsMarkdown'
+import { lyricsFormatGuide, parseLyricsMarkdown } from '@/lib/lyricsMarkdown'
 
 /** The chord badge markup, transcribed from the Fast View page it came from. */
 const CHORD_CLASS =
@@ -61,5 +61,26 @@ describe('lyricsMarkdown', () => {
 
   it('parseLyricsMarkdown returns an empty string for empty input', () => {
     expect(parseLyricsMarkdown('')).toBe('')
+  })
+
+  it('lyricsFormatGuide lists bold, italic, underline and the badge in parse order', () => {
+    const guide = lyricsFormatGuide()
+
+    expect(guide.map((entry) => entry.id)).toEqual(['bold', 'italic', 'underline', 'badge'])
+    expect(guide.map((entry) => entry.syntax)).toEqual(['**bold**', '*italic*', '__underline__', '[Am]'])
+  })
+
+  it('lyricsFormatGuide previews each syntax through parseLyricsMarkdown', () => {
+    const guide = lyricsFormatGuide()
+
+    for (const entry of guide) {
+      expect(entry.previewHtml).toBe(parseLyricsMarkdown(entry.syntax))
+    }
+    expect(guide.map((entry) => entry.previewHtml)).toEqual([
+      '<strong>bold</strong>',
+      '<em>italic</em>',
+      '<u>underline</u>',
+      `<strong class="${CHORD_CLASS}">Am</strong>`,
+    ])
   })
 })
