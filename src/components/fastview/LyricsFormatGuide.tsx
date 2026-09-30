@@ -44,7 +44,7 @@ export function LyricsFormatGuide() {
             className="flex flex-col gap-0.5 min-w-0 rounded-lg bg-white border border-gray-100 px-2 py-1.5"
           >
             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{entry.label}</span>
-            <span className="flex items-center justify-between gap-2">
+            <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
               <code className="text-xs font-mono text-gray-700 bg-gray-50 rounded px-1">{entry.syntax}</code>
               {/* Safe: the example syntaxes are constants run through the parser's escapes. */}
               <span className="text-sm" dangerouslySetInnerHTML={{ __html: entry.previewHtml }} />
