@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
 import { LyricsSection } from '../LyricsSection'
 import { LyricsEditorPanel } from '../LyricsEditorPanel'
 import type { LyricsEditorController } from '@/lib/lyricsEditor'
@@ -153,6 +153,77 @@ describe('LyricsSection', () => {
 
     expect(screen.getByPlaceholderText('Paste or type the lyrics here...')).toBeDefined()
     expect(screen.queryByText('No lyrics added yet.')).toBeNull()
+  })
+})
+
+/** The chord badge markup the lyrics mini-markdown emits for `[Am]`. */
+const BADGE_HTML =
+  '<strong class="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all">Am</strong>'
+
+describe('LyricsFormatGuide', () => {
+  it('LyricsEditorPanel shows the formatting guide with each syntax and its rendered preview', () => {
+    render(<LyricsEditorPanel controller={makeController({ isEditing: true })} />)
+
+    const region = screen.getByRole('complementary', { name: 'Lyrics formatting' })
+    expect(within(region).getAllByRole('listitem')).toHaveLength(4)
+    const codes = Array.from(region.querySelectorAll('code')).map((code) => code.textContent)
+    expect(codes).toEqual(['**bold**', '*italic*', '__underline__', '[Am]'])
+    for (const preview of ['<strong>bold</strong>', '<em>italic</em>', '<u>underline</u>', BADGE_HTML]) {
+      expect(region.innerHTML).toContain(preview)
+    }
+  })
+
+  it('LyricsSection shows the formatting guide only while editing', () => {
+    render(<LyricsSection controller={makeController({ isEditing: true })} loadingPersonal={false} />)
+    expect(screen.getByRole('complementary', { name: 'Lyrics formatting' })).toBeDefined()
+    cleanup()
+
+    render(
+      <LyricsSection
+        controller={makeController({ isEditing: false, displayedLyrics: 'band words' })}
+        loadingPersonal={false}
+      />,
+    )
+    expect(screen.queryByRole('complementary', { name: 'Lyrics formatting' })).toBeNull()
+    cleanup()
+
+    render(
+      <LyricsSection controller={makeController({ isEditing: false, displayedLyrics: null })} loadingPersonal={false} />,
+    )
+    expect(screen.queryByRole('complementary', { name: 'Lyrics formatting' })).toBeNull()
+  })
+
+  it('LyricsFormatGuide collapses behind a Formatting help toggle on phones', () => {
+    render(<LyricsEditorPanel controller={makeController({ isEditing: true })} />)
+
+    const region = screen.getByRole('complementary', { name: 'Lyrics formatting' })
+    const toggle = within(region).getByRole('button', { name: 'Formatting help' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const list = region.querySelector('ul') as HTMLUListElement
+    expect(list.id).not.toBe('')
+    expect(toggle.getAttribute('aria-controls')).toBe(list.id)
+    expect(list.classList.contains('hidden')).toBe(true)
+    expect(Array.from(list.classList).some((name) => name.startsWith('sm:'))).toBe(true)
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(list.classList.contains('hidden')).toBe(false)
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(list.classList.contains('hidden')).toBe(true)
+  })
+
+  it('LyricsEditorPanel keeps Cancel and Save inside the textarea column', () => {
+    render(<LyricsEditorPanel controller={makeController({ isEditing: true })} />)
+
+    const column = screen.getByPlaceholderText('Paste or type the lyrics here...').parentElement as HTMLElement
+    const region = screen.getByRole('complementary', { name: 'Lyrics formatting' })
+    expect(column.contains(screen.getByRole('button', { name: 'Cancel' }))).toBe(true)
+    expect(column.contains(screen.getByRole('button', { name: 'Save' }))).toBe(true)
+    expect(column.contains(screen.getByText('✨ Auto-import'))).toBe(true)
+    expect(column.contains(region)).toBe(false)
+    expect(column.parentElement).toBe(region.parentElement)
   })
 })
 

@@ -7396,3 +7396,22 @@ full-suite coverage gate passes.
 - The local Docker VM disk is full (57 GiB of a 61 GiB `Docker.raw`), which is why the Supabase
   stack could not start. This is unrelated to RH-70 but will block the next contributor's e2e run;
   a `docker image prune` is worth scheduling.
+
+## [RH-94] Show a lyrics formatting cheat sheet beside the lyrics while editing — 2026-09-29
+- ER2's `grep -c "\.replace(" ... prints 4` breaks if the implementer adds a doc comment that mentions `.replace(`. The implementer should keep `.replace(` out of comments, or a later revision could count only code lines.
+- knip (`lint:dead`) may flag the newly exported entry interface as an unused export if nothing outside `lyricsMarkdown.ts` imports it. Either import the type in `LyricsFormatGuide.tsx` or keep it exported only if it is used.
+- ER5 pins the version to `0.1.129-*`. If another release lands on master before this merges, the implementer should bump from the current version instead. That is the spirit of the AGENTS.md rule.
+- Q1 is still open. Option A is the default the spec picks, so implementation is not blocked while the question waits for an answer.
+
+## [RH-94] Show a lyrics formatting cheat sheet beside the lyrics while editing — 2026-09-30
+- In the Approach section, the Behavior items are numbered 1, 2, 3, 5, 4: item 5 (phone toggle) comes before item 4 (placement). Renumber them or swap the order so cross-references such as "Approach items 4-5" read naturally.
+- The mock's phone section places the guide between the textarea and the buttons directly in the markup, while the real component must get that order from CSS (`contents` plus `order-*`). The comment in the mock says so. The implementer should check the real DOM order (textarea and buttons inside the editor column) against the ER5 structural test, not copy the mock's phone markup.
+
+## [RH-94] Show a lyrics formatting cheat sheet beside the lyrics while editing — 2026-09-30
+- src/components/fastview/LyricsFormatGuide.tsx:17 - `lyricsFormatGuide()` is recomputed on every render (including each toggle click). The result is constant; a module-level `const ENTRIES = lyricsFormatGuide()` would avoid the work. Negligible cost, purely optional.
+- src/components/fastview/LyricsFormatGuide.tsx:24 - `<h3>` assumes the surrounding heading hierarchy; if the lyrics section has no h2 this skips a level. A styled `<p>` or confirming the outline would be slightly cleaner for a11y.
+- src/components/fastview/LyricsEditorPanel.tsx - the Auto-import label still wraps a single `<span>` in a redundant fragment (pre-existing, carried over by the re-indent); could be simplified in a future touch.
+
+## [RH-94] Show a lyrics formatting cheat sheet beside the lyrics while editing — 2026-09-30
+
+- At 1280px the "Underline" guide entry overflows its card. The rendered `underline` preview ends at x=1033, while the `<li>` ends at 1015 and the `<aside>` at 1024 (li scrollWidth 175 vs clientWidth 156). The word visibly spills past the guide's border (see `desktop-edit.png`). The other three entries fit. No ER covers this, but it is a visible layout defect in the 176px (`sm:w-44`) column. Possible fixes: shorten the example, let the syntax and preview wrap (`flex-wrap`), or widen the column slightly.
