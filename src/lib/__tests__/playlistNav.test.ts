@@ -171,6 +171,13 @@ describe('keyboardTarget', () => {
     })
   })
 
+  it('treats ArrowDown as next and ArrowUp as previous, for page-turner pedals', () => {
+    expect(keyboardTarget(press({ key: 'ArrowDown' }), navAt(1))).toEqual({ repertoireId: 'rep-3', direction: 'left' })
+    expect(keyboardTarget(press({ key: 'ArrowUp' }), navAt(1))).toEqual({ repertoireId: 'rep-1', direction: 'right' })
+    expect(keyboardTarget(press({ key: 'ArrowDown' }), navAt(2))).toBeNull()
+    expect(keyboardTarget(press({ key: 'ArrowUp' }), navAt(0))).toBeNull()
+  })
+
   it('returns null at either end of the setlist', () => {
     expect(keyboardTarget(press(), navAt(2))).toBeNull()
     expect(keyboardTarget(press({ key: 'ArrowLeft' }), navAt(0))).toBeNull()
@@ -178,7 +185,6 @@ describe('keyboardTarget', () => {
 
   it('returns null without a nav and for any other key', () => {
     expect(keyboardTarget(press(), null)).toBeNull()
-    expect(keyboardTarget(press({ key: 'ArrowDown' }), navAt(1))).toBeNull()
     expect(keyboardTarget(press({ key: 'Enter' }), navAt(1))).toBeNull()
   })
 
