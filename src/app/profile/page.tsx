@@ -26,6 +26,7 @@ import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BAND_PROFILE_LOAD_POLICY } from "@/lib/bandAdminLoad";
 import type { Profile } from "@/types/database";
 import { PendingButton } from "@/components/ui/PendingButton";
+import { CoverPicker } from "@/components/bands/CoverPicker";
 
 /**
  * The page owns the Server Action and hands it to the island (F21). Module-level
@@ -63,7 +64,7 @@ function BandProfileView({ bandId }: { bandId: string }) {
   const {
     currentUserId, band, playlists, loading, error, dismissError, reportError,
     isAdmin, isMember, invite, pending, newPlaylist,
-    editDraft, saving, startEdit, updateDraft, pickCoverFile, saveEdit, cancelEdit,
+    editDraft, saving, processingCover, startEdit, updateDraft, pickCoverFile, saveEdit, cancelEdit,
   } = bandAdmin;
 
   if (loading) {
@@ -376,35 +377,17 @@ function BandProfileView({ bandId }: { bandId: string }) {
               <label className="block text-sm font-medium text-gray-700">
                 Cover Image
               </label>
-              <div className="flex items-center gap-3 pt-1">
-                {editDraft.coverPreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={editDraft.coverPreview}
-                    alt="Band cover preview"
-                    className="w-14 h-14 rounded-2xl object-cover border border-gray-200 shrink-0 shadow-sm"
-                  />
-                ) : (
-                  <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shrink-0 font-bold border"
-                    style={theme.badgeStyle}
-                  >
-                    🎸
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={pickCoverFile}
-                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"
-                />
-              </div>
+              <CoverPicker
+                preview={editDraft.coverPreview} processing={processingCover} onChange={pickCoverFile}
+                boxClassName="w-14 h-14 rounded-2xl shadow-sm" inputClassName="file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+                placeholder={<div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shrink-0 font-bold border" style={theme.badgeStyle}>🎸</div>}
+              />
             </div>
             <BandColorPicker value={editDraft.color} onChange={(color) => updateDraft({ color })} />
             <div className="flex gap-2 pt-2">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || processingCover}
                 className="rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-60 transition-colors"
                 style={theme.style}
               >

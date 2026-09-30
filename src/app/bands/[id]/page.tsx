@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/useToast";
 import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BANDS_PAGE_LOAD_POLICY } from "@/lib/bandAdminLoad";
 import { PendingButton } from "@/components/ui/PendingButton";
+import { CoverPicker } from "@/components/bands/CoverPicker";
 
 /** Module-level so the hook's `load` callback stays referentially stable. */
 const BAND_PAGE_MESSAGES = { save: "Failed to save" };
@@ -41,6 +42,7 @@ export default function BandDetailPage() {
     startEdit,
     updateDraft,
     pickCoverFile,
+    processingCover,
     saveEdit,
     cancelEdit,
   } = useBandAdmin({
@@ -435,32 +437,17 @@ export default function BandDetailPage() {
               <label className="block text-sm font-medium text-gray-700">
                 Cover Image
               </label>
-              <div className="flex items-center gap-3 pt-1">
-                {editDraft.coverPreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={editDraft.coverPreview}
-                    alt="Band cover preview"
-                    className="w-14 h-14 rounded-2xl object-cover border border-gray-200 shrink-0 shadow-sm"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl shrink-0 font-bold">
-                    🎸
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={pickCoverFile}
-                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
-                />
-              </div>
+              <CoverPicker
+                preview={editDraft.coverPreview} processing={processingCover} onChange={pickCoverFile}
+                boxClassName="w-14 h-14 rounded-2xl shadow-sm" inputClassName="file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                placeholder={<div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl shrink-0 font-bold">🎸</div>}
+              />
             </div>
             <BandColorPicker value={editDraft.color} onChange={(color) => updateDraft({ color })} />
             <div className="flex gap-2">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || processingCover}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
               >
                 {saving ? "Saving..." : "Save"}

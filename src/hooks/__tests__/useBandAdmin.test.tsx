@@ -198,13 +198,14 @@ describe('useBandAdmin surface', () => {
       'pending',
       'pickCoverFile',
       'playlists',
+      'processingCover',
       'reportError',
       'saveEdit',
       'saving',
       'startEdit',
       'updateDraft',
     ])
-    expect(keys).toHaveLength(19)
+    expect(keys).toHaveLength(20)
     expect(keys.filter((key) => key.startsWith('set'))).toEqual([])
   })
 
@@ -437,6 +438,29 @@ describe('useBandAdmin edit modal', () => {
     expect(compressImageFile).toHaveBeenCalledWith(original)
     expect(createObjectURL).toHaveBeenCalledWith(compressed)
     expect(result.current.editDraft?.coverPreview).toBe('blob:preview')
+  })
+
+  it('reports processingCover while the cover compresses and holds Save until it ends', async () => {
+    let finish: (file: File) => void = () => {}
+    compressImageFileMock.mockReturnValueOnce(new Promise<File>((resolve) => { finish = resolve }))
+    Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:preview'), configurable: true })
+
+    const { result, actions } = await setupLoaded()
+    act(() => result.current.startEdit())
+    let picking: Promise<void> = Promise.resolve()
+    act(() => { picking = result.current.pickCoverFile(changeEvent([{ name: 'huge.jpg' } as unknown as File])) })
+
+    expect(result.current.processingCover).toBe(true)
+    await act(async () => {
+      await result.current.saveEdit({ preventDefault: () => {} } as unknown as React.FormEvent)
+    })
+    expect(actions.updateBand).not.toHaveBeenCalled()
+
+    await act(async () => {
+      finish({ name: 'small.jpg' } as unknown as File)
+      await picking
+    })
+    expect(result.current.processingCover).toBe(false)
   })
 
   it('ignores a cover change event with no file', async () => {

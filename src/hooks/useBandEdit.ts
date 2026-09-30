@@ -22,6 +22,8 @@ import type { Band } from "@/types/database";
 export interface BandEditController {
   editDraft: BandEditDraft | null;
   saving: boolean;
+  /** True while a picked cover is being compressed; Save waits for it. */
+  processingCover: boolean;
   startEdit: () => void;
   updateDraft: (patch: Partial<BandEditDraft>) => void;
   pickCoverFile: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
@@ -67,6 +69,7 @@ export function useBandEdit({
   // which lives on the draft.
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [processingCover, setProcessingCover] = useState(false);
 
   function startEdit() {
     setCoverFile(null);
@@ -84,9 +87,16 @@ export function useBandEdit({
   async function pickCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     if (!file) return;
-    const compressed = await compressImageFile(file);
-    setCoverFile(compressed);
-    updateDraft({ coverPreview: URL.createObjectURL(compressed) });
+    // Compressing a large phone photo takes a moment; saving before it ends
+    // would drop the new cover, so Save is held until it does.
+    setProcessingCover(true);
+    try {
+      const compressed = await compressImageFile(file);
+      setCoverFile(compressed);
+      updateDraft({ coverPreview: URL.createObjectURL(compressed) });
+    } finally {
+      setProcessingCover(false);
+    }
   }
 
   /** Uploads a newly picked cover, or keeps the band's current one. */
@@ -101,7 +111,7 @@ export function useBandEdit({
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
-    if (!editDraft || isDraftNameBlank(editDraft)) return;
+    if (!editDraft || isDraftNameBlank(editDraft) || processingCover) return;
     setSaving(true);
     dismissError();
     try {
@@ -123,5 +133,5 @@ export function useBandEdit({
     }
   }
 
-  return { editDraft, saving, startEdit, updateDraft, pickCoverFile, saveEdit, cancelEdit };
+  return { editDraft, saving, processingCover, startEdit, updateDraft, pickCoverFile, saveEdit, cancelEdit };
 }
