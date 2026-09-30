@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { compressImageFile } from "@/lib/imageCompressor";
+import { CoverPicker } from "@/components/bands/CoverPicker";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { DEFAULT_BAND_COLOR } from "@/lib/bandColors";
 import type { Band } from "@/types/database";
@@ -85,20 +86,27 @@ export function BandsView({ bands, initialError, actions }: BandsViewProps) {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [processingCover, setProcessingCover] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
-    if (file) {
+    if (!file) return;
+    // Creating before the compression ends would drop the cover, so the
+    // Create button waits for it.
+    setProcessingCover(true);
+    try {
       const compressed = await compressImageFile(file);
       setCoverFile(compressed);
       setCoverPreview(URL.createObjectURL(compressed));
+    } finally {
+      setProcessingCover(false);
     }
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!newName.trim() || processingCover) return;
     setCreating(true);
     setError(null);
     try {
@@ -175,26 +183,18 @@ export function BandsView({ bands, initialError, actions }: BandsViewProps) {
               Cover Image{" "}
               <span className="text-gray-400 font-normal">(optional)</span>
             </label>
-            <div className="flex items-center gap-3 pt-1">
-              {coverPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={coverPreview}
-                  alt="Cover preview"
-                  className="w-12 h-12 rounded-xl object-cover border border-gray-200 shrink-0"
-                />
-              ) : (
+            <CoverPicker
+              preview={coverPreview}
+              processing={processingCover}
+              onChange={handleFileChange}
+              boxClassName="w-12 h-12 rounded-xl"
+              inputClassName="file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+              placeholder={
                 <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl shrink-0 border border-emerald-100 font-bold">
                   🎸
                 </div>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
-              />
-            </div>
+              }
+            />
           </div>
           <BandColorPicker value={newColor} onChange={setNewColor} />
           {error && (
@@ -205,7 +205,7 @@ export function BandsView({ bands, initialError, actions }: BandsViewProps) {
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={creating}
+              disabled={creating || processingCover}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
             >
               {creating ? "Creating..." : "Create Band"}

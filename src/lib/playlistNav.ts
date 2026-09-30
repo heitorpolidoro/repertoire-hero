@@ -140,13 +140,18 @@ export interface NavKeyPress {
 }
 
 /**
- * Where an arrow key lands: ArrowRight goes to the next song, ArrowLeft to the
- * previous one, mirroring the swipe directions.
+ * Where an arrow key lands: ArrowRight and ArrowDown go to the next song,
+ * ArrowLeft and ArrowUp to the previous one, mirroring the swipe directions.
+ * Up/Down are included for page-turner pedals that send them; in a playlist
+ * they therefore no longer scroll the page (Space / Page Up / Page Down do).
  *
  * Null without a nav, for any other key, for a modified key (Alt+Left is the
  * browser's history back), while the musician is typing, when something else
  * already handled the event, and at either end of the setlist.
  */
+const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown'])
+const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp'])
+
 export function keyboardTarget(
   press: NavKeyPress,
   nav: PlaylistNav | null,
@@ -154,10 +159,10 @@ export function keyboardTarget(
   if (!nav || press.defaultPrevented || press.editableTarget) return null
   if (press.altKey || press.ctrlKey || press.metaKey || press.shiftKey) return null
 
-  if (press.key === 'ArrowRight') {
+  if (NEXT_KEYS.has(press.key)) {
     return nav.nextId ? { repertoireId: nav.nextId, direction: 'left' } : null
   }
-  if (press.key === 'ArrowLeft') {
+  if (PREV_KEYS.has(press.key)) {
     return nav.prevId ? { repertoireId: nav.prevId, direction: 'right' } : null
   }
   return null
