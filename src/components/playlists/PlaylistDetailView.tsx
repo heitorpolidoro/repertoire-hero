@@ -13,6 +13,7 @@ import {
   type PlaylistDetailActions,
 } from "@/hooks/usePlaylistDetail";
 import type { OfflineDownloadActions } from "@/hooks/useOfflinePlaylist";
+import { useOfflineStatus } from '@/hooks/useOfflineStatus'
 import type { SongPickerActions } from "@/hooks/useSongPicker";
 import type { Playlist, Repertoire } from "@/types/database";
 
@@ -38,6 +39,12 @@ export interface PlaylistDetailViewProps {
  * and `onDeleted`. There is no mount effect and no loading branch — the server
  * ships finished markup, and the streamed fallback while it is produced is
  * `src/app/loading.tsx`, the same one `/bands` and `/playlists` show.
+ *
+ * It is also this route's offline composition root (RH-99): `/playlists/[id]`
+ * is a Server Component and cannot call a hook, so the single
+ * `useOfflineStatus()` call lives here and the signal reaches
+ * `OfflineDownloadButton` as a prop — the same one-reader-per-route shape Fast
+ * View uses. No component under `src/components` reads `navigator.onLine`.
  */
 export function PlaylistDetailView({
   playlist,
@@ -48,6 +55,8 @@ export function PlaylistDetailView({
   offlineActions,
 }: PlaylistDetailViewProps) {
   const router = useRouter();
+  // The route's single offline reader — see the note above the component.
+  const isOffline = useOfflineStatus();
   const detail = usePlaylistDetail({
     playlist,
     repertoire,
@@ -83,6 +92,7 @@ export function PlaylistDetailView({
         playlistName={playlist.name}
         bandId={playlist.band_id}
         actions={offlineActions}
+        offline={isOffline}
       />
 
       {/* Playlist level summary */}

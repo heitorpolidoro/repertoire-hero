@@ -16,7 +16,8 @@ items implement lives in `docs/use-cases.md`; this file says what has to change.
 ## The model
 
 ```sql
-albums        (id, name, album_type, cover_url, release_date)
+albums        (id, artist, name, album_type, cover_url, release_date)
+  unique (lower(artist), lower(name))
 
 songs         (id, title, artist, lyrics, map)
   unique (lower(artist), lower(title))
@@ -96,6 +97,7 @@ erDiagram
         jsonb map
     }
     albums {
+        text artist
         text name
         text album_type
         text cover_url
@@ -600,23 +602,35 @@ a similarity ordering is the standard fix and needs one migration. Revisit the
 unpaginated cap of 20 at the same time.
 
 ### Disable every write control while offline
-*Medium.*
+*Medium. **Done — RH-99.***
 
 Offline is read-only by intent (`docs/use-cases.md`, *Read offline*), and most of the Fast
-View honours it: the page derives `readOnly` from one offline signal and the edit controls
-take it. Adding a link does not. `useSongLinks.submit` discards `updateLinks`'s return
-value, and `offlineFirst` classifies that method as an envelope write — so offline it
-*resolves* `success: false` instead of rejecting. The `await` sees success, the link is
-pushed into the on-screen list and the toast reads "Link added successfully!". Nothing was
+View honoured it already: the page derives `readOnly` from one offline signal and the edit
+controls take it. Adding a link did not. `useSongLinks.submit` discarded `updateLinks`'s
+return value, and `offlineFirst` classifies that method as an envelope write — so offline
+it *resolved* `success: false` instead of rejecting. The `await` saw success, the link was
+pushed into the on-screen list and the toast read "Link added successfully!". Nothing was
 saved.
 
-`confirmDelete`, twenty lines below in the same hook, reads the same return value and
-branches on it. So this is an oversight rather than a decision, and the fix is to disable
-the control like the others rather than to interpret the envelope.
+`confirmDelete`, twenty lines below in the same hook, at least read the same return
+value, which is why this was an oversight rather than a decision — though it branches
+on `result.pending` alone, so a `{ success: false }` envelope is still announced as
+`Link deleted.` there. RH-130 owns that remainder.
 
-While there: audit every write surface against the same rule. The offline decorator's
-default for an unclassified method is to refuse, which is safe server-side, but a control
-that is not disabled still lets a musician try.
+RH-99 closed it by disabling the controls, and audited every write surface reachable with
+no network against the same rule. Now disabled: the link add trigger, the per-link
+deletes and the add form's submit; the tab upload form (title, file, submit) and the
+per-tab deletes; PDF Stage Mode's `Toggle drawing`, so drawing is never enterable and no
+annotation save is attempted; the lyrics editor's `Save`, `Discard my version` and web
+import; and `Available offline` / `Refresh offline copy` on `/playlists/[id]`. `submit`
+reads its envelope too, as a safety net rather than the fix. Deliberately untouched: the
+reads, and the purely local writes that complete offline (`Remove offline copy`, clearing
+offline storage).
+
+The signal is threaded as a prop from one reader per route — the Fast View page and
+`PlaylistDetailView` — so no component reads `navigator.onLine`. The pages the service
+worker never serves offline are still out of scope: they need an app-wide read-only
+mechanism, which is its own task.
 
 ### Delete `/songs/search`
 *Low.*

@@ -13,6 +13,12 @@ export interface TabLibrarySectionProps {
   onOpenStage: () => void
   /** Pass-through to `TabViewer`: the page's offline signal (RH-80). */
   offline?: boolean
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99): the upload
+   * form and every per-tab delete are disabled, while selecting a tab and
+   * opening Stage Mode stay offered — those are reads.
+   */
+  readOnly?: boolean
 }
 
 /** The whole "Tabs (PDF)" section: the list, the embedded viewer and the upload form. */
@@ -21,6 +27,7 @@ export function TabLibrarySection({
   loadingPersonal,
   onOpenStage,
   offline = false,
+  readOnly = false,
 }: TabLibrarySectionProps) {
   return (
     <section aria-label="Tabs" className="flex flex-col gap-4">
@@ -33,6 +40,7 @@ export function TabLibrarySection({
             activeTabUrl={library.activeTabUrl}
             onSelect={library.selectTab}
             onDelete={library.requestDelete}
+            readOnly={readOnly}
           />
           <TabViewer
             url={library.activeTabUrl}
@@ -65,6 +73,7 @@ export function TabLibrarySection({
         onTitleChange={library.setUploadTitle}
         onFileChange={library.pickFile}
         onSubmit={library.submitUpload}
+        readOnly={readOnly}
       />
     </section>
   )

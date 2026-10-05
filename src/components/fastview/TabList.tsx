@@ -7,10 +7,15 @@ export interface TabListProps {
   activeTabUrl: string | null
   onSelect: (tab: MergedTab) => void
   onDelete: (tabId: string, origin: TabOrigin) => void
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). Only the
+   * delete is disabled: selecting a tab and opening it in a new tab are reads.
+   */
+  readOnly?: boolean
 }
 
 /** The uploaded PDFs of this song, band files and personal files in one list. */
-export function TabList({ tabs, activeTabUrl, onSelect, onDelete }: TabListProps) {
+export function TabList({ tabs, activeTabUrl, onSelect, onDelete, readOnly = false }: TabListProps) {
   return (
     <ul className="flex flex-col gap-2">
       {tabs.map((tab) => {
@@ -71,7 +76,8 @@ export function TabList({ tabs, activeTabUrl, onSelect, onDelete }: TabListProps
               <button
                 type="button"
                 onClick={() => onDelete(tab.id, tab.origin)}
-                className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={readOnly}
+                className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:text-gray-300 disabled:hover:bg-transparent"
                 aria-label="Delete tab"
               >
                 <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

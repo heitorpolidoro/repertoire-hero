@@ -15,7 +15,14 @@ import type { Repertoire, SongLink } from '@/types/database'
  * Required and never defaulted — a default would have to import that tree.
  */
 export interface SongLinksActions {
-  updateLinks: (repertoireId: string, links: SongLink[]) => Promise<{ success: boolean; pending?: boolean }>
+  /**
+   * An envelope write: offline it resolves `{ success: false, error }` rather
+   * than rejecting, so both call sites below inspect `success` (RH-99 ER6).
+   */
+  updateLinks: (
+    repertoireId: string,
+    links: SongLink[],
+  ) => Promise<{ success: boolean; pending?: boolean; error?: string }>
   fetchUrlTitle: (url: string) => Promise<string>
 }
 
@@ -82,7 +89,14 @@ export function useSongLinks({
         url: trimmedUrl,
       })
 
-      await actions.updateLinks(entry.id, updated)
+      // The envelope is read, not discarded: `updateLinks` answers
+      // `{ success: false, error }` instead of rejecting (it is one of
+      // `offlineFirst`'s ENVELOPE_WRITES), and reporting "Link added
+      // successfully!" over a refusal would show the musician a link that was
+      // never saved. Mirrors `confirmDelete` below (RH-99 ER6).
+      const result = await actions.updateLinks(entry.id, updated)
+      if (!result.success) throw new Error(result.error || 'Failed to add link.')
+
       onLinksSaved(updated)
       cancelAdding()
       notify('Link added successfully!', 'success')

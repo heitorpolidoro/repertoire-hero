@@ -182,6 +182,58 @@ describe('useSongLinks', () => {
     expect(notify).toHaveBeenCalledWith('Failed to add link.', 'error')
   })
 
+  // RH-99 ER6 — the safety net, not the fix: offline the `+ Add Link` trigger
+  // and the `Add` submit are disabled, so this path is unreachable there. It
+  // exists because `submit` fabricating success out of a refusal envelope is
+  // wrong on every path — the link was never written, whatever the reason.
+  it('does not report success when updateLinks refuses with a success:false envelope', async () => {
+    const actions = makeActions()
+    actions.updateLinks.mockResolvedValue({
+      success: false,
+      error: 'You are offline. This change cannot be saved until you reconnect.',
+    })
+    const { result, notify, onLinksSaved } = setup({ actions })
+    fillForm(result, 'My tab', 'https://example.com/tab')
+
+    await act(async () => { await result.current.submit() })
+
+    expect(onLinksSaved).not.toHaveBeenCalled()
+    expect(notify).not.toHaveBeenCalledWith('Link added successfully!', 'success')
+    expect(notify).toHaveBeenCalledWith(
+      'You are offline. This change cannot be saved until you reconnect.',
+      'error',
+    )
+    // The form stays open with the typed values, so nothing the musician wrote
+    // is thrown away by a write that never happened.
+    expect(result.current.isAdding).toBe(true)
+    expect(result.current.url).toBe('https://example.com/tab')
+    expect(result.current.saving).toBe(false)
+  })
+
+  it('falls back to a generic message when the refusal envelope carries no error text', async () => {
+    const actions = makeActions()
+    actions.updateLinks.mockResolvedValue({ success: false })
+    const { result, notify, onLinksSaved } = setup({ actions })
+    fillForm(result, 'My tab', 'https://example.com/tab')
+
+    await act(async () => { await result.current.submit() })
+
+    expect(onLinksSaved).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledWith('Failed to add link.', 'error')
+  })
+
+  it('still reports success for a queued (pending) catalog edit', async () => {
+    const actions = makeActions()
+    actions.updateLinks.mockResolvedValue({ success: true, pending: true })
+    const { result, notify, onLinksSaved } = setup({ actions })
+    fillForm(result, 'My tab', 'https://example.com/tab')
+
+    await act(async () => { await result.current.submit() })
+
+    expect(onLinksSaved).toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledWith('Link added successfully!', 'success')
+  })
+
   it('does not submit before the entry has loaded', async () => {
     const { result, actions } = setup({ entry: null })
 

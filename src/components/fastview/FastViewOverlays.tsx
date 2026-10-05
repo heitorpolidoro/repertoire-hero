@@ -38,6 +38,12 @@ export interface FastViewOverlaysProps {
   links: SongLinksController
   toast: { message: string; tone: ToastTone } | null
   onDismissToast: () => void
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). Only PDF
+   * Stage Mode needs it here: the lyrics Stage Mode surface is a read, and the
+   * two confirmations are opened by controls that are themselves disabled.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -59,6 +65,7 @@ export function FastViewOverlays({
   links,
   toast,
   onDismissToast,
+  readOnly = false,
 }: FastViewOverlaysProps) {
   return (
     <>
@@ -79,6 +86,7 @@ export function FastViewOverlays({
         annotationsError={pdfStage.annotationsError}
         onSaveAnnotations={pdfStage.saveAnnotations}
         onClose={pdfStage.close}
+        readOnly={readOnly}
       />
 
       {/* Band-or-personal lyrics choice (band entries only, and never offline:

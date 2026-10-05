@@ -82,7 +82,13 @@ const eslintConfig = defineConfig([
   // lookups moved to module scope — complexity 17 to 16, the component function
   // 459 lines to 375 and the file 612 to 602.
   { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 16], "max-lines-per-function": ["error", 375], "max-lines": ["error", 602] } },
-  { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 757], "max-lines": ["error", 819] } },
+  // RH-99: `drawPath` moved to `src/lib/strokeRenderer.ts`, which paid for the
+  // `readOnly` prop that disables `Toggle drawing` offline and left the ratchet
+  // lower than it found it — the component function 757 lines to 743 and the
+  // file 819 to 815. `complexity` is unchanged at 21: `readOnly` is declared
+  // without a default and its only branch is the guard in
+  // `handleToggleDrawing`, so the prop costs the budget nothing.
+  { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 743], "max-lines": ["error", 815] } },
   { name: "complexity-budget/override", files: ["src/hooks/useTabLibrary.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },

@@ -11,6 +11,12 @@ export interface TabUploadFormProps {
   onTitleChange: (value: string) => void
   onFileChange: (file: File | null) => void
   onSubmit: () => void
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). An upload
+   * crosses the network and therefore cannot complete offline, so all three
+   * controls are disabled rather than left to fail.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -27,6 +33,7 @@ export function TabUploadForm({
   onTitleChange,
   onFileChange,
   onSubmit,
+  readOnly = false,
 }: TabUploadFormProps) {
   return (
     <form
@@ -44,16 +51,16 @@ export function TabUploadForm({
           placeholder="Tab Title (e.g. Guitar Solo, Bass)"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-          disabled={uploading}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-400"
+          disabled={uploading || readOnly}
         />
         <input
           type="file"
           accept="application/pdf"
           ref={inputRef}
           onChange={(e) => onFileChange(e.target.files?.[0] || null)}
-          className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
-          disabled={uploading}
+          className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer disabled:cursor-not-allowed disabled:file:bg-gray-100 disabled:file:text-gray-400"
+          disabled={uploading || readOnly}
         />
       </div>
       {error && (
@@ -61,7 +68,7 @@ export function TabUploadForm({
       )}
       <button
         type="submit"
-        disabled={uploading || !file}
+        disabled={uploading || !file || readOnly}
         className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-medium text-sm rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5"
       >
         {uploading ? (

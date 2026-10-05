@@ -4,6 +4,12 @@ import type { SongLinksController } from '@/lib/songLinks'
 
 export interface AddLinkFormProps {
   controller: SongLinksController
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). The form can
+   * still be *open* offline — the connection may drop while it is — so its
+   * submit carries its own guard rather than relying on the trigger's.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -14,7 +20,7 @@ export interface AddLinkFormProps {
  * belong to `useSongLinks`. The form's `preventDefault` stays here, so the
  * controller's `submit` is DOM-free (RH-52).
  */
-export function AddLinkForm({ controller }: AddLinkFormProps) {
+export function AddLinkForm({ controller, readOnly = false }: AddLinkFormProps) {
   if (!controller.isAdding) return null
 
   return (
@@ -53,7 +59,7 @@ export function AddLinkForm({ controller }: AddLinkFormProps) {
         </button>
         <button
           type="submit"
-          disabled={controller.saving}
+          disabled={controller.saving || readOnly}
           className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
         >
           {controller.saving ? 'Saving...' : 'Add'}

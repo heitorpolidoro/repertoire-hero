@@ -9067,3 +9067,47 @@ results do not ask for, and the specified behaviour is met in every case.
   `next/navigation` mock that `AppShell` never imports, so the assertion cannot fail by construction.
   The real guarantee is structural (no navigation import in the component). Consider a static
   assertion on the module source, or drop the spy, so the test does not read as stronger than it is.
+
+## [RH-99] Disable every write control while offline — 2026-10-05 (code review)
+
+1. **`confirmDelete` does not actually read `success` — three places now claim it does.**
+   `src/hooks/useSongLinks.ts:113-121` branches on `result.pending` only. Given
+   `offlineFirst`'s `{ success: false, error }` (`src/lib/offlineFirst.ts:236`), `pending`
+   is `undefined`, so control falls to the `else`: `onLinksSaved(updated)` runs and the
+   toast reads `Link deleted.` — the link vanishes from the on-screen list over a write
+   that never happened. Exactly the bug ER6 just fixed in `submit`, still live in the
+   sibling twenty lines below.
+
+   This is pre-existing, out of the spec's stated scope, and no longer reachable from the
+   UI offline (the delete button is disabled — the actual fix, per the product rule), so
+   it is not blocking. But the new prose asserts the opposite in three places:
+   `src/lib/offlineFirst.ts:54-56` ("as `confirmDelete` always did"),
+   `docs/use-cases.md` ("the way `confirmDelete` twenty lines below always did") and
+   `docs/plans/repertoire-rework.md` ("read the same return value and branched on it").
+   The spec's audit row 4 is wrong the same way, so this was inherited rather than
+   invented. Worth either a one-line `if (!result.success) throw` in `confirmDelete` — it
+   is the same two lines, inside a `try` that already notifies — or softening the three
+   claims to "branches on `pending`" and filing the rest. Leaving a doc comment asserting
+   a safety property the code does not have is the part I would not let stand long.
+
+2. **`every(...)).toBe(false)` is weaker than the assertion it is standing in for.**
+   `src/components/fastview/__tests__/offlineReadOnlyControls.test.tsx:290` and `:357`
+   assert "not *all* of these are disabled" where the test name promises "enabled by
+   default". With two buttons rendered from one prop the two coincide, but
+   `expect(deletes.some((b) => b.hasAttribute('disabled'))).toBe(false)` says what is
+   meant and would catch a half-disabled list. The read-only twins at `:299` and `:366`
+   are already correct as written (`every(...)).toBe(true)`).
+
+3. **Import style is inconsistent with its file.**
+   `src/components/playlists/PlaylistDetailView.tsx:16` uses single quotes and no
+   semicolon in a file that otherwise uses double quotes and semicolons throughout. The
+   repo has no Prettier config and ESLint does not enforce quote style, so nothing fails —
+   purely local consistency.
+
+## [RH-99] Disable every write control while offline — 2026-10-05 (QA)
+
+- `src/hooks/useSongLinks.ts` carries the very inaccuracy ER9 was amended to remove, in two comments that no ER names:
+  - the `SongLinksActions.updateLinks` doc block says "offline it resolves `{ success: false, error }` rather than rejecting, so **both call sites below inspect `success`** (RH-99 ER6)";
+  - the comment inside `submit` ends "Mirrors `confirmDelete` below (RH-99 ER6)".
+  `confirmDelete` inspects `result.pending` only — it never reads `success`, which is precisely the RH-130 remainder. Both sentences should be reworded the way `offlineFirst.ts` and the two docs now are (e.g. "`submit` inspects `success`; `confirmDelete` still branches on `pending` alone — RH-130"). Non-blocking: no ER covers these two comments and the behaviour under test is correct, but leaving them makes the code contradict the three passages ER9 required to be truthful, and a future reader of RH-130 will hit the contradiction first.
+- The production-build e2e run logs three SSR `ReferenceError: DOMMatrix is not defined` digests from the eagerly-imported `react-pdf` chunk. Pre-existing (unrelated to this change) and harmless to the assertions, but it is noise in the one run that exercises the offline acceptance path.

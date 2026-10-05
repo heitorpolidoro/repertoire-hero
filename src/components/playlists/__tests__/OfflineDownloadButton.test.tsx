@@ -63,7 +63,11 @@ function makeActions(hold?: Promise<void>): OfflineDownloadActions {
   }
 }
 
-function renderControl(actions: OfflineDownloadActions, ports: FakeOfflinePorts = createFakePorts()) {
+function renderControl(
+  actions: OfflineDownloadActions,
+  ports: FakeOfflinePorts = createFakePorts(),
+  offline?: boolean,
+) {
   render(
     <OfflineDownloadButton
       playlistId="pl-1"
@@ -71,6 +75,7 @@ function renderControl(actions: OfflineDownloadActions, ports: FakeOfflinePorts 
       bandId="band-1"
       actions={actions}
       store={createOfflineStore(ports)}
+      offline={offline}
     />,
   )
   return ports
@@ -140,5 +145,72 @@ describe('OfflineDownloadButton', () => {
     expect(ports.records.rows.size).toBe(0)
     expect(ports.blobs.keysFor('pl-1')).toEqual([])
     alertSpy.mockRestore()
+  })
+})
+
+/**
+ * RH-99 ER5 — offline, a download cannot complete, so the two controls that
+ * start one are *disabled*, not left to fail. `Remove offline copy` stays
+ * enabled on purpose: deleting from IndexedDB and Cache Storage is a purely
+ * local write that completes with no network and means exactly what it says.
+ *
+ * The signal is a prop: `PlaylistDetailView` is the route's single
+ * `useOfflineStatus()` caller, so this component stays presentational.
+ */
+describe('OfflineDownloadButton, offline (RH-99 ER5)', () => {
+  it('disables the idle "Available offline" control when offline', async () => {
+    renderControl(makeActions(), createFakePorts(), true)
+
+    const control = await screen.findByRole('button', { name: /available offline/i })
+    expect(control.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('leaves the idle "Available offline" control enabled when online', async () => {
+    renderControl(makeActions(), createFakePorts(), false)
+
+    const control = await screen.findByRole('button', { name: /available offline/i })
+    expect(control.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('starts no download from a click on the disabled idle control', async () => {
+    const actions = makeActions()
+    renderControl(actions, createFakePorts(), true)
+
+    fireEvent.click(await screen.findByRole('button', { name: /available offline/i }))
+
+    await waitFor(() => expect(actions.getPlaylistDetailsWithEntries).not.toHaveBeenCalled())
+  })
+
+  it('disables "Refresh offline copy" and keeps "Remove offline copy" enabled when offline', async () => {
+    // The copy is written while online, then the connection drops: the control
+    // is re-rendered with `offline`, exactly as the page's signal would do it.
+    const store = createOfflineStore(createFakePorts())
+    const actions = makeActions()
+    const control = (offline: boolean) => (
+      <OfflineDownloadButton
+        playlistId="pl-1"
+        playlistName="Gig — Bar do Zé"
+        bandId="band-1"
+        actions={actions}
+        store={store}
+        offline={offline}
+      />
+    )
+    const { rerender } = render(control(false))
+    fireEvent.click(await screen.findByRole('button', { name: /available offline/i }))
+    await screen.findByRole('button', { name: /remove offline copy/i })
+
+    rerender(control(true))
+
+    expect(screen.getByRole('button', { name: /refresh offline copy/i }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: /remove offline copy/i }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('leaves "Refresh offline copy" enabled when online', async () => {
+    renderControl(makeActions())
+    fireEvent.click(await screen.findByRole('button', { name: /available offline/i }))
+
+    const refresh = await screen.findByRole('button', { name: /refresh offline copy/i })
+    expect(refresh.hasAttribute('disabled')).toBe(false)
   })
 })

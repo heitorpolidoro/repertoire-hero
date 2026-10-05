@@ -1,6 +1,8 @@
 /**
  * RH-80 — offline mode, end to end. **This is the acceptance test for the whole
- * offline feature** (RH-78 + RH-79 + RH-80).
+ * offline feature** (RH-78 + RH-79 + RH-80), extended by RH-99 with the
+ * read-only half: after the cold reload, every write control the document can
+ * reach is asserted `disabled`.
  *
  * Nothing static can stand in for it: the claim is that a musician can download
  * a playlist, lose the network, *reload* the page, and still read the setlist,
@@ -241,8 +243,21 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
             tags: [],
             last_practiced: null,
             lyrics: null,
-            song: { id: repertoireId, title: songTitle, artist: 'RH80 Artist' },
+            // RH-99 ER7: one link, so the per-link `Delete link` button exists
+            // offline and its disabled state can be asserted.
+            song: {
+              id: repertoireId,
+              title: songTitle,
+              artist: 'RH80 Artist',
+              links: [{ label: 'Chords', url: 'https://example.invalid/chords' }],
+            },
           },
+          // Required since the RH-83 schema bump (v2): `isSongSnapshot` rejects a
+          // song that merely *omits* it, because "absent" would otherwise be
+          // read as "this member has no version of their own". Without it the
+          // whole seeded record fails validation and Fast View reports the song
+          // as not downloaded.
+          personalRepertoire: null,
           tabs: [
             {
               id: tabId,
@@ -306,6 +321,19 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
   await expect(page.getByTestId('tab-viewer-offline')).toBeVisible()
   await expect(page.locator('iframe[src*="docs.google.com"]')).toHaveCount(0)
 
+  // RH-99 ER7 — every write control this document can reach with no network is
+  // *disabled*, not refused: nothing is queued and nothing is retried.
+  const linksSection = page.getByRole('region', { name: 'Links' })
+  await expect(linksSection.getByRole('button', { name: '+ Add Link' })).toBeDisabled()
+  await expect(linksSection.getByRole('button', { name: 'Delete link' }).first()).toBeDisabled()
+
+  // The `Upload PDF` submit is also disabled with no file chosen, which is its
+  // own rule — so the title input, whose only disabling condition offline is
+  // `readOnly`, is asserted beside it.
+  await expect(tabSection.getByPlaceholder(/Tab Title/)).toBeDisabled()
+  await expect(tabSection.getByRole('button', { name: 'Upload PDF' })).toBeDisabled()
+  await expect(tabSection.getByRole('button', { name: 'Delete tab' }).first()).toBeDisabled()
+
   // Stage Mode is the offline renderer, and it reads the same-origin cache key
   // the worker's CacheOnly route answers.
   await page.getByRole('button', { name: /Stage/ }).first().click()
@@ -314,6 +342,12 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
   // react-pdf's own page-level failure message, which a Document that parsed
   // but could not paint would show instead.
   await expect(page.getByText('Failed to load the page.')).toHaveCount(0)
+
+  // RH-99 ER7, the last control: drawing is never enterable offline, so no
+  // annotation save can be scheduled. The PDF itself keeps rendering above.
+  const drawingToggle = page.getByRole('button', { name: 'Toggle drawing' })
+  await expect(drawingToggle).toBeDisabled()
+  await expect(drawingToggle).toHaveAttribute('aria-pressed', 'false')
 
   await context.setOffline(false)
 })

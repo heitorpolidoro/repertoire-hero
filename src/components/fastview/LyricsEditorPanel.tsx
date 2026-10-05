@@ -6,6 +6,13 @@ import { LyricsFormatGuide } from './LyricsFormatGuide'
 
 export interface LyricsEditorPanelProps {
   controller: LyricsEditorController
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). The panel is
+   * reachable offline only by having been open when the connection dropped, so
+   * `Save`, `Discard my version` and the web import carry their own guard.
+   * `Cancel` and the textarea stay usable — abandoning a draft is not a write.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -48,7 +55,7 @@ const TARGET_STYLE = {
  * discard confirmation is the shared `ConfirmPanel`, never `window.confirm`
  * (AGENTS.md — "NO Browser Alerts").
  */
-export function LyricsEditorPanel({ controller }: LyricsEditorPanelProps) {
+export function LyricsEditorPanel({ controller, readOnly = false }: LyricsEditorPanelProps) {
   const target = controller.editTarget
 
   return (
@@ -67,7 +74,7 @@ export function LyricsEditorPanel({ controller }: LyricsEditorPanelProps) {
               <button
                 type="button"
                 onClick={controller.requestDiscard}
-                disabled={controller.saving}
+                disabled={controller.saving || readOnly}
                 className="text-[11px] font-semibold text-red-600 hover:text-red-800 transition-colors focus:outline-none"
               >
                 🗑 Discard my version
@@ -98,7 +105,7 @@ export function LyricsEditorPanel({ controller }: LyricsEditorPanelProps) {
           <button
             type="button"
             onClick={controller.autoImport}
-            disabled={controller.fetching || controller.saving}
+            disabled={controller.fetching || controller.saving || readOnly}
             className="px-3 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
           >
             {controller.fetching ? (
@@ -124,7 +131,7 @@ export function LyricsEditorPanel({ controller }: LyricsEditorPanelProps) {
             <button
               type="button"
               onClick={controller.save}
-              disabled={controller.saving}
+              disabled={controller.saving || readOnly}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 shadow-sm"
             >
               {controller.saving ? (

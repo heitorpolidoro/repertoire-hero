@@ -43,13 +43,25 @@
  * is rethrown unchanged. **Stale snapshot data is never served in place of a
  * real error.** That is the rule to check first when reading this file.
  *
- * ## Known gap, deliberately out of scope
+ * ## The envelope writes, and who disables their controls
  *
- * `updateLinks` is an envelope write, so offline it resolves `success: false`
- * rather than rejecting. `useSongLinks.submit` ignores the envelope and reports
- * its optimistic success toast; disabling the link controls offline is named in
- * the spec's Out of Scope list (docs/tasks/RH-81-spec.md). ER4 disables the two
- * controls that are in scope, in the page.
+ * `updateLinks` is an envelope write (it stays in `ENVELOPE_WRITES` below), so
+ * offline it resolves `{ success: false, error }` rather than rejecting. RH-99
+ * closed the gap this file used to record: the link controls are **disabled**
+ * offline — the `+ Add Link` trigger, every per-link delete and the add form's
+ * submit — alongside the tab upload, the tab deletes, the Stage Mode drawing
+ * toggle, the lyrics editor's writes and the per-playlist download
+ * (docs/tasks/RH-100-spec.md, the RH-99 spec). `useSongLinks.submit` also reads
+ * the envelope now, so an offline refusal can no longer be reported as success
+ * there. `confirmDelete` still branches on `result.pending` alone, so a
+ * `{ success: false }` envelope from a server-side refusal is still announced as
+ * `Link deleted.` — out of reach offline now that the control is disabled, but
+ * not yet fixed. Tracked as RH-130.
+ *
+ * The rule those controls follow: a write that **crosses the network** is
+ * disabled offline, because it cannot complete. A purely local write — removing
+ * a downloaded playlist, clearing offline storage — completes offline and stays
+ * offered.
  */
 
 import {

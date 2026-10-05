@@ -17,6 +17,7 @@ import {
   stageTouchAction,
   shouldHandleStagePointer,
 } from '@/lib/stageInteraction'
+import { drawPath } from '@/lib/strokeRenderer'
 
 interface TabDrawingStageProps {
   fileUrl: string
@@ -28,6 +29,15 @@ interface TabDrawingStageProps {
     pageNumber: number,
     strokes: Stroke[],
   ) => Promise<{ success?: boolean; error?: string }>
+  /**
+   * Read-only, i.e. offline (RH-99). `Toggle drawing` is disabled and drawing
+   * is never enterable, so the canvas takes no pointer input and no save can be
+   * scheduled. Reading is untouched: the stored strokes still render, and page
+   * navigation and zoom still work. No `= false` default: `undefined` is
+   * already falsy here, and a default parameter is one more branch against
+   * this file's pinned `complexity` budget (F20), which may only shrink.
+   */
+  readOnly?: boolean
 }
 
 type Mode = 'pen' | 'erase' | 'pan'
@@ -65,6 +75,7 @@ export default function TabDrawingStage({
   annotations,
   annotationsError,
   onSaveAnnotations,
+  readOnly,
 }: TabDrawingStageProps) {
   const stageContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -215,25 +226,6 @@ export default function TabDrawingStage({
     }
 
     ctx.restore()
-  }
-
-  function drawPath(ctx: CanvasRenderingContext2D, points: [number, number][], widthPx: number, strokeColor: string) {
-    if (points.length === 0) return
-    ctx.lineWidth = Math.max(widthPx, 1)
-    ctx.strokeStyle = strokeColor
-    if (points.length === 1) {
-      ctx.beginPath()
-      ctx.fillStyle = strokeColor
-      ctx.arc(points[0][0], points[0][1], Math.max(widthPx, 1) / 2, 0, Math.PI * 2)
-      ctx.fill()
-      return
-    }
-    ctx.beginPath()
-    ctx.moveTo(points[0][0], points[0][1])
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i][0], points[i][1])
-    }
-    ctx.stroke()
   }
 
   // ---- Autosave: debounced, coalescing rapid consecutive strokes/erasures into one save ----
@@ -499,6 +491,9 @@ export default function TabDrawingStage({
   }
 
   function handleToggleDrawing() {
+    // Belt as well as braces: the button is `disabled`, so this is unreachable
+    // from the UI — it is here so no future caller can turn drawing on offline.
+    if (readOnly) return
     if (drawingEnabled) {
       // Leaving drawing mode: abort anything in flight so no half-gesture is
       // committed, drop all pointer bookkeeping so re-enabling starts clean,
@@ -660,7 +655,8 @@ export default function TabDrawingStage({
             aria-label="Toggle drawing"
             aria-pressed={drawingEnabled}
             onClick={handleToggleDrawing}
-            className={`shrink-0 min-h-11 min-w-11 px-3 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+            disabled={readOnly}
+            className={`shrink-0 min-h-11 min-w-11 px-3 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors disabled:opacity-40 ${
               drawingEnabled ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-300 hover:text-white'
             }`}
           >

@@ -902,9 +902,26 @@ arrival you open the app and everything you marked is there to read.
   swipe keep working (see *Walk a queue of songs*).
 
 **Open**
-- Nothing. The one defect here is not a question: adding a link is not disabled offline.
-  `useSongLinks.submit` discards what `updateLinks` returns, and offline that call resolves
-  `success: false` rather than rejecting — so the link appears on screen and the toast says
-  "Link added successfully!" while nothing was saved. Deleting a link, twenty lines below,
-  reads the same return value correctly. The control simply has to be disabled like the
-  others.
+- Nothing. The one defect here — adding a link was not disabled offline — is **closed**
+  (RH-99). `useSongLinks.submit` used to discard what `updateLinks` returns, and offline
+  that call resolves `success: false` rather than rejecting, so the link appeared on
+  screen and the toast said "Link added successfully!" while nothing was saved. The
+  controls are now disabled, and `submit` now reads the envelope. `confirmDelete`
+  twenty lines below still branches on `result.pending` alone, so a server-side
+  refusal is announced as `Link deleted.` — unreachable offline now that the
+  control is disabled, but not yet fixed (RH-130).
+
+  RH-99 audited every write surface a musician can reach with no network, not just that
+  one. Disabled offline: the `+ Add Link` trigger, every per-link delete and the add
+  form's submit; the tab upload form's title, file and submit and every per-tab delete;
+  PDF Stage Mode's `Toggle drawing`, so drawing is never enterable and no annotation save
+  is attempted; the lyrics editor's `Save`, `Discard my version` and web import; and
+  `Available offline` / `Refresh offline copy` on `/playlists/[id]`. Still offered,
+  deliberately: every read — tab selection, `Stage`, page navigation, zoom, lyrics Stage
+  Mode, the band/personal version switch — and the purely local writes that *do* complete
+  offline, namely `Remove offline copy` and clearing offline storage.
+
+  The surfaces the service worker never serves offline (dashboard, `/bands/**`,
+  `/profile`, `/settings`, the song form, the song picker, Spotify sync) are reachable only
+  if the connection drops inside a live session; making them read-only needs an app-wide
+  signal and is its own task.

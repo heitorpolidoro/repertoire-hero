@@ -17,6 +17,17 @@ export interface OfflineDownloadButtonProps {
   actions: OfflineDownloadActions;
   /** Defaults to the real `OFFLINE_STORE`; a test passes its own. */
   store?: OfflineStore;
+  /**
+   * True while the device has no network (RH-99). A download crosses the
+   * network and therefore cannot complete, so "Available offline" and "Refresh
+   * offline copy" are *disabled* — offline is read-only by intent, and nothing
+   * is queued for later. "Remove offline copy" stays enabled: it is a purely
+   * local write that completes offline.
+   *
+   * Supplied by `PlaylistDetailView`, this route's single `useOfflineStatus()`
+   * caller, so this component stays presentational.
+   */
+  offline?: boolean;
 }
 
 /** The busy state: a disabled control plus the x / y song counter. */
@@ -45,8 +56,11 @@ function DownloadingControl({ progress }: { progress: OfflinePlaylistController[
 /** The stored state: what is kept, when it was taken, and the two affordances. */
 function DownloadedControl({
   offline,
+  isOffline,
 }: {
   offline: OfflinePlaylistController;
+  /** The device's network state, not the download's — see the prop doc. */
+  isOffline: boolean;
 }) {
   const summary = offline.summary;
   return (
@@ -66,7 +80,8 @@ function DownloadedControl({
           type="button"
           aria-label="Refresh offline copy"
           onClick={() => void offline.download()}
-          className="rounded-md p-2 text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          disabled={isOffline}
+          className="rounded-md p-2 text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:text-gray-300 disabled:hover:bg-transparent"
         >
           <span aria-hidden="true">⟳</span>
         </button>
@@ -104,6 +119,7 @@ export function OfflineDownloadButton({
   bandId,
   actions,
   store,
+  offline: isOffline = false,
 }: OfflineDownloadButtonProps) {
   const offline = useOfflinePlaylist({ playlistId, playlistName, bandId, actions, store });
 
@@ -111,13 +127,16 @@ export function OfflineDownloadButton({
     <div className="px-4 md:px-6 py-3 border-b border-gray-100">
       {offline.status === "downloading" && <DownloadingControl progress={offline.progress} />}
 
-      {offline.status === "downloaded" && <DownloadedControl offline={offline} />}
+      {offline.status === "downloaded" && (
+        <DownloadedControl offline={offline} isOffline={isOffline} />
+      )}
 
       {offline.status === "idle" && (
         <button
           type="button"
           onClick={() => void offline.download()}
-          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center gap-3 hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          disabled={isOffline}
+          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center gap-3 hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:hover:border-gray-200"
         >
           <span aria-hidden="true" className="text-gray-400">
             ⤓

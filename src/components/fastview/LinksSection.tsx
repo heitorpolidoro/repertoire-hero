@@ -8,9 +8,17 @@ export interface LinksSectionProps {
   controller: SongLinksController
   /**
    * The page wires this to "close the tab confirmation, then open the link
-   * one", so the two confirmation panels are never on screen together.
+   * one", so the two confirmation panels are never on screen together — the
+   * mirror of the tab hook's `onDeleteRequested`.
    */
   onDelete: (url: string) => void
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). Offline is
+   * read-only by intent: the `+ Add Link` trigger, every per-link delete and
+   * the add form's submit are *disabled*, never refused. Optional and `false`
+   * by default, so no other call site changes.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -19,7 +27,7 @@ export interface LinksSectionProps {
  *
  * Presentational only — every write belongs to `useSongLinks` (RH-52).
  */
-export function LinksSection({ controller, onDelete }: LinksSectionProps) {
+export function LinksSection({ controller, onDelete, readOnly = false }: LinksSectionProps) {
   return (
     <section aria-label="Links" className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -28,7 +36,8 @@ export function LinksSection({ controller, onDelete }: LinksSectionProps) {
           <button
             type="button"
             onClick={controller.startAdding}
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none"
+            disabled={readOnly}
+            className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors focus:outline-none disabled:text-gray-400"
           >
             + Add Link
           </button>
@@ -62,7 +71,8 @@ export function LinksSection({ controller, onDelete }: LinksSectionProps) {
                 <button
                   type="button"
                   onClick={() => onDelete(link.url)}
-                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                  disabled={readOnly}
+                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0 disabled:text-gray-300 disabled:hover:bg-transparent"
                   aria-label="Delete link"
                   title="Delete link"
                 >
@@ -79,7 +89,7 @@ export function LinksSection({ controller, onDelete }: LinksSectionProps) {
       )}
 
       {/* Add Link Form */}
-      <AddLinkForm controller={controller} />
+      <AddLinkForm controller={controller} readOnly={readOnly} />
     </section>
   )
 }

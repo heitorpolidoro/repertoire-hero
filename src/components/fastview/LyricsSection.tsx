@@ -9,10 +9,12 @@ export interface LyricsSectionProps {
   /** True while the member's own entry is still loading. Page state (RH-52). */
   loadingPersonal: boolean
   /**
-   * True while the Fast View is read-only, i.e. offline (RH-80). Only the
-   * Edit/Add button is disabled — Stage Mode and the version switcher are
-   * reads, and reading is exactly what offline is for. Optional, `false` by
-   * default, so no other call site changes.
+   * True while the Fast View is read-only, i.e. offline (RH-80, extended by
+   * RH-99). The Edit/Add button is disabled, and so are the editor panel's
+   * three writes — the panel can be open when the connection drops. Stage Mode
+   * and the version switcher stay enabled: they are reads, and reading is
+   * exactly what offline is for. Optional, `false` by default, so no other
+   * call site changes.
    */
   readOnly?: boolean
 }
@@ -86,7 +88,7 @@ export function LyricsSection({ controller, loadingPersonal, readOnly = false }:
       )}
 
       {controller.isEditing ? (
-        <LyricsEditorPanel controller={controller} />
+        <LyricsEditorPanel controller={controller} readOnly={readOnly} />
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
           {controller.displayedLyrics ? (

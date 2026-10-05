@@ -51,9 +51,12 @@ import { FastViewOverlays } from '@/components/fastview/FastViewOverlays'
  *
  * RH-80 added one signal to that wiring: `useOfflineStatus()`, read exactly
  * once here. Every offline decision on this page is a prop derived from it — a
- * banner, `readOnly` on the two edit controls, `offline` on the tab card and
- * the "not downloaded" empty state — so `src/components/fastview/**` stays
- * presentational and no component reads `navigator.onLine` itself. The *data*
+ * banner, `readOnly` on every write control the page can reach, `offline` on
+ * the tab card and the "not downloaded" empty state — so
+ * `src/components/fastview/**` stays presentational and no component reads
+ * `navigator.onLine` itself. RH-99 widened `readOnly` from the two RH-80 edit
+ * controls to every one of them: offline is read-only *by intent*, so a write
+ * control is disabled rather than left to fail. The *data*
  * side is independent of the signal: the bundles imported above are already
  * offline-first, so they answer from the RH-79 snapshot on their own.
  */
@@ -64,10 +67,9 @@ export default function FastViewPage() {
   const returnTo = searchParams.get('returnTo')
   const queryBandId = searchParams.get('bandId')
 
-  // One Toast for the whole page: every controller reports through it.
+  // One Toast for the whole page (every controller reports through it) and the
+  // page's single offline reader — see the note above the component.
   const { toast, showToast, dismissToast } = useToast()
-
-  // The page's single offline reader — see the note above the component.
   const isOffline = useOfflineStatus()
   useWakeLock() // the screen stays on while a song is open on a music stand
 
@@ -211,16 +213,17 @@ export default function FastViewPage() {
               loadingPersonal={song.loadingPersonal}
               onOpenStage={pdfStage.open}
               offline={isOffline}
+              readOnly={isOffline}
             />
 
-            {/* Links Section — the link delete closes the tab confirmation, the
-                mirror of the tab hook's `onDeleteRequested` above. */}
+            {/* Links Section — `onDelete`'s wiring is documented on the prop */}
             <LinksSection
               controller={links}
               onDelete={(url) => {
                 tabLibrary.cancelDelete()
                 links.requestDelete(url)
               }}
+              readOnly={isOffline}
             />
 
             {/* Lyrics Section */}
@@ -252,6 +255,7 @@ export default function FastViewPage() {
         links={links}
         toast={toast}
         onDismissToast={dismissToast}
+        readOnly={isOffline}
       />
     </>
   )

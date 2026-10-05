@@ -18,6 +18,13 @@ export interface PdfStageOverlayProps {
   annotationsError: string | null
   onSaveAnnotations: (pageNumber: number, strokes: Stroke[]) => Promise<{ success?: boolean; error?: string }>
   onClose: () => void
+  /**
+   * True while the Fast View is read-only, i.e. offline (RH-99). It reaches the
+   * drawing stage, where it disables the `Toggle drawing` button so drawing is
+   * never enterable and no annotation save can be scheduled. Reading the PDF —
+   * page navigation, zoom, the stored strokes — is unaffected.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -40,6 +47,7 @@ export function PdfStageOverlay({
   annotationsError,
   onSaveAnnotations,
   onClose,
+  readOnly = false,
 }: PdfStageOverlayProps) {
   if (!open || !fileUrl || !tabId) return null
 
@@ -81,6 +89,7 @@ export function PdfStageOverlay({
         annotations={annotations}
         annotationsError={annotationsError}
         onSaveAnnotations={onSaveAnnotations}
+        readOnly={readOnly}
       />
     </div>
   )

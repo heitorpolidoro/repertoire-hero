@@ -214,6 +214,31 @@ describe('PlaylistDetailView (RH-71)', () => {
     expect(ACTIONS.deletePlaylist).toHaveBeenCalledWith('pl-1')
   })
 
+  /**
+   * RH-99 ER5 — this island is the route's offline composition root: it makes
+   * the single `useOfflineStatus()` call and hands the result down as a prop.
+   * `navigator.onLine` is faked here (and only here) because what is under test
+   * is precisely that this component reads it; `OfflineDownloadButton`'s own
+   * suite drives the prop directly.
+   */
+  it('supplies the offline signal to the offline download control', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    setup()
+
+    const control = await screen.findByRole('button', { name: /available offline/i })
+    expect(control.hasAttribute('disabled')).toBe(true)
+    onLine.mockRestore()
+  })
+
+  it('leaves the offline download control enabled while online', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    setup()
+
+    const control = await screen.findByRole('button', { name: /available offline/i })
+    expect(control.hasAttribute('disabled')).toBe(false)
+    onLine.mockRestore()
+  })
+
   it('renders the read-only band badge instead of the status button for a band playlist', () => {
     setup({
       playlist: playlist({ user_id: null, band_id: 'band-1' }),

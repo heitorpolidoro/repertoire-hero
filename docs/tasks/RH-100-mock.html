@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-99 — Disable every write control while offline</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+<div class="max-w-5xl mx-auto p-4 sm:p-8 flex flex-col gap-6">
+
+  <header class="flex flex-col gap-2">
+    <h1 class="text-xl font-bold">RH-99 — every write control, disabled offline</h1>
+    <p class="text-sm text-gray-600">
+      Flip the switch to compare the two states of the same screens. Offline, a control that
+      writes to the server is <span class="font-semibold">disabled</span> — never enabled-then-failing.
+      Reads (Stage, version switch, tab select, page nav, zoom) stay fully usable, and
+      <span class="font-semibold">Remove offline copy</span> stays enabled because a local delete
+      really does complete with no network.
+    </p>
+    <div class="flex items-center gap-3">
+      <button id="toggle" type="button"
+        class="rounded-xl bg-gray-900 text-white text-sm font-semibold px-4 py-2 hover:bg-gray-800">
+        Switch to: Online
+      </button>
+      <span id="stateLabel" class="text-sm font-semibold text-amber-700">State: OFFLINE</span>
+    </div>
+  </header>
+
+  <!-- Offline banner -->
+  <div id="banner" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+    <span class="font-semibold">You are offline.</span> This song is read-only until you reconnect.
+  </div>
+
+  <!-- FAST VIEW -->
+  <section class="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 sm:p-6 flex flex-col gap-6">
+    <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Fast View — /songs/[id]/fast-view</h2>
+
+    <!-- status (already disabled today, RH-80) -->
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h3 class="text-lg font-bold">Black Dog</h3>
+        <p class="text-sm text-gray-500">Led Zeppelin · A</p>
+      </div>
+      <button data-w type="button" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200">
+        Practicing ▾
+      </button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <h4 class="text-xs font-bold uppercase tracking-wide text-gray-500">Tabs (PDF)</h4>
+        <span class="text-[10px] text-gray-400">select + Stage stay enabled — they are reads</span>
+      </div>
+      <div class="flex items-center justify-between px-4 py-3 rounded-xl border border-emerald-300 bg-emerald-50/60">
+        <button type="button" class="text-sm font-medium text-gray-700">📄 Guitar Solo</button>
+        <div class="flex items-center gap-2">
+          <button type="button" class="text-xs px-2 py-0.5 rounded border border-emerald-200 bg-white text-emerald-700">⛶ Stage</button>
+          <span class="h-4 w-px bg-gray-200"></span>
+          <button data-w type="button" class="text-xs text-red-500 px-2 py-0.5 rounded">🗑 Delete</button>
+        </div>
+      </div>
+      <div class="rounded-xl border border-gray-200 p-4 flex flex-col gap-3">
+        <h5 class="text-xs font-semibold text-gray-700">Upload New Tab</h5>
+        <input data-w type="text" placeholder="Tab Title (e.g. Guitar Solo, Bass)"
+          class="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+        <input data-w type="file" class="text-xs text-gray-500" />
+        <button data-w type="button" class="w-full py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg">Upload PDF</button>
+      </div>
+    </div>
+
+    <!-- Links -->
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <h4 class="text-xs font-bold uppercase tracking-wide text-gray-500">Links</h4>
+        <button data-w type="button" class="text-xs font-semibold text-emerald-600">+ Add Link</button>
+      </div>
+      <div class="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white border border-gray-200 shadow-sm">
+        <a href="#" class="text-sm font-medium text-emerald-600">Official video (YouTube)</a>
+        <div class="flex items-center gap-3">
+          <span class="h-4 w-px bg-gray-200"></span>
+          <button data-w type="button" aria-label="Delete link" class="text-gray-400">🗑</button>
+        </div>
+      </div>
+      <!-- the form, as it looks when the connection drops while it is open -->
+      <div class="rounded-xl border border-dashed border-gray-300 p-4 flex flex-col gap-3">
+        <h5 class="text-xs font-semibold text-gray-700">Add New Link <span class="font-normal text-gray-400">(open when the connection dropped)</span></h5>
+        <input data-w type="text" placeholder="Link Label (optional)" class="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+        <input data-w type="url" placeholder="https://..." class="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+        <div class="flex justify-end gap-2">
+          <button type="button" class="px-3 py-1.5 text-xs text-gray-500">Cancel</button>
+          <button data-w type="button" class="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lyrics -->
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <h4 class="text-xs font-bold uppercase tracking-wide text-gray-500">Lyrics</h4>
+        <div class="flex items-center gap-3">
+          <button type="button" class="text-xs font-semibold text-emerald-600">🔍 Stage Mode</button>
+          <button data-w type="button" class="text-xs font-semibold text-emerald-600">Edit</button>
+        </div>
+      </div>
+      <div class="rounded-xl border border-gray-200 p-4 text-sm text-gray-700">Hey hey mama, said the way you move…</div>
+      <div class="rounded-xl border border-dashed border-gray-300 p-4 flex flex-col gap-3">
+        <h5 class="text-xs font-semibold text-gray-700">Editor panel <span class="font-normal text-gray-400">(open when the connection dropped)</span></h5>
+        <textarea data-w rows="2" class="px-3 py-2 text-sm border border-gray-200 rounded-lg">Hey hey mama…</textarea>
+        <div class="flex justify-end gap-2">
+          <button data-w type="button" class="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg">Discard my version</button>
+          <button data-w type="button" class="px-3 py-1.5 text-xs border border-gray-200 rounded-lg">🌐 Import from web</button>
+          <button data-w type="button" class="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg">Save</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PDF STAGE MODE -->
+  <section class="rounded-2xl bg-black border border-gray-800 shadow-sm overflow-hidden">
+    <div class="px-4 py-3 bg-gray-900 text-white text-xs flex items-center justify-between">
+      <span class="font-bold">Guitar Solo · Black Dog</span>
+      <span class="text-gray-400">PDF Stage Mode — the only offline PDF reader</span>
+    </div>
+    <div class="h-40 bg-neutral-800 flex items-center justify-center text-neutral-400 text-xs">
+      downloaded chart renders here, with saved strokes read-only
+    </div>
+    <div class="bg-gray-900/95 border-t border-gray-800 px-3 py-2 flex flex-col gap-2">
+      <div class="flex items-center justify-center gap-3 text-white text-xs">
+        <button type="button" class="px-3 py-1.5 rounded-lg bg-gray-800">‹ Prev</button>
+        <span class="font-mono">Page 1 / 3</span>
+        <button type="button" class="px-3 py-1.5 rounded-lg bg-gray-800">Next ›</button>
+        <span id="saveBadge" class="ml-2 text-[10px] uppercase font-semibold px-2 py-1 rounded-full bg-gray-800 text-gray-300">Saved</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button data-w type="button" class="min-h-11 px-3 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300">✏️ Draw: Off</button>
+        <span id="drawNote" class="text-[11px] text-amber-300">drawing is the write — the toggle is disabled, reading is not</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- PLAYLIST OFFLINE CONTROL -->
+  <section class="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 sm:p-6 flex flex-col gap-3">
+    <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">/playlists/[id] — the offline control</h2>
+    <div class="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3">
+      <span class="text-emerald-600">✓</span>
+      <div>
+        <p class="font-semibold">Available offline</p>
+        <p class="text-xs text-gray-500">4.2 MB · downloaded 2 hours ago</p>
+      </div>
+      <div class="ml-auto flex items-center gap-1">
+        <button data-w type="button" aria-label="Refresh offline copy" class="rounded-md p-2 text-gray-500">⟳</button>
+        <span class="h-4 w-px bg-gray-200"></span>
+        <button type="button" aria-label="Remove offline copy" class="rounded-md p-2 text-red-500">🗑</button>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500">
+      Refresh needs the network, so offline it is disabled. Remove is a local delete that completes
+      with no network, so it stays enabled — that is the boundary of the rule.
+    </p>
+  </section>
+
+</div>
+
+<script>
+  let offline = true;
+  const writeControls = document.querySelectorAll('[data-w]');
+  const toggle = document.getElementById('toggle');
+  const label = document.getElementById('stateLabel');
+  const banner = document.getElementById('banner');
+  const drawNote = document.getElementById('drawNote');
+
+  function apply() {
+    writeControls.forEach((el) => {
+      el.disabled = offline;
+      el.classList.toggle('opacity-40', offline);
+      el.classList.toggle('cursor-not-allowed', offline);
+    });
+    banner.classList.toggle('hidden', !offline);
+    drawNote.classList.toggle('hidden', !offline);
+    label.textContent = offline ? 'State: OFFLINE' : 'State: ONLINE';
+    label.className = offline
+      ? 'text-sm font-semibold text-amber-700'
+      : 'text-sm font-semibold text-emerald-700';
+    toggle.textContent = offline ? 'Switch to: Online' : 'Switch to: Offline';
+  }
+
+  toggle.addEventListener('click', () => { offline = !offline; apply(); });
+  apply();
+  if (window.lucide) window.lucide.createIcons();
+</script>
+</body>
+</html>
