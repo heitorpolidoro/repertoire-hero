@@ -9,8 +9,9 @@
  * answers with a fixed, user-facing message.
  */
 
-import { pool, query, type Queryable } from '@/lib/db'
+import { pool, withTransaction, type Queryable } from '@/lib/db'
 import { primarySpotifyArtist, resolveOrCreateSongIdentity } from '@/lib/songIdentity'
+import { upsertAlbumAndVersion } from '@/lib/songVersions'
 
 export interface SpotifyRawTrack {
   spotifyTrackId: string
@@ -89,27 +90,48 @@ export async function fetchAllSpotifyTracks(
 // Spotify-specific part: appending the track's Spotify link to a row that was
 // already in the catalog, deduplicated by exact URL. A found row's own fields
 // are never rewritten.
+//
+// RH-122: the resolver splits the track name at its `" - "` and hands the right
+// half back as `label`, so the same single parse feeds both keys —
+// `upsertAlbumAndVersion` records the release under the raw album name (the
+// name stripper is gone) and the recording under that label.
+//
+// The whole import of one track is one `withTransaction` (ER10): the catalog
+// row, its album, its version and the link append either all land or none do.
+// Without it each helper would default to `pool`, which hands out a different
+// connection per statement, so a failure at the version insert would commit a
+// `songs` row with no `song_versions` row — or an `albums` row orphaned by the
+// failing version insert — and the catalog has no delete path to undo either.
+// `transactionAtomicity.db.test.ts` has no bearing on that; it is the trigger
+// test in `catalogVersions.db.test.ts` that pins it.
 // ---------------------------------------------------------------------------
 export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> {
   const spotifyLink = { label: track.title.trim(), url: track.spotifyUrl }
 
-  const song = await resolveOrCreateSongIdentity({
+  // One input object, read by both the resolver and the version upsert, so the
+  // album and cover they record cannot disagree.
+  const input = {
     title: track.title,
     artist: track.artist,
     album: track.album,
     cover_url: track.albumArt,
     duration_seconds: track.durationSeconds,
     links: [spotifyLink],
-  })
-
-  if (!song.created && !song.links.some((l) => l.url === track.spotifyUrl)) {
-    await query<never>('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [
-      JSON.stringify([...song.links, spotifyLink]),
-      song.id,
-    ])
   }
 
-  return song.id
+  return withTransaction(async (client) => {
+    const song = await resolveOrCreateSongIdentity(input, client)
+    await upsertAlbumAndVersion(song, input, client)
+
+    if (!song.created && !song.links.some((l) => l.url === track.spotifyUrl)) {
+      await client.query<never>('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [
+        JSON.stringify([...song.links, spotifyLink]),
+        song.id,
+      ])
+    }
+
+    return song.id
+  })
 }
 
 // ---------------------------------------------------------------------------

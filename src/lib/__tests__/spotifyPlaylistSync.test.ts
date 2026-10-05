@@ -12,9 +12,15 @@ import type { Mock } from 'vitest'
 
 // `pool` is the default `Queryable` of `ensureInRepertoire`, and it is the same
 // mock as the `query` export, so both call shapes land on one recorder.
+// `withTransaction` runs its callback with a client backed by that same
+// recorder: `findOrCreateSong` is one transaction (RH-122 ER10), and the
+// statement-order assertions below are about what it issues inside it, not
+// about the `BEGIN`/`COMMIT` pair, which is `withTransaction`'s own and is
+// exercised for real in `catalogVersions.db.test.ts`.
 vi.mock('@/lib/db', () => {
   const query = vi.fn()
-  return { query, pool: { query } }
+  const withTransaction = (fn: (client: { query: typeof query }) => unknown) => fn({ query })
+  return { query, pool: { query }, withTransaction }
 })
 
 import { query } from '@/lib/db'
@@ -120,17 +126,22 @@ const rawTrack: SpotifyRawTrack = {
 describe('findOrCreateSong', () => {
   it('returns the existing id and appends the Spotify link when it is absent', async () => {
     mockedQuery
+      // 1 — the identity lookup finds the row
       .mockResolvedValueOnce({
         rows: [{ id: 'song-1', links: [{ label: 'Chords', url: 'http://chords' }] }],
         rowCount: 1,
       })
+      // 2 — the album upsert, 3 — the version upsert (RH-122)
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      // 4 — the link append
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     const songId = await findOrCreateSong(rawTrack)
 
     expect(songId).toBe('song-1')
-    expect(mockedQuery).toHaveBeenCalledTimes(2)
-    const [updateSql, updateValues] = mockedQuery.mock.calls[1]
+    expect(mockedQuery).toHaveBeenCalledTimes(4)
+    const [updateSql, updateValues] = mockedQuery.mock.calls[3]
     expect(updateSql).toBe('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2')
     expect(JSON.parse(updateValues[0] as string)).toEqual([
       { label: 'Chords', url: 'http://chords' },
@@ -140,21 +151,29 @@ describe('findOrCreateSong', () => {
   })
 
   it('does not touch the links when the Spotify url is already there', async () => {
-    mockedQuery.mockResolvedValueOnce({
-      rows: [
-        { id: 'song-1', links: [{ label: 'x', url: 'https://open.spotify.com/track/t1' }] },
-      ],
-      rowCount: 1,
-    })
+    mockedQuery
+      .mockResolvedValueOnce({
+        rows: [
+          { id: 'song-1', links: [{ label: 'x', url: 'https://open.spotify.com/track/t1' }] },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     expect(await findOrCreateSong(rawTrack)).toBe('song-1')
-    expect(mockedQuery).toHaveBeenCalledTimes(1)
+    // The lookup plus the two upserts, and no `UPDATE songs`.
+    expect(mockedQuery).toHaveBeenCalledTimes(3)
+    const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
+    expect(statements.some((sql) => /UPDATE\s+songs/i.test(sql))).toBe(false)
   })
 
-  it('inserts the sanitized title and trimmed artist for a new song', async () => {
+  it('inserts the split title and trimmed artist for a new song', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     expect(await findOrCreateSong(rawTrack)).toBe('song-new')
 
@@ -171,22 +190,51 @@ describe('findOrCreateSong', () => {
     expect(insertSql).toContain('INSERT INTO songs')
     expect(insertValues[0]).toBe('Song Name')
     expect(insertValues[1]).toBe('Artist A')
-    expect(insertValues[2]).toBe('Album')
+    // RH-122: the album name is stored raw, edition and all.
+    expect(insertValues[2]).toBe('Album (Deluxe Edition)')
     expect(insertValues[5]).toBe(185)
     expect(insertValues[4]).toBe('http://art')
     expect(JSON.parse(insertValues[6] as string)).toEqual([
       { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },
     ])
+
+    // ER9 — the two halves of the one parse reach the two different keys: the
+    // left half is the `songs` title above, the right half this version label.
+    const [albumSql, albumValues] = mockedQuery.mock.calls[2]
+    expect(albumSql).toContain('INSERT INTO albums')
+    expect(albumValues).toEqual(['Artist A', 'Album (Deluxe Edition)', 'http://art'])
+
+    const [versionSql, versionValues] = mockedQuery.mock.calls[3]
+    expect(versionSql).toContain('INSERT INTO song_versions')
+    expect(versionValues).toEqual(['song-new', 'album-1', '2018 Remaster', 185, null])
   })
 
   it('does not append the Spotify link to a row it just created', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     await findOrCreateSong(rawTrack)
 
-    expect(mockedQuery).toHaveBeenCalledTimes(2)
+    // The lookup, the insert and the two upserts — no link `UPDATE songs`.
+    expect(mockedQuery).toHaveBeenCalledTimes(4)
+    const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
+    expect(statements.some((sql) => /UPDATE\s+songs/i.test(sql))).toBe(false)
+  })
+
+  it('never persists a songs title that still carries the separator (ER9)', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+
+    await findOrCreateSong(rawTrack)
+
+    const [, insertValues] = mockedQuery.mock.calls[1]
+    expect(String(insertValues[0])).not.toContain(' - ')
   })
 })
 

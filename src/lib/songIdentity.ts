@@ -5,33 +5,43 @@
  * `createAndAddSong` matched on (title, album) and `findOrCreateSong` on
  * (title, artist), so the same song arrived twice depending on which screen the
  * musician came in through. The rule in `docs/plans/repertoire-rework.md` is
- * `(lower(trim(primary artist)), lower(trim(sanitized title)))` — album is *not*
+ * `(lower(trim(primary artist)), lower(trim(split title)))` — album is *not*
  * in the key — and this module is the only place under `src` that resolves or
  * inserts a catalog row by it. `migrations/0009_unify_song_identity.sql` carries
  * the matching unique index, which is what makes the rule hold under
  * concurrency rather than just by convention.
  *
- * Album deliberately stays out of the key: two takes of the same song by the
- * same artist are one catalog row until `song_versions` exists (RH-105), and the
- * consequence accepted meanwhile is that the first-entered album, cover and
- * duration represent the song for everyone. Hence `resolveOrCreateSongIdentity`
- * never writes to a row it merely found.
+ * Album deliberately stays out of the key, and now that `song_versions` exists
+ * (RH-122) that is no longer a compromise: two takes of the same song by the
+ * same artist are one catalog row with two versions. `resolveOrCreateSongIdentity`
+ * still never writes to a row it merely found — the first-entered album, cover
+ * and duration represent the song for everyone until reads move onto versions.
  *
- * Title *splitting* (`" - Live"` → a version label) is explicitly not here: on
- * the current schema there is nowhere to put the right-hand half, so splitting
- * would merge the live, acoustic and remix takes into one row. `sanitizeSongTitle`
- * only strips remaster/edition noise, which is reversible information.
+ * RH-122 changed exactly one thing in here: the title normaliser. The identity
+ * pair, the album-less key and the primary-artist rule are untouched, but the
+ * title is no longer *stripped* by the deleted sanitizer — it is **split** by
+ * `src/lib/songTitle.ts`. The left half is the identity title and
+ * the right half is handed back to the caller as `label`, so the suffix
+ * `"Bad - Remaster 2012"` carries is recorded on `song_versions` instead of
+ * being discarded. One parse, both keys: `src/lib/songVersions.ts` writes the
+ * second one from this module's answer.
  */
 
 import { pool, type Queryable } from '@/lib/db'
 import type { SongLinksRow } from '@/lib/dbRows'
-import { sanitizeAlbumName, sanitizeSongTitle } from '@/lib/songSanitizer'
+import { splitSongTitle } from '@/lib/songTitle'
 import type { SongLink } from '@/types/database'
 
-/** The normalised pair a catalog row is resolved by. */
+/**
+ * The normalised identity of an incoming title: the pair a catalog row is
+ * resolved by, plus the version `label` the very same parse produced. The label
+ * is carried here rather than re-derived so there is exactly one parse per
+ * write — re-splitting at the version upsert is how the two keys would drift.
+ */
 export interface SongIdentity {
   title: string
   artist: string
+  label: string | null
 }
 
 /** What the caller supplies to resolve a row, and to seed it when it is absent. */
@@ -55,6 +65,12 @@ export interface ResolvedSongIdentity {
   id: string
   links: SongLink[]
   created: boolean
+  /**
+   * The right half of the title split, for the caller to write to
+   * `song_versions.label` (`src/lib/songVersions.ts`). Null when the incoming
+   * title carried no `" - "` suffix.
+   */
+  label: string | null
 }
 
 /**
@@ -84,9 +100,13 @@ export function primaryArtistName(artist: string): string {
   return primary.trim() || artist.trim()
 }
 
-/** Sanitized title + primary artist, trimmed. Case folding happens in SQL. */
+/**
+ * Split title + primary artist + version label, all trimmed. Case folding
+ * happens in SQL, against `uq_songs_artist_title`.
+ */
 export function songIdentityOf(title: string, artist: string): SongIdentity {
-  return { title: sanitizeSongTitle(title).trim(), artist: primaryArtistName(artist) }
+  const split = splitSongTitle(title)
+  return { title: split.title, artist: primaryArtistName(artist), label: split.label }
 }
 
 /**
@@ -119,7 +139,7 @@ async function lookupSongIdentity(
 ): Promise<ResolvedSongIdentity | null> {
   const res = await db.query<SongLinksRow>(LOOKUP_SQL, [identity.title, identity.artist])
   const row = res.rows[0]
-  return row ? { id: row.id, links: row.links ?? [], created: false } : null
+  return row ? { id: row.id, links: row.links ?? [], created: false, label: identity.label } : null
 }
 
 /**
@@ -144,14 +164,17 @@ export async function resolveOrCreateSongIdentity(
   const inserted = await db.query<SongLinksRow>(INSERT_SQL, [
     identity.title,
     identity.artist,
-    sanitizeAlbumName(input.album),
+    // Raw, only trimmed: RH-122 deleted the album-name stripper because
+    // `albums` has a real identity key now, and stripping an edition off a name
+    // would merge two genuinely separate releases with no delete path back.
+    input.album?.trim() || null,
     input.standard_key ?? null,
     input.cover_url ?? null,
     input.duration_seconds ?? null,
     JSON.stringify(input.links ?? []),
   ])
   const row = inserted.rows[0]
-  if (row) return { id: row.id, links: row.links ?? [], created: true }
+  if (row) return { id: row.id, links: row.links ?? [], created: true, label: identity.label }
 
   // A concurrent caller won the unique index, so the insert above was a no-op
   // instead of a 23505. Their row is committed by the time the wait ends.

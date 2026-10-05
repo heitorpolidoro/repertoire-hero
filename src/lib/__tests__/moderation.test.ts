@@ -287,8 +287,22 @@ describe('moderation domain module', () => {
 
       expect(result).toEqual(approvedEdit)
 
-      // Check title was sanitized to 'Plush' and album to 'Core' in songs update query
-      expect(query).toHaveBeenNthCalledWith(3, expect.stringContaining('UPDATE songs'), expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1']))
+      // RH-122 — the payload parser no longer strips: a parenthesised edition
+      // is not a `" - "` suffix, so both the title and the album reach the
+      // catalog exactly as proposed. The parser's job on this path is to keep a
+      // *split* title's left half, which `songEditPayload.test.ts` pins; here
+      // what matters is that the approval applies what the parser returned.
+      expect(query).toHaveBeenNthCalledWith(
+        3,
+        expect.stringContaining('UPDATE songs'),
+        expect.arrayContaining([
+          'Plush (2017 Remaster)',
+          'Core (Super Deluxe Edition)',
+          'Stone Temple Pilots',
+          'E',
+          'song-1',
+        ]),
+      )
     })
 
     it('rejects a historical proposed_data that no longer validates before updating songs', async () => {

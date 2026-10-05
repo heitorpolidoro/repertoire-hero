@@ -9318,3 +9318,40 @@ codebase's own prior art.
 - `knip` emitted two configuration hints (`esbuild` and `@serwist/cli` can be removed from
   `knip.json`'s `ignoreDependencies`). Pre-existing, unrelated to RH-121, and does not affect the
   exit code.
+
+## [RH-122] Add albums and song_versions, and split the title — 2026-10-05 (code review r1)
+
+- `docker-compose.yml:9` still names `scripts/deduplicate-songs.mjs` in the comment explaining `POSTGRES_URL` vs `DATABASE_URL`. The identical sentence in `AGENTS.md` was corrected in this diff; this copy was missed. Non-blocking (a comment), but it is the last live reference to a deleted file.
+- `docker/init-migrations.sh:29` applies each migration with `psql -f` and no `--single-transaction`, unlike `scripts/migrate.mjs`. If `migrate_catalog_to_versions()` ever failed mid-file there, the database would be left with `uq_songs_artist_title` dropped. Harmless for 0014 specifically (that script only runs on a fresh, empty volume, where the function is a no-op) and pre-existing behaviour shared with 0009 — worth a separate task rather than a change here.
+- The collapse leaves the loser's backfilled `albums` row behind, unreferenced once its versions are deleted or repointed. Consistent with the stated "one extra `albums` row is the cheap error" rule, so no change requested; noting it so a later part that lists releases knows orphans are expected.
+
+## [RH-122] Add albums and song_versions, and split the title — 2026-10-05 (code review r2)
+
+- `src/lib/__tests__/catalogVersions.db.test.ts:487` creates
+  `rh122_raise()` with `CREATE OR REPLACE FUNCTION` under an unsuffixed global name, and
+  `afterAll` (line 499) drops only the trigger. The function stays behind in the test
+  database after the run. Harmless (idempotent under parallel workers, referenced by
+  nothing else) but a `DROP FUNCTION IF EXISTS rh122_raise()` in the same `afterAll`
+  would leave the schema as the suite found it, matching the care the rest of the file
+  takes with suffix-scoped fixtures.
+- The mocked `withTransaction` in `src/lib/__tests__/spotifyPlaylistSync.test.ts:22`
+  passes the callback a client backed by the shared recorder and issues no
+  `BEGIN`/`COMMIT`, so that suite cannot regress atomicity on its own. The comment says
+  so and points at the DB test that can, which is the right division — noting it only
+  so a future reader does not mistake those call-count assertions for atomicity
+  coverage.
+
+## [RH-122] Add albums and song_versions, and split the title — 2026-10-05 (QA)
+
+- `migrate_catalog_to_versions()`'s `repertoire_tabs` re-point joins `keeper` to `loser` on
+  `(keeper.user_id IS NOT NULL AND keeper.user_id = loser.user_id) OR (keeper.band_id IS NOT NULL AND keeper.band_id = loser.band_id)`.
+  That is correct for the owner-exclusive rows the check constraint allows, and I confirmed the band branch is
+  structurally the same as the user branch — but my legacy scenario only seeded a **user**-owned collision. A
+  band-owned colliding pair (two bands' `repertoire` rows, tabs on the loser) would be a cheap extra case in
+  `catalogVersionsMigration.db.test.ts` and would close the one path in the tab rescue that no test currently walks.
+  Non-blocking: ER13 names neither owner kind specifically, and the SQL is symmetric.
+- `song_title_head`, `song_title_label` and `migrate_catalog_to_versions` stay resident in every migrated database
+  after `0014`, which the migration header justifies at length (they are the only way the backfill gets tested).
+  Worth a follow-up task to drop them once the collapse can no longer need replaying, so the production schema does
+  not carry three one-shot functions indefinitely.
+

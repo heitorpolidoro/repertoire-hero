@@ -105,8 +105,13 @@ const eslintConfig = defineConfig([
   // `updateSong`'s seven-column `CASE WHEN` with the fill/refuse split in
   // `src/lib/catalogFields.ts`: 473 to 471. RH-121 dropped `contributor_id`
   // from `SONG_JSON` and from the `resolveOrCreateSongIdentity` call, which
-  // reflowed both into one line fewer: 471 to 470.
-  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 470] } },
+  // reflowed both into one line fewer: 471 to 470. RH-122 found the file sitting
+  // exactly on its ceiling and had to pay for the album/version upsert out of
+  // it: `data` is already the resolver's input shape, so the ten-line object
+  // literal built inline at the `resolveOrCreateSongIdentity` call collapsed to
+  // `(data, client)` and the net change — minus ten, plus the import and the
+  // `upsertAlbumAndVersion` call — is 470 to 465.
+  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 465] } },
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },

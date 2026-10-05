@@ -10,8 +10,21 @@ import { describe, it, expect } from 'vitest'
 import { parseSongEditPayload } from '@/lib/songEditPayload'
 
 describe('parseSongEditPayload', () => {
-  it('accepts a title and sanitizes the remaster suffix', () => {
-    expect(parseSongEditPayload({ title: 'Plush (2017 Remaster)' })).toEqual({ title: 'Plush' })
+  // RH-122 — the title splits and this path keeps the **left half**. The suffix
+  // is dropped rather than routed to a version label because a moderation edit
+  // proposes columns of one `songs` row and carries no version context; that
+  // routing is the job of the part that turns this queue into
+  // `catalog_suggestions`. A parenthesised edition is not a suffix at all and
+  // stays in the title, because there is no vocabulary of special words left.
+  it('keeps the left half of a split title, and never a title bearing the separator', () => {
+    expect(parseSongEditPayload({ title: 'Plush - 2017 Remaster' })).toEqual({ title: 'Plush' })
+    expect(parseSongEditPayload({ title: '  Plush  ' })).toEqual({ title: 'Plush' })
+    expect(parseSongEditPayload({ title: 'Plush (2017 Remaster)' })).toEqual({
+      title: 'Plush (2017 Remaster)',
+    })
+
+    // ER9 — no write path may persist a `songs.title` that still carries ' - '.
+    expect(parseSongEditPayload({ title: 'Plush - Live at Wembley' }).title).not.toContain(' - ')
   })
 
   it('rejects a title that is not a non-empty string', () => {
@@ -38,8 +51,15 @@ describe('parseSongEditPayload', () => {
     )
   })
 
-  it('accepts an album as a string or null', () => {
-    expect(parseSongEditPayload({ album: 'Core (Super Deluxe Edition)' })).toEqual({ album: 'Core' })
+  // RH-122 — the album name is trimmed only. The stripper is gone: `albums`
+  // keys on `(lower(artist), lower(name))`, so cleaning the edition off a name
+  // would merge a genuinely separate release into the standard album.
+  it('accepts an album as a string or null, trimming only', () => {
+    expect(parseSongEditPayload({ album: 'Core (Super Deluxe Edition)' })).toEqual({
+      album: 'Core (Super Deluxe Edition)',
+    })
+    expect(parseSongEditPayload({ album: '  Core  ' })).toEqual({ album: 'Core' })
+    expect(parseSongEditPayload({ album: '   ' })).toEqual({ album: null })
     expect(parseSongEditPayload({ album: null })).toEqual({ album: null })
   })
 

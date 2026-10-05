@@ -4,7 +4,12 @@
  * What is pinned here is the *shape* of the rule: what gets normalised, which
  * columns the SQL compares (artist in, album out), that a found row is handed
  * back untouched, and that a lost race is absorbed by `ON CONFLICT DO NOTHING`
- * plus a second lookup rather than by a caught 23505. The behaviour against a
+ * plus a second lookup rather than by a caught 23505.
+ *
+ * RH-122 changed exactly one thing in the rule: the title is **split** at its
+ * first `" - "` instead of being stripped, and the right half comes back as
+ * `label` for `src/lib/songVersions.ts` to write. Every assertion about the
+ * identity pair, the album-less key and the primary artist is unchanged. The behaviour against a
  * live Postgres — two artists, one album, concurrency — is in
  * `songIdentity.db.test.ts`.
  */
@@ -80,15 +85,27 @@ describe('primaryArtistName', () => {
 })
 
 describe('songIdentityOf', () => {
-  it('sanitizes the title, reduces the artist and trims both', () => {
+  it('splits the title, reduces the artist, and keeps the right half as the label', () => {
     expect(songIdentityOf('  Song X - 2011 Remaster  ', ' Michael Jackson, Akon ')).toEqual({
       title: 'Song X',
       artist: 'Michael Jackson',
+      label: '2011 Remaster',
     })
   })
 
-  it('preserves a performance version, which is a different song', () => {
-    expect(songIdentityOf('Song X - Live', 'Queen').title).toBe('Song X - Live')
+  // RH-122: the old sanitizer *preserved* a performance suffix inside the
+  // title, which gave the live take a catalog row of its own. It is now the
+  // version's label — the same song, a different recording.
+  it('splits a performance suffix off instead of preserving it in the title', () => {
+    expect(songIdentityOf('Song X - Live', 'Queen')).toEqual({
+      title: 'Song X',
+      artist: 'Queen',
+      label: 'Live',
+    })
+  })
+
+  it('reports no label for a title that carries no suffix', () => {
+    expect(songIdentityOf('Song X', 'Queen').label).toBeNull()
   })
 })
 
@@ -119,7 +136,12 @@ describe('resolveOrCreateSongIdentity', () => {
     const links = [{ label: 'Chords', url: 'http://chords' }]
     mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'song-1', links }], rowCount: 1 })
 
-    expect(await resolveOrCreateSongIdentity(INPUT)).toEqual({ id: 'song-1', links, created: false })
+    expect(await resolveOrCreateSongIdentity(INPUT)).toEqual({
+      id: 'song-1',
+      links,
+      created: false,
+      label: '2011 Remaster',
+    })
     expect(mockedQuery).toHaveBeenCalledTimes(1)
   })
 
@@ -129,7 +151,7 @@ describe('resolveOrCreateSongIdentity', () => {
     expect((await resolveOrCreateSongIdentity(INPUT)).links).toEqual([])
   })
 
-  it('inserts the normalised identity, the sanitized album and ON CONFLICT DO NOTHING', async () => {
+  it('inserts the normalised identity, the raw album and ON CONFLICT DO NOTHING', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: INPUT.links }], rowCount: 1 })
@@ -138,6 +160,7 @@ describe('resolveOrCreateSongIdentity', () => {
       id: 'song-new',
       links: INPUT.links,
       created: true,
+      label: '2011 Remaster',
     })
 
     const [sql, values] = mockedQuery.mock.calls[1]
@@ -146,10 +169,12 @@ describe('resolveOrCreateSongIdentity', () => {
     // Seven columns, seven placeholders: RH-121 dropped the catalog's
     // contributor column, so the bind list starts at the title.
     expect(sql).toContain('VALUES ($1, $2, $3, $4, $5, $6, $7)')
+    // The album name arrives raw (RH-122): `albums` has a real identity key, so
+    // stripping the edition would merge two genuinely separate releases.
     expect(values).toEqual([
       'Song X',
       'Michael Jackson',
-      'Thriller',
+      'Thriller (25th Anniversary Edition)',
       'Bm',
       'http://art',
       294,
@@ -164,7 +189,7 @@ describe('resolveOrCreateSongIdentity', () => {
 
     const resolved = await resolveOrCreateSongIdentity({ title: 'Bare', artist: 'Nobody' })
 
-    expect(resolved).toEqual({ id: 'song-new', links: [], created: true })
+    expect(resolved).toEqual({ id: 'song-new', links: [], created: true, label: null })
     expect(mockedQuery.mock.calls[1][1]).toEqual(['Bare', 'Nobody', null, null, null, null, '[]'])
   })
 
@@ -178,6 +203,7 @@ describe('resolveOrCreateSongIdentity', () => {
       id: 'song-winner',
       links: [],
       created: false,
+      label: '2011 Remaster',
     })
     expect(mockedQuery).toHaveBeenCalledTimes(3)
   })

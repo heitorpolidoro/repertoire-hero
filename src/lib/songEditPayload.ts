@@ -13,7 +13,7 @@
  * proposed columns, and the admin queue renders it), and they never appear in
  * the returned payload.
  */
-import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
+import { splitSongTitle } from '@/lib/songTitle'
 import type { SongLink } from '@/types/database'
 
 export interface SongEditPayload {
@@ -29,10 +29,23 @@ export interface SongEditPayload {
 const PREFIX = 'Invalid global song edit'
 const HTTP_URL = /^https?:\/\/\S+$/i
 
+/**
+ * The proposed title, split at its `" - "` and narrowed to the **left half**
+ * (RH-122).
+ *
+ * The suffix is dropped on this path rather than routed to a version label, and
+ * that is deliberate: the moderation queue has no version context — a
+ * `global_song_edits` row proposes columns of one `songs` row and nothing more —
+ * so there is no version for a label to belong to. Routing a correction at a
+ * version is the job of the part that turns this queue into
+ * `catalog_suggestions`. What matters here is the half that cannot wait: an
+ * approved correction may not write a title that still carries a suffix, or the
+ * moderation queue would be the one way back to the shape the split removes.
+ */
 function parseTitle(value: unknown): string {
   if (typeof value === 'string' && value.trim() !== '') {
-    const sanitized = sanitizeSongTitle(value.trim())
-    if (sanitized !== '') return sanitized
+    const { title } = splitSongTitle(value)
+    if (title !== '') return title
   }
   throw new Error(`${PREFIX}: title must be a non-empty string`)
 }
@@ -42,9 +55,15 @@ function parseArtist(value: unknown): string {
   throw new Error(`${PREFIX}: artist must be a non-empty string`)
 }
 
+/**
+ * The proposed album name, trimmed only (RH-122). The stripper that used to
+ * clean `(30th Anniversary Super Deluxe Edition)` off it is gone: `albums` keys
+ * on `(lower(artist), lower(name))`, so a stripped name merges two separate
+ * releases, and album names are now stored as the source reports them.
+ */
 function parseAlbum(value: unknown): string | null {
   if (value === null) return null
-  if (typeof value === 'string') return sanitizeAlbumName(value.trim())
+  if (typeof value === 'string') return value.trim() || null
   throw new Error(`${PREFIX}: album must be a string or null`)
 }
 

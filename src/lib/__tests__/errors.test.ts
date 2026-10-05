@@ -94,7 +94,11 @@ beforeEach(() => {
 
     // 1. playlists lookup — also serves the RH-34 assertPlaylistAccess read,
     // which is why the guarded statements below need it to succeed.
-    if (normalizedSql.includes("delete from playlists")) {
+    // RH-122: the two destructive statements that always fail share one
+    // decision point. They used to be two separate `if`s; merging them pays for
+    // the album/version branch added below, so this file stays exactly on the
+    // `complexity: 32` ceiling its override pins (the ratchet may only shrink).
+    if (/delete from (playlists|band_members)/.test(normalizedSql)) {
       throw mockError;
     }
     if (normalizedSql.includes("from playlists")) {
@@ -125,13 +129,19 @@ beforeEach(() => {
     // `... FROM band_members WHERE ...` (no alias, unlike the aggregate
     // subqueries in getBands / getBandWithMembers, which stay on the failing
     // default). Reads resolve to an admin membership so the statement under
-    // test is the one that fails; the DELETE keeps failing, which is what
-    // leaveBand and removeBandMember assert on.
-    if (normalizedSql.includes("delete from band_members")) {
-      throw mockError;
-    }
+    // test is the one that fails; the DELETE keeps failing in the merged guard
+    // above, which is what leaveBand and removeBandMember assert on.
     if (normalizedSql.includes("from band_members where")) {
       return { rowCount: 1, rows: [{ band_id: "mock-band-id", role: "admin" }] };
+    }
+
+    // 3c. the RH-122 album and version upserts. `createAndAddSong` issues them
+    // right after the catalog resolution and before the repertoire insert, so
+    // without a branch here they would fall through to the default and every
+    // createAndAddSong case below would fail on the wrong statement. They are
+    // `ON CONFLICT DO NOTHING`, so an empty result is their normal answer.
+    if (/(insert into (albums|song_versions))|(from albums)/.test(normalizedSql)) {
+      return { rowCount: 0, rows: [] };
     }
 
     // 4. repertoire insert

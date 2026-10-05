@@ -72,7 +72,7 @@ function unifyMigrationSql(): string {
   return raw.replaceAll(LEGACY_CATALOG_TABLE, 'songs')
 }
 
-/** A collision-free, dash-free token: a dash would confuse `sanitizeSongTitle`. */
+/** A collision-free, dash-free token: a spaced dash is the title separator. */
 function token(): string {
   return randomUUID().replace(/-/g, '').slice(0, 12)
 }

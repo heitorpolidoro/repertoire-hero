@@ -106,7 +106,7 @@ Legacy/unused code to be aware of: the live data model is `src/types/database.ts
 - A `Dockerfile` and `docker-compose.yml` also exist for local/self-hosted Postgres + app orchestration. `docker-compose.yml` has exactly two services, `postgres` and `app`, and **two modes selected by `COMPOSE_PROFILES`** (RH-76):
   - **standalone** (`COMPOSE_PROFILES=standalone`, the default, read from `.env`): the repo starts its own `postgres`, published on `${POSTGRES_PORT:-54322}`, and `app` reaches it over the compose network at `postgres:5432`.
   - **poli-runner** (`COMPOSE_PROFILES=poli-runner`, injected by [poli-runner](../polidoro-runner/README.md) from `poli-runner.yml`): no service declares that profile, so the bundled `postgres` stays down and `POSTGRES_URL` points at the shared `poli-postgres` cluster's `repertoire_hero` database instead. `scripts/ensure-db.sh` creates and migrates it first; it exits 0 with a notice when that cluster is down, so `--no-deps` falls back to standalone.
-  - The compose-level connection variable is **`POSTGRES_URL`**, mapped into the container as `DATABASE_URL=${POSTGRES_URL}`. It is deliberately not called `DATABASE_URL` at the compose level: the host-side tooling (`scripts/migrate.mjs`, `scripts/deduplicate-songs.mjs`, `vitest.config.ts`) reads `DATABASE_URL` from `.env.local`, and a compose-network host under that name would be ambiguous. `postgres` carries `profiles: [standalone]`, `app` carries none (so it always stops), and `app`'s `depends_on.postgres` needs `required: false` or an inactive profile invalidates the whole project.
+  - The compose-level connection variable is **`POSTGRES_URL`**, mapped into the container as `DATABASE_URL=${POSTGRES_URL}`. It is deliberately not called `DATABASE_URL` at the compose level: the host-side tooling (`scripts/migrate.mjs`, `vitest.config.ts`) reads `DATABASE_URL` from `.env.local`, and a compose-network host under that name would be ambiguous. `postgres` carries `profiles: [standalone]`, `app` carries none (so it always stops), and `app`'s `depends_on.postgres` needs `required: false` or an inactive profile invalidates the whole project.
   - **`.env.example` is the tracked template** (`.gitignore` negates `.env*` for it with `!.env*.example`) and `cp .env.example .env` is step one of setup for everyone, runner or not — Compose reads `.env` in *every* subcommand. No secret slot in it carries a value.
 
 # Directory Structure
@@ -167,6 +167,9 @@ src/
 │   ├── auth.ts / auth-client.ts / auth-session.ts
 │   │                           Better Auth server config, browser client, session helpers
 │   ├── songs.ts                Shared song catalog (`songs`) + repertoire read/write logic
+│   ├── songIdentity.ts         The ONE catalog identity rule (primary artist + split title)
+│   ├── songTitle.ts            The `" - "` title/label split, feeding both catalog keys
+│   ├── songVersions.ts         The `albums` + `song_versions` upsert both write paths share
 │   ├── bands.ts / bands.server.ts
 │   │                           Band domain logic; both import @/lib/db, so both are server-only.
 │   │                           The .server suffix marks a second return shape (see Module Layout)
@@ -204,7 +207,12 @@ poli-runner.yml                 Makes the repo discoverable by poli-runner: comm
                                  `postgres` integration point and its `local` scenario
 scripts/                        migrate.mjs (schema migration runner), dev-seed (local data
                                  seeding), seed-catalog.sql (the shared `songs` catalogue),
-                                 ensure-db.sh (provisions repertoire_hero on the shared Postgres)
+                                 ensure-db.sh (provisions repertoire_hero on the shared Postgres).
+                                 `npm run build` runs migrate.mjs and nothing else from here: the
+                                 catalogue needs no build-time clean-up, because
+                                 `uq_songs_artist_title` makes a duplicate unreachable at write
+                                 time (see migrations/0014 and
+                                 src/lib/__tests__/catalogTimestampGuard.test.ts).
 docs/                           security-audit.md, test-coverage-plan.md, suggestions-log.md,
                                  plans/ (code-quality-review.md, mobile-app-analysis.md) and
                                  tasks/ (one <id>-spec.md per Meridian task)
@@ -214,7 +222,7 @@ spec.md, SDS.md, plan.md, tasks.md
 
 # Domain Concepts
 
-- **Song (`songs`)** — A song definition (title, artist, album, key, links, cover, duration) shared across all users, wiki-style: any user can contribute a song, and it's resolved by sanitized artist+title (`uq_songs_artist_title`, RH-95) before a duplicate is created. The table was called `global_songs` until RH-121 renamed it, dropping a `global_` prefix that distinguished it from a per-user song table that never existed — `repertoire` has always been the per-owner side. RH-121 also dropped its `contributor_id` column: it recorded only who happened to insert the row first, nothing authorized against it, no screen read it, and the moderation queue records authorship properly and per edit.
+- **Song (`songs`)** — A song definition (title, artist, key, links, cover, lyrics, map) shared across all users, wiki-style: any user can contribute a song. Its identity is **primary artist plus split title** — `(lower(btrim(artist)), lower(btrim(title)))`, the index `uq_songs_artist_title` (RH-95) — where the title is the *left half* of the `" - "` split and the artist is `artists[0]`, not the joined credit list. **The album is not in the key**: a release and a recording are `albums` and `song_versions` (RH-122), so two takes of one song by one artist are one `songs` row with two versions rather than two catalog rows. `src/lib/songIdentity.ts` is the only place under `src/` that resolves or inserts one. The table was called `global_songs` until RH-121 renamed it, dropping a `global_` prefix that distinguished it from a per-user song table that never existed — `repertoire` has always been the per-owner side. RH-121 also dropped its `contributor_id` column: it recorded only who happened to insert the row first, nothing authorized against it, no screen read it, and the moderation queue records authorship properly and per edit.
 - **Repertoire (`repertoire`)** — The join between a *song* and an *owner* (a user or a band, never both — enforced by a DB constraint). This is where per-owner data lives: `status`, `tags`, `personal_key`, `lyrics`, `last_practiced`. A song can appear in many different repertoires (one per user/band that has added it).
 - **Status / Mastery scale** — The 5-stage progress enum defined once in `statusConfig.ts` and the Postgres `song_status` type: `unknown → learning → practicing → polishing → mastered`. Represents how gig-ready a song is.
 - **Band status** — A band's `repertoire` row carries its own `status`, authored by a band admin like any other field on that row. It is not computed from the members, and a member's personal status change does not touch it (RH-96). A member who is not an admin sees the band's value read-only.
@@ -224,7 +232,9 @@ spec.md, SDS.md, plan.md, tasks.md
 - **Fast View** — A reading-mode page (`/songs/[id]/fast-view`) stripped of editing chrome, designed to be legible on a phone propped on a music stand mid-performance.
 - **Repertoire Tab (`repertoire_tabs`)** — A PDF file (chord chart, tab) attached to one specific repertoire entry, stored as a URL pointing into Vercel Blob.
 - **Band Context** — A client-side UI concept (not a DB table): which "hat" the signed-in user is currently browsing under — their personal repertoire, or a specific band's shared repertoire — tracked in `bandContextStore.ts` and applied as the `RepertoireOwner` (`{ userId }` or `{ bandId }`) passed into most `src/lib` functions.
-- **Song & Album Sanitization** — `sanitizeSongTitle` and `sanitizeAlbumName` (`src/lib/songSanitizer.ts`) strip remaster/edition noise (e.g. `- 2018 Remaster`, `(30th Anniversary Super Deluxe Edition)`) while strictly preserving performance versions (`Live`, `Acoustic`, `Unplugged`, `Demo`, `Cover`, `Orchestral`).
+- **Album (`albums`)** — A release: `artist`, `name`, `album_type` (`album`/`single`/`compilation`), `cover_url`, `release_date`. Identity is `(lower(artist), lower(name))` — the artist is in the key because two artists each have a *Greatest Hits*, and merging them would give one row one cover and one date with no delete path back. Names are stored exactly as the source reports them.
+- **Song Version (`song_versions`)** — One recording of a song on one release: `song_id`, a nullable `album_id`, `label`, `duration_seconds`, `key`, `tuning`, `lyrics`, `map`. Identity is `UNIQUE NULLS NOT DISTINCT (song_id, album_id, label)`, declared that way because a null `label` is the common case and plain-unique nulls never collide. `album_id` is nullable: a recording of an unknown release is still a recording.
+- **Title/Label Split** — `splitSongTitle` (`src/lib/songTitle.ts`) splits an incoming title at its **first** `" - "` and keeps **both** halves: the left half is the song's identity title, the right half is the version's `label`. It replaced a sanitizer that *stripped* the suffix, which lost the information — `"Bad - Remaster 2012"` became `"Bad"` and the remaster was gone, so a musician could not choose between *Bad*, *Bad / Remaster 2012* and *Bad / Remaster 2025*. There is deliberately no vocabulary of special words and no parenthesised forms: `"Sweet Child O' Mine (2022 Remastered)"` keeps its parentheses in the title. A title genuinely containing `" - "` is parsed wrongly and shows one extra version — the chosen error, because an extra row costs a click while a wrong merge cannot be undone. `migrations/0014`'s `song_title_head`/`song_title_label` are the SQL half of the same rule and are pinned against this module by `catalogVersions.db.test.ts`.
 - **Auto-Fetched Link Labels & oEmbed** — When adding external links (YouTube, Spotify, chord sites), link label input is optional. If left blank, `fetchUrlTitle` (`src/lib/linkFetcher.ts`) auto-fetches track/video/page titles via Spotify/YouTube oEmbed or HTML `<title>` parsing.
 - **Client-Side Image Compression** — Camera photos uploaded for Band covers or song art are compressed client-side (`compressImageIfNeeded` in `src/lib/imageCompressor.ts`) to max 1024x1024 JPEG (~100KB) prior to Server Action execution to prevent HTTP 413 body size errors.
 
@@ -373,7 +383,7 @@ here rather than left for the next reader to discover.
 - **Components are `PascalCase.tsx`** `(guarded)`, one component per file, named
   after the file: 65 files under `src/components`, no exception.
 - **`src/lib` modules are `camelCase.ts`** `(convention only)`, named for the
-  noun they own (`playlistNav.ts`, `songSanitizer.ts`, `stageHistory.ts`). Three
+  noun they own (`playlistNav.ts`, `songTitle.ts`, `stageHistory.ts`). Three
   legacy names stand outside that and stay: `auth-client.ts` and
   `auth-session.ts`, which mirror `better-auth`'s own module names, and
   `bands.server.ts` (see Module Layout).

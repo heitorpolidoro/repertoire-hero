@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitSongEdit } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
+import { upsertAlbumAndVersion } from '@/lib/songVersions'
 import { splitCatalogUpdate } from '@/lib/catalogFields'
 import type { RepertoireAccessRow } from '@/lib/dbRows'
 import type { Song, Repertoire, SongLink, SongStatus, SongUpdateResult } from '@/types/database'
@@ -330,18 +331,12 @@ export async function createAndAddSong(
     // repertoire insert either both land or neither does, so a failure here
     // cannot leave an orphan catalog row behind for everyone else to see.
     return await withTransaction(async (client) => {
-      const song = await resolveOrCreateSongIdentity(
-        {
-          title: data.title,
-          artist: data.artist,
-          album: data.album,
-          standard_key: data.standard_key,
-          cover_url: data.cover_url,
-          duration_seconds: data.duration_seconds,
-          links: data.links,
-        },
-        client,
-      )
+      // `data` is already the resolver's input shape, so the title is parsed
+      // once: the left half becomes `songs.title` and the right half comes back
+      // as `song.label` for the version (RH-122). Both upserts run on `client`,
+      // so they are atomic with the catalog resolution.
+      const song = await resolveOrCreateSongIdentity(data, client)
+      await upsertAlbumAndVersion(song, data, client)
 
       const repRes = await client.query<Repertoire>(insertRepSql, [song.id, userId, bandId])
       // Thrown inside the callback on purpose: the rollback is what undoes a

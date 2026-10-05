@@ -56,12 +56,22 @@ const REPO_ROOT = path.resolve(__dirname, '../../..')
 /**
  * The exact number of `UPDATE songs` statements production source is
  * expected to hold: two in `src/lib/songs.ts`, one in
- * `src/lib/spotifyPlaylistSync.ts`, one in `src/lib/moderation.ts` and three in
- * `scripts/deduplicate-songs.mjs`. Asserted exactly, not as "at least one": an
- * exact count also fails when a new writer is added without being reviewed
- * against this rule, which is the point of the guard.
+ * `src/lib/spotifyPlaylistSync.ts` and one in `src/lib/moderation.ts`.
+ * Asserted exactly, not as "at least one": an exact count also fails when a new
+ * writer is added without being reviewed against this rule, which is the point
+ * of the guard.
+ *
+ * 7 -> 4 (RH-122): `scripts/deduplicate-songs.mjs` held the other three and is
+ * deleted. It ran on every build, grouped the catalog by its own inlined copy
+ * of the deleted title sanitizer and rewrote titles with the stripping rule —
+ * which after RH-122 would re-strip the titles the split had just normalised,
+ * and whose row deletes now cascade to `song_versions`. The merge it performed
+ * is done once by `migrations/0014_add_albums_and_song_versions.sql`, and
+ * `uq_songs_artist_title` makes the duplicates it hunted unreachable
+ * afterwards. No `UPDATE songs` statement moved anywhere: the count fell
+ * purely because the file holding three of them is gone.
  */
-const EXPECTED_CATALOG_WRITERS = 7
+const EXPECTED_CATALOG_WRITERS = 4
 
 /** Start of a catalog write. Any case, any run of whitespace. */
 const CATALOG_UPDATE = /UPDATE\s+songs\b/gi
