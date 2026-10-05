@@ -73,6 +73,7 @@ function makeActions(overrides: Partial<Record<keyof PlaylistDetailActions, Mock
     removeSongFromPlaylist: vi.fn().mockResolvedValue(undefined),
     updateSongStatus: vi.fn().mockResolvedValue(undefined),
     updateSongTags: vi.fn().mockResolvedValue(undefined),
+    reorderPlaylistSongs: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as MockedActions
 }
@@ -321,5 +322,183 @@ describe('usePlaylistDetail (RH-71)', () => {
     expect(actions.deletePlaylist).toHaveBeenCalledWith('pl-1')
     expect(onDeleted).toHaveBeenCalledTimes(1)
     expect(onRefresh).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * RH-103 — the reorder commands and the reorder mode.
+ *
+ * Three songs, because the interesting cases are a *middle* row moving either
+ * way and the two ends short-circuiting. The playlist auto-syncs so the push is
+ * observable as the one `fetch` the controller makes (`pushIfNeeded`), which is
+ * how the removal test above reads it too.
+ */
+describe('usePlaylistDetail reorder (RH-103)', () => {
+  const THREE = [song('s1', 1), song('s2', 2), song('s3', 3)]
+
+  /** The visible order, read the way `PlaylistSongList` sorts it. */
+  const order = (songs: PlaylistSong[]) =>
+    [...songs].sort((a, b) => a.position - b.position).map((ps) => ps.id)
+
+  function setupThree(options: Partial<UsePlaylistDetailOptions> = {}) {
+    return setup({
+      playlist: playlist({
+        songs: THREE,
+        sync_with_spotify: true,
+        spotify_playlist_id: 'sp-1',
+      }),
+      repertoire: [entry('s1'), entry('s2'), entry('s3')],
+      ...options,
+    })
+  }
+
+  it('moves a middle row up with the complete new id order, pushes and refreshes (ER10)', async () => {
+    const { result, actions, onRefresh, fetchMock } = setupThree()
+
+    await act(async () => {
+      await result.current.moveSong('s2', 'up')
+    })
+
+    expect(actions.reorderPlaylistSongs).toHaveBeenCalledWith('pl-1', [
+      'ps-s2',
+      'ps-s1',
+      'ps-s3',
+    ])
+    expect(order(result.current.songs)).toEqual(['ps-s2', 'ps-s1', 'ps-s3'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('moves a middle row down just as readily (ER10)', async () => {
+    const { result, actions } = setupThree()
+
+    await act(async () => {
+      await result.current.moveSong('s2', 'down')
+    })
+
+    expect(actions.reorderPlaylistSongs).toHaveBeenCalledWith('pl-1', [
+      'ps-s1',
+      'ps-s3',
+      'ps-s2',
+    ])
+    expect(order(result.current.songs)).toEqual(['ps-s1', 'ps-s3', 'ps-s2'])
+  })
+
+  it('restores the previous order and reports the failure when the write rejects (ER10)', async () => {
+    const actions = makeActions({
+      reorderPlaylistSongs: vi
+        .fn()
+        .mockRejectedValue(new Error('Failed to reorder playlist songs: nope')),
+    })
+    const { result, onRefresh } = setupThree({ actions })
+
+    await act(async () => {
+      await result.current.moveSong('s2', 'up')
+    })
+
+    expect(order(result.current.songs)).toEqual(['ps-s1', 'ps-s2', 'ps-s3'])
+    expect(result.current.error).toBe('Failed to reorder playlist songs: nope')
+    expect(onRefresh).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the first row asked to move up', 's1', 'up' as const],
+    ['the last row asked to move down', 's3', 'down' as const],
+    ['a song that is not in the playlist', 's9', 'up' as const],
+  ])('writes nothing for %s (ER10)', async (_label, songId, direction) => {
+    const { result, actions, onRefresh, fetchMock } = setupThree()
+
+    await act(async () => {
+      await result.current.moveSong(songId, direction)
+    })
+
+    expect(actions.reorderPlaylistSongs).toHaveBeenCalledTimes(0)
+    expect(fetchMock).toHaveBeenCalledTimes(0)
+    expect(onRefresh).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+    expect(order(result.current.songs)).toEqual(['ps-s1', 'ps-s2', 'ps-s3'])
+  })
+
+  it('forwards the drag order, pushes and refreshes (ER11)', async () => {
+    const { result, actions, onRefresh, fetchMock } = setupThree()
+
+    await act(async () => {
+      await result.current.reorderSongs(['ps-s3', 'ps-s1', 'ps-s2'])
+    })
+
+    expect(actions.reorderPlaylistSongs).toHaveBeenCalledWith('pl-1', [
+      'ps-s3',
+      'ps-s1',
+      'ps-s2',
+    ])
+    expect(order(result.current.songs)).toEqual(['ps-s3', 'ps-s1', 'ps-s2'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the previous order and reports the failure when the drag write rejects (ER11)', async () => {
+    const actions = makeActions({
+      reorderPlaylistSongs: vi.fn().mockRejectedValue(new Error('nope')),
+    })
+    const { result } = setupThree({ actions })
+
+    await act(async () => {
+      await result.current.reorderSongs(['ps-s3', 'ps-s1', 'ps-s2'])
+    })
+
+    expect(order(result.current.songs)).toEqual(['ps-s1', 'ps-s2', 'ps-s3'])
+    expect(result.current.error).toBe('nope')
+  })
+
+  it('writes nothing when the given order equals the current one (ER11)', async () => {
+    const { result, actions, onRefresh, fetchMock } = setupThree()
+
+    await act(async () => {
+      await result.current.reorderSongs(['ps-s1', 'ps-s2', 'ps-s3'])
+    })
+
+    expect(actions.reorderPlaylistSongs).toHaveBeenCalledTimes(0)
+    expect(fetchMock).toHaveBeenCalledTimes(0)
+    expect(onRefresh).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
+  it('starts out of reorder mode and enters it when asked (ER12)', () => {
+    const { result } = setupThree()
+
+    expect(result.current.reordering).toBe(false)
+
+    act(() => result.current.setReordering(true))
+
+    expect(result.current.reordering).toBe(true)
+  })
+
+  it('leaves reorder mode as soon as a tag filter is applied (ER12)', () => {
+    const { result } = setupThree({ repertoire: [entry('s1', { tags: ['encore'] })] })
+
+    act(() => result.current.setReordering(true))
+    act(() => result.current.changeTagFilter('encore'))
+
+    expect(result.current.reordering).toBe(false)
+
+    // And comes back when the filter is cleared, with nothing asking for it.
+    act(() => result.current.changeTagFilter(null))
+
+    expect(result.current.reordering).toBe(true)
+  })
+
+  it('leaves reorder mode as soon as a non-empty text filter is applied (ER12)', () => {
+    const { result } = setupThree()
+
+    act(() => result.current.setReordering(true))
+    act(() => result.current.changeSongFilterQuery('kash'))
+
+    expect(result.current.reordering).toBe(false)
+
+    // Whitespace is not a filter — `filterPlaylistSongs` trims it away too.
+    act(() => result.current.changeSongFilterQuery('   '))
+
+    expect(result.current.reordering).toBe(true)
   })
 })

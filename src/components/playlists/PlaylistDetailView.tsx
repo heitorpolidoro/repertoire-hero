@@ -24,6 +24,14 @@ export interface PlaylistDetailViewProps {
   repertoire: Repertoire[];
   /** Resolved from the session on the server — the tag bar's ownership gate (F13). */
   currentUserId: string | null;
+  /**
+   * RH-103 — may this caller reorder the playlist? Derived on the server from
+   * the band role the page read there (true for a personal playlist, true for a
+   * band playlist when the role is `admin`), never from a client store: no
+   * server render can read `bandContextStore`, and the write refuses a
+   * non-admin regardless. A plain member sees the list exactly as before.
+   */
+  canReorder: boolean;
   actions: PlaylistDetailActions;
   pickerActions: SongPickerActions;
   /** Injected by the page (F21) — the three reads one offline copy is made of. */
@@ -50,6 +58,7 @@ export function PlaylistDetailView({
   playlist,
   repertoire,
   currentUserId,
+  canReorder,
   actions,
   pickerActions,
   offlineActions,
@@ -65,6 +74,12 @@ export function PlaylistDetailView({
     onRefresh: () => router.refresh(),
     onDeleted: () => router.replace("/playlists"),
   });
+  // Either filter narrows the list to a subset, so the reorder mode is not
+  // offered while one is active — see `PlaylistDetailHeader`'s `canReorder`.
+  // The controller already refuses to *be* in the mode under a filter; this is
+  // the same fact on the offering side.
+  const filtering =
+    detail.activeTagFilter !== null || detail.songFilterQuery.trim() !== "";
 
   return (
     <div className="flex flex-col h-full">
@@ -77,6 +92,9 @@ export function PlaylistDetailView({
         onRename={detail.rename}
         onDelete={detail.remove}
         onSync={detail.sync.pull}
+        canReorder={canReorder && !filtering}
+        reordering={detail.reordering}
+        onToggleReorder={() => detail.setReordering(!detail.reordering)}
       />
 
       {/* Playlist tags — the bar owns the ownership gate */}
@@ -168,6 +186,9 @@ export function PlaylistDetailView({
         tagEditor={detail.songTagEditor}
         onStatusChange={detail.changeStatus}
         onRemoveSong={detail.removeSong}
+        reordering={detail.reordering}
+        onMoveSong={detail.moveSong}
+        onReorderSongs={detail.reorderSongs}
       />
 
       {/* Add-song search panel (toggled by the + button in the header) */}

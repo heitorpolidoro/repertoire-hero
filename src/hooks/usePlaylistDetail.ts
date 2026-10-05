@@ -4,13 +4,17 @@ import { useSpotifySync, type SpotifySyncController } from '@/hooks/useSpotifySy
 import { useTagEditor, type TagEditorController } from '@/hooks/useTagEditor'
 import {
   collectPlaylistTags,
+  movePlaylistSong,
   setSongStatus,
   filterPlaylistSongs,
+  sortPlaylistSongs,
 } from '@/lib/playlistDetail'
+import { isSameOrder } from '@/lib/playlistReorderDrag'
 import {
   EMPTY_PLAYLIST_OVERLAY,
   applyDetailOverlay,
   playlistOverlayReducer,
+  type PlaylistOverlayAction,
 } from '@/lib/playlistOverlay'
 import {
   NO_PANEL,
@@ -40,6 +44,8 @@ export interface PlaylistDetailActions {
   removeSongFromPlaylist(playlistId: string, songId: string): Promise<void>
   updateSongStatus(entryId: string, status: SongStatus, bandId?: string | null): Promise<void>
   updateSongTags(entryId: string, tags: string[], bandId?: string | null): Promise<void>
+  /** RH-103: `orderedIds` are `playlist_songs.id`s in their intended order. */
+  reorderPlaylistSongs(playlistId: string, orderedIds: string[]): Promise<void>
 }
 
 export interface UsePlaylistDetailOptions {
@@ -80,8 +86,84 @@ export interface PlaylistDetailController {
   songTagEditor: TagEditorController
   removeSong: (songId: string) => Promise<void>
   changeStatus: (songId: string, status: SongStatus) => Promise<void>
+  /**
+   * RH-103 — true while the list is in reorder mode. Never true while a filter
+   * is active: the visible list would be a subset, so "the row above" on screen
+   * would not be the row above in the playlist. The mode is derived rather than
+   * stored for exactly that reason, so no component has to remember to turn it
+   * off.
+   */
+  reordering: boolean
+  setReordering: (on: boolean) => void
+  /** One place up or down; writes nothing at the ends (`movePlaylistSong`). */
+  moveSong: (songId: string, direction: 'up' | 'down') => Promise<void>
+  /** The drag's commit, given the full permuted `playlist_songs.id` order. */
+  reorderSongs: (orderedIds: string[]) => Promise<void>
   rename: () => Promise<void>
   remove: () => Promise<void>
+}
+
+/** What the two reorder commands below need from the controller. */
+interface ReorderCommandDeps {
+  playlistId: string
+  /** The whole playlist, never the filtered view. */
+  songs: PlaylistSong[]
+  actions: PlaylistDetailActions
+  record: Dispatch<PlaylistOverlayAction>
+  setError: (message: string | null) => void
+  pushIfNeeded: () => Promise<void>
+  onRefresh: () => void
+}
+
+/**
+ * RH-103 — `moveSong` and `reorderSongs` over one private commit path: record
+ * the new numbering, await the write, push the local order up to Spotify when
+ * the playlist auto-syncs (as `removeSong` does) and refresh. On failure it
+ * records the numbering captured *before* the write, so the list goes back
+ * rather than being recomputed backwards, and the message reaches the existing
+ * error banner.
+ *
+ * At module scope, taking its dependencies as one object, because it holds no
+ * state of its own and the hook below is at the complexity budget's line
+ * ceiling. It is called on every render, exactly as the inline closures it
+ * replaces were.
+ */
+function reorderCommands(deps: ReorderCommandDeps): {
+  moveSong: (songId: string, direction: 'up' | 'down') => Promise<void>
+  reorderSongs: (orderedIds: string[]) => Promise<void>
+} {
+  const { playlistId, songs, actions, record, setError, pushIfNeeded, onRefresh } = deps
+
+  const commitOrder = async (orderedIds: string[]) => {
+    const captured = Object.fromEntries(songs.map(ps => [ps.id, ps.position]))
+    const positions = Object.fromEntries(orderedIds.map((id, index) => [id, index + 1]))
+    setError(null)
+    record({ type: 'song-positions', positions })
+    try {
+      await actions.reorderPlaylistSongs(playlistId, orderedIds)
+      await pushIfNeeded()
+      onRefresh()
+    } catch (err) {
+      record({ type: 'song-positions', positions: captured })
+      setError(err instanceof Error ? err.message : 'Failed to reorder songs')
+    }
+  }
+
+  return {
+    // Computed against the whole playlist, never the filtered view, so a move
+    // is always a move in the playlist.
+    moveSong: async (songId, direction) => {
+      const move = movePlaylistSong(songs, songId, direction)
+      if (!move.moved) return
+      await commitOrder(move.orderedIds)
+    },
+    reorderSongs: async orderedIds => {
+      // A drag released where it started is free: an unchanged order would
+      // still be a real UPDATE and a real Spotify track-list replacement.
+      if (isSameOrder(sortPlaylistSongs(songs).map(ps => ps.id), orderedIds)) return
+      await commitOrder(orderedIds)
+    },
+  }
 }
 
 /**
@@ -106,6 +188,7 @@ export function usePlaylistDetail({
   const [error, setError] = useState<string | null>(null)
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null)
   const [songFilterQuery, setSongFilterQuery] = useState('')
+  const [reorderingAsked, setReordering] = useState(false)
   const [panel, dispatch] = useReducer(playlistPanelReducer, NO_PANEL)
   const [overlay, record] = useReducer(playlistOverlayReducer, EMPTY_PLAYLIST_OVERLAY)
 
@@ -126,6 +209,12 @@ export function usePlaylistDetail({
       }),
     [songs, repertoireMap, activeTagFilter, songFilterQuery],
   )
+
+  // Derived, not stored: a filter ends the mode by construction (see the
+  // `reordering` note on the controller) and clearing the filter brings back
+  // the mode the user asked for, without a component or an effect in between.
+  const filtering = activeTagFilter !== null || songFilterQuery.trim() !== ''
+  const reordering = reorderingAsked && !filtering
 
   const sync = useSpotifySync({
     playlistId: playlist.id,
@@ -187,6 +276,16 @@ export function usePlaylistDetail({
       setError(err instanceof Error ? err.message : 'Failed to update status')
     }
   }
+
+  const { moveSong, reorderSongs } = reorderCommands({
+    playlistId: playlist.id,
+    songs,
+    actions,
+    record,
+    setError,
+    pushIfNeeded: sync.pushIfNeeded,
+    onRefresh,
+  })
 
   const rename = async () => {
     const trimmed = renameDraft(panel).trim()
@@ -265,6 +364,10 @@ export function usePlaylistDetail({
     songTagEditor,
     removeSong,
     changeStatus,
+    reordering,
+    setReordering,
+    moveSong,
+    reorderSongs,
     rename,
     remove,
   }

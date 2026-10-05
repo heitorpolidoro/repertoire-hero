@@ -82,6 +82,7 @@ import {
   deletePlaylistAction,
   addSongToPlaylistAction,
   removeSongFromPlaylistAction,
+  reorderPlaylistSongsAction,
   getPlaylistWithSongsAction,
   getPlaylistDetailsWithEntriesAction,
 } from '../playlists'
@@ -166,6 +167,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   deletePlaylistAction: { run: () => deletePlaylistAction(PLAYLIST_ID), mode: 'throws' },
   addSongToPlaylistAction: { run: () => addSongToPlaylistAction(PLAYLIST_ID, SONG_ID), mode: 'throws' },
   removeSongFromPlaylistAction: { run: () => removeSongFromPlaylistAction(PLAYLIST_ID, SONG_ID), mode: 'throws' },
+  reorderPlaylistSongsAction: { run: () => reorderPlaylistSongsAction(PLAYLIST_ID, []), mode: 'throws' },
   getPlaylistWithSongsAction: { run: () => getPlaylistWithSongsAction(PLAYLIST_ID), mode: 'throws' },
   getPlaylistDetailsWithEntriesAction: { run: () => getPlaylistDetailsWithEntriesAction(PLAYLIST_ID, null), mode: 'throws' },
 

@@ -28,6 +28,18 @@ export interface PlaylistDetailHeaderProps {
   onDelete: () => Promise<void>;
   /** Pulls from Spotify. */
   onSync: () => Promise<void>;
+  /**
+   * RH-103 — whether to offer the *Reorder* toggle at all. The island folds two
+   * facts into it: the caller may reorder this playlist (personal, or band
+   * admin), and no filter is narrowing the list. While a filter is active the
+   * visible list is a subset, so "the row above" on screen is not the row above
+   * in the playlist and the mode would lie.
+   */
+  canReorder: boolean;
+  /** True while the list is in reorder mode; the toggle reads *Done*. */
+  reordering: boolean;
+  /** Enters or leaves that mode. */
+  onToggleReorder: () => void;
 }
 
 /**
@@ -50,6 +62,9 @@ export function PlaylistDetailHeader({
   onRename,
   onDelete,
   onSync,
+  canReorder,
+  reordering,
+  onToggleReorder,
 }: PlaylistDetailHeaderProps) {
   const renaming = panel.kind === "rename";
   // The rename in flight: Save says so and cannot fire twice.
@@ -159,6 +174,11 @@ export function PlaylistDetailHeader({
         {/* Actions */}
         {!renaming && (
           <div className="flex items-center gap-0.5 shrink-0">
+            {/* Reorder mode (RH-103) */}
+            {canReorder && (
+              <ReorderToggle reordering={reordering} onToggle={onToggleReorder} />
+            )}
+
             {/* Add songs */}
             <SongPickerToggle
               open={panel.kind === "picker"}
@@ -270,5 +290,36 @@ function PlaylistDeleteConfirm({
         No
       </button>
     </span>
+  );
+}
+
+/**
+ * The *Reorder* / *Done* toggle (RH-103). Its own component for the reason
+ * `PlaylistDeleteConfirm` below is one: the header's function is already at the
+ * complexity budget's line ceiling, and this is a self-contained control.
+ *
+ * The accessible name is `Reorder` entering the mode and `Done reordering`
+ * leaving it — the visible label is the shorter `Done`, which on its own would
+ * not say what is being finished.
+ */
+function ReorderToggle({
+  reordering,
+  onToggle,
+}: {
+  reordering: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={reordering}
+      aria-label={reordering ? "Done reordering" : undefined}
+      className={`px-2 py-1 rounded text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+        reordering ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50"
+      }`}
+    >
+      {reordering ? "Done" : "Reorder"}
+    </button>
   );
 }

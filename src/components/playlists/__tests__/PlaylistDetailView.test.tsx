@@ -88,6 +88,7 @@ const ACTIONS = {
   removeSongFromPlaylist: vi.fn().mockResolvedValue(undefined),
   updateSongStatus: vi.fn().mockResolvedValue(undefined),
   updateSongTags: vi.fn().mockResolvedValue(undefined),
+  reorderPlaylistSongs: vi.fn().mockResolvedValue(undefined),
 }
 
 const PICKER_ACTIONS = {
@@ -117,6 +118,10 @@ function setup(props: Partial<React.ComponentProps<typeof PlaylistDetailView>> =
       playlist={props.playlist ?? playlist()}
       repertoire={props.repertoire ?? [entry('s1'), entry('s2')]}
       currentUserId={props.currentUserId ?? 'u1'}
+      // RH-103 added the reorder mode; its own suite
+      // (`playlistReorder.test.tsx`) covers the toggle, so these tests keep
+      // rendering the resting screen.
+      canReorder={props.canReorder ?? false}
       actions={(props.actions ?? ACTIONS) as unknown as PlaylistDetailActions}
       pickerActions={PICKER_ACTIONS as unknown as SongPickerActions}
       offlineActions={props.offlineActions ?? OFFLINE_ACTIONS}

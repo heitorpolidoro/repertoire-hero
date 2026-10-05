@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest'
 import {
   collectPlaylistTags,
   filterPlaylistSongs,
+  movePlaylistSong,
   setSongStatus,
   sortPlaylistSongs,
   summarisePlaylistMastery,
@@ -254,5 +255,50 @@ describe('withRepertoireEntry', () => {
     expect(next.get('song-2')).toBe(second)
     expect(source.get('song-1')).toBe(first)
     expect(source.size).toBe(2)
+  })
+})
+
+describe('movePlaylistSong (RH-103)', () => {
+  /**
+   * Deliberately handed to the function out of order and with a gap, so a pass
+   * can only come from `sortPlaylistSongs` — "the row above" is the row above by
+   * `position`, never by array order.
+   */
+  const threeSongs = [
+    playlistSong('song-b', { position: 5 }),
+    playlistSong('song-c', { position: 9 }),
+    playlistSong('song-a', { position: 1 }),
+  ]
+
+  it('moves a middle row up, reporting the whole new row-id order', () => {
+    expect(movePlaylistSong(threeSongs, 'song-b', 'up')).toEqual({
+      moved: true,
+      orderedIds: ['ps-song-b', 'ps-song-a', 'ps-song-c'],
+    })
+  })
+
+  it('moves the same middle row down', () => {
+    expect(movePlaylistSong(threeSongs, 'song-b', 'down')).toEqual({
+      moved: true,
+      orderedIds: ['ps-song-a', 'ps-song-c', 'ps-song-b'],
+    })
+  })
+
+  it('reports nothing to do for the first row moving up', () => {
+    expect(movePlaylistSong(threeSongs, 'song-a', 'up')).toEqual({ moved: false })
+  })
+
+  it('reports nothing to do for the last row moving down', () => {
+    expect(movePlaylistSong(threeSongs, 'song-c', 'down')).toEqual({ moved: false })
+  })
+
+  it('reports nothing to do for a song that is not in the playlist', () => {
+    expect(movePlaylistSong(threeSongs, 'song-z', 'up')).toEqual({ moved: false })
+  })
+
+  it('leaves the source array untouched', () => {
+    const before = threeSongs.map((ps) => ps.id)
+    movePlaylistSong(threeSongs, 'song-b', 'down')
+    expect(threeSongs.map((ps) => ps.id)).toEqual(before)
   })
 })

@@ -247,3 +247,66 @@ describe('playlistOverlay (RH-71)', () => {
     )
   })
 })
+
+describe('playlistOverlay song positions (RH-103)', () => {
+  /** The server order, sorted the way `PlaylistSongList` sorts it. */
+  const order = (songs: PlaylistSong[]) =>
+    [...songs].sort((a, b) => a.position - b.position).map((ps) => ps.id)
+
+  const SERVER = playlist({ songs: [song('s1', 1), song('s2', 2), song('s3', 3)] })
+
+  it('lays the recorded positions over the server rows, giving the moved order', () => {
+    const view = applyDetailOverlay(
+      SERVER,
+      REPERTOIRE,
+      overlayOf({
+        type: 'song-positions',
+        positions: { 'ps-s3': 1, 'ps-s1': 2, 'ps-s2': 3 },
+      }),
+    )
+
+    expect(order(view.songs)).toEqual(['ps-s3', 'ps-s1', 'ps-s2'])
+    // The props themselves are never written through.
+    expect(order(SERVER.songs!)).toEqual(['ps-s1', 'ps-s2', 'ps-s3'])
+  })
+
+  it('gives the server order back after the revert entry a failed write records', () => {
+    const moved = { 'ps-s3': 1, 'ps-s1': 2, 'ps-s2': 3 }
+    const captured = { 'ps-s1': 1, 'ps-s2': 2, 'ps-s3': 3 }
+
+    const view = applyDetailOverlay(
+      SERVER,
+      REPERTOIRE,
+      overlayOf(
+        { type: 'song-positions', positions: moved },
+        { type: 'song-positions', positions: captured },
+      ),
+    )
+
+    expect(order(view.songs)).toEqual(['ps-s1', 'ps-s2', 'ps-s3'])
+    expect(view.songs).toEqual(SERVER.songs)
+  })
+
+  it('is inert once the refresh lands, because the server rows already carry those positions', () => {
+    const settled = playlist({ songs: [song('s3', 1), song('s1', 2), song('s2', 3)] })
+    const overlay = overlayOf({
+      type: 'song-positions',
+      positions: { 'ps-s3': 1, 'ps-s1': 2, 'ps-s2': 3 },
+    })
+
+    expect(applyDetailOverlay(settled, REPERTOIRE, overlay)).toEqual(
+      applyDetailOverlay(settled, REPERTOIRE, EMPTY_PLAYLIST_OVERLAY),
+    )
+  })
+
+  it('leaves a row the overlay says nothing about at its server position', () => {
+    const view = applyDetailOverlay(
+      SERVER,
+      REPERTOIRE,
+      overlayOf({ type: 'song-positions', positions: { 'ps-s3': 0 } }),
+    )
+
+    expect(order(view.songs)).toEqual(['ps-s3', 'ps-s1', 'ps-s2'])
+    expect(view.songs.find((ps) => ps.id === 'ps-s2')?.position).toBe(2)
+  })
+})

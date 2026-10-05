@@ -49,6 +49,14 @@ export interface PlaylistDetailOverlay {
   reportedSongs: PlaylistSong[]
   /** Repertoire entries edited here, by song id. */
   entries: Record<string, Repertoire>
+  /**
+   * RH-103 — `position` overrides by `playlist_songs.id`, laid over the server
+   * rows before the list sorts them. A reorder records the whole new numbering
+   * and a failed one records the numbering captured before the write, so the
+   * entry is a replacement rather than a merge: the second record is the
+   * rollback, not a second opinion.
+   */
+  positions: Record<string, number>
 }
 
 /** Everything the controller can record. */
@@ -60,6 +68,7 @@ export type PlaylistOverlayAction =
   | { type: 'songs-reported'; songs: PlaylistSong[] }
   | { type: 'songs-pulled' }
   | { type: 'repertoire-entry'; songId: string; entry: Repertoire }
+  | { type: 'song-positions'; positions: Record<string, number> }
 
 /** The starting value, so no call site has to spell the literal (`NO_PANEL`). */
 export const EMPTY_PLAYLIST_OVERLAY: PlaylistDetailOverlay = {
@@ -68,6 +77,7 @@ export const EMPTY_PLAYLIST_OVERLAY: PlaylistDetailOverlay = {
   removedSongIds: [],
   reportedSongs: [],
   entries: {},
+  positions: {},
 }
 
 /**
@@ -108,6 +118,9 @@ export function playlistOverlayReducer(
       return { ...state, removedSongIds: [] }
     case 'repertoire-entry':
       return { ...state, entries: { ...state.entries, [action.songId]: action.entry } }
+    case 'song-positions':
+      // Replaced, not merged — see the field's note above.
+      return { ...state, positions: action.positions }
     default:
       return state
   }
@@ -140,7 +153,15 @@ export function applyDetailOverlay(
   const songs = [
     ...serverSongs,
     ...overlay.reportedSongs.filter(ps => !known.has(ps.song_id)),
-  ].filter(ps => !removed.has(ps.song_id))
+  ]
+    .filter(ps => !removed.has(ps.song_id))
+    .map(ps =>
+      // A row the overlay says nothing about keeps the server's own position,
+      // which is also why this entry is inert once the refresh lands.
+      overlay.positions[ps.id] === undefined
+        ? ps
+        : { ...ps, position: overlay.positions[ps.id] },
+    )
 
   const repertoireMap = Object.entries(overlay.entries).reduce(
     (map, [songId, entry]) => withRepertoireEntry(map, songId, entry),

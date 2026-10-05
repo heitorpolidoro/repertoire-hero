@@ -9207,3 +9207,65 @@ None.
    `undefined` silently if a future caller passed `unknown`. Typing the parameter as
    `Exclude<SongStatus, "unknown">` and letting `STATUS_ORDER` carry that element type would
    make the compiler keep the guarantee instead of the call sites.
+
+## [RH-103] Make reordering a playlist possible — 2026-10-05 (code review r1)
+
+- `src/components/playlists/PlaylistSongList.tsx:95` — the insertion line is an extra flex
+  child of a `gap-2` `<ul>`, so inserting it adds one 8px gap and 2px of height against
+  `-my-1`'s −8px: a net ~2px shift of the rows below it. The spec's promise is that "the
+  other rows do not move, so the list never jumps under the finger". Two pixels is
+  invisible as a jump, but the midpoints are re-measured on every `pointermove`, so a
+  pointer parked within ~2px of a midpoint can oscillate the target index. Rendering the
+  line as an absolutely-positioned overlay inside the row, or giving it `h-0` with a
+  `border-t`, would remove the feedback loop entirely.
+- `src/lib/playlistOverlay.ts` — the `positions` entry is never cleared after a successful
+  refresh. That is the documented `rename`-style idempotence and is fine for the reorder
+  path itself, but a later Spotify **pull** (`songs-pulled`, which only clears
+  `removedSongIds`) rewrites the server order while the stale `positions` map still
+  overrides it for any row whose `playlist_songs.id` survived the pull. Clearing
+  `positions` in the `songs-pulled` branch would close that without touching anything else.
+- `src/components/playlists/PlaylistSongList.tsx:62` — the drag's `orderedIds` are derived
+  from `filteredSongs`, not from the full list. Today that is safe only because the
+  controller refuses to be in reorder mode under a filter; a component passing
+  `reordering` directly would silently commit a permutation of a subset (which the server
+  then correctly rejects). Deriving the drag's ids from the unfiltered `songs` would make
+  the component's own invariant local rather than inherited.
+- `src/hooks/usePlaylistReorderDrag.ts:115` — `registerRow(index)` returns a fresh closure
+  each render, so every row's ref detaches and reattaches on every `pointermove`-driven
+  re-render. Correct (React detaches all, then attaches all), but a `useCallback`-free
+  `useRef`-keyed callback or keying the map by row id would avoid the churn.
+- `src/lib/__tests__/playlistReorder.db.test.ts` — the "duplicate final state is still
+  rejected" criterion is only covered at the application-validation layer (the duplicated-id
+  case). A case that writes a genuine duplicate past the validation — e.g. a raw `UPDATE`
+  setting two rows to the same position — would pin the constraint itself rather than the
+  guard in front of it. ER5 does not require it; the migration's whole argument rests on it.
+- `src/components/playlists/PlaylistDetailHeader.tsx:322` — `aria-label` is set only in the
+  `reordering` state (`"Done reordering"`), leaving the resting state to the visible
+  `Reorder` text. That is correct, but an unconditional `aria-label` would read more
+  obviously as deliberate than an `undefined` branch.
+
+
+## [RH-103] Make reordering a playlist possible — 2026-10-05 (code review r2)
+
+- Consider adding a `console.error`-in-rejection-handler check to `src/lib/__tests__/errorHandlingStyle.test.ts`, with the existing sibling call sites allow-listed as known debt. The `catch (x: any)` half of that convention is mechanically enforced and has stayed clean; the `console.error` half is review-enforced and has accumulated ~13 call sites across `src/components/playlists/` alone. Out of scope for RH-103 — worth its own task.
+
+## [RH-103] Make reordering a playlist possible — 2026-10-05 (code review r3)
+
+None. The two log messages are distinct and greppable, the comments at both
+call sites correctly explain that the controller owns recovery and the `.catch`
+exists only so the rejection is not dropped, and the pattern matches the
+codebase's own prior art.
+
+## [RH-103] Make reordering a playlist possible — 2026-10-05 (QA)
+
+- `scripts/migrate.mjs` records applied files in `_migrations`, so `npm run db:migrate`'s
+  second run skips `0012` rather than re-executing it. The file's own idempotency is real —
+  I re-applied the raw SQL twice more directly against the migrated database and it was a
+  clean no-op both times — but the ER1 phrasing ("running the migration a second time") is
+  only exercised end-to-end by that direct re-apply, not by the npm script. Worth knowing
+  if this migration ever has to be replayed by hand.
+- `docs/use-cases.md` (already committed, not part of this change) cites a latency figure
+  "Measured on Postgres 16" for the reorder path. Nothing in the expected results covers it
+  and I did not benchmark it; if that number is meant to be load-bearing it has no test
+  behind it.
+

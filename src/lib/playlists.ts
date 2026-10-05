@@ -1,4 +1,4 @@
-import { assertBandMember } from '@/lib/bands'
+import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import { query, withTransaction } from '@/lib/db'
 import type { PlaylistAccessRow, PlaylistEntryRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
@@ -200,6 +200,74 @@ export async function removeSongFromPlaylist(playlistId: string, userId: string,
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to remove song from playlist', err, { playlistId, songId })
     throw new Error(`Failed to remove song from playlist: ${err.message}`)
+  }
+}
+
+/**
+ * RH-103 — rewrites every `position` of a playlist to 1..n in the order the
+ * caller submitted, where `orderedIds` are `playlist_songs.id`s.
+ *
+ * Authorization comes first and sits **outside** the wrapping `try`, so its
+ * text reaches the UI verbatim (convention L1a): `assertPlaylistAccess` as
+ * every other playlist write does, plus — for a band-owned playlist —
+ * `assertBandAdmin`, because the use case makes reordering a band setlist an
+ * admin act. `assertPlaylistAccess` itself is left alone: it is also the
+ * Spotify route guard, and tightening it would change read answers too.
+ *
+ * The submitted list must be **exactly** the playlist's current row set: no
+ * missing id, no extra, no duplicate and no row from another playlist. A subset
+ * would renumber part of the list into positions other rows still hold, which
+ * the constraint would reject at a confusing distance from the mistake. The
+ * check and the write therefore share one `withTransaction`, so they agree on
+ * the same rows; the deferrable constraint itself needs no transaction.
+ *
+ * The renumber is **one** statement, scoped by `playlist_id`, and there is no
+ * `SET CONSTRAINTS` anywhere: `uq_playlist_song_position` is
+ * `DEFERRABLE INITIALLY IMMEDIATE` since
+ * `migrations/0012_defer_playlist_song_position.sql`, which moves the
+ * uniqueness check to the end of the statement — exactly where a permutation
+ * is valid again. `unnest(...) WITH ORDINALITY` keeps the placeholder count at
+ * two however long the playlist is.
+ */
+export async function reorderPlaylistSongs(
+  playlistId: string,
+  userId: string,
+  orderedIds: string[],
+): Promise<void> {
+  const playlist = await assertPlaylistAccess(playlistId, userId)
+  if (playlist.band_id) await assertBandAdmin(playlist.band_id, userId)
+
+  try {
+    await withTransaction(async (client) => {
+      const current = await client.query<{ id: string }>(
+        'SELECT id FROM playlist_songs WHERE playlist_id = $1',
+        [playlistId],
+      )
+      const known = new Set(current.rows.map((row) => row.id))
+      const submitted = new Set(orderedIds)
+      if (
+        submitted.size !== orderedIds.length ||
+        submitted.size !== known.size ||
+        orderedIds.some((id) => !known.has(id))
+      ) {
+        throw new Error(
+          `the submitted order is not this playlist's row set ` +
+            `(${orderedIds.length} ids for ${known.size} rows)`,
+        )
+      }
+
+      await client.query<never>(
+        `UPDATE playlist_songs ps
+         SET position = ordered.ordinality::int
+         FROM unnest($2::uuid[]) WITH ORDINALITY AS ordered(id, ordinality)
+         WHERE ps.id = ordered.id AND ps.playlist_id = $1`,
+        [playlistId, orderedIds],
+      )
+    })
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to reorder playlist songs', err, { playlistId })
+    throw new Error(`Failed to reorder playlist songs: ${err.message}`)
   }
 }
 

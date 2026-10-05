@@ -8,6 +8,7 @@ import {
   deletePlaylist,
   addSongToPlaylist,
   removeSongFromPlaylist,
+  reorderPlaylistSongs,
   getPlaylistWithSongs,
   getPlaylistDetailsWithEntries,
   type PlaylistEntrySummary,
@@ -53,6 +54,19 @@ export async function addSongToPlaylistAction(playlistId: string, songId: string
 export async function removeSongFromPlaylistAction(playlistId: string, songId: string): Promise<void> {
   const userId = await getRequiredUserId()
   return removeSongFromPlaylist(playlistId, userId, songId)
+}
+
+/**
+ * RH-103 — rewrites the playlist's order. `orderedIds` are `playlist_songs.id`s
+ * in their intended order; the lib function refuses anything that is not
+ * exactly the playlist's row set, and refuses a band playlist to a non-admin.
+ */
+export async function reorderPlaylistSongsAction(
+  playlistId: string,
+  orderedIds: string[]
+): Promise<void> {
+  const userId = await getRequiredUserId()
+  return reorderPlaylistSongs(playlistId, userId, orderedIds)
 }
 
 export async function getPlaylistWithSongsAction(id: string) {

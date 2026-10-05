@@ -88,6 +88,11 @@ function props(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSongList
     activeTagFilter: null,
     songFilterQuery: '',
     tagEditor: tagEditor(),
+    // RH-103 added the reorder mode; `playlistReorder.test.tsx` covers it, so
+    // every case here renders the resting row.
+    reordering: false,
+    onMoveSong: vi.fn(async () => {}),
+    onReorderSongs: vi.fn(async () => {}),
     onStatusChange: vi.fn().mockResolvedValue(undefined),
     onRemoveSong: vi.fn().mockResolvedValue(undefined),
     ...overrides,

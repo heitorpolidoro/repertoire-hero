@@ -161,3 +161,41 @@ export function withRepertoireEntry(
   next.set(songId, entry)
   return next
 }
+
+/**
+ * RH-103 — what one tap on a *Move up* / *Move down* button decides: the whole
+ * new `playlist_songs.id` order, or that there is nothing to do.
+ *
+ * "Nothing to do" is a report rather than an unchanged order on purpose: the
+ * controller short-circuits on it, so the first row asked to move up, the last
+ * row asked to move down and an unknown id all write nothing — no `UPDATE`, no
+ * Spotify track-list replacement — for a tap that should do nothing.
+ */
+export type PlaylistMove = { moved: true; orderedIds: string[] } | { moved: false }
+
+/** The report above, so no call site has to spell the literal. */
+export const NO_PLAYLIST_MOVE: PlaylistMove = { moved: false }
+
+/**
+ * The id order after moving `songId` one place in `direction`. The list is read
+ * through `sortPlaylistSongs`, so "the row above" is the row above by
+ * `position` whatever order the caller's array happens to be in, and the
+ * caller's array is never mutated.
+ */
+export function movePlaylistSong(
+  songs: PlaylistSong[],
+  songId: string,
+  direction: 'up' | 'down',
+): PlaylistMove {
+  const sorted = sortPlaylistSongs(songs)
+  const from = sorted.findIndex(ps => ps.song_id === songId)
+  if (from === -1) return NO_PLAYLIST_MOVE
+
+  const to = direction === 'up' ? from - 1 : from + 1
+  if (to < 0 || to >= sorted.length) return NO_PLAYLIST_MOVE
+
+  const orderedIds = sorted.map(ps => ps.id)
+  orderedIds[from] = sorted[to].id
+  orderedIds[to] = sorted[from].id
+  return { moved: true, orderedIds }
+}
