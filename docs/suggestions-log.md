@@ -8296,3 +8296,630 @@ full-suite coverage gate passes.
 ## [RH-94] Show a lyrics formatting cheat sheet beside the lyrics while editing — 2026-09-30
 
 - At 1280px the "Underline" guide entry overflows its card. The rendered `underline` preview ends at x=1033, while the `<li>` ends at 1015 and the `<aside>` at 1024 (li scrollWidth 175 vs clientWidth 156). The word visibly spills past the guide's border (see `desktop-edit.png`). The other three entries fit. No ER covers this, but it is a visible layout defect in the 176px (`sm:w-44`) column. Possible fixes: shorten the example, let the syntax and preview wrap (`flex-wrap`), or widen the column slightly.
+
+## [RH-95] Unify the two song deduplication rules — 2026-10-01
+
+- ER12 caps the override list at 18 entries; the live ratchet is
+  `MAX_OVERRIDES = 17` in `complexityBudget.test.ts` (the test's `it(...)` title
+  still reads "at most 18" and is stale — RH-80 lowered the constant). ER12 also
+  requires the test to pass, so the stricter bound wins and nothing can go
+  wrong, but the number in the ER should read 17 to avoid inviting a new
+  override for `songIdentity.ts`. §Files touched already states the list may not
+  grow, which is correct.
+- §Approach 5 / ER2 say "oldest row". `global_songs.created_at` defaults to
+  `now()`, which is identical for rows inserted in one transaction, so ties are
+  possible in seeded test data. Specify the tiebreak (`ORDER BY created_at, id`)
+  so the merge and its test are deterministic.
+- ER5 says the second caller's "links do not overwrite the first row's values",
+  while §Approach 4 preserves the Spotify path's link *append*. Both are true
+  but the ER reads as a prohibition on touching `links` at all. Name the path
+  the ER5 test drives (`createAndAddSong`), or carve out the append explicitly.
+- `src/lib/dbRows.ts:26` documents `GlobalSongLinksRow` with the exact SQL of
+  the lookup being moved into `songIdentity.ts`. Worth updating that doc comment
+  when the SQL moves, even if the projection itself is reused unchanged.
+- ER2 says "index dropped"; after this task ships there are two candidate
+  indexes in a developer database (`uq_global_songs_artist_title` from a prior
+  `db:migrate`, and nothing else once `0009` ran). Stating that the test drops
+  `uq_global_songs_artist_title` by name before seeding would remove the
+  ambiguity about which index it means.
+
+## [RH-95] Unify the two song deduplication rules — 2026-10-01
+- The migration's playlist renumbering only needs to touch playlists that
+  actually collapsed a row; restricting the `0007`-style `row_number()` update to
+  the affected `playlist_id` set keeps the statement from rewriting `position` on
+  every playlist in the database. Not blocking — ER3 holds either way — but worth
+  stating in the migration comment so a future reader does not read it as a
+  global renumber.
+- ER2 and ER3 both describe the same DB test. If the implementer writes them as
+  one test case, a short comment naming both ERs in that test will save the QA
+  pass from hunting for a second one.
+
+## [RH-96] Drop the band status trigger and author band status directly — 2026-10-01
+
+- ER11's positive half ("describes a band repertoire with its own key, lyrics and
+  readiness, authored rather than derived") is prose judgement; its negative half
+  (no weakest-link / "menor nível") is mechanical. The clause "`landingCopy.test.ts`
+  pins both halves" is what rescues it, but the spec does not say *what* the positive
+  half is pinned against. Naming the substrings the test asserts (as the deleted-rule
+  half already is) would make ER11 decidable without reading the diff.
+- ER2 and ER5 depend on a live Postgres (`*.db.test.ts`, `authzRepertoire.db.test.ts`).
+  Worth a one-line note on the spec about the skip behaviour when no DB is reachable,
+  so an environment-skipped test is not read as a pass.
+
+## [RH-96] Drop the band status trigger and author band status directly — 2026-10-01
+- None.
+
+## [RH-97] Stop discarding song edits silently — 2026-10-01
+
+- ER11's parenthetical lists the pre-task numbers as "(505; 612/459/17)" but `src/lib/songs.ts` also carries `complexity: ["error", 21]`. The binding clause ("exactly the files' new worst numbers") covers it and the budget test enforces it, so nothing is unverifiable — but naming `21` would stop a verifier wondering whether that override was meant to be removed.
+- ER6 calls `standard_key` a shared field by implication while the spec's Behavior section keeps the key input editable because it writes `repertoire.personal_key`. Note that `SongForm`'s existing `mapFormFields` seeds that input from `personal_key ?? inner.standard_key`, so the enabled input can *display* the catalog key. ER5 and the mock make the intent clear, but one clause in ER6 — "the personal key input is exempt; the catalog key is shown read-only beside it" — would remove any chance of a verifier reading the seeded fallback as a violation.
+- ER1–ER5 are DB-backed and gated on `RUN_DB_TESTS`; neither the ERs nor Test criteria say the gate must be set to observe them. Stating "run with `RUN_DB_TESTS=1`" would keep a skipped suite from reading as a pass.
+- The catalog sanitizes on write (`sanitizeSongTitle`, `sanitizeAlbumName` in the parser path). Worth one sentence on whether the refusal comparison happens before or after sanitization, so a proposal that differs from the stored value only by sanitization is not reported as a refusal.
+
+## [RH-121] Rename global_songs to songs and drop contributor_id — 2026-10-01
+
+- **"the eleven `__tests__` files" undercounts.** `grep -rl global_songs src/` already
+  matches 16 test/fixture files (`authzRepertoire.db.test.ts`, `authzFixtures.ts`,
+  `authzPlaylists.db.test.ts`, `authzTabs.db.test.ts`, `errors.test.ts`,
+  `songs.test.ts`, `transactionAtomicity.db.test.ts`, `spotifySyncAtomicity.db.test.ts`,
+  `spotifyPlaylistRouteAuthz.db.test.ts`, `spotify.test.ts`, `playlists.test.ts`,
+  `spotifyPlaylistSync.test.ts`, `moderationPayload.db.test.ts`, `moderation.test.ts`,
+  `edge_cases.test.ts`, `globalSongEditPayload.test.ts`), before counting files that
+  name only the old TypeScript identifiers. Not blocking — ER4 and ER7 are exhaustive
+  greps, which is the right gate — but the count invites a false sense of having
+  enumerated the work. Either say "every file the ER4/ER7 greps match" or drop the
+  number.
+- **AGENTS.md:325 carries a stale ratchet number** ("`src/lib/songs.ts` is pinned at
+  `max-lines: 531`" while the real override is 505). The drift pre-dates this task, but
+  ER9 changes that very number; fixing line 325 to the new value while AGENTS.md is
+  already being edited (ER11) costs nothing and stops the doc drifting further.
+- **"renames only" overstates the test edits.** `src/lib/__tests__/songs.test.ts:146`
+  (`INSERT INTO global_songs (title, artist, contributor_id) VALUES ($1,$2,$3)`) needs a
+  column and a bind parameter removed, not a rename, and the cleanup-order comment at
+  line 66 reasons from the `contributor_id` FK that this task drops. Say "renames plus
+  the `contributor_id` removals required by ER5" so the Test-criteria sentence does not
+  read as forbidding the change ER5 demands.
+- `scripts/` contains no `contributor_id` today, so ER10's "insert no `contributor_id`"
+  is vacuous there. Harmless, but the ER would be sharper limited to the table name and
+  `npm run seed`.
+
+## [RH-121] Rename global_songs to songs and drop contributor_id — 2026-10-01
+- Non-blocking: the ordering hazard is a PR-description obligation with no ER behind it.
+  If the intent is that it must not be forgotten, consider adding it to ER12 or a new ER
+  as "the PR description states the migration-ordering hazard against RH-96". Left as a
+  suggestion because unverified prose in a PR body is a process matter, not a spec defect.
+
+## [RH-95] Unify the two song deduplication rules — 2026-10-01
+
+- ER1's clause "its four-digit prefix is the next number after the highest prefix
+  otherwise present in `migrations/`" is exact at implementation time but becomes
+  false if a *further* migration lands afterwards and QA is re-run on the merged tree:
+  with this task at `0009` and a later task at `0010`, "next after the highest
+  otherwise present" computes `0011` while the sequence is perfectly contiguous. The
+  parenthetical ("a higher number is correct if another migration landed first") plus
+  the `migrationsSingleSource.test.ts` conjunct give a careful QA agent enough to pass
+  it, so this is not blocking. A future formulation that is stable in both directions:
+  "its prefix is unique and the directory's prefixes are contiguous from `0001`
+  (expected `0009` at implementation time)" — i.e. drop the relative-position clause
+  and let the guard test carry the invariant.
+- The spec's guidance that `_unify_song_identity` is "the stable part of the name" is
+  worth lifting into a one-line convention in `AGENTS.md` for migration-touching
+  tasks generally; all three in-flight specs independently reinvented it this round.
+
+## [RH-98] Fall back to personal context when the selected band is gone — 2026-10-01
+- The Approach says the decision function has "exactly four outcomes" while ER1 says
+  "exactly three outcomes — keep, refresh, reset". Both are defensible readings (four input
+  branches collapsing onto three result variants), but the two numbers sitting in one
+  document will read as a contradiction to the implementer. Phrase it once, e.g. "four
+  input branches mapping onto three result variants".
+- ER9's clause "no file under `src/` reads `?bandId=` from the store" is garbled — a file
+  reads `?bandId=` from the *URL*, not from the store. The intent (Fast View must keep
+  taking the parameter from the URL, and nothing may start writing the store from a URL
+  parameter) is clear from the decision section, but the result as worded is harder to
+  check than it needs to be.
+- ER6's "`router.push` is not called by `AppShell`" is trivially satisfiable today —
+  `AppShell.tsx` imports no router at all. Keeping it is harmless as a regression guard,
+  but it asserts nothing about the change itself.
+- Consider having the `AppShell` test also assert `isLoading` settles after the post-reset
+  `loadSongs()`, since the reset path is the one place where a read is issued outside a
+  user action. Non-blocking: the existing `runLoad` bookkeeping already handles it.
+
+## [RH-99] Disable every write control while offline — 2026-10-01
+
+- The audit table is the best part of this spec and deserves to outlive it. Consider
+  landing the twelve rows (or the rows 11-12 boundary rule at minimum) into
+  `docs/use-cases.md` under *Read offline*, so the next person extending offline has
+  the classification rule rather than re-deriving it from the spec archive.
+- ER6 is described in the spec as "a safety net, not the fix". That is an honest
+  framing, but it means the one behaviour change that is correct online as well as
+  offline is carried as an aside. If this task ever has to shrink, ER6 plus the
+  `useSongLinks` unit test is a clean standalone fix, and ER5 (`/playlists/[id]`,
+  a different route and a different composition root) is the natural second seam.
+- ER3 asserts `onSaveAnnotations` is never called "after a pointer sequence over the
+  canvas". Worth stating in the spec that the assertion window includes the debounce
+  or effect-driven save path, not just the synchronous handler, so the test cannot pass
+  by sampling too early.
+
+## [RH-99] Disable every write control while offline — 2026-10-01
+
+- ER8's second clause asks QA to judge "no executable line" from grep output.
+  The judgement is trivial today (two `*`-prefixed doc-block lines), but a
+  self-deciding form would remove it entirely, e.g.
+  `grep -rn "navigator\.onLine" src/components | grep -v '^\S*:[0-9]*: *\*'`
+  expected to return nothing.
+- `complexityBudget.test.ts` pins `MAX_OVERRIDES = 17` and `eslint.config.mjs`
+  currently holds exactly 17 override entries, so the list is at its cap. The
+  new `src/lib/strokeRenderer.ts` must not need an override — it will not, at
+  four parameters and a handful of branches — but it is worth stating in the
+  Approach so nobody reaches for an override as the escape hatch if a lint
+  number comes in a line high.
+- ER11 mixes a ceiling ("≤ 815") with an exactness requirement ("equal to the
+  file's actual worst numbers"). Both are satisfiable together and the test
+  enforces the exact part, but phrasing it as "exactly the file's new worst
+  numbers, which must be ≤ 815 / ≤ 750" would read less like a contradiction on
+  a QA card.
+
+## [RH-102] Replace the cycling status badge with the four-note control — 2026-10-01
+
+- **Three files that must change are missing from "Files touched".** The
+  `onStatusCycle → onStatusChange` rename and the ER7 string removals force edits
+  the list does not mention: `src/components/playlists/PlaylistDetailView.tsx:159`
+  (`onStatusCycle={detail.cycleStatus}`),
+  `src/components/playlists/__tests__/PlaylistSongList.test.tsx` (mocks
+  `onStatusCycle`, asserts the button name `Status: Unknown. Click to advance.`,
+  and has a doc comment naming that string) and
+  `src/components/playlists/__tests__/PlaylistDetailView.test.tsx:226-234`
+  (`getAllByTitle('Band status is computed from all members')` and two
+  `Click to advance` role queries). Compilation and the suite will force all three,
+  so this is not blocking — but `PlaylistDetailView.test.tsx`'s band assertion is
+  the only test distinguishing band read-only today, and the spec should say what
+  replaces it (which ties into blocking finding 2).
+- **Pin the two sizes numerically.** `≈17px` and `≈32px` in the spec and in ER5
+  are approximate, so no value can fail. The mock already commits to `17` and `32`
+  with slots `w-20` / `w-28`, gaps `gap-0.5` / `gap-1.5`; quoting those exact values
+  would make ER5 decidable.
+- **Name the proof for ER3's fixed-width slot.** "the notes occupy the same
+  horizontal position for every status" is not observable in jsdom, where the DOM
+  tests live, and no e2e assertion is specified for it. Asserting the slot class
+  (`w-20` / `w-28`) or adding a Playwright bounding-box check would close it.
+- **ER12's complexity clause needs a baseline to compare against.** "the override
+  list no longer than before and every entry pinned to its file's current worst
+  number" requires knowing "before"; quoting today's two entries
+  (`RepertoireDashboard.tsx` 18/530/579, `SongForm.tsx` 17/459/612) in the ER makes
+  it self-contained.
+- The RH-96 interlock reads well: rendering the band control read-only behind the
+  predicate already at each call site, with RH-96 owning the predicate, means
+  neither task depends on landing first. Worth keeping verbatim through the
+  revision.
+
+## [RH-102] Replace the cycling status badge with the four-note control — 2026-10-01
+
+- Align the Approach's absolute phrasing with ER5: Approach line 52 ("nothing in the control imports from `STATUS_CONFIG`") and Scope line 17 ("keeps exactly today's three consumers") read as forbidding the label import that ER5 explicitly allows and that the stage-name slot and the "Set status to <Stage>" names require. Narrowing the claim to colour — e.g. "the control imports no colour from `STATUS_CONFIG`; it reads labels only" — removes the appearance of a fourth-consumer contradiction without changing any requirement.
+- The mock's inline SVG paints literal hex values rather than `currentColor`, whereas the component is specified to paint from `currentColor` so the three Tailwind classes are the whole colour surface. Harmless in a standalone prototype, but a reader comparing the two may wonder which is normative; a one-line comment in the mock saying the hexes stand in for the `text-gray-*` classes would settle it.
+
+## [RH-103] Make reordering a playlist possible — 2026-10-01
+
+- ER8 and ER9 are the only results that do not name the symbol they require ("the pure one-place-move
+   computation", "a position-override entry"), while ER3, ER7 and ER10 name theirs exactly. Naming the
+   export and the `PlaylistOverlayAction` variant would make both greppable.
+- *Band playlists* says the page "reads the caller's role there" without naming how. `assertBandMember`
+   returns the role but throws on non-membership, so a page deriving `canReorder` from it needs a
+   different shape than the lib's other call sites; saying which call the page makes would remove a
+   choice at implementation time.
+- ER5 folds three distinct rejections (missing id, extra/duplicate id, foreign-playlist id) into one
+   result. Splitting them would let a partial implementation fail precisely rather than wholesale.
+- The *Not in scope* note that rename/delete/add/remove remain open to any band member contradicts a
+   "Decided" use case. It is correctly deferred here, but it deserves a follow-up task id recorded now
+   so the gap is tracked rather than remembered.
+
+## [RH-103] Make reordering a playlist possible — 2026-10-01
+- The no-op paragraph lists three triggers — first row up, last row down, **and an
+  unknown id** — but neither ER8 nor ER10 exercises the unknown-id case. Not
+  blocking (the behaviour is unambiguous in prose and the path is unreachable from
+  the UI), but a single extra assertion in the pure-function test would close it.
+- ER17's "the whole `RUN_DB_TESTS=1` database suite still passes" is the broad
+  gate and `transactionAtomicity.db.test.ts` is its named instance. If QA ever runs
+  the suite selectively, the named file is the one that must not be skipped —
+  worth a word in the QA hand-off rather than in the spec.
+
+## [RH-100] Delete the unbuilt /songs/search route — 2026-10-01
+
+- ER3's grep scope is `src e2e scripts next.config.ts serwist.config.js`. Root-level files that are not named there (`knip.json`/knip config, `playwright.config.ts`, `vitest.config.ts`, `package.json`) are not checked. A grep over the whole tree excluding `docs/`, `.meridian/`, `.next/` and `node_modules/` would close that gap without weakening the deliberate `docs/` exclusion.
+- ER8 checks `.next/server/app/songs/search.html` only. The current build tree also holds `.next/server/app/songs/search.meta`, `search.rsc` and `search.segments/`. The `rm -rf .next` in ER8 makes the single-file check sufficient in practice, but asserting `ls -d .next/server/app/songs/search*` exits non-zero would be strictly stronger for the same cost.
+- ER5 drops `/songs/search` from `FORBIDDEN_URLS` without substitution. The spec's reasoning is correct and the guard is not actually weakened — the loop at `pwaShell.test.ts:211-214` asserts every proxy matcher pattern (including `/songs/(.*)`) matches zero precached URLs, which covers the `/songs/` namespace generically. Worth a one-line comment in the test noting that the pattern loop is now the only `/songs/` guard, so a future editor does not delete it as redundant.
+
+## [RH-101] Add updated_at to the catalog tables — 2026-10-01
+
+- Behavior 3 requires the accepted `updateSong` imprecision to "be recorded in a
+  comment at that statement", and Files touched constrains that comment to
+  replace or extend the existing comment text without adding a line (there is an
+  existing 6-line block at `src/lib/songs.ts:250-255`, so this is feasible). No
+  expected result covers the comment, so this deliverable is unverifiable at QA.
+  Consider an ER, or drop the requirement to a non-binding note.
+- Behavior 4's rationale ("nothing reads the column until staleness detection
+  lands") is inexact: `searchGlobalSongs` at `src/lib/songs.ts:192` is
+  `SELECT * FROM global_songs` typed as `GlobalSong`, so the new column will be
+  present at runtime on rows returned through `searchGlobalSongsAction` to the
+  client while the type omits it. I checked for breakage: every caller and test
+  mocks `searchGlobalSongs`, and no test asserts the row shape against a live
+  database, so ER9 is safe. Worth restating the rationale as "no declared type
+  or projection changes" rather than "nothing reads it", so a later reader does
+  not trust an inaccurate claim.
+- Scope is correctly sized for one PR (one migration, seven one-line SQL edits,
+  two new tests). `NEEDS_SPLIT` does not apply.
+- The spec is in English throughout, as required.
+
+## [RH-101] Add updated_at to the catalog tables — 2026-10-01
+- The guard's rule ("the text from it up to the next `WHERE`") must be applied to whole-file contents, not line by line, because `src/lib/songs.ts:257` is a multi-line template whose `WHERE id = $8` sits ten lines below the `UPDATE global_songs`. Stating "scan each file's full text, not per line" in Test criteria would remove the last implementation choice there.
+- Behavior 3 requires the accepted-imprecision rationale to be "recorded in a comment at that statement", and Files touched says the comment must not add a line to `src/lib/songs.ts`, but no ER covers the comment's presence. Folding a phrase into ER5 or ER11 ("...and the `updateSong` statement carries a comment recording the unconditional bump") would make it visible to QA; left as-is it is the one prescribed artifact with no expected result behind it. Non-blocking: a comment has no behavioural effect, and the existing comment block at `songs.ts:250-255` can absorb the text without growing the file.
+
+## [RH-127] Ingest uploaded images: decode, bake rotation, strip metadata, downscale — 2026-10-01
+
+- **ER8 does not name the column.** It says "adds a content-type column to `repertoire_tabs`"; the spec body says `content_type` and `src/types/database.ts` gains `content_type?: string`. QA holding only the ER list cannot tell `content_type` from `contentType` or `mime_type`. Quoting the literal column name costs nothing and the ER already avoids the one thing that needed avoiding (the migration file name).
+- **No ER covers the version bump** that the spec's *Files touched* section asks for ("Bump the app version per the release rule", AGENTS.md:497 — patch bump plus a `YYYYMMDDHHmm` suffix, monotonically increasing). ER10 covers lint/test/coverage only. If the bump is part of the deliverable, it belongs in the ER list; if it is left to commit time, the spec should not list it as a file change.
+- **The spec is silent about `src/lib/imageCompressor.ts`.** A second image pipeline already exists (client-side canvas, JPEG, 1024px, quality 0.8) and is used for band images via `useBandEdit.ts` / `BandsView.tsx`. Nothing in the new server-side path conflicts with it, but a reader of the finished code will ask why there are two. One sentence saying the client path stays as-is because it serves band avatars and runs in the browser, while tab ingest must be authoritative and server-side, would prevent a future "consolidate these" refactor from undoing the baked-rotation guarantee.
+- **ER9's second half is loosely specified.** "No image MIME type or image file extension appears anywhere in `src/components/fastview/TabUploadForm.tsx`" invites a crude substring grep that could trip on an unrelated word, or be written so permissively it asserts nothing. Naming the exact strings the test searches for (`image/`, `.jpg`, `.jpeg`, `.png`, `.webp`) makes the guard reproducible.
+- **Minor, convention-level:** the spec for board task RH-127 lives at `docs/tasks/RH-128-spec.md` (the project's id+1 filename offset), while the spec's own Out of Scope section refers to the sibling part 2 by board id RH-128. Both are internally correct, but a reader opening `RH-128-spec.md` to find RH-128 gets RH-127. Not this spec's fault and not actionable here.
+
+## [RH-127] Ingest uploaded images: decode, bake rotation, strip metadata, downscale — 2026-10-01
+
+- The tablet sentence in the bounds bullet is wrong: 2048 is the **short** edge of the 12.9"
+  iPad's 2732×2048 panel, so a portrait chart at 2048 px renders at about 0.75:1 on that
+  device, not "never below 1:1". Correct it or drop it; the 175 dpi argument carries the
+  choice on its own and does not need it.
+- The terminal-case bullet says the halving step "re-walks the **JPEG** ladder", while the
+  encode bullet says images are encoded "in the input's own family" and reserves the JPEG
+  fallback for a lossless family that cannot reach the bound. For a **WebP** input that
+  exhausts quality 40 at 2048 px, those two sentences pull in different directions: the
+  literal text switches it to JPEG, the family rule would keep it WebP. The output content
+  type is observable via ER8, so it is worth one clarifying clause — "re-walks the lossy
+  ladder in the family chosen above" or "always JPEG from this point on", whichever is meant.
+  Left as a suggestion rather than a blocking finding because the literal text does resolve
+  it (JPEG), the branch requires a WebP that exceeds 2 MB at 2048 px / q40, and no ER's
+  pass/fail turns on it.
+
+## [RH-103] Make reordering a playlist possible — 2026-10-02
+
+- **Make ER17's `touch-action` assertion non-vacuous.** In jsdom no Tailwind
+  stylesheet is loaded, so `getComputedStyle(el).touchAction` is `''` for a
+  class-based `touch-none`/`touch-pan-y`. The ER would then pass on the handle
+  only if the value is set inline, and would pass *vacuously* on the row and the
+  container (`''` is indeed "not none") whatever the real CSS says. Setting
+  `style={{ touchAction: 'none' }}` on the handle and `'pan-y'` on the scroll
+  container — rather than utility classes — makes all three halves of ER17 assert
+  something real.
+- **Say how the gesture DOM test gets geometry.** jsdom returns an all-zero
+  `getBoundingClientRect()` and has no `PointerEvent` constructor or
+  `setPointerCapture`, so ER18's "`pointermove` past the next row's midpoint"
+  needs stubbed rects and a stubbed capture. Worth one line in the test criteria
+  so the implementer does not discover it late; the pure-arithmetic split
+  (ER13) already keeps the decisions out of this test, so the stub only has to be
+  crude.
+- **"the 44 × 44 up/down pair"** (line 192) reads as though the pair totals 44px
+  wide; the 126px figure only reconciles if each button is 44px (88 total). The
+  mock's §3 caption is clearer. Consider "a pair of 44 × 44 buttons (88px)".
+- Consider naming, in *Files touched*, which of `PlaylistSongList.tsx` or
+  `usePlaylistReorderDrag.ts` owns the row-midpoint measurement cache and when it
+  is re-measured (the list can scroll mid-drag via the edge auto-scroll, which
+  invalidates rects captured at `pointerdown`). The mock re-reads rects on each
+  move; the spec leaves it open. Not blocking — ER13 pins the arithmetic and ER18
+  pins the outcome — but it is the one place the gesture could go subtly wrong.
+
+## [RH-122] Add albums and song_versions, and split the title instead of stripping it — 2026-10-02
+
+- The spec never states the minimum Postgres version `NULLS NOT DISTINCT` requires
+  (15+). CI and compose are both `postgres:16`, and `AGENTS.md` records no production
+  version, so this is almost certainly fine — but a one-line note in §1 step 3 would
+  stop a future reader wondering, and would surface the problem early if production
+  turns out to be older, where the migration fails at parse time.
+- `scripts/seed-catalog.sql` relies on a bare `ON CONFLICT DO NOTHING` (l.141) while
+  inserting rows with no `album`, which the old partial index never covered — so
+  re-running it today inserts duplicates and after this task it will not. That is an
+  improvement, not a risk, but it is worth a sentence in the spec so the behaviour change
+  in the seed is deliberate rather than noticed later.
+- §2's claim that `isSpecialSongVersion` is "read by nothing outside its own test" is
+  accurate; consider stating the same for `sanitizeAlbumName`'s non-test callers
+  (`globalSongEditPayload.ts`, `spotifyPlaylistSync.ts`) so the deletion's blast radius
+  is listed in one place rather than inferred from *Files touched*.
+- ER10 would be stronger if it pinned the survivor rule it depends on — earliest
+  `created_at`, `id` as tiebreak — since that is the assertion a reviewer of the
+  migration would want to re-run, and it currently lives only in the prose.
+
+## [RH-122] Add albums and song_versions, and split the title instead of stripping it — 2026-10-02
+- §2 says the sanitizer's "only remaining caller after RH-95 is the identity resolver", while
+  §3 and *Files touched* both say `spotifyPlaylistSync.ts`'s `findOrCreateSong` "stops calling
+  `sanitizeAlbumName`". RH-96-spec puts album sanitization inside the resolver, so after RH-95
+  that call site has most likely already moved and the "stops calling" phrasing is stale. Not
+  blocking — ER6 pins the end state by absence regardless of which file holds the last call —
+  but the implementer should read it as "wherever the call survives, it goes", not as a
+  guarantee that a call exists in `spotifyPlaylistSync.ts` to remove.
+- ER4 requires the recreated index to carry "the same name it had before step 4". Worth
+  capturing that name from `pg_indexes` (or the RH-121 tree) before writing the migration, since
+  RH-121 may have renamed `uq_global_songs_artist_title` along with the table and the spec
+  deliberately refuses to hardcode it.
+- RH-96-spec keeps an existing `already in`/`23505` passthrough in `createAndAddSong`'s catch.
+  ER10 says "no **new** `catch` inspects `23505`", which is consistent, but the implementer
+  should not read ER10 as a mandate to remove RH-95's existing one.
+- The retained `migrate_catalog_to_versions()` function will be an otherwise-uncalled database
+  object after the migration runs. The spec already requires a comment in the migration saying
+  it is retained for the test; keeping that comment wording explicit about *which* test file
+  calls it will save a future reader the grep.
+
+## [RH-123] Replace repertoire_tabs with song_files keyed by (user_id, song_id) — 2026-10-02
+
+- `abandoned_blobs.file_url` is a primary key and the delete path inserts into
+  it. Specify `ON CONFLICT DO NOTHING`, or a duplicate URL throws inside the
+  branch §3 requires to answer `{ success: true }`.
+- §3 says the uploaded object is stored "under a path keyed by the owner and the
+  song" without giving the format. The current one is
+  `repertoire-tabs/${repertoireId}/${cleanFileName}`; name the replacement
+  literally, since it is also the string the "tab" vocabulary rename (§5,
+  deferred) will later want to change.
+- §5 cites "ER8 forbids a repertoire row id in a captured file entry". That is
+  ER9; ER8 is the annotations assertion.
+- ER1's "`npm run db:migrate` exits 0 on a fresh database" passes vacuously:
+  `scripts/migrate.mjs` warns and returns 0 when no `DATABASE_URL`/`POSTGRES_URL`
+  is set. Say the check runs with a connection string.
+- §6's "no cached bytes are orphaned" is true of the key format but understates
+  the bump: every existing v2 download is purged, bytes included, on the next
+  `listOfflinePlaylists`. Worth saying, since it is user-visible.
+- §7's `deduplicate-songs.mjs` change: the statement it replaces
+  (`scripts/deduplicate-songs.mjs:261`) sits inside the per-repertoire-row loop,
+  in the branch where a primary row already exists. The single
+  `UPDATE song_files SET song_id = …` must be hoisted out of that loop, once per
+  duplicate pair. The spec implies it; stating it removes a plausible misread.
+- `src/lib/offlineStore.ts`'s `OfflineTabMaterial.tab: RepertoireTab` and
+  `cacheOneTab` are typed against the renamed type; the file is listed, but the
+  type rename's reach into it is not called out.
+- Confirmed for the implementer's benefit: `<next>` is `0009` against today's
+  `migrations/` (0001–0008), which is exactly why §1's "resolve it by reading
+  the directory" instruction matters with eleven specs queued.
+
+## [RH-123] Replace repertoire_tabs with song_files keyed by (user_id, song_id) — 2026-10-02
+
+- §1b's rebuild starts with "drops `song_files` and `abandoned_blobs`". Use
+  `DROP TABLE IF EXISTS` for both: a developer whose shared database has not had
+  `npm run db:migrate` run since this migration landed would otherwise see the test fail
+  with a confusing "table does not exist" rather than skip or explain itself.
+- The rebuild takes an `ACCESS EXCLUSIVE` lock on `song_files` and holds it until the
+  rollback, while vitest runs test files in parallel by default and the rewritten
+  `authzTabs.db.test.ts` writes `song_files` against the same database. The likely symptom
+  is an occasional lock-wait stall rather than a hard failure, but a short `lock_timeout`
+  set inside the test transaction (so the migration test fails fast and legibly instead of
+  hanging to the vitest timeout) would make the flake self-explaining. Worth a sentence in
+  §1b; not a correctness defect.
+- §1b says "If **RH-95 lands first**, its `songIdentity.db.test.ts` already contains this
+  shape and should be read and followed, not re-derived." Once both have landed, the
+  duplicated ~15 lines are a natural candidate for a shared `applyMigrationInRollback`
+  helper — worth recording as a follow-up somewhere, since the spec deliberately and
+  correctly declines to introduce it here.
+
+## [RH-123] Replace repertoire_tabs with song_files keyed by (user_id, song_id) — 2026-10-02
+
+- §1 step 5 (line 92) still says of `DROP TABLE repertoire_tabs`: "This is the one place in
+  the repository that may name the old identifier after this task." That is now one place
+  short — ER5 and Test criteria line 394 both say the migration file *and*
+  `src/lib/__tests__/songFilesMigration.db.test.ts` may name it. Not blocking: the grep in
+  ER5 is the executable arbiter and §1b explicitly instructs writing the legacy DDL inline
+  in the test, so no implementer following the spec is misled into a different
+  implementation. Worth a one-word fix ("the one *migration* that may name it", or "one of
+  the two places — see §1b") the next time the file is edited, so the prose and the gate do
+  not read as disagreeing.
+
+## [RH-128] Render an image file as a single page in the viewer and the stage — 2026-10-02
+
+- **The override cap is 17, not 18.** `complexityBudget.test.ts` declares
+  `MAX_OVERRIDES = 17` and the list is already at 17 entries, so it may not grow
+  at all. Correct the budget note; the instruction it wraps is already right.
+- **Name RH-127's ER11 in full in ER1.** That ER is two assertions — the
+  `accept` value *and* a grep that no image MIME type or extension appears
+  anywhere in `TabUploadForm.tsx`. Both are superseded here; saying so removes
+  the only reading under which a stale guard survives.
+- **Add a sequencing sentence about board RH-99.** The two tasks are not
+  `blockedBy` each other but both rewrite `TabDrawingStage.tsx` and both lower
+  the same `eslint.config.mjs:77` override. The spec's "do not trust any literal,
+  read them off the lint failure" already handles the numbers; one sentence
+  saying whichever lands second re-derives all three would make that explicit.
+  Also worth noting that RH-99's ER2 names the `Upload PDF` submit by its
+  current label, which ER11 here deletes — whichever lands second updates
+  `src/components/fastview/__tests__/offlineReadOnlyControls.test.tsx`, a file
+  this spec's Files-touched list does not mention. ER13's `npm test` catches it,
+  so it is not a finding, but listing the file would save a cycle.
+- **Point ER4 at the mock for the save indicator.** The Approach leaves a real
+  choice open ("it moves into the control row, or the row renders with only the
+  indicator in it; either is acceptable"), while mock section 2 has already
+  decided it — `#stage-nav-inline`, in the control row. Since the operator has
+  seen the mock, cite it and drop the alternative; the latitude is now
+  accidental, not deliberate.
+- **ER10's bilingual assertion needs a per-language term.** "say the feature
+  covers photographs of charts" cannot be one substring across both
+  dictionaries — a test grepping for "photo" passes `en.json` and fails
+  `pt-BR.json` ("foto"/"fotografia"). Pin the term per dictionary. While there:
+  `en.json`'s current `f5Desc` also says "drawing toggles on and off so you can
+  still turn pages", which is untrue of a single-page photo and worth rewriting
+  in the same pass.
+- **Drop "or review-visible diff" from ER11.** The three dead strings
+  (`Tabs (PDF)`, `No PDFs uploaded yet.`, `Upload PDF`) are grep-able, so pin
+  the grep; the disjunction invites a human-judgement pass on an ER that does
+  not need one.
+- **Name a consumer for the exported content-type set, or keep it private.**
+  The Approach has `tabRenderer.ts` export both the set and `isImageTab`, while
+  ER13 requires `lint:dead` to report no unused new export. `knip.json` sets
+  `ignoreExportsUsedInFile: true`, so a set exported with no importer outside
+  its own module is the shape knip flags. If only `isImageTab` and the picker's
+  `accept` string consume it, say which.
+
+## [RH-128] Render an image file as a single page in the viewer and the stage — 2026-10-02
+
+- The amber note's phrasing "an earlier draft of this question claimed…" exposes
+  pipeline process to the operator. The correction itself is the right call and
+  should stay; it could read as a plain statement of the current number ("the
+  toolbar row costs about a sixth of a sideways phone's stage, not a quarter") so
+  the operator is not asked to reason about draft history.
+- Option B's panel shows the drawing-off state only. A second click-through
+  showing B *after* tapping `✏️ Draw` — i.e. B's toolbar-on state, which is
+  option A's toolbar — would make visible that B is not less chrome overall, only
+  less chrome while reading. Non-blocking: the captions already say this in
+  words.
+- `The budget, measured.` tells the implementer not to trust literals and to read
+  the real numbers off the lint failure, while the same paragraph quotes 21 /
+  757 / 819 and RH-99's 815/750. The instruction is correct and ER5 enforces the
+  behaviour, but the quoted figures will age; a note that they are a snapshot
+  taken at spec time would prevent a future reader treating them as targets.
+
+## [RH-124] Split repertoire into user_songs and band_songs keyed by version_id — 2026-10-02
+
+- The test list omits files that ER3 forces to change: `src/app/actions/__tests__/
+  authzPlaylists.db.test.ts:74` and `src/lib/__tests__/spotifyPlaylistSync.test.ts:188,193,206`
+  both contain `INSERT INTO repertoire` as a table, and `src/app/actions/__tests__/
+  authzTabs.db.test.ts:96` does too if RH-123 leaves that file standing. ER3's grep is the
+  authority and will surface them, but listing them saves a round.
+- ER2 preserves five columns by name and omits that `tuning` and `map` arrive null (never
+  having existed); the Test criteria do assert them. Add them to ER2 for symmetry.
+- ER13 says "opens a version", while version-aware addressing is explicitly out of scope
+  (RH-109) and the Fast View route is still song-keyed. Phrase it as the song whose
+  representative version has null `lyrics` while `songs.lyrics` is set.
+- ER15 names `assertBandAdmin` as exported from `src/lib/bands.ts`; it is currently private
+  (`src/lib/bands.ts:59`). Correct as written against the post-RH-96 tree — noted only so the
+  implementer does not read it as already true.
+- Scope: this is at the ceiling for a five-round budget. If a round is spent on size rather
+  than substance, §6's admin gate is the only cleanly separable piece.
+
+## [RH-124] Split repertoire into user_songs and band_songs keyed by version_id — 2026-10-02
+
+- The sync-route gate is specified at route level ("the sync route adds the
+  same admin check for a playlist that carries a `band_id`", ER19 "the sync
+  route refuses a band playlist for a non-admin"), which also gates
+  `direction: 'push'` — a path that creates no band row at all. That is
+  probably the right call, but §Scope justifies the tightening solely by the
+  sideways *write*, so say in one clause that push is included and why;
+  otherwise a reader gating only `pull` passes ER19's test either way.
+- §5 says both route gates "keep answering 404 through the existing
+  `guardResource`", but `guardResource` is module-private
+  (`src/lib/spotifyRouteAuth.ts:93`, `async function`) and the sync route
+  reaches it only via `resolveOwnedPlaylist`. Name the shape — export it, or
+  add a second exported guard — so the 404 is not left to the implementer.
+- `updatePersonalKey` (`songs.ts:151`) has no caller under `src/` outside its
+  own module today (`updateSong` covers the key write). After the move to
+  `ownerSongs.ts` it is a candidate for `lint:dead` (ER21). Worth deciding
+  whether `updateSongKey` is kept or dropped rather than discovering it in CI.
+
+## [RH-124] Split repertoire into user_songs and band_songs keyed by version_id — 2026-10-02
+- ER18's preamble says "all seven mutating actions in `src/app/actions/repertoire.ts`",
+  while the file also holds `updateSongLinksAction`, a mutating action deliberately left at
+  member level. The named enumeration that follows makes the ER verifiable regardless;
+  tightening the preamble to "all seven owner-row mutating actions" would remove the only
+  remaining phrasing a QA reader could trip over.
+- `addSongAction`'s `seedStatusFromBandId` branch (`repertoire.ts:50`) carries a second,
+  independent `assertBandMember` that reads a status from another band's row. §6 moves the
+  action onto the write resolver but says nothing about this check, which should stay
+  member-level (it is a read). Naming it in §6 would prevent an implementer from converting
+  both checks to `assertBandAdmin` and silently tightening a read.
+- The two off-by-one hook line numbers (`useSongEntry.ts:63` → :64,
+  `useOfflinePlaylist.ts:104` → :105) are worth correcting if the spec is touched again, but
+  do not affect implementability.
+
+## [RH-125] Point playlist_songs at song_versions — 2026-10-02
+
+- **Pin `findOrCreateSong`'s new return shape.** §6 says it "returns the version id
+  alongside the song id"; it returns `Promise<string>` today and has two callers. Name the
+  shape (`{ songId, versionId }`) so the two routes cannot destructure differently.
+- **Say explicitly what happens to `songId`** on `PlaylistEntrySummary` and on
+  `src/lib/playlistNav.ts`'s `PlaylistEntry`. §3 lists only the addition of `versionId` and
+  the nullability of `repertoireId`; `songId` is currently required on both and is read by
+  `useOfflinePlaylist`'s `gatherSongs` neighbourhood. "Unchanged" is the natural reading,
+  but one sentence removes the doubt.
+- **The import route's duplicate-track case.** §6 discusses dedup only for the pull/sync
+  path. `import/route.ts:81-111` pushes one id per track with no dedup, so the same Spotify
+  track twice in one playlist now collides on `(playlist_id, version_id)` exactly as it
+  collides on `(playlist_id, song_id)` today. Pre-existing and arguably out of scope, but
+  worth one line saying so, since the spec's dedup discussion invites the opposite reading.
+- **Restate the ordering clause inside ER1** rather than citing "RH-124 §3", for the same
+  reason the spec restates it in its own preamble: QA holds only the ER list.
+
+## [RH-125] Point playlist_songs at song_versions — 2026-10-02
+
+- §1 line 102 says conservation is "asserted rather than assumed (ER4)", but
+  conservation is ER7 now; ER4 is the `ON CONFLICT` absence. The other ER
+  cross-references were renumbered correctly — this one was missed. Prose only,
+  no implementation ambiguity.
+- ER9's final clause ("no query under `src/` coalesces `key`, `tuning`, `lyrics`
+  or `map` across levels in SQL") duplicates RH-124's own ER8
+  (`docs/tasks/RH-125-spec.md:537`). Since RH-124 is in `blockedBy` the
+  invariant already holds when this task starts; re-asserting it here is
+  harmless but means a QA failure could point at code this task never touched.
+- ER11's closing clause ("no identifier under those two modules names a song id
+  for a playlist entry") needs a reader to apply the "for a playlist entry"
+  qualifier when grepping. Naming the three renames exhaustively — the map key,
+  `removedSongIds` → `removedVersionIds`, and the `songId` parameters of
+  `cycleSongStatus` / `withRepertoireEntry` — would make it a pure grep.
+- ER17's "one above the value RH-124 leaves in the tree" is only resolvable from
+  git history once this task lands, since the previous literal is overwritten.
+  RH-124's ER14 uses the same relative phrasing, so this is the chain's existing
+  convention rather than a new problem; the ER's second half is self-contained.
+
+## [RH-95] Unify the two song deduplication rules — 2026-10-05
+
+1. **Isolation-level assumption in the race path**
+   (`src/lib/songIdentity.ts:155-162`). The `raced` re-read after a no-op
+   `ON CONFLICT DO NOTHING` is correct under READ COMMITTED, where each
+   statement takes a fresh snapshot — which is what `withTransaction`'s bare
+   `BEGIN` gives today. Under REPEATABLE READ the re-read would not see the
+   concurrent winner's row and the call would throw
+   `the catalog row vanished mid-insert` instead of resolving. The comment says
+   "their row is committed by the time the wait ends", which is true but does
+   not name the snapshot dependency. Consider stating READ COMMITTED explicitly
+   in that comment, so a future change to `default_transaction_isolation` is
+   recognisably a breaking one.
+
+2. **`primaryArtistName` reduces hand-typed artist fields too**
+   (`src/lib/songIdentity.ts:72-75`). Because both paths share one function,
+   a musician typing `Earth, Wind & Fire` into the manual add form gets
+   `Earth` stored as the shared catalog's artist. This is spec-conformant —
+   Approach §1 says "reduce the artist to its primary name" for every path that
+   resolves a row — and the module documents the cost honestly. It is still
+   worth flagging as a product-visible reduction of user-entered text in a
+   catalog with no split/undo path (both explicitly out of scope). A possible
+   follow-up: reduce only the *lookup key* for manual input while storing the
+   typed string, or carry a small allowlist of comma-bearing band names.
+
+3. **The Spotify link append is still two un-transacted writes**
+   (`src/lib/spotifyPlaylistSync.ts:98-111`). Resolve-or-create runs on the
+   pool, then the link `UPDATE` runs on a different pooled connection. If the
+   update fails, the catalog row exists without the Spotify link. This is the
+   pre-existing shape, not a regression, and `transactionGuard.test.ts` is
+   satisfied; now that `resolveOrCreateSongIdentity` accepts a client, wrapping
+   both in `withTransaction` would be a two-line change if it is ever worth
+   doing.
+
+4. **The migration merges stored values only** — by design, per the spec's
+   Out of Scope note retaining `scripts/deduplicate-songs.mjs`. The practical
+   consequence worth handing to QA: a historical row stored as artist
+   `Michael Jackson, Akon`, or with an unsanitized title, is *not* merged with
+   the row the new code resolves to, so it survives as a near-duplicate under a
+   distinct index key. The unified rule is therefore guaranteed for new writes
+   and best-effort for history. Not a defect against this spec.
+
+5. **Pre-existing lint errors on the repo** — `npm run lint` reports 8 errors,
+   every one in a file this diff does not touch
+   (`src/app/profile/page.tsx`, `reset-password/page.tsx`, `settings/page.tsx`,
+   `components/landing/LandingPage.tsx`, `components/layout/AppLayout.tsx`,
+   `components/layout/LanguageSelector.tsx`), split between
+   `react-hooks/set-state-in-effect` and one
+   `@next/next/no-html-link-for-pages`. Recorded so the next reviewer does not
+   attribute them to RH-95; they are not a blocking finding for this task.
+
+6. **Migration CTE repetition.** The `grouped`/`map`/`dup` prefix appears in 8
+   of the 13 steps, roughly 110 duplicated lines. The header explains the
+   reason — a temp table would not survive re-executing the file inside one
+   transaction, which is how the idempotence test drives it. A
+   `DROP TABLE IF EXISTS` + `CREATE TEMP TABLE` pair would also be re-runnable
+   and would halve the file, but the current form has no shared mutable state
+   between steps and is easier to verify step by step. I would leave it.
+
+
+## [RH-95] Unify the two song deduplication rules — 2026-10-05 (QA)
+
+- `src/lib/songIdentity.ts` does not appear in the `text` coverage table, which means it is at 100% on every metric (the reporter omits fully covered files). Worth nothing further; noted only so a future reader does not mistake its absence for exclusion — it is inside the `src/lib/**/*.ts` coverage universe and not in the `exclude` list.
+- `primaryArtistName` reduces a legitimately comma-bearing artist ("Earth, Wind & Fire") to its first segment. The module's own docblock states this cost explicitly and keeps lookup and insert consistent, so the catalog stays self-consistent; if a user reports it, the fix belongs with the `song_versions` work (RH-105) rather than here.
+- The merge scenario runs with `uq_global_songs_artist_title` dropped inside a rolled-back transaction. That is the only way to seed duplicates post-migration and it is correctly undone, but it does take an ACCESS EXCLUSIVE-ish lock path on `global_songs` for the duration; if the DB suite is ever parallelised across files, that test should be pinned to a serial pool to avoid contending with the ER5-ER9 tests in the same file's sibling describe.

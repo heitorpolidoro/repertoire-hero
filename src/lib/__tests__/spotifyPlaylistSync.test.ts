@@ -34,6 +34,7 @@ function trackItem(id: string, name: string, durationMs: number) {
       id,
       name,
       duration_ms: durationMs,
+      // Two credited artists: RH-95 ingests the first one, not the join.
       artists: [{ name: 'Artist A' }, { name: 'Artist B' }],
       album: { name: 'Album', images: [{ url: 'http://art' }] },
       external_urls: { spotify: `https://open.spotify.com/track/${id}` },
@@ -79,7 +80,7 @@ describe('fetchAllSpotifyTracks', () => {
       {
         spotifyTrackId: 't1',
         title: 'One',
-        artist: 'Artist A, Artist B',
+        artist: 'Artist A',
         album: 'Album',
         albumArt: 'http://art',
         spotifyUrl: 'https://open.spotify.com/track/t1',
@@ -88,7 +89,7 @@ describe('fetchAllSpotifyTracks', () => {
       {
         spotifyTrackId: 't2',
         title: 'Two',
-        artist: 'Artist A, Artist B',
+        artist: 'Artist A',
         album: 'Album',
         albumArt: 'http://art',
         spotifyUrl: 'https://open.spotify.com/track/t2',
@@ -153,24 +154,37 @@ describe('findOrCreateGlobalSong', () => {
   it('inserts the sanitized title and trimmed artist for a new song', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [{ id: 'song-new' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
 
     expect(await findOrCreateGlobalSong(rawTrack)).toBe('song-new')
 
+    // Both statements come from `@/lib/songIdentity` now (RH-95): the lookup
+    // carries the artist predicate and no album one, and the insert seeds the
+    // row rather than this module doing it itself.
     const [lookupSql, lookupValues] = mockedQuery.mock.calls[0]
     expect(lookupSql).toContain('SELECT id, links FROM global_songs')
     expect(lookupValues).toEqual(['Song Name', 'Artist A'])
 
     const [insertSql, insertValues] = mockedQuery.mock.calls[1]
     expect(insertSql).toContain('INSERT INTO global_songs')
-    expect(insertValues[0]).toBe('Song Name')
-    expect(insertValues[1]).toBe('Artist A')
-    expect(insertValues[2]).toBe('Album')
-    expect(insertValues[3]).toBe('http://art')
-    expect(insertValues[4]).toBe(185)
-    expect(JSON.parse(insertValues[5] as string)).toEqual([
+    expect(insertValues[1]).toBe('Song Name')
+    expect(insertValues[2]).toBe('Artist A')
+    expect(insertValues[3]).toBe('Album')
+    expect(insertValues[6]).toBe(185)
+    expect(insertValues[5]).toBe('http://art')
+    expect(JSON.parse(insertValues[7] as string)).toEqual([
       { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },
     ])
+  })
+
+  it('does not append the Spotify link to a row it just created', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+
+    await findOrCreateGlobalSong(rawTrack)
+
+    expect(mockedQuery).toHaveBeenCalledTimes(2)
   })
 })
 

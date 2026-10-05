@@ -2,6 +2,7 @@ import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitGlobalSongEdit } from '@/lib/moderation'
+import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
 import type { RepertoireAccessRow } from '@/lib/dbRows'
 import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
 
@@ -315,75 +316,52 @@ export async function createAndAddSong(
   }
 ): Promise<Repertoire> {
   const isBand = 'bandId' in owner
-  const ownerId = isBand ? owner.bandId : owner.userId
-  const albumValue = data.album?.trim() ?? ''
+  const userId = isBand ? null : owner.userId
+  const bandId = isBand ? owner.bandId : null
+
+  // `ON CONFLICT DO NOTHING` on the partial `uq_repertoire_{user,band}_song`
+  // indexes replaces the old check-then-insert: it answers "already in this
+  // repertoire?" and inserts in one statement, so two concurrent calls by the
+  // same owner cannot both pass the check (RH-95 ER9). Zero rows back means the
+  // row was already there.
+  const insertRepSql = `
+    WITH inserted AS (
+      INSERT INTO repertoire (song_id, user_id, band_id, status)
+      VALUES ($1, $2, $3, 'unknown')
+      ON CONFLICT DO NOTHING
+      RETURNING *
+    )
+    SELECT i.*,
+           ${SONG_JSON}
+    FROM inserted i
+    JOIN global_songs s ON i.song_id = s.id
+  `
 
   try {
-    let songId: string
-
-    // Lookup song
-    let lookupSql = 'SELECT id FROM global_songs WHERE LOWER(title) = LOWER($1)'
-    const lookupParams = [data.title.trim()]
-    if (albumValue) {
-      lookupSql += ' AND LOWER(album) = LOWER($2)'
-      lookupParams.push(albumValue)
-    } else {
-      lookupSql += ' AND (album IS NULL OR album = \'\')'
-    }
-    lookupSql += ' LIMIT 1'
-
-    const lookupRes = await query<{ id: string }>(lookupSql, lookupParams)
-
-    if (lookupRes.rowCount && lookupRes.rowCount > 0) {
-      songId = lookupRes.rows[0].id
-    } else {
-      // Insert song
-      const contributorId = isBand ? null : owner.userId
-      const insertSongSql = `
-        INSERT INTO global_songs (contributor_id, title, artist, album, standard_key, cover_url, duration_seconds, links)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id
-      `
-      const insertRes = await query<{ id: string }>(insertSongSql, [
-        contributorId,
-        data.title,
-        data.artist,
-        albumValue || null,
-        data.standard_key ?? null,
-        data.cover_url ?? null,
-        data.duration_seconds ?? null,
-        JSON.stringify(data.links ?? []),
-      ])
-      songId = insertRes.rows[0].id
-    }
-
-    // Check if already in repertoire
-    const checkSql = `
-      SELECT id FROM repertoire
-      WHERE song_id = $1 AND ${isBand ? 'band_id = $2' : 'user_id = $2'}
-      LIMIT 1
-    `
-    const checkRes = await query<{ id: string }>(checkSql, [songId, ownerId])
-    if (checkRes.rowCount && checkRes.rowCount > 0) {
-      throw new Error('Song already in your repertoire')
-    }
-
-    // Insert into repertoire
-    const userId = isBand ? null : owner.userId
-    const bandId = isBand ? owner.bandId : null
-    const insertRepSql = `
-      WITH inserted AS (
-        INSERT INTO repertoire (song_id, user_id, band_id, status)
-        VALUES ($1, $2, $3, 'unknown')
-        RETURNING *
+    // One transaction for the whole create (RH-95): catalog resolution and the
+    // repertoire insert either both land or neither does, so a failure here
+    // cannot leave an orphan catalog row behind for everyone else to see.
+    return await withTransaction(async (client) => {
+      const song = await resolveOrCreateSongIdentity(
+        {
+          title: data.title,
+          artist: data.artist,
+          album: data.album,
+          standard_key: data.standard_key,
+          cover_url: data.cover_url,
+          duration_seconds: data.duration_seconds,
+          links: data.links,
+          contributorId: userId,
+        },
+        client,
       )
-      SELECT i.*,
-             ${SONG_JSON}
-      FROM inserted i
-      JOIN global_songs s ON i.song_id = s.id
-    `
-    const repRes = await query<Repertoire>(insertRepSql, [songId, userId, bandId])
-    return repRes.rows[0]
+
+      const repRes = await client.query<Repertoire>(insertRepSql, [song.id, userId, bandId])
+      // Thrown inside the callback on purpose: the rollback is what undoes a
+      // catalog row this call may just have created.
+      if (repRes.rowCount === 0) throw new Error('Song already in your repertoire')
+      return repRes.rows[0]
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to create and add song', err)

@@ -323,7 +323,8 @@ Row shapes that are not already a domain type from `src/types/database.ts` live 
 `src/lib/dbRows.ts` - one exported interface per distinct SELECT list, named `<Subject>Row`
 and mirroring the projection column for column (`SpotifyTokenRow`, `PlaylistSongIdRow`).
 They live there rather than beside their SQL because `src/lib/songs.ts` is pinned at
-`max-lines: 531` by the RH-39 ratchet and cannot grow by even one import line. Keep
+`max-lines: 483` by the RH-39 ratchet (lowered from 531 as the file shrank; RH-95 took it
+from 505 to 483) and cannot grow by even one import line. Keep
 `src/types/database.ts` as the app's public vocabulary and `dbRows.ts` as an implementation
 detail of the data layer: never duplicate a domain type there, name it at the call site
 instead. `knip` (`npm run lint:dead`) fails on a row interface nobody imports, so do not add

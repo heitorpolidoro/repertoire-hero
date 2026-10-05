@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
+import { primarySpotifyArtist } from '@/lib/songIdentity'
 
 export interface SpotifyTrack {
   id: string
@@ -126,7 +127,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const tracks: SpotifyTrack[] = json.tracks.items.map((item) => ({
       id: item.id,
       title: item.name,
-      artist: item.artists.map((a) => a.name).join(', '),
+      // RH-95: the primary artist through the shared helper, so a search result
+      // matches the catalog row the playlist sync would have created.
+      artist: primarySpotifyArtist(item.artists),
       album: item.album?.name ?? null,
       spotifyUrl: item.external_urls.spotify,
       previewUrl: item.preview_url,

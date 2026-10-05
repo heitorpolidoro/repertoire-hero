@@ -60,6 +60,14 @@ const mockError = new Error("Mocked Database Error");
 let failLookup = true;
 let failRepertoireCheck = true;
 let failRepertoireInsert = true;
+/**
+ * What the `INSERT INTO repertoire` mock hands back. RH-95 made zero rows
+ * meaningful — `ON CONFLICT DO NOTHING` returns none when the owner already has
+ * the song — and this is a value rather than a flag on purpose: the dispatcher
+ * below is pinned at complexity 17 by the F20 ratchet, so it cannot afford
+ * another branch.
+ */
+let repertoireInsertRows: Array<{ id: string }> = [{ id: "repertoire-id" }];
 let failCountCheck = true;
 let failPlaylistLookup = true;
 
@@ -67,6 +75,7 @@ beforeEach(() => {
   failLookup = true;
   failRepertoireCheck = true;
   failRepertoireInsert = true;
+  repertoireInsertRows = [{ id: "repertoire-id" }];
   failCountCheck = true;
   failPlaylistLookup = true;
 
@@ -130,7 +139,7 @@ beforeEach(() => {
       if (failRepertoireInsert) {
         throw mockError;
       }
-      return { rowCount: 1, rows: [{ id: "repertoire-id" }] };
+      return { rowCount: repertoireInsertRows.length, rows: repertoireInsertRows };
     }
 
     // 5. playlist_songs count
@@ -305,15 +314,18 @@ describe("Data Layer Error Handling", () => {
       ).rejects.toThrow("Failed to create and add song: Mocked Database Error");
     });
 
-    it("createAndAddSong throws on DB error during duplicate check", async () => {
+    // RH-95 removed the separate "already in your repertoire?" SELECT: the
+    // insert is `ON CONFLICT DO NOTHING` and zero rows back *is* the answer. So
+    // the duplicate is reported from the insert's own result, not from a read
+    // that could fail on its own.
+    it("createAndAddSong reports an owner's duplicate from the insert returning no row", async () => {
       failLookup = false;
-      failRepertoireCheck = true;
+      failRepertoireCheck = false;
       failRepertoireInsert = false;
+      repertoireInsertRows = [];
       await expect(
         createAndAddSong({ userId: "mock-user-id" }, { title: "Test", artist: "Artist" }),
-      ).rejects.toThrow(
-        "Failed to create and add song: Mocked Database Error",
-      );
+      ).rejects.toThrow("Song already in your repertoire");
     });
 
     it("createAndAddSong throws on DB error during repertoire addition", async () => {

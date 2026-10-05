@@ -23,7 +23,7 @@ export interface BandMemberRoleRow {
   role: 'admin' | 'member'
 }
 
-/** `SELECT id, links FROM global_songs WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2)` */
+/** `SELECT id, links FROM global_songs WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))`, and the `RETURNING id, links` of the matching insert. */
 export interface GlobalSongLinksRow {
   id: string
   links: SongLink[]

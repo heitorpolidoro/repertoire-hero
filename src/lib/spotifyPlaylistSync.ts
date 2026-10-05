@@ -10,8 +10,7 @@
  */
 
 import { pool, query, type Queryable } from '@/lib/db'
-import type { GlobalSongLinksRow } from '@/lib/dbRows'
-import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
+import { primarySpotifyArtist, resolveOrCreateSongIdentity } from '@/lib/songIdentity'
 
 export interface SpotifyRawTrack {
   spotifyTrackId: string
@@ -65,7 +64,9 @@ export async function fetchAllSpotifyTracks(
       tracks.push({
         spotifyTrackId: item.track.id,
         title: item.track.name,
-        artist: item.track.artists.map((a) => a.name).join(', '),
+        // RH-95: the *primary* artist, not the joined credit list — a feature
+        // credit belongs to the recording, not to the song's identity.
+        artist: primarySpotifyArtist(item.track.artists),
         album: item.track.album?.name ?? null,
         albumArt: item.track.album?.images?.[0]?.url ?? null,
         spotifyUrl: item.track.external_urls.spotify,
@@ -80,50 +81,35 @@ export async function fetchAllSpotifyTracks(
 }
 
 // ---------------------------------------------------------------------------
-// Find an existing global_song by title+artist (sanitized) or create it.
-// Returns the song id.
+// Resolve the catalog row for a Spotify track, creating it when absent.
+//
+// RH-95: the identity rule itself lives in `@/lib/songIdentity` — the same one
+// `createAndAddSong` uses, so the two paths converge on one row instead of
+// disagreeing about what makes a song unique. What stays here is the only
+// Spotify-specific part: appending the track's Spotify link to a row that was
+// already in the catalog, deduplicated by exact URL. A found row's own fields
+// are never rewritten.
 // ---------------------------------------------------------------------------
 export async function findOrCreateGlobalSong(track: SpotifyRawTrack): Promise<string> {
-  const cleanTitle = sanitizeSongTitle(track.title)
-  const cleanAlbum = sanitizeAlbumName(track.album)
-  const fullTrackLabel = track.title.trim()
-  const spotifyLink = { label: fullTrackLabel, url: track.spotifyUrl }
+  const spotifyLink = { label: track.title.trim(), url: track.spotifyUrl }
 
-  const lookupSql = `
-    SELECT id, links FROM global_songs 
-    WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2)
-    LIMIT 1
-  `
-  const { rows } = await query<GlobalSongLinksRow>(lookupSql, [cleanTitle, track.artist.trim()])
+  const song = await resolveOrCreateSongIdentity({
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    cover_url: track.albumArt,
+    duration_seconds: track.durationSeconds,
+    links: [spotifyLink],
+  })
 
-  if (rows.length > 0) {
-    const existingSongId = rows[0].id
-    const existingLinks = rows[0].links ?? []
-
-    if (!existingLinks.some((l) => l.url === track.spotifyUrl)) {
-      const updatedLinks = [...existingLinks, spotifyLink]
-      await query<never>('UPDATE global_songs SET links = $1 WHERE id = $2', [
-        JSON.stringify(updatedLinks),
-        existingSongId,
-      ])
-    }
-    return existingSongId
+  if (!song.created && !song.links.some((l) => l.url === track.spotifyUrl)) {
+    await query<never>('UPDATE global_songs SET links = $1 WHERE id = $2', [
+      JSON.stringify([...song.links, spotifyLink]),
+      song.id,
+    ])
   }
 
-  const insertSql = `
-    INSERT INTO global_songs (title, artist, album, cover_url, duration_seconds, links)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING id
-  `
-  const insertRes = await query<{ id: string }>(insertSql, [
-    cleanTitle,
-    track.artist.trim(),
-    cleanAlbum || null,
-    track.albumArt ?? null,
-    track.durationSeconds,
-    JSON.stringify([spotifyLink]),
-  ])
-  return insertRes.rows[0].id
+  return song.id
 }
 
 // ---------------------------------------------------------------------------

@@ -99,7 +99,10 @@ describe.skipIf(skip)('songs service integration tests', () => {
     createdGlobalSongIds.add(entry.song_id)
   })
 
-  it('createAndAddSong reuses existing global song if matching title and album', async () => {
+  // RH-95 turned the rule around: the catalog row is identified by
+  // (primary artist, sanitized title), so the album no longer decides and a
+  // different artist is a different song.
+  it('createAndAddSong reuses the existing global song for the same artist and title', async () => {
     const songData = {
       title: `Song B_${suffix}`,
       artist: 'Artist B',
@@ -113,11 +116,18 @@ describe.skipIf(skip)('songs service integration tests', () => {
     // Remove from repertoire (but keep the global song in database)
     await removeSongFromRepertoire({ userId: userId }, entry1.id)
 
-    // Create again with same title/album
-    const entry2 = await createAndAddSong({ userId: userId }, songData)
+    // Same artist and title, a different album: still the same catalog row.
+    const entry2 = await createAndAddSong(
+      { userId: userId },
+      { ...songData, album: `Other Album_${suffix}` },
+    )
     expect(entry2.song_id).toBe(entry1.song_id) // Reused!
+    await removeSongFromRepertoire({ userId: userId }, entry2.id)
 
-    // Track new repertoire entry id if we need to clean up, but the afterAll deletes by user_id
+    // Same title, a different artist: a different song.
+    const entry3 = await createAndAddSong({ userId: userId }, { ...songData, artist: 'Artist B2' })
+    createdGlobalSongIds.add(entry3.song_id)
+    expect(entry3.song_id).not.toBe(entry1.song_id)
   })
 
   it('createAndAddSong throws if the song is already present in the user repertoire', async () => {

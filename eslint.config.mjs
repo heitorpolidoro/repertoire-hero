@@ -78,7 +78,12 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/hooks/useTabLibrary.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },
-  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { complexity: ["error", 21], "max-lines": ["error", 505] } },
+  // RH-95: `createAndAddSong` moved its catalog lookup/insert into
+  // `src/lib/songIdentity.ts` and its statements into one `withTransaction`
+  // callback, so the file's worst complexity fell from 21 to 8 — under the base
+  // budget of 15, which is why the `complexity` entry is gone rather than
+  // lowered — and its length from 505 to 483.
+  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 483] } },
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },
