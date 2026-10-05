@@ -5,7 +5,9 @@ import { authClient } from '@/lib/auth-client'
 import { getBandsAction } from '@/app/actions/bands'
 import ConditionalLayout from '@/components/layout/ConditionalLayout'
 import { useBandContextStore } from '@/store/bandContextStore'
-import { DEFAULT_BAND_COLOR } from '@/lib/bandColors'
+import { useRepertoireStore } from '@/store/repertoireStore'
+import { reconcileBandContext } from '@/lib/bandContext'
+import { logger } from '@/lib/logger'
 import type { BandOption } from '@/types/database'
 
 /**
@@ -26,26 +28,48 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!userId) return
     let cancelled = false
-    getBandsAction().then((fetched) => {
-      if (cancelled) return
-      setBands(fetched)
-      // Moved verbatim from ContextSwitcher: keep the persisted band context's
-      // name/colour in step with the row the database actually holds.
-      const currentCtx = useBandContextStore.getState().context
-      if (currentCtx.type === 'band') {
-        const activeBand = fetched.find((x) => x.id === currentCtx.id)
-        if (activeBand) {
-          const dbColor = activeBand.color ?? DEFAULT_BAND_COLOR
-          if (currentCtx.color !== dbColor || currentCtx.name !== activeBand.name) {
-            useBandContextStore.getState().setBandContext(activeBand.id, activeBand.name, dbColor)
-          }
-        }
-      }
-    })
+    getBandsAction()
+      .then((fetched) => {
+        if (cancelled) return
+        setBands(fetched)
+        applyBandContextDecision(fetched)
+      })
+      .catch((error: unknown) => {
+        // P1: a failed fetch is not an authoritative band list, so the
+        // persisted context is left exactly as it was — reconciling against an
+        // empty or partial result would reset a context that is still valid.
+        const err = error instanceof Error ? error : new Error(String(error))
+        logger.error('Failed to load bands for context reconciliation', err, { userId })
+      })
     return () => {
       cancelled = true
     }
   }, [userId])
 
   return <ConditionalLayout bands={bands}>{children}</ConditionalLayout>
+}
+
+/**
+ * Applies the RH-98 reconciliation to the persisted context.
+ *
+ * `reset` is the branch that used to be missing: a context pointing at a band
+ * the user has left, was removed from, or that was deleted survived in
+ * `localStorage`, and every band-scoped read and write then failed server-side
+ * with `Access denied: not a member of this band`. The reload swaps the gone
+ * band's rows (or the failed band read) for the personal repertoire; the user
+ * is deliberately not navigated anywhere.
+ */
+function applyBandContextDecision(fetched: BandOption[]): void {
+  const store = useBandContextStore.getState()
+  const decision = reconcileBandContext(store.context, fetched)
+
+  if (decision.action === 'refresh') {
+    store.setBandContext(decision.id, decision.name, decision.color)
+    return
+  }
+
+  if (decision.action === 'reset') {
+    store.setUserContext()
+    void useRepertoireStore.getState().loadSongs()
+  }
 }

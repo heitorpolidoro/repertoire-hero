@@ -9031,3 +9031,39 @@ full-suite coverage gate passes.
 
 None of the three is blocking: each is an improvement on behaviour the expected
 results do not ask for, and the specified behaviour is met in every case.
+
+## [RH-98] Fall back to personal context when the selected band is gone — 2026-10-05 (code review)
+
+- `src/app/AppShell.tsx:37` — the `.catch()` is attached after `.then()`, so it also
+  catches anything thrown *inside* the success handler (`setBands`,
+  `applyBandContextDecision`). A bug in the reconciliation would then be reported under
+  the message "Failed to load bands for context reconciliation", which misattributes it to
+  the network. `getBandsAction().then(onOk, onErr)` — or a `.catch()` placed directly on
+  the fetch promise before `.then()` — would keep the two failure modes distinct. Not
+  blocking: both paths leave the persisted context untouched, which is the behaviour ER5
+  asks for, and the only observable difference is log wording.
+- `src/app/AppShell.tsx:37-43` — the catch does not consult `cancelled`, so an unmount
+  that races a rejected fetch still logs. Harmless (the handler writes no state and
+  touches no React setter, so there is no unmounted-update warning), but checking the flag
+  would make the effect's cancellation story uniform.
+- `src/app/__tests__/AppShell.test.tsx:165` — `await Promise.resolve()` after the
+  `waitFor` is a single microtask tick and is load-bearing only by luck of the current
+  promise chain depth. The assertion it guards (`setSpy` never called) would be more
+  robustly expressed by asserting on the store subscription after the same `waitFor` that
+  the other cases use. The test passes today and asserts the right thing.
+
+
+## [RH-98] Fall back to personal context when the selected band is gone — 2026-10-05 (QA)
+
+- `src/app/AppShell.tsx:37-43` — the `.catch` is attached after `.then`, so it also swallows any
+  exception thrown *inside* the success handler (`setBands` / `applyBandContextDecision`), reporting it
+  under the message "Failed to load bands for context reconciliation". Behaviour is correct for ER5
+  either way; `.then(onFulfilled, onRejected)` or a `.catch` placed before `.then` would make the log
+  message strictly truthful.
+- `src/app/AppShell.tsx:37-43` — the rejection path does not check `cancelled`, so a fetch that rejects
+  after unmount still logs. Harmless (it writes no state), but it is the one asymmetry with the
+  success path.
+- `src/app/__tests__/AppShell.test.tsx:116` — `expect(pushSpy).not.toHaveBeenCalled()` asserts against a
+  `next/navigation` mock that `AppShell` never imports, so the assertion cannot fail by construction.
+  The real guarantee is structural (no navigation import in the component). Consider a static
+  assertion on the module source, or drop the spy, so the test does not read as stronger than it is.
