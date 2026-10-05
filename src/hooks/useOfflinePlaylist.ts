@@ -8,7 +8,7 @@ import {
   type OfflineSongInput,
   type OfflineStore,
 } from '@/lib/offlineStore'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 /**
  * The Server Actions the download reads through. Injected rather than imported,
@@ -19,8 +19,13 @@ import type { Repertoire, RepertoireTab } from '@/types/database'
  * joined them in RH-83: the snapshot has to carry the member's own row or the
  * band-vs-personal lyrics badge lies offline. It is read once per song and only
  * in band context; the action already catches and returns `null`, so the read
- * is fail-soft and cannot break a download. Personal **tabs** are still not
- * captured (docs/tasks/RH-84-spec.md §5).
+ * is fail-soft and cannot break a download.
+ *
+ * `getTabs` takes a **song id** since RH-123, not a repertoire row id. That is
+ * where the plan's recorded defect lived: in band context `entry.repertoireId`
+ * is the *band* row, so the snapshot took the band's files and skipped the
+ * member's own. Passing the song id to an action that resolves by the session's
+ * `user_id` captures the downloader's own files instead.
  */
 export interface OfflineDownloadActions {
   getPlaylistDetailsWithEntries: (
@@ -28,7 +33,7 @@ export interface OfflineDownloadActions {
     bandId?: string | null,
   ) => Promise<{ name: string; entries: PlaylistEntry[] }>
   getSongEntry: (repertoireId: string, bandId?: string | null) => Promise<Repertoire | null>
-  getTabs: (repertoireId: string) => Promise<RepertoireTab[]>
+  getTabs: (songId: string) => Promise<SongFile[]>
   getPersonalEntryForSong: (songId: string) => Promise<Repertoire | null>
 }
 
@@ -103,7 +108,10 @@ async function gatherSongs(
   for (const entry of entries) {
     const repertoire = await actions.getSongEntry(entry.repertoireId, bandId)
     if (!repertoire) continue
-    const tabs = await actions.getTabs(entry.repertoireId)
+    // The song id, never `entry.repertoireId`: in band context that is the
+    // band's row, and the band holds no files at all now. Resolved by the
+    // session's `user_id`, so this captures the downloader's own charts (RH-123).
+    const tabs = await actions.getTabs(repertoire.song_id)
     // Only in band context: outside one there is no second version to capture,
     // and `repertoire` already *is* the member's own row.
     const personalRepertoire = bandId ? await actions.getPersonalEntryForSong(repertoire.song_id) : null

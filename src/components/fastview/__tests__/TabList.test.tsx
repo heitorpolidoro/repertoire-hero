@@ -2,26 +2,26 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { TabList } from '../TabList'
-import type { MergedTab } from '@/lib/tabLibrary'
+import type { SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
-const TABS: MergedTab[] = [
+const TABS: SongFile[] = [
   {
     id: 't-1',
-    repertoire_id: 'rep-band',
+    user_id: 'user-1',
+    song_id: 'song-1',
     title: 'Horn section',
     file_url: 'https://blob.test/t-1.pdf',
     created_at: '2026-01-04T10:00:00.000Z',
-    origin: 'band',
   },
   {
     id: 'p-1',
-    repertoire_id: 'rep-personal',
+    user_id: 'user-1',
+    song_id: 'song-1',
     title: 'My cheatsheet',
     file_url: 'https://blob.test/p-1.pdf',
     created_at: '2026-01-03T10:00:00.000Z',
-    origin: 'personal',
   },
 ]
 
@@ -35,14 +35,16 @@ function renderList(overrides: Partial<React.ComponentProps<typeof TabList>> = {
 }
 
 describe('TabList', () => {
-  it('renders one row per tab with its title and origin badge', () => {
+  // RH-123 removed the band/personal badge with the duality behind it: every
+  // row in this list belongs to the signed-in musician.
+  it('renders one row per file with its title and no origin badge', () => {
     renderList()
 
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
     expect(screen.getByText('Horn section')).toBeDefined()
     expect(screen.getByText('My cheatsheet')).toBeDefined()
-    expect(screen.getByTitle('Shared with the whole band').textContent).toContain('Band')
-    expect(screen.getByTitle('Private study file').textContent).toContain('Personal')
+    expect(screen.queryByTitle('Shared with the whole band')).toBeNull()
+    expect(screen.queryByTitle('Private study file')).toBeNull()
   })
 
   it('marks the active tab with the Viewing badge', () => {
@@ -63,12 +65,12 @@ describe('TabList', () => {
     expect(onSelect).toHaveBeenCalledWith(TABS[0])
   })
 
-  it('calls onDelete with the tab id and origin', () => {
+  it('calls onDelete with the file id alone', () => {
     const { onDelete } = renderList()
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delete tab' })[1])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete file' })[1])
 
-    expect(onDelete).toHaveBeenCalledWith('p-1', 'personal')
+    expect(onDelete).toHaveBeenCalledWith('p-1')
   })
 
   it('links each tab to its file url with a safe target', () => {

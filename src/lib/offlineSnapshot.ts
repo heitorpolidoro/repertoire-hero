@@ -9,28 +9,41 @@
  *
  * Two shapes carry the weight:
  *
- *   - `OfflineTabSnapshot.createdAt` is **mandatory** and holds the tab row's
- *     `created_at` verbatim. `RepertoireTab` requires it and `mergeTabs`
- *     (`@/lib/tabLibrary`) sorts on it, so dropping it would both break RH-80's
- *     type-check against `getTabs` and silently reorder tabs offline.
- *   - `OfflineSongSnapshot.repertoireId` is the id `getTabs` is called with.
- *     `new Set(snapshot.songs.map(s => s.repertoireId))` is therefore exactly
- *     the "was this captured?" predicate: an id *in* the set with an empty
- *     `tabs` array is a genuinely tab-less song, an id *outside* it was never
- *     captured.
+ *   - `OfflineTabSnapshot.createdAt` is **mandatory** and holds the file row's
+ *     `created_at` verbatim. `SongFile` requires it and the file list sorts on
+ *     it, so dropping it would both break the type-check against `getTabs` and
+ *     silently reorder a musician's charts offline.
+ *   - `OfflineTabSnapshot.songId` is the id `getTabs` is called with (RH-123).
+ *     It replaced `repertoireId`: a file is keyed by `(user_id, song_id)` now,
+ *     so a repertoire row id would key the capture by something the read no
+ *     longer knows about.
+ *   - **`OfflineSongSnapshot.repertoireId` stays**, and the two keys coexist on
+ *     purpose. `findSong` — and so the `getSongEntry` reader — keys on the
+ *     repertoire row, because that is what the route carries and what
+ *     `isSongSnapshot` keeps requiring; `findSongBySongId` keys on
+ *     `repertoire.song_id`, which is the already-present field both the
+ *     `getTabs` and the `getPersonalEntryForSong` readers resolve through. The
+ *     song snapshot therefore gains **no** new field for the file lookup.
+ *     `new Set(snapshot.songs.map(s => s.repertoireId))` is still exactly the
+ *     "was this captured?" predicate for a song entry.
  *   - `OfflineSongSnapshot.personalRepertoire` is the member's own repertoire
  *     row for the song, captured at download time in band context (RH-83).
  *     RH-80 deliberately did *not* capture it and answered
  *     `getPersonalEntryForSong` with `null`; that decision is revised here on
  *     purpose, because the band-vs-personal lyrics indicator would otherwise
- *     lie offline. Personal **tabs** are still not captured — those PDFs were
- *     never downloaded — so the second `getTabs` call correctly finds nothing.
+ *     lie offline.
  *
- * See docs/tasks/RH-80-spec.md §1 and docs/tasks/RH-84-spec.md §5.
+ * Since RH-123 the capture takes the **reader's own** files: `getTabs` is
+ * called with the song id and resolves by the session's `user_id`, so a
+ * band-context download no longer photographs the band's charts and skips the
+ * member's own.
+ *
+ * See docs/tasks/RH-80-spec.md §1, docs/tasks/RH-84-spec.md §5 and
+ * docs/tasks/RH-124-spec.md §6.
  */
 
 import type { PlaylistEntry } from '@/lib/playlistNav'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 /**
  * The stored shape's version. A snapshot written under any other number is read
@@ -42,16 +55,29 @@ import type { Repertoire, RepertoireTab } from '@/types/database'
  * are discarded — and `listOfflinePlaylists` purges them, so a playlist
  * downloaded before this shipped shows as not downloaded instead of claiming a
  * copy Fast View then reports unavailable.
+ *
+ * 2 -> 3 (RH-123): a file entry is keyed by `songId` instead of `repertoireId`.
+ * What breaks without the bump is **not** that the song cannot be found —
+ * `findSongBySongId` matches on `repertoire.song_id`, which a v2 snapshot
+ * already carries, so the whole tab array is still returned. It is that each
+ * mapped file arrives with `song_id: undefined`, because a v2 tab entry carries
+ * `repertoireId` and nothing else. The list is not empty, it is wrong. (A v2
+ * snapshot would also now fail `isTabSnapshot`; the version bump is what turns
+ * that into a purge of a superseded version by `listOfflinePlaylists`, so the
+ * download reads as not-downloaded rather than as a shape error.)
  */
-export const OFFLINE_SCHEMA_VERSION = 2
+export const OFFLINE_SCHEMA_VERSION = 3
 
-/** One tab PDF, as stored: the row's fields plus where its bytes live and how many. */
+/** One file PDF, as stored: the row's fields plus where its bytes live and how many. */
 export interface OfflineTabSnapshot {
   id: string
-  repertoireId: string
+  /** The owner, i.e. the downloader — a file belongs to a person (RH-123). */
+  userId: string
+  /** The composition. This is the key `getTabs` is called with. */
+  songId: string
   title: string
   fileUrl: string
-  /** The row's `created_at`, verbatim — `mergeTabs` sorts on it. */
+  /** The row's `created_at`, verbatim — the file list sorts on it. */
   createdAt: string
   /** The Cache Storage key the bytes were written under. */
   cacheKey: string
@@ -67,7 +93,11 @@ export interface OfflineTabSnapshot {
  * uses; importing the `pg`-bound module for a type would be legal but pointless.
  */
 export interface OfflineSongSnapshot {
-  /** Equals `entry.repertoireId` and `repertoire.id`; the `getTabs` lookup key. */
+  /**
+   * Equals `entry.repertoireId` and `repertoire.id`; the `getSongEntry` lookup
+   * key. The *file* lookup key is `repertoire.song_id` instead (RH-123) — see
+   * the module docblock on why the two coexist.
+   */
   repertoireId: string
   entry: PlaylistEntry
   repertoire: Repertoire
@@ -91,9 +121,9 @@ export interface OfflineSnapshot {
   songs: OfflineSongSnapshot[]
 }
 
-/** One tab row plus the byte count measured while it was fetched. */
+/** One file row plus the byte count measured while it was fetched. */
 export interface OfflineTabMaterial {
-  tab: RepertoireTab
+  tab: SongFile
   bytes: number
 }
 
@@ -115,7 +145,7 @@ export interface BuildOfflineSnapshotInput {
 }
 
 /**
- * The Cache Storage key one tab's bytes live under.
+ * The Cache Storage key one file's bytes live under.
  *
  * Synthetic, same-origin (which `cache.put` requires) and never routed by the
  * app. Scoping it by playlist is what makes per-playlist removal a prefix scan,
@@ -128,7 +158,8 @@ export function offlineTabCacheKey(playlistId: string, tabId: string): string {
 function toTabSnapshot(playlistId: string, material: OfflineTabMaterial): OfflineTabSnapshot {
   return {
     id: material.tab.id,
-    repertoireId: material.tab.repertoire_id,
+    userId: material.tab.user_id,
+    songId: material.tab.song_id,
     title: material.tab.title,
     fileUrl: material.tab.file_url,
     createdAt: material.tab.created_at,
@@ -156,15 +187,16 @@ export function buildOfflineSnapshot(input: BuildOfflineSnapshotInput): OfflineS
 }
 
 /**
- * The stored tab as Fast View's tab library wants it. The only mapping between
+ * The stored file as Fast View's file library wants it. The only mapping between
  * the two shapes, declared here so RH-80's reader does not have to invent one.
- * `annotations` is optional on `RepertoireTab` and out of scope for the
- * snapshot, so it is omitted rather than faked.
+ * `annotations` is optional on `SongFile` and out of scope for the snapshot, so
+ * it is omitted rather than faked.
  */
-export function offlineTabToRepertoireTab(tab: OfflineTabSnapshot): RepertoireTab {
+export function offlineTabToSongFile(tab: OfflineTabSnapshot): SongFile {
   return {
     id: tab.id,
-    repertoire_id: tab.repertoireId,
+    user_id: tab.userId,
+    song_id: tab.songId,
     title: tab.title,
     file_url: tab.fileUrl,
     created_at: tab.createdAt,
@@ -181,7 +213,7 @@ function isString(value: unknown): boolean {
 
 function isTabSnapshot(value: unknown): boolean {
   if (!isRecord(value)) return false
-  const strings = [value.id, value.repertoireId, value.title, value.fileUrl, value.createdAt]
+  const strings = [value.id, value.userId, value.songId, value.title, value.fileUrl, value.createdAt]
   return strings.every(isString) && typeof value.bytes === 'number' && isString(value.cacheKey)
 }
 

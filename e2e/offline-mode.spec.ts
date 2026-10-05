@@ -261,7 +261,11 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
           tabs: [
             {
               id: tabId,
-              repertoireId,
+              // Keyed by the song and its owner since the RH-123 schema bump
+              // (v3): a file entry carrying `repertoireId` fails
+              // `isTabSnapshot`, and the whole record would read as absent.
+              userId: '22222222-2222-2222-2222-222222222222',
+              songId: repertoireId,
               title: 'Seeded Chart',
               fileUrl: 'https://blob.invalid/seeded.pdf',
               createdAt: new Date().toISOString(),

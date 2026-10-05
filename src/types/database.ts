@@ -166,12 +166,16 @@ export interface Stroke {
   points: [number, number][]; // [x, y] pairs, each 0..1 relative to the PDF page's original (scale-independent) dimensions
 }
 
-// repertoire_tabs.annotations shape: page number (1-indexed, as string) -> that page's strokes
+// song_files.annotations shape: page number (1-indexed, as string) -> that page's strokes
 export type TabAnnotations = Record<string, Stroke[]>;
 
-export interface RepertoireTab {
+// One uploaded chart, belonging to a musician and a composition (RH-123).
+// Keyed by `(user_id, song_id)` and carrying no band id: a file belongs to the
+// person, not to the band.
+export interface SongFile {
   id: string;
-  repertoire_id: string;
+  user_id: string;
+  song_id: string;
   title: string;
   file_url: string;
   created_at: string;

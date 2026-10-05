@@ -65,7 +65,7 @@
  */
 
 import {
-  offlineTabToRepertoireTab,
+  offlineTabToSongFile,
   type OfflineSnapshot,
   type OfflineSongSnapshot,
 } from '@/lib/offlineSnapshot'
@@ -206,22 +206,26 @@ const OFFLINE_READERS: Record<string, OfflineReader> = {
     return (await findSong(ports, String(repertoireId)))?.repertoire ?? null
   },
 
+  // Resolved through `findSongBySongId` since RH-123: `getTabs` is called with
+  // a song id, and the repertoire row the route carries is not the key any
+  // more.
+  //
   // `file_url` is overridden with the Cache Storage key the download wrote the
   // PDF under: the remote Blob URL is unreachable offline, and `src/app/sw.ts`
   // answers the key from `OFFLINE_TAB_CACHE`. `offlineSnapshot.ts` is untouched.
-  getTabs: async (ports, [repertoireId]) => {
-    const song = await findSong(ports, String(repertoireId))
+  getTabs: async (ports, [songId]) => {
+    const song = await findSongBySongId(ports, String(songId))
     return (song?.tabs ?? []).map((tab) => ({
-      ...offlineTabToRepertoireTab(tab),
+      ...offlineTabToSongFile(tab),
       file_url: tab.cacheKey,
     }))
   },
 
   // Answered from the snapshot since RH-83: the band-vs-personal lyrics badge
   // would otherwise lie offline. `null` still means "this member has no version
-  // of their own", or "this song is in no downloaded playlist". The second
-  // `getTabs` call then fires with the personal id, finds no snapshot song under
-  // it and returns `[]` — correct, those PDFs were never downloaded.
+  // of their own", or "this song is in no downloaded playlist". (The second,
+  // personal-list `getTabs` call this comment used to describe is gone: RH-123
+  // left the file library with one fetch.)
   getPersonalEntryForSong: async (ports, [songId]) => {
     return (await findSongBySongId(ports, String(songId)))?.personalRepertoire ?? null
   },

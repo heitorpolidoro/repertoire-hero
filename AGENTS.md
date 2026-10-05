@@ -14,7 +14,7 @@ Core capabilities:
 - **Bands** — shared repertoires and playlists for a group, with invite-code-based joining and a band repertoire of its own: its key, lyrics and readiness are authored by a band admin, not calculated from the members.
 - **Playlists** — personal or band-owned ordered collections of songs, optionally synced with Spotify.
 - **Spotify integration** — OAuth-based track/playlist search and import into the catalog.
-- **Tabs** — PDF chord-chart/tab uploads attached to a repertoire entry, stored in Vercel Blob.
+- **Tabs** — PDF chord-chart/tab uploads attached to a musician and a song, stored in Vercel Blob. A file belongs to the person, not to the band (RH-123).
 
 Audience: individual musicians (amateur/professional) and bands coordinating a shared setlist.
 
@@ -119,7 +119,7 @@ src/
 │   │   ├── playlists.ts        Playlist CRUD, song ordering
 │   │   ├── profile.ts          User profile updates (instruments, etc.)
 │   │   ├── repertoire.ts       Song status/tags/key updates, add/remove from repertoire
-│   │   └── tabs.ts             PDF tab upload/delete (Vercel Blob + repertoire_tabs table)
+│   │   └── tabs.ts             PDF file upload/delete (Vercel Blob + song_files table)
 │   ├── api/
 │   │   ├── auth/[...all]/      Better Auth catch-all handler
 │   │   ├── auth/dev-login/     Dev-only auto-login endpoint
@@ -230,7 +230,8 @@ spec.md, SDS.md, plan.md, tasks.md
 - **Playlist** — An ordered collection of catalog songs (`playlist_songs`, ordered by `position`), owned by either a user or a band (same exclusivity rule as repertoire). Can optionally be linked to and synced from a Spotify playlist (`spotify_playlist_id`, `sync_with_spotify`, `last_synced_at`).
 - **Tags** — Freeform string arrays on `repertoire` and `playlists` rows (e.g., genre, "setlist-2026"), not a separate normalized table.
 - **Fast View** — A reading-mode page (`/songs/[id]/fast-view`) stripped of editing chrome, designed to be legible on a phone propped on a music stand mid-performance.
-- **Repertoire Tab (`repertoire_tabs`)** — A PDF file (chord chart, tab) attached to one specific repertoire entry, stored as a URL pointing into Vercel Blob.
+- **Song File (`song_files`)** — A PDF (chord chart, tab) belonging to one musician and one catalog song, stored as a URL pointing into Vercel Blob. Keyed by `(user_id, song_id)` with **no `band_id`**: a file belongs to the person, not to the band, so a chart uploaded while browsing in band context lands on the uploader's own row and an upload also ensures that row exists (`unknown`). Several files may hang off one `(user_id, song_id)` pair — there is deliberately no unique constraint. It was `repertoire_tabs`, keyed by a repertoire row, until RH-123 (`migrations/0015_song_files.sql`) re-keyed it; the band-owned rows of the old table recorded no uploader, so that migration dropped them and recorded their `file_url`s in `abandoned_blobs`.
+- **Abandoned Blobs (`abandoned_blobs`)** — The recovery ledger of Vercel Blob objects the application no longer points at: one row per `file_url`, with the reason it was abandoned. Written by `migrations/0015` (the band-owned rows it dropped) and by `deleteTabAction` when the object delete fails after the row is already gone. Nothing reads it yet; its reader is a future blob sweeper. It exists because uploads are `access: 'public'`, so an object the app forgets stays readable by URL forever — a silent, unrecoverable leak.
 - **Band Context** — A client-side UI concept (not a DB table): which "hat" the signed-in user is currently browsing under — their personal repertoire, or a specific band's shared repertoire — tracked in `bandContextStore.ts` and applied as the `RepertoireOwner` (`{ userId }` or `{ bandId }`) passed into most `src/lib` functions.
 - **Album (`albums`)** — A release: `artist`, `name`, `album_type` (`album`/`single`/`compilation`), `cover_url`, `release_date`. Identity is `(lower(artist), lower(name))` — the artist is in the key because two artists each have a *Greatest Hits*, and merging them would give one row one cover and one date with no delete path back. Names are stored exactly as the source reports them.
 - **Song Version (`song_versions`)** — One recording of a song on one release: `song_id`, a nullable `album_id`, `label`, `duration_seconds`, `key`, `tuning`, `lyrics`, `map`. Identity is `UNIQUE NULLS NOT DISTINCT (song_id, album_id, label)`, declared that way because a null `label` is the common case and plain-unique nulls never collide. `album_id` is nullable: a recording of an unknown release is still a recording.

@@ -197,10 +197,10 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
 
   // --- tabs.ts ---
   uploadTabAction: { run: () => uploadTabAction(emptyFormData()), mode: 'envelope' },
-  deleteTabAction: { run: () => deleteTabAction(TAB_ID, REPERTOIRE_ID), mode: 'envelope' },
-  getTabAnnotationsAction: { run: () => getTabAnnotationsAction(TAB_ID, REPERTOIRE_ID), mode: 'envelope' },
-  saveTabAnnotationsAction: { run: () => saveTabAnnotationsAction(TAB_ID, REPERTOIRE_ID, 1, []), mode: 'envelope' },
-  getTabsAction: { run: () => getTabsAction(REPERTOIRE_ID), mode: 'throws' },
+  deleteTabAction: { run: () => deleteTabAction(TAB_ID), mode: 'envelope' },
+  getTabAnnotationsAction: { run: () => getTabAnnotationsAction(TAB_ID), mode: 'envelope' },
+  saveTabAnnotationsAction: { run: () => saveTabAnnotationsAction(TAB_ID, 1, []), mode: 'envelope' },
+  getTabsAction: { run: () => getTabsAction(SONG_ID), mode: 'throws' },
 }
 
 beforeEach(() => {

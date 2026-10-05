@@ -1,7 +1,8 @@
 'use server'
 
 import { getRequiredUserId } from '@/lib/auth-session'
-import { assertRepertoireAccess } from '@/lib/songs'
+import { logger } from '@/lib/logger'
+import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/songs'
 import {
   createTab,
   getTabFileUrl,
@@ -9,30 +10,60 @@ import {
   getTabAnnotations,
   saveTabAnnotations,
   listTabs,
+  recordAbandonedBlob,
 } from '@/lib/tabs'
 import { put, del } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
-import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
+import type { Repertoire, SongFile, Stroke, TabAnnotations } from '@/types/database'
 
 export type { Stroke, TabAnnotations }
 
-export async function uploadTabAction(formData: FormData): Promise<{ data?: RepertoireTab; error?: string }> {
+/** Max 10MB, mirrored client-side by `MAX_TAB_FILE_BYTES` in `@/lib/tabLibrary`. */
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+
+/**
+ * The upload envelope. `entry` is the uploader's own repertoire row for the
+ * song, present only when this upload had to create it: the destination modal
+ * that used to make that the user's explicit choice is gone (RH-123), so the
+ * ensure happens server-side and the row is handed back for the page to adopt
+ * rather than re-read.
+ */
+export interface UploadTabResult {
+  data?: SongFile
+  entry?: Repertoire
+  error?: string
+}
+
+/**
+ * The uploader's own `repertoire` row for the song, created `unknown` when they
+ * had none (`docs/use-cases.md`, *Attach a file to a song*, step 3).
+ *
+ * This is the equivalent of the `user_songs` row RH-124 will create, and it is
+ * deliberately not deferred to it: without it a band-context upload would land
+ * a file on a song the musician holds no row for at all. Composed from the two
+ * existing `@/lib/songs` reads/writes rather than written as SQL here — the
+ * action layer holds no data access (`actionDataAccessGuard.test.ts`).
+ *
+ * Returns the row only when it was created, which is what the caller reports.
+ */
+async function ensureOwnEntry(userId: string, songId: string): Promise<Repertoire | undefined> {
+  const existing = await getPersonalEntryForSong(songId, userId)
+  if (existing) return undefined
+  return addSongToRepertoire({ userId }, songId)
+}
+
+export async function uploadTabAction(formData: FormData): Promise<UploadTabResult> {
   try {
     const userId = await getRequiredUserId()
-    const repertoireId = formData.get('repertoireId') as string
+    const songId = formData.get('songId') as string
     const title = formData.get('title') as string
     const file = formData.get('file') as File | null
 
-    if (!repertoireId || !title || !file) {
+    if (!songId || !title || !file) {
       return { error: 'Missing required fields' }
     }
 
-    // Asserted here as well as inside `createTab`: without it the blob upload
-    // below would happen before the caller is known to be entitled to it.
-    await assertRepertoireAccess(repertoireId, userId)
-
-    // Max 10MB
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > MAX_FILE_BYTES) {
       return { error: 'File size exceeds the 10MB limit' }
     }
 
@@ -49,59 +80,89 @@ export async function uploadTabAction(formData: FormData): Promise<{ data?: Repe
       return { error: 'Only PDF files are allowed' }
     }
 
-    // Upload to Vercel Blob Storage
-    // We use the original file name (sanitized) so that the download/view link retains a legible name.
-    // Vercel Blob automatically appends a random unique suffix to prevent collisions.
+    // Before any byte is stored: a failure here refuses the upload with
+    // nothing written, where a failure after it would leave an object behind.
+    const entry = await ensureOwnEntry(userId, songId)
+
+    // Upload to Vercel Blob Storage, under a path keyed by the owner and the
+    // song rather than by a repertoire row. Existing objects are *not* moved:
+    // the row carries an absolute `file_url`, so old and new paths coexist with
+    // no migration of bytes.
+    // We use the original file name (sanitized) so that the download/view link
+    // retains a legible name. Vercel Blob automatically appends a random unique
+    // suffix to prevent collisions.
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
-    const filePath = `repertoire-tabs/${repertoireId}/${cleanFileName}`
+    const filePath = `song-files/${userId}/${songId}/${cleanFileName}`
 
     const blob = await put(filePath, buffer, {
       access: 'public',
       contentType: 'application/pdf',
     })
 
-    const tab = await createTab(repertoireId, userId, title, blob.url)
+    const tab = await createTab(userId, songId, title, blob.url)
 
     revalidatePath('/')
-    return { data: tab }
+    return { data: tab, entry }
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined
     return { error: message || 'An unexpected error occurred during upload' }
   }
 }
 
-export async function deleteTabAction(tabId: string, repertoireId: string): Promise<{ success?: boolean; error?: string }> {
+/**
+ * Deletes the stored object after its row, and never the other way round
+ * (`docs/use-cases.md`, *Delete a file*): orphaned storage can be swept, a row
+ * pointing at nothing cannot be repaired. A failure of the object delete is
+ * logged and swallowed — the row the musician was looking at is gone, so the
+ * action still answers `{ success: true }` — and the URL is handed to the
+ * recovery ledger so the leak is recorded rather than silent.
+ *
+ * The ledger write happens in that failure branch and nowhere else. When `del`
+ * resolves the object is gone, and handing the future sweeper a URL that no
+ * longer resolves would make the ledger a list of false leaks.
+ */
+async function deleteStoredFile(fileUrl: string): Promise<void> {
+  try {
+    await del(fileUrl)
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to delete the stored file', err, { fileUrl })
+    try {
+      await recordAbandonedBlob(fileUrl, `blob delete failed after the song_files row was deleted: ${err.message}`)
+    } catch {
+      // S1: the ledger is a best-effort record. A failure to write it must not
+      // turn a successful row delete into an error the musician sees.
+    }
+  }
+}
+
+export async function deleteTabAction(fileId: string): Promise<{ success?: boolean; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    // Same reason as the upload: the blob deletion below must not precede the
-    // authorization check.
-    await assertRepertoireAccess(repertoireId, userId)
 
-    const fileUrl = await getTabFileUrl(tabId, repertoireId, userId)
+    const fileUrl = await getTabFileUrl(fileId, userId)
     if (fileUrl === null) {
       return { error: 'Tab not found' }
     }
 
-    // Delete physical file from Vercel Blob directly using its public URL
-    await del(fileUrl)
-
-    await deleteTab(tabId, repertoireId, userId)
+    // The row first — see `deleteStoredFile`.
+    await deleteTab(fileId, userId)
+    await deleteStoredFile(fileUrl)
 
     revalidatePath('/')
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined
-    return { error: message || 'Failed to delete tablatura' }
+    return { error: message || 'Failed to delete the file' }
   }
 }
 
 export async function getTabAnnotationsAction(
-  tabId: string,
-  repertoireId: string,
+  fileId: string,
 ): Promise<{ data?: TabAnnotations; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    const annotations = await getTabAnnotations(tabId, repertoireId, userId)
+    const annotations = await getTabAnnotations(fileId, userId)
     if (annotations === null) return { error: 'Tab not found' }
     return { data: annotations }
   } catch (err) {
@@ -111,14 +172,13 @@ export async function getTabAnnotationsAction(
 }
 
 export async function saveTabAnnotationsAction(
-  tabId: string,
-  repertoireId: string,
+  fileId: string,
   pageNumber: number,
   strokes: Stroke[],
 ): Promise<{ success?: boolean; error?: string }> {
   try {
     const userId = await getRequiredUserId()
-    const saved = await saveTabAnnotations(tabId, repertoireId, userId, pageNumber, strokes)
+    const saved = await saveTabAnnotations(fileId, userId, pageNumber, strokes)
     if (!saved) return { error: 'Tab not found' }
     return { success: true }
   } catch (err) {
@@ -127,7 +187,7 @@ export async function saveTabAnnotationsAction(
   }
 }
 
-export async function getTabsAction(repertoireId: string) {
+export async function getTabsAction(songId: string) {
   const userId = await getRequiredUserId()
-  return listTabs(repertoireId, userId)
+  return listTabs(userId, songId)
 }

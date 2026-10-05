@@ -10,25 +10,27 @@
  * The three things RH-80 will depend on and therefore cannot be allowed to
  * drift are asserted here rather than described:
  *   - a snapshot written under another `schemaVersion` reads back as absent;
- *   - `offlineTabToRepertoireTab` produces a `RepertoireTab`, `created_at`
- *     included, so `mergeTabs` orders offline tabs exactly as it orders online
- *     ones;
+ *   - `offlineTabToSongFile` produces a `SongFile`, `created_at` included, so
+ *     the offline file list orders exactly as the online one does;
  *   - the captured repertoire ids are readable from `songs[].repertoireId`,
- *     which is the "was this captured?" predicate an offline `getTabs` uses.
+ *     which is the "was this captured?" predicate the offline `getSongEntry`
+ *     reader uses.
+ *
+ * RH-123 re-keyed the file entries by `songId` and took the version to 3; the
+ * v2-rejection case below is what makes that bump observable.
  */
 import { describe, it, expect } from 'vitest'
 import {
   OFFLINE_SCHEMA_VERSION,
   buildOfflineSnapshot,
   offlineTabCacheKey,
-  offlineTabToRepertoireTab,
+  offlineTabToSongFile,
   readValidSnapshot,
   utf8ByteLength,
   type OfflineSnapshot,
   type OfflineTabSnapshot,
 } from '@/lib/offlineSnapshot'
-import { mergeTabs } from '@/lib/tabLibrary'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 function repertoire(id: string): Repertoire {
   return {
@@ -55,10 +57,11 @@ function repertoire(id: string): Repertoire {
   }
 }
 
-function tabRow(id: string, createdAt: string): RepertoireTab {
+function tabRow(id: string, createdAt: string): SongFile {
   return {
     id,
-    repertoire_id: 'rep-1',
+    user_id: 'user-1',
+    song_id: 'song-of-rep-1',
     title: `Chart ${id}`,
     file_url: `https://store.public.blob.vercel-storage.com/tabs/${id}.pdf`,
     created_at: createdAt,
@@ -92,10 +95,10 @@ function buildOne(): OfflineSnapshot {
 }
 
 describe('buildOfflineSnapshot', () => {
-  // RH-83 ER10: the shape gained `personalRepertoire`, and a v1 snapshot cannot
-  // tell "no personal version" from "not captured", so the number moved.
-  it('is at schema version 2', () => {
-    expect(OFFLINE_SCHEMA_VERSION).toBe(2)
+  // RH-83 ER10 took it to 2 (`personalRepertoire`); RH-123 ER9 takes it to 3
+  // (a file entry keyed by `songId`, not by a repertoire row id).
+  it('is at schema version 3', () => {
+    expect(OFFLINE_SCHEMA_VERSION).toBe(3)
   })
 
   it('captures the member own repertoire row per song, or null (ER10)', () => {
@@ -131,8 +134,20 @@ describe('buildOfflineSnapshot', () => {
 
     expect(tab.createdAt).toBe('2026-01-01T00:00:00Z')
     expect(tab.bytes).toBe(100)
-    expect(tab.repertoireId).toBe('rep-1')
+    expect(tab.songId).toBe('song-of-rep-1')
+    expect(tab.userId).toBe('user-1')
     expect(tab.fileUrl).toContain('blob.vercel-storage.com')
+  })
+
+  // ER9: a repertoire row id is exactly what a file entry must not carry — it
+  // is the ownership the new model denies.
+  it('carries no repertoire row id on any captured file entry', () => {
+    for (const song of buildOne().songs) {
+      for (const tab of song.tabs) {
+        expect(tab).not.toHaveProperty('repertoireId')
+        expect(tab).not.toHaveProperty('repertoire_id')
+      }
+    }
   })
 
   // RH-121: `OFFLINE_SCHEMA_VERSION` deliberately did NOT move when the catalog
@@ -186,6 +201,36 @@ describe('readValidSnapshot', () => {
     expect(readValidSnapshot(future)).toBeNull()
   })
 
+  // ER9. A v2 snapshot's *song* is still found — `findSongBySongId` matches on
+  // `repertoire.song_id`, which v2 already carries — and its whole tab array is
+  // returned; what breaks is each mapped file arriving with
+  // `song_id: undefined`. The list is not empty, it is wrong, which is why the
+  // version moved rather than the reader being made tolerant.
+  it('rejects a v2-shaped snapshot, whose file entries carry repertoireId', () => {
+    const current = buildOne()
+    const v2 = {
+      ...current,
+      schemaVersion: 2,
+      songs: current.songs.map((song) => ({
+        ...song,
+        tabs: song.tabs.map((tab) => ({
+          id: tab.id,
+          repertoireId: song.repertoireId,
+          title: tab.title,
+          fileUrl: tab.fileUrl,
+          createdAt: tab.createdAt,
+          cacheKey: tab.cacheKey,
+          bytes: tab.bytes,
+        })),
+      })),
+    }
+
+    expect(readValidSnapshot(v2)).toBeNull()
+    // And not only because of the version number: the shape itself no longer
+    // validates, so a hand-edited version field would not resurrect it.
+    expect(readValidSnapshot({ ...v2, schemaVersion: OFFLINE_SCHEMA_VERSION })).toBeNull()
+  })
+
   it('rejects a malformed value', () => {
     expect(readValidSnapshot(null)).toBeNull()
     expect(readValidSnapshot('snapshot')).toBeNull()
@@ -217,7 +262,7 @@ describe('readValidSnapshot', () => {
     expect(readValidSnapshot({ ...snapshot, songs: [withoutField] })).toBeNull()
   })
 
-  it('rejects a tab that carries no createdAt — the field mergeTabs sorts on', () => {
+  it('rejects a tab that carries no createdAt — the field the file list sorts on', () => {
     const snapshot = buildOne()
     const [first, ...rest] = snapshot.songs[0].tabs
     const withoutCreatedAt: Record<string, unknown> = { ...first }
@@ -235,27 +280,31 @@ describe('readValidSnapshot', () => {
   })
 })
 
-describe('offlineTabToRepertoireTab', () => {
-  it('maps every field RepertoireTab requires, annotations excluded', () => {
+describe('offlineTabToSongFile', () => {
+  it('maps every field SongFile requires, annotations excluded (ER9)', () => {
     const snapshot = buildOne()
-    const mapped: RepertoireTab = offlineTabToRepertoireTab(snapshot.songs[0].tabs[0])
+    const mapped: SongFile = offlineTabToSongFile(snapshot.songs[0].tabs[0])
 
     expect(mapped).toEqual({
       id: 'tab-old',
-      repertoire_id: 'rep-1',
+      user_id: 'user-1',
+      song_id: 'song-of-rep-1',
       title: 'Chart tab-old',
       file_url: 'https://store.public.blob.vercel-storage.com/tabs/tab-old.pdf',
       created_at: '2026-01-01T00:00:00Z',
     })
     expect('annotations' in mapped).toBe(false)
+    expect(mapped).not.toHaveProperty('repertoire_id')
   })
 
-  it('reproduces the online tab order: mergeTabs puts the newest created_at first', () => {
+  it('carries created_at through, which is what the offline list sorts on', () => {
     const tabs: OfflineTabSnapshot[] = buildOne().songs[0].tabs
-    const merged = mergeTabs(tabs.map(offlineTabToRepertoireTab), [], 'band')
+    const mapped = tabs.map(offlineTabToSongFile)
 
-    expect(merged.map((tab) => tab.id)).toEqual(['tab-new', 'tab-old'])
-    expect(merged[0].origin).toBe('band')
+    expect(mapped.map((tab) => tab.created_at)).toEqual([
+      '2026-01-01T00:00:00Z',
+      '2026-06-01T00:00:00Z',
+    ])
   })
 })
 

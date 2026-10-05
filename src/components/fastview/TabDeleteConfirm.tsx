@@ -12,7 +12,7 @@ export interface TabDeleteConfirmProps {
 /**
  * The in-page confirmation for a tab delete, anchored above the Toast so the two
  * never overlap. Rendered at the page's root fragment for the same
- * containing-block reason as `TabDestinationModal`.
+ * containing-block reason as `LyricsDestinationModal`.
  */
 export function TabDeleteConfirm({ pending, busy, onConfirm, onCancel }: TabDeleteConfirmProps) {
   if (!pending) return null

@@ -1,12 +1,12 @@
 'use client'
 
-import type { MergedTab, TabOrigin } from '@/lib/tabLibrary'
+import type { SongFile } from '@/types/database'
 
 export interface TabListProps {
-  tabs: MergedTab[]
+  tabs: SongFile[]
   activeTabUrl: string | null
-  onSelect: (tab: MergedTab) => void
-  onDelete: (tabId: string, origin: TabOrigin) => void
+  onSelect: (tab: SongFile) => void
+  onDelete: (fileId: string) => void
   /**
    * True while the Fast View is read-only, i.e. offline (RH-99). Only the
    * delete is disabled: selecting a tab and opening it in a new tab are reads.
@@ -14,7 +14,13 @@ export interface TabListProps {
   readOnly?: boolean
 }
 
-/** The uploaded PDFs of this song, band files and personal files in one list. */
+/**
+ * The musician's own uploaded PDFs for this song.
+ *
+ * One list and no origin badge since RH-123: a file belongs to a person and a
+ * song, so "band or personal?" is not a question the row can answer or needs
+ * to.
+ */
 export function TabList({ tabs, activeTabUrl, onSelect, onDelete, readOnly = false }: TabListProps) {
   return (
     <ul className="flex flex-col gap-2">
@@ -40,17 +46,6 @@ export function TabList({ tabs, activeTabUrl, onSelect, onDelete, readOnly = fal
               </svg>
               <span className="truncate text-sm mr-1.5">{tab.title}</span>
 
-              {/* Origin Badge */}
-              {tab.origin === 'band' ? (
-                <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Shared with the whole band">
-                  👥 Band
-                </span>
-              ) : (
-                <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-250 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-0.5" title="Private study file">
-                  👤 Personal
-                </span>
-              )}
-
               {isActive && (
                 <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-105 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 ml-1">
                   Viewing
@@ -75,10 +70,10 @@ export function TabList({ tabs, activeTabUrl, onSelect, onDelete, readOnly = fal
               {/* Delete Button */}
               <button
                 type="button"
-                onClick={() => onDelete(tab.id, tab.origin)}
+                onClick={() => onDelete(tab.id)}
                 disabled={readOnly}
                 className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:text-gray-300 disabled:hover:bg-transparent"
-                aria-label="Delete tab"
+                aria-label="Delete file"
               >
                 <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

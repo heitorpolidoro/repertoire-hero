@@ -34,6 +34,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { query, withTransaction } from '@/lib/db'
+import { LEGACY_TABS_DDL, LEGACY_TABS_TABLE } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
@@ -168,6 +169,10 @@ describe.skipIf(!RUN_DB_TESTS)('replaying the migration over colliding titles (E
     const sql = migrationSql()
 
     const outcome = await inRolledBackTransaction(async (client) => {
+      // RH-123 dropped the table the migration's collapse re-points tab rows
+      // in, so the replay needs it back (see `LEGACY_TABS_DDL`).
+      await client.query(LEGACY_TABS_DDL)
+
       // Both rows are legal today — the titles differ. The rewrite is what
       // makes them the same, which is why the index has to come off first.
       await client.query(
@@ -381,6 +386,12 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
       // duplicates can be seeded at all.
       await client.query(`DROP INDEX IF EXISTS ${SONGS_UNIQUE}`)
 
+      // RH-123 dropped the table `migrate_catalog_to_versions()` re-points tab
+      // rows in, so this replay needs it back. Inside this transaction only,
+      // and rolled back with everything else; `LEGACY_TABS_DDL` is the one
+      // place it is spelled (ER5).
+      await client.query(LEGACY_TABS_DDL)
+
       const userId = randomUUID()
       const email = `rh122-merge-${sfx}@test.local`
       await client.query(
@@ -428,7 +439,7 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
       // The one thing the collapse rescues: a scanned, annotated PDF would be
       // cascaded away with the loser's repertoire row.
       await client.query(
-        'INSERT INTO repertoire_tabs (repertoire_id, title, file_url) VALUES ($1, $2, $3)',
+        `INSERT INTO ${LEGACY_TABS_TABLE} (repertoire_id, title, file_url) VALUES ($1, $2, $3)`,
         [loserRep, `Tab ${sfx}`, 'http://blob/tab.pdf'],
       )
 
@@ -481,7 +492,7 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
           ),
           tabRepertoireIds: (
             await client.query<{ repertoire_id: string }>(
-              'SELECT repertoire_id FROM repertoire_tabs WHERE title = $1',
+              `SELECT repertoire_id FROM ${LEGACY_TABS_TABLE} WHERE title = $1`,
               [`Tab ${sfx}`],
             )
           ).rows.map((r) => r.repertoire_id),

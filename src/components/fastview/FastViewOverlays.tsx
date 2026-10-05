@@ -13,7 +13,6 @@ import { LyricsDestinationModal } from './LyricsDestinationModal'
 import { LyricsStageOverlay } from './LyricsStageOverlay'
 import { PdfStageOverlay } from './PdfStageOverlay'
 import { TabDeleteConfirm } from './TabDeleteConfirm'
-import { TabDestinationModal } from './TabDestinationModal'
 
 /**
  * The slice of `usePdfStage`'s controller this stack renders. Declared
@@ -48,8 +47,11 @@ export interface FastViewOverlaysProps {
 
 /**
  * Everything Fast View renders outside its reading column: the two Stage Mode
- * surfaces, the upload destination choice, the two delete confirmations and the
- * page's single floating Toast.
+ * surfaces, the two delete confirmations and the page's single floating Toast.
+ *
+ * RH-123 deleted the third member of that list, `TabDestinationModal`: there is
+ * no band-vs-personal destination to choose once a file belongs to the
+ * uploader and the song.
  *
  * They live at the page's root fragment rather than inside its `<main>`:
  * `<main>` always carries a `translate-*` class, which makes it the containing
@@ -100,15 +102,7 @@ export function FastViewOverlays({
         onCancel={lyrics.cancelVersionChoice}
       />
 
-      {/* Upload Destination Choice Modal (Only in band mode) */}
-      <TabDestinationModal
-        open={tabLibrary.isDestinationModalOpen}
-        uploadDestination={tabLibrary.uploadDestination}
-        onChoose={tabLibrary.chooseDestination}
-        onCancel={tabLibrary.cancelDestination}
-      />
-
-      {/* Tab delete confirmation — same anchor as the link one below */}
+      {/* File delete confirmation — same anchor as the link one below */}
       <TabDeleteConfirm
         pending={tabLibrary.pendingDelete !== null}
         busy={tabLibrary.deleteBusy}

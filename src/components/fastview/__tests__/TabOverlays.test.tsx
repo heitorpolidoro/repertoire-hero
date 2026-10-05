@@ -1,21 +1,22 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { TabViewer } from '../TabViewer'
-import { TabDestinationModal } from '../TabDestinationModal'
 import { TabDeleteConfirm } from '../TabDeleteConfirm'
 import { TabLibrarySection } from '../TabLibrarySection'
-import type { MergedTab, TabLibraryController } from '@/lib/tabLibrary'
+import { useTabLibrary, type TabLibraryActions } from '@/hooks/useTabLibrary'
+import type { TabLibraryController } from '@/lib/tabLibrary'
+import type { SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
-const TAB: MergedTab = {
+const TAB: SongFile = {
   id: 't-1',
-  repertoire_id: 'rep-band',
+  user_id: 'user-1',
+  song_id: 'song-1',
   title: 'Horn section',
   file_url: 'https://blob.test/t-1.pdf',
   created_at: '2026-01-04T10:00:00.000Z',
-  origin: 'band',
 }
 
 /** A controller stub: the section is presentational, so every member is a spy. */
@@ -23,7 +24,6 @@ function makeLibrary(overrides: Partial<TabLibraryController> = {}): TabLibraryC
   return {
     tabs: [],
     activeTabId: null,
-    activeTabRepertoireId: null,
     activeTabUrl: null,
     activeTabTitle: '',
     selectTab: vi.fn(),
@@ -31,15 +31,11 @@ function makeLibrary(overrides: Partial<TabLibraryController> = {}): TabLibraryC
     uploadTitle: '',
     uploadFile: null,
     uploading: false,
-    uploadDestination: null,
     uploadError: null,
     fileInputRef: { current: null },
     setUploadTitle: vi.fn(),
     pickFile: vi.fn(),
     submitUpload: vi.fn(),
-    isDestinationModalOpen: false,
-    chooseDestination: vi.fn().mockResolvedValue(undefined),
-    cancelDestination: vi.fn(),
     pendingDelete: null,
     deleteBusy: false,
     requestDelete: vi.fn(),
@@ -95,58 +91,6 @@ describe('TabViewer', () => {
   })
 })
 
-describe('TabDestinationModal', () => {
-  it('TabDestinationModal renders nothing while it is closed', () => {
-    const { container } = render(
-      <TabDestinationModal open={false} uploadDestination={null} onChoose={vi.fn()} onCancel={vi.fn()} />,
-    )
-    expect(container.innerHTML).toBe('')
-  })
-
-  it('TabDestinationModal offers the personal and band destinations and reports the chosen one', () => {
-    const onChoose = vi.fn()
-    render(
-      <TabDestinationModal open uploadDestination={null} onChoose={onChoose} onCancel={vi.fn()} />,
-    )
-
-    expect(screen.getByText('Upload Destination')).toBeDefined()
-    fireEvent.click(screen.getByText(/Personal studies/))
-    expect(onChoose).toHaveBeenCalledWith('personal')
-
-    fireEvent.click(screen.getByText(/Band files/))
-    expect(onChoose).toHaveBeenLastCalledWith('band')
-  })
-
-  it('TabDestinationModal cancels without uploading', () => {
-    const onCancel = vi.fn()
-    const onChoose = vi.fn()
-    const busy = render(<TabDestinationModal open uploadDestination="band" onChoose={onChoose} onCancel={onCancel} />)
-    // Every button is disabled while an upload is in flight.
-    const disabled = screen.getAllByRole('button') as HTMLButtonElement[]
-    expect(disabled.every((button) => button.disabled)).toBe(true)
-    busy.unmount()
-
-    render(<TabDestinationModal open uploadDestination={null} onChoose={onChoose} onCancel={onCancel} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(onCancel).toHaveBeenCalledTimes(1)
-    expect(onChoose).not.toHaveBeenCalled()
-  })
-})
-
-describe('TabDestinationModal while uploading', () => {
-  it('spins on the chosen destination only and announces the upload', () => {
-    render(<TabDestinationModal open uploadDestination="band" onChoose={vi.fn()} onCancel={vi.fn()} />)
-
-    expect(screen.getByRole('status').textContent).toBe('Uploading PDF, please wait…')
-    const band = screen.getByText(/Band files/).closest('button') as HTMLButtonElement
-    const personal = screen.getByText(/Personal studies/).closest('button') as HTMLButtonElement
-    expect(band.textContent).toContain('Uploading…')
-    expect(band.querySelector('svg.animate-spin')).not.toBeNull()
-    expect(personal.textContent).not.toContain('Uploading…')
-    expect(personal.textContent).toContain('Private')
-  })
-})
-
 describe('TabDeleteConfirm', () => {
   it('TabDeleteConfirm renders nothing when no tab delete is pending', () => {
     const { container } = render(
@@ -189,7 +133,6 @@ describe('TabLibrarySection', () => {
     const library = makeLibrary({
       tabs: [TAB],
       activeTabId: TAB.id,
-      activeTabRepertoireId: TAB.repertoire_id,
       activeTabUrl: TAB.file_url,
       activeTabTitle: TAB.title,
     })
@@ -202,13 +145,52 @@ describe('TabLibrarySection', () => {
     fireEvent.click(screen.getByText('Horn section'))
     expect(library.selectTab).toHaveBeenCalledWith(TAB)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete tab' }))
-    expect(library.requestDelete).toHaveBeenCalledWith('t-1', 'band')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file' }))
+    expect(library.requestDelete).toHaveBeenCalledWith('t-1')
 
     fireEvent.click(screen.getByRole('button', { name: /Stage/ }))
     expect(onOpenStage).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(library.closeActiveTab).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * ER7 — the Fast View file library, rendered end to end through the real
+ * controller, for a song the user holds **no** repertoire row for.
+ *
+ * The page's only input is the song id, and that is the whole point: before
+ * RH-123 the section was fed by a fetch keyed on a repertoire row, so a song
+ * the musician had never added could not list their files at all. Nothing is
+ * stubbed here but the injected action.
+ */
+describe('the file library for a song the user holds no repertoire row for', () => {
+  function Harness({ actions }: { actions: TabLibraryActions }) {
+    const library = useTabLibrary({
+      songId: 'song-1',
+      actions,
+      onPersonalEntryCreated: vi.fn(),
+      notify: vi.fn(),
+    })
+    return <TabLibrarySection library={library} loadingPersonal={false} onOpenStage={vi.fn()} />
+  }
+
+  it("lists that user's own files, resolved by song id in a single fetch", async () => {
+    const getTabs = vi.fn().mockResolvedValue([TAB])
+    const actions = {
+      getTabs,
+      uploadTab: vi.fn(),
+      deleteTab: vi.fn(),
+    } as unknown as TabLibraryActions
+
+    await act(async () => {
+      render(<Harness actions={actions} />)
+    })
+
+    expect(getTabs).toHaveBeenCalledTimes(1)
+    expect(getTabs).toHaveBeenCalledWith('song-1')
+    expect(screen.getByText('Horn section')).toBeDefined()
+    expect(screen.queryByText('No PDFs uploaded yet.')).toBeNull()
   })
 })

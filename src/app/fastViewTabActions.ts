@@ -5,23 +5,23 @@ import {
   getTabAnnotationsAction,
   saveTabAnnotationsAction,
 } from '@/app/actions/tabs'
-import { addSongAction } from '@/app/actions/repertoire'
 import type { TabLibraryActions } from '@/hooks/useTabLibrary'
 import type { PdfStageActions } from '@/hooks/usePdfStage'
 
 /**
- * The tab Server Actions injected into `useTabLibrary` by the Fast View page.
- * Module-level, so the object identity is stable and the hook's fetch effects
+ * The file Server Actions injected into `useTabLibrary` by the Fast View page.
+ * Module-level, so the object identity is stable and the hook's fetch effect
  * cannot be restarted by a re-render (RH-49, following the
  * `src/app/bandAdminActions.ts` pattern from F21).
+ *
+ * `addSong` is gone since RH-123: `uploadTabAction` ensures the uploader's own
+ * repertoire row itself and reports it in the upload envelope, so the hook no
+ * longer needs a second action to create one.
  */
 export const TAB_LIBRARY_ACTIONS: TabLibraryActions = {
   getTabs: getTabsAction,
   uploadTab: uploadTabAction,
   deleteTab: deleteTabAction,
-  // Same shape as the lyrics root: the `null` owner keeps the new row personal
-  // even when the page is in band context.
-  addSong: (songId) => addSongAction(songId, null),
 }
 
 /**

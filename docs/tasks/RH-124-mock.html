@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-123 — song_files: the Fast View file section, before and after</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<div class="max-w-5xl mx-auto px-4 py-8 space-y-10">
+
+  <header class="space-y-2">
+    <h1 class="text-2xl font-bold">RH-123 — <code class="text-base">song_files</code> keyed by (user_id, song_id)</h1>
+    <p class="text-slate-600">
+      The Fast View file section, in <strong>band context</strong>, before and after.
+      Nothing new is introduced: the change is removal. One list instead of two merged
+      ones, no Band/Personal badge, no upload destination question.
+    </p>
+  </header>
+
+  <!-- ============ BEFORE ============ -->
+  <section class="space-y-3">
+    <div class="flex items-center gap-2">
+      <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs font-semibold tracking-wide">BEFORE</span>
+      <h2 class="text-lg font-semibold">Today — <code>repertoire_tabs</code>, keyed by the repertoire row</h2>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold flex items-center gap-2">
+          <i data-lucide="file-text" class="w-4 h-4 text-slate-500"></i> Tabs &amp; Charts
+        </h3>
+        <button onclick="openDestination()" class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+          Upload
+        </button>
+      </div>
+
+      <ul class="divide-y divide-slate-100">
+        <li class="py-2.5 flex items-center gap-3">
+          <i data-lucide="file" class="w-4 h-4 text-rose-500"></i>
+          <span class="flex-1 text-sm">Smooth Criminal — full chart</span>
+          <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">BAND</span>
+          <i data-lucide="trash-2" class="w-4 h-4 text-slate-400"></i>
+        </li>
+        <li class="py-2.5 flex items-center gap-3">
+          <i data-lucide="file" class="w-4 h-4 text-rose-500"></i>
+          <span class="flex-1 text-sm">Bass line, my markings</span>
+          <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">PERSONAL</span>
+          <i data-lucide="trash-2" class="w-4 h-4 text-slate-400"></i>
+        </li>
+      </ul>
+
+      <p class="mt-3 text-xs text-slate-500">
+        Two fetches, merged by <code>mergeTabs</code>: the band entry's tabs tagged
+        <em>Band</em>, the member's own tabs tagged <em>Personal</em>. A band tab is
+        deletable and annotatable by every member, and nothing records who uploaded it.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ AFTER ============ -->
+  <section class="space-y-3">
+    <div class="flex items-center gap-2">
+      <span class="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs font-semibold tracking-wide">AFTER</span>
+      <h2 class="text-lg font-semibold">This task — <code>song_files</code>, keyed by (user_id, song_id)</h2>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold flex items-center gap-2">
+          <i data-lucide="file-text" class="w-4 h-4 text-slate-500"></i> Tabs &amp; Charts
+        </h3>
+        <button onclick="fakeUpload()" class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+          Upload
+        </button>
+      </div>
+
+      <ul id="afterList" class="divide-y divide-slate-100">
+        <li class="py-2.5 flex items-center gap-3">
+          <i data-lucide="file" class="w-4 h-4 text-rose-500"></i>
+          <span class="flex-1 text-sm">Bass line, my markings</span>
+          <button onclick="openDelete('Bass line, my markings')"><i data-lucide="trash-2" class="w-4 h-4 text-slate-400 hover:text-rose-600"></i></button>
+        </li>
+      </ul>
+
+      <p id="uploadNote" class="hidden mt-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+        Uploaded straight to your own files — no question asked. The song also appears in
+        your personal repertoire at status <strong>unknown</strong>, because bothering to
+        scan a chart is a stronger statement of intent than tapping <code>[+]</code>.
+      </p>
+
+      <p class="mt-3 text-xs text-slate-500">
+        One fetch, <code>getTabs(songId)</code>. Every file is yours, so there is no badge
+        to render and no destination to choose. The same list appears on the studio take and
+        the live take of this song — one chart serves every version.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ WHAT GOES AWAY ============ -->
+  <section class="space-y-3">
+    <h2 class="text-lg font-semibold">Removed: the upload destination question</h2>
+    <p class="text-sm text-slate-600">
+      In band context the upload used to stop and ask. Click <em>Upload</em> under BEFORE to
+      see it. It is deleted, together with <code>needsDestinationChoice</code>,
+      <code>resolveUploadTarget</code>, <code>resolveDeleteTarget</code>,
+      <code>mergeTabs</code>, <code>entryTabOrigin</code> and the
+      <code>TabOrigin</code> / <code>MergedTab</code> types.
+    </p>
+  </section>
+
+  <!-- ============ DATA LOSS NOTICE ============ -->
+  <section class="space-y-3">
+    <h2 class="text-lg font-semibold">The band-owned files</h2>
+    <div class="bg-amber-50 border border-amber-300 rounded-xl p-4 text-sm space-y-2">
+      <p class="flex items-start gap-2">
+        <i data-lucide="alert-triangle" class="w-4 h-4 mt-0.5 text-amber-600"></i>
+        <span>
+          <strong>Option A (what the spec does).</strong> Band-owned tab rows are dropped by
+          the migration, with their annotations. Nothing records who uploaded them, so there
+          is no musician to give them to. Their file URLs are written to
+          <code>abandoned_blobs</code> so the loss is recoverable by hand.
+        </span>
+      </p>
+      <p class="flex items-start gap-2">
+        <i data-lucide="users" class="w-4 h-4 mt-0.5 text-amber-600"></i>
+        <span>
+          <strong>Option B.</strong> Each band-owned file becomes one
+          <code>song_files</code> row per <em>current</em> member of that band, all pointing
+          at the same stored object. Nobody loses a chart they relied on; the cost is rows
+          manufactured for people who never uploaded anything, and copies that no longer
+          track a membership that changes.
+        </span>
+      </p>
+    </div>
+  </section>
+
+  <!-- Destination modal (BEFORE only) -->
+  <div id="destModal" class="hidden fixed inset-0 bg-black/50 items-center justify-center p-4" style="display:none">
+    <div class="bg-white rounded-xl p-5 w-full max-w-sm space-y-4">
+      <h3 class="font-semibold">Upload this tab to…</h3>
+      <p class="text-sm text-slate-600">You are browsing a band. Where should this chart go?</p>
+      <div class="flex gap-2">
+        <button onclick="closeDestination()" class="flex-1 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm">The band</button>
+        <button onclick="closeDestination()" class="flex-1 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm">Just me</button>
+      </div>
+      <button onclick="closeDestination()" class="w-full text-sm text-slate-500">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Delete confirmation (AFTER) -->
+  <div id="delModal" class="fixed inset-0 bg-black/50 items-center justify-center p-4" style="display:none">
+    <div class="bg-white rounded-xl p-5 w-full max-w-sm space-y-4">
+      <h3 class="font-semibold">Delete this file?</h3>
+      <p class="text-sm text-slate-600">
+        <span id="delName" class="font-medium"></span> and its annotations are destroyed.
+        A scanned, annotated chart is not reproducible.
+      </p>
+      <div class="flex gap-2">
+        <button onclick="closeDelete()" class="flex-1 px-3 py-2 rounded-lg bg-slate-100 text-sm">Cancel</button>
+        <button onclick="closeDelete()" class="flex-1 px-3 py-2 rounded-lg bg-rose-600 text-white text-sm">Delete</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  lucide.createIcons()
+  const show = (el) => { el.style.display = 'flex' }
+  const hide = (el) => { el.style.display = 'none' }
+  function openDestination() { show(document.getElementById('destModal')) }
+  function closeDestination() { hide(document.getElementById('destModal')) }
+  function openDelete(name) {
+    document.getElementById('delName').textContent = name
+    show(document.getElementById('delModal'))
+  }
+  function closeDelete() { hide(document.getElementById('delModal')) }
+  function fakeUpload() {
+    const li = document.createElement('li')
+    li.className = 'py-2.5 flex items-center gap-3'
+    li.innerHTML = '<i data-lucide="file" class="w-4 h-4 text-rose-500"></i>' +
+      '<span class="flex-1 text-sm">Smooth Criminal — full chart</span>' +
+      '<button><i data-lucide="trash-2" class="w-4 h-4 text-slate-400"></i></button>'
+    document.getElementById('afterList').prepend(li)
+    document.getElementById('uploadNote').classList.remove('hidden')
+    lucide.createIcons()
+  }
+</script>
+</body>
+</html>

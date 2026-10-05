@@ -28,7 +28,13 @@ import { query, withTransaction } from '@/lib/db'
 import { createAndAddSong, removeSongFromRepertoire } from '@/lib/songs'
 import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
-import { LEGACY_CATALOG_TABLE, createTestUser, deleteTestUser } from './test-helpers'
+import {
+  LEGACY_CATALOG_TABLE,
+  LEGACY_TABS_DDL,
+  LEGACY_TABS_TABLE,
+  createTestUser,
+  deleteTestUser,
+} from './test-helpers'
 import type { SongLink } from '@/types/database'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -180,7 +186,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
     ).rows,
     tabs: (
       await client.query<MergeSnapshot['tabs'][number]>(
-        `SELECT rt.repertoire_id FROM repertoire_tabs rt WHERE rt.title = $1`,
+        `SELECT rt.repertoire_id FROM ${LEGACY_TABS_TABLE} rt WHERE rt.title = $1`,
         [`Tab ${sfx}`],
       )
     ).rows,
@@ -202,6 +208,11 @@ async function runMergeScenario(): Promise<MergeScenario> {
     // The index the migration creates has to be gone before duplicates can be
     // seeded — `npm run db:migrate` has already run it in this database.
     await client.query('DROP INDEX IF EXISTS uq_songs_artist_title')
+
+    // RH-123 dropped the table `0009` re-points tab rows in, so the replay
+    // needs it back. Inside this transaction only, and rolled back with
+    // everything else; `LEGACY_TABS_DDL` is the one place it is spelled.
+    await client.query(LEGACY_TABS_DDL)
 
     const userId = await seedUser(client, 'owner')
     const otherUserId = await seedUser(client, 'second')
@@ -253,7 +264,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
       [otherUserId, dupId],
     )
     await client.query(
-      'INSERT INTO repertoire_tabs (repertoire_id, title, file_url) VALUES ($1, $2, $3)',
+      `INSERT INTO ${LEGACY_TABS_TABLE} (repertoire_id, title, file_url) VALUES ($1, $2, $3)`,
       [repB, `Tab ${sfx}`, 'http://blob/tab.pdf'],
     )
 

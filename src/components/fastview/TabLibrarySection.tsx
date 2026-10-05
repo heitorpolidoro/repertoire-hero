@@ -7,7 +7,8 @@ import { TabUploadForm } from './TabUploadForm'
 
 export interface TabLibrarySectionProps {
   library: TabLibraryController
-  /** True while the member's own entry (and its tabs) are still loading. */
+  /** True while the song's entry is still loading, i.e. before the file
+   *  fetch's song id is known. */
   loadingPersonal: boolean
   /** Opens PDF Stage Mode, which is still page state. */
   onOpenStage: () => void

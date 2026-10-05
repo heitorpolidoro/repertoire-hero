@@ -66,6 +66,11 @@ const eslintConfig = defineConfig([
   // the escaped brackets: in a glob, `[id]` is a character class, so an
   // unescaped Next.js dynamic segment silently matches nothing.
   // BEGIN:complexity-budget-overrides
+  // RH-123 removed two entries from this ratchet. `src/lib/tabs.ts` and
+  // `src/hooks/useTabLibrary.ts` each carried `max-params: 5`; every function
+  // in both lost a parameter when a file stopped hanging off a repertoire row,
+  // so both now sit inside the base budget of 4 and the overrides had to go
+  // rather than be lowered. 17 entries to 15.
   { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/import/route.ts"], rules: { complexity: ["error", 21] } },
   { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 26], "max-depth": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/app/bands/\\[id\\]/page.tsx"], rules: { complexity: ["error", 29], "max-lines-per-function": ["error", 453], "max-lines": ["error", 473] } },
@@ -93,7 +98,6 @@ const eslintConfig = defineConfig([
   // without a default and its only branch is the guard in
   // `handleToggleDrawing`, so the prop costs the budget nothing.
   { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 743], "max-lines": ["error", 815] } },
-  { name: "complexity-budget/override", files: ["src/hooks/useTabLibrary.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },
   // RH-95: `createAndAddSong` moved its catalog lookup/insert into
@@ -112,7 +116,6 @@ const eslintConfig = defineConfig([
   // `(data, client)` and the net change — minus ten, plus the import and the
   // `upsertAlbumAndVersion` call — is 470 to 465.
   { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 465] } },
-  { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 678] } },

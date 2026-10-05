@@ -55,7 +55,8 @@ import type { SongIdentity } from '@/lib/songEntry'
 import type { SongStatusController } from '@/lib/songStatus'
 import type { LyricsEditorController } from '@/lib/lyricsEditor'
 import type { SongLinksController } from '@/lib/songLinks'
-import type { MergedTab, TabLibraryController } from '@/lib/tabLibrary'
+import type { TabLibraryController } from '@/lib/tabLibrary'
+import type { SongFile } from '@/types/database'
 
 interface DocumentMockProps {
   children?: ReactNode
@@ -158,22 +159,22 @@ function makeLinks(overrides: Partial<SongLinksController> = {}): SongLinksContr
   }
 }
 
-const TABS: MergedTab[] = [
+const TABS: SongFile[] = [
   {
     id: 'tab-band',
-    repertoire_id: 'rep-band',
+    user_id: 'user-1',
+    song_id: 'song-1',
     title: 'Guitar chart',
     file_url: 'https://blob.example/band.pdf',
     created_at: '2026-01-01T00:00:00.000Z',
-    origin: 'band',
   },
   {
     id: 'tab-personal',
-    repertoire_id: 'rep-personal',
+    user_id: 'user-1',
+    song_id: 'song-1',
     title: 'My notes',
     file_url: 'https://blob.example/personal.pdf',
     created_at: '2026-01-02T00:00:00.000Z',
-    origin: 'personal',
   },
 ]
 
@@ -181,7 +182,6 @@ function makeTabLibrary(overrides: Partial<TabLibraryController> = {}): TabLibra
   return {
     tabs: TABS,
     activeTabId: 'tab-band',
-    activeTabRepertoireId: 'rep-band',
     activeTabUrl: 'https://blob.example/band.pdf',
     activeTabTitle: 'Guitar chart',
     selectTab: vi.fn(),
@@ -189,15 +189,11 @@ function makeTabLibrary(overrides: Partial<TabLibraryController> = {}): TabLibra
     uploadTitle: '',
     uploadFile: new File(['%PDF-1.4'], 'chart.pdf', { type: 'application/pdf' }),
     uploading: false,
-    uploadDestination: null,
     uploadError: null,
     fileInputRef: { current: null },
     setUploadTitle: vi.fn(),
     pickFile: vi.fn(),
     submitUpload: vi.fn(),
-    isDestinationModalOpen: false,
-    chooseDestination: vi.fn().mockResolvedValue(undefined),
-    cancelDestination: vi.fn(),
     pendingDelete: null,
     deleteBusy: false,
     requestDelete: vi.fn(),
@@ -352,7 +348,7 @@ describe('RH-99 ER2 — the tab library controls', () => {
     expect(screen.getByPlaceholderText(/Tab Title/).hasAttribute('disabled')).toBe(false)
     expect(fileInput().hasAttribute('disabled')).toBe(false)
     expect(screen.getByRole('button', { name: 'Upload PDF' }).hasAttribute('disabled')).toBe(false)
-    const deletes = screen.getAllByRole('button', { name: 'Delete tab' })
+    const deletes = screen.getAllByRole('button', { name: 'Delete file' })
     expect(deletes).toHaveLength(2)
     expect(deletes.every((b) => b.hasAttribute('disabled'))).toBe(false)
   })
@@ -363,7 +359,7 @@ describe('RH-99 ER2 — the tab library controls', () => {
     expect(screen.getByPlaceholderText(/Tab Title/).hasAttribute('disabled')).toBe(true)
     expect(fileInput().hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: 'Upload PDF' }).hasAttribute('disabled')).toBe(true)
-    const deletes = screen.getAllByRole('button', { name: 'Delete tab' })
+    const deletes = screen.getAllByRole('button', { name: 'Delete file' })
     expect(deletes).toHaveLength(2)
     expect(deletes.every((b) => b.hasAttribute('disabled'))).toBe(true)
   })

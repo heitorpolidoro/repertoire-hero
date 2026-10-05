@@ -32,7 +32,7 @@ import {
   type OfflineTabMaterial,
 } from '@/lib/offlineSnapshot'
 import type { PlaylistEntry } from '@/lib/playlistNav'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 /**
  * The Cache Storage cache the tab PDFs live in.
@@ -91,7 +91,7 @@ export interface OfflineSongInput {
   repertoire: Repertoire
   /** The member's own row for the song; `null` outside a band (RH-83 ER10). */
   personalRepertoire: Repertoire | null
-  tabs: RepertoireTab[]
+  tabs: SongFile[]
 }
 
 export interface SaveOfflinePlaylistInput {
@@ -144,7 +144,7 @@ function assertUsableTabResponse(response: Response, fileUrl: string): void {
 async function cacheOneTab(
   ports: OfflineStorePorts,
   playlistId: string,
-  tab: RepertoireTab,
+  tab: SongFile,
 ): Promise<OfflineTabMaterial> {
   const response = await ports.fetch(tab.file_url)
   assertUsableTabResponse(response, tab.file_url)

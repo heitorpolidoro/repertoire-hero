@@ -96,14 +96,12 @@ export default function FastViewPage() {
     notify: showToast,
   })
 
-  // Tab library: the two tab fetches, the active tab, the upload with its
-  // destination choice and the tab delete confirmation live in this controller
-  // (RH-49). PDF Stage Mode still reads the active tab from it.
+  // File library: the song's one file fetch, the active file, the upload and
+  // the delete confirmation live in this controller (RH-49). A file is keyed by
+  // `(user_id, song_id)` since RH-123, so the song id is the whole of what this
+  // hook needs. PDF Stage Mode still reads the active file from it.
   const tabLibrary = useTabLibrary({
-    repertoireId: id,
-    entryBandId: song.entryBandId,
     songId: song.songId,
-    personalRepertoireId: song.personalRepertoireId,
     actions: OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
     onPersonalEntryCreated: song.adoptPersonalEntry,
     notify: showToast,
@@ -115,7 +113,6 @@ export default function FastViewPage() {
   // load/save live in this controller (RH-50).
   const pdfStage = usePdfStage({
     tabId: tabLibrary.activeTabId,
-    repertoireId: tabLibrary.activeTabRepertoireId,
     actions: OFFLINE_FIRST_PDF_STAGE_ACTIONS,
   })
 

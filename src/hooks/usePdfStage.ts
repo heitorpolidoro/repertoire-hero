@@ -10,10 +10,9 @@ import type { Stroke, TabAnnotations } from '@/types/database'
  * Required and never defaulted — a default would have to import that tree.
  */
 export interface PdfStageActions {
-  getAnnotations: (tabId: string, repertoireId: string) => Promise<{ data?: TabAnnotations; error?: string }>
+  getAnnotations: (fileId: string) => Promise<{ data?: TabAnnotations; error?: string }>
   saveAnnotations: (
-    tabId: string,
-    repertoireId: string,
+    fileId: string,
     pageNumber: number,
     strokes: Stroke[],
   ) => Promise<{ success?: boolean; error?: string }>
@@ -28,10 +27,10 @@ export interface VisualViewportLike {
 }
 
 export interface UsePdfStageOptions {
-  /** `activeTabId` from `useTabLibrary`; null when no tab is selected. */
+  /** `activeTabId` from `useTabLibrary`; null when no file is selected.
+   *  A file id is the whole key since RH-123 — the annotation statements are
+   *  authorized by the row's own `user_id`, which is the session's. */
   tabId: string | null
-  /** `activeTabRepertoireId` from `useTabLibrary`. */
-  repertoireId: string | null
   /** Required, never defaulted — see `src/app/fastViewTabActions.ts` (F21). */
   actions: PdfStageActions
   /** Test seam. Defaults to a module-level reader of the browser's viewport. */
@@ -77,7 +76,6 @@ const WINDOW_VIEWPORT = () => (typeof window !== 'undefined' ? window.visualView
  */
 export function usePdfStage({
   tabId,
-  repertoireId,
   actions,
   getViewport = WINDOW_VIEWPORT,
 }: UsePdfStageOptions): PdfStageController {
@@ -163,25 +161,25 @@ export function usePdfStage({
   // the stage for a different tab renders the loading state (a null annotations
   // prop) until that tab's own fetch resolves — a stale payload is never shown.
   useEffect(() => {
-    if (!isOpen || !tabId || !repertoireId) return
+    if (!isOpen || !tabId) return
     let cancelled = false
-    actions.getAnnotations(tabId, repertoireId).then((res) => {
+    actions.getAnnotations(tabId).then((res) => {
       if (cancelled) return
       setPayload({ tabId, data: res.data ?? {}, error: res.error ?? null })
     })
     return () => {
       cancelled = true
     }
-  }, [actions, isOpen, repertoireId, tabId])
+  }, [actions, isOpen, tabId])
 
   const payloadForTab = payload && payload.tabId === tabId ? payload : null
 
   const saveAnnotations = useCallback(
     async (pageNumber: number, strokes: Stroke[]): Promise<{ success?: boolean; error?: string }> => {
-      if (!tabId || !repertoireId) return { error: 'Tab not found' }
-      return actions.saveAnnotations(tabId, repertoireId, pageNumber, strokes)
+      if (!tabId) return { error: 'Tab not found' }
+      return actions.saveAnnotations(tabId, pageNumber, strokes)
     },
-    [actions, repertoireId, tabId],
+    [actions, tabId],
   )
 
   return {

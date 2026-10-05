@@ -21,7 +21,7 @@ import {
 } from '@/hooks/useOfflinePlaylist'
 import { OFFLINE_STORE, createOfflineStore } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -39,10 +39,11 @@ function repertoire(id: string): Repertoire {
   }
 }
 
-function tabRow(id: string, repertoireId: string): RepertoireTab {
+function tabRow(id: string, songId: string): SongFile {
   return {
     id,
-    repertoire_id: repertoireId,
+    user_id: 'user-1',
+    song_id: songId,
     title: `Chart ${id}`,
     file_url: `https://store.public.blob.vercel-storage.com/tabs/${id}.pdf`,
     created_at: '2026-05-01T00:00:00Z',
@@ -58,7 +59,7 @@ function makeActions(): OfflineDownloadActions {
   return {
     getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Gig', entries: ENTRIES }),
     getSongEntry: vi.fn((repertoireId: string) => Promise.resolve(repertoire(repertoireId))),
-    getTabs: vi.fn((repertoireId: string) => Promise.resolve([tabRow(`tab-${repertoireId}`, repertoireId)])),
+    getTabs: vi.fn((songId: string) => Promise.resolve([tabRow(`tab-${songId}`, songId)])),
     getPersonalEntryForSong: vi.fn((songId: string) =>
       Promise.resolve({ ...repertoire(`personal-${songId}`), band_id: null, song_id: songId }),
     ),
@@ -123,13 +124,37 @@ describe('useOfflinePlaylist — the happy path', () => {
     expect(result.current.summary?.playlistId).toBe('pl-1')
     expect(result.current.summary?.bytes).toBeGreaterThan(0)
     expect(ports.blobs.keysFor('pl-1').sort()).toEqual([
-      '/__offline-tab/pl-1/tab-rep-1',
-      '/__offline-tab/pl-1/tab-rep-2',
+      '/__offline-tab/pl-1/tab-song-rep-1',
+      '/__offline-tab/pl-1/tab-song-rep-2',
     ])
     expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.repertoireId)).toEqual([
       'rep-1',
       'rep-2',
     ])
+  })
+
+  /**
+   * RH-123 ER10 — the capture passes a **song id**.
+   *
+   * This is where the plan's recorded defect lived: `entry.repertoireId` is the
+   * *band* row in band context, so the snapshot took the band's files and
+   * skipped the member's own. `bandId` is non-null in this fixture, so the
+   * assertions below are taken in exactly that context.
+   */
+  it('calls getTabs with the song id, never with a repertoire id', async () => {
+    const actions = makeActions()
+    const { result } = setup({ actions, bandId: 'band-1' })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    const args = vi.mocked(actions.getTabs).mock.calls.map(([id]) => id)
+    expect(args).toEqual(['song-rep-1', 'song-rep-2'])
+    for (const entry of ENTRIES) {
+      expect(args).not.toContain(entry.repertoireId)
+    }
   })
 
   // RH-83 ER10 — the personal row is captured in band context and only there.

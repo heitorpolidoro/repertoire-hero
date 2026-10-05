@@ -24,7 +24,7 @@ import { createOfflineStore, type OfflineStore } from '@/lib/offlineStore'
 import { offlineTabCacheKey } from '@/lib/offlineSnapshot'
 import { createFakePorts } from './offlineStoreFakes'
 import type { PlaylistEntry } from '@/lib/playlistNav'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 function repertoire(id: string, overrides: Partial<Repertoire> = {}): Repertoire {
   return {
@@ -45,10 +45,11 @@ function entry(repertoireId: string, title: string): PlaylistEntry {
   return { repertoireId, songId: `song-${repertoireId}`, title, artist: 'Artist' }
 }
 
-function tab(id: string, repertoireId: string, createdAt: string): RepertoireTab {
+function tab(id: string, songId: string, createdAt: string): SongFile {
   return {
     id,
-    repertoire_id: repertoireId,
+    user_id: 'user-1',
+    song_id: songId,
     title: `Tab ${id}`,
     file_url: `https://blob.example/${id}.pdf`,
     created_at: createdAt,
@@ -59,7 +60,7 @@ interface SeededPlaylist {
   playlistId: string
   playlistName: string
   savedAt: string
-  songs: { repertoireId: string; tabs?: RepertoireTab[]; personalLyrics?: string }[]
+  songs: { repertoireId: string; tabs?: SongFile[]; personalLyrics?: string }[]
 }
 
 /** The real store over in-memory ports, with the given playlists downloaded. */
@@ -104,7 +105,7 @@ const ONE_PLAYLIST: SeededPlaylist[] = [
     playlistName: 'Friday Set',
     savedAt: '2026-09-20T10:00:00.000Z',
     songs: [
-      { repertoireId: 'rep-1', tabs: [tab('tab-1', 'rep-1', '2026-01-02T00:00:00.000Z')], personalLyrics: 'my cues' },
+      { repertoireId: 'rep-1', tabs: [tab('tab-1', 'song-rep-1', '2026-01-02T00:00:00.000Z')], personalLyrics: 'my cues' },
       { repertoireId: 'rep-2' },
     ],
   },
@@ -157,7 +158,7 @@ describe('orderSnapshotCandidates', () => {
 describe('offlineFirst — the wrapper itself', () => {
   it('carries exactly the same own method names as the bundle', async () => {
     const bundle = {
-      getTabs: () => Promise.resolve([] as RepertoireTab[]),
+      getTabs: () => Promise.resolve([] as SongFile[]),
       uploadTab: () => Promise.resolve({}),
       updateStatus: () => Promise.resolve(),
     }
@@ -174,7 +175,7 @@ describe('offlineFirst — the wrapper itself', () => {
     // the default reads as online and the real action runs. That also proves
     // building the wrapper touches no browser global: `OFFLINE_STORE` is inert
     // until one of its methods is called, and none is.
-    const wrapped = offlineFirst({ getTabs: () => Promise.resolve([] as RepertoireTab[]) })
+    const wrapped = offlineFirst({ getTabs: () => Promise.resolve([] as SongFile[]) })
 
     await expect(wrapped.getTabs()).resolves.toEqual([])
   })
@@ -298,40 +299,48 @@ describe('offlineFirst — the offline readers', () => {
           playlistId: 'pl-old',
           playlistName: 'Old',
           savedAt: '2026-09-01T10:00:00.000Z',
-          songs: [{ repertoireId: 'rep-1', tabs: [tab('tab-old', 'rep-1', '2026-01-01T00:00:00.000Z')] }],
+          songs: [{ repertoireId: 'rep-1', tabs: [tab('tab-old', 'song-rep-1', '2026-01-01T00:00:00.000Z')] }],
         },
         {
           playlistId: 'pl-new',
           playlistName: 'New',
           savedAt: '2026-09-20T10:00:00.000Z',
-          songs: [{ repertoireId: 'rep-1', tabs: [tab('tab-new', 'rep-1', '2026-01-01T00:00:00.000Z')] }],
+          songs: [{ repertoireId: 'rep-1', tabs: [tab('tab-new', 'song-rep-1', '2026-01-01T00:00:00.000Z')] }],
         },
       ]),
     )
 
-    const tabs = await wrapped.getTabs('rep-1')
+    const tabs = await wrapped.getTabs('song-rep-1')
 
     expect(tabs.map((row) => row.id)).toEqual(['tab-new'])
     expect(tabs[0].file_url).toBe(offlineTabCacheKey('pl-new', 'tab-new'))
   })
 
-  it('answers getTabs with the cache key as file_url, and [] for a song in no snapshot', async () => {
+  // ER9: the reader resolves through `findSongBySongId`, so the argument is a
+  // song id. A repertoire row id — which is what the route carries and what
+  // this reader was called with before RH-123 — now finds nothing, and the two
+  // assertions at the end are what pin that.
+  it('answers getTabs by song id, with the cache key as file_url', async () => {
     const wrapped = offlineFirst(
       { getTabs: () => Promise.reject(new Error('unreachable')) },
       await offlinePorts(ONE_PLAYLIST),
     )
 
-    await expect(wrapped.getTabs('rep-1')).resolves.toEqual([
+    await expect(wrapped.getTabs('song-rep-1')).resolves.toEqual([
       {
         id: 'tab-1',
-        repertoire_id: 'rep-1',
+        user_id: 'user-1',
+        song_id: 'song-rep-1',
         title: 'Tab tab-1',
         file_url: offlineTabCacheKey('pl-1', 'tab-1'),
         created_at: '2026-01-02T00:00:00.000Z',
       },
     ])
-    await expect(wrapped.getTabs('rep-2')).resolves.toEqual([])
-    await expect(wrapped.getTabs('rep-nope')).resolves.toEqual([])
+    // A captured song with no files, and a song in no snapshot at all.
+    await expect(wrapped.getTabs('song-rep-2')).resolves.toEqual([])
+    await expect(wrapped.getTabs('song-nope')).resolves.toEqual([])
+    // The repertoire row id is no longer a key this reader understands.
+    await expect(wrapped.getTabs('rep-1')).resolves.toEqual([])
   })
 
   // RH-83 ER10: the snapshot now carries the member's own row, so the badge and
@@ -356,7 +365,7 @@ describe('offlineFirst — the offline readers', () => {
       await offlinePorts(ONE_PLAYLIST),
     )
 
-    await expect(wrapped.getAnnotations('tab-1', 'rep-1')).resolves.toEqual({ data: {} })
+    await expect(wrapped.getAnnotations('tab-1')).resolves.toEqual({ data: {} })
   })
 })
 

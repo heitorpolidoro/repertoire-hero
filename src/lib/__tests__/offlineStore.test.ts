@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import { createOfflineStore, type SaveOfflinePlaylistInput } from '@/lib/offlineStore'
 import { OFFLINE_SCHEMA_VERSION } from '@/lib/offlineSnapshot'
 import { createFakePorts, tabResponse, unusableResponse } from './offlineStoreFakes'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 function repertoire(id: string): Repertoire {
   return {
@@ -31,10 +31,11 @@ function repertoire(id: string): Repertoire {
   }
 }
 
-function tabRow(id: string, repertoireId: string): RepertoireTab {
+function tabRow(id: string, repertoireId: string): SongFile {
   return {
     id,
-    repertoire_id: repertoireId,
+    user_id: 'user-1',
+    song_id: `song-${repertoireId}`,
     title: `Chart ${id}`,
     file_url: `https://store.public.blob.vercel-storage.com/tabs/${id}.pdf`,
     created_at: '2026-05-01T00:00:00Z',

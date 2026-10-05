@@ -16,7 +16,7 @@ import { OfflineDownloadButton } from '../OfflineDownloadButton'
 import { createOfflineStore } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
-import type { Repertoire, RepertoireTab } from '@/types/database'
+import type { Repertoire, SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -39,12 +39,13 @@ function repertoire(id: string): Repertoire {
   }
 }
 
-function tabRow(repertoireId: string): RepertoireTab {
+function tabRow(songId: string): SongFile {
   return {
-    id: `tab-${repertoireId}`,
-    repertoire_id: repertoireId,
+    id: `tab-${songId}`,
+    user_id: 'user-1',
+    song_id: songId,
     title: 'Chart',
-    file_url: `https://store.public.blob.vercel-storage.com/tabs/${repertoireId}.pdf`,
+    file_url: `https://store.public.blob.vercel-storage.com/tabs/${songId}.pdf`,
     created_at: '2026-05-01T00:00:00Z',
   }
 }
@@ -54,9 +55,11 @@ function makeActions(hold?: Promise<void>): OfflineDownloadActions {
   return {
     getPlaylistDetailsWithEntries: vi.fn(() => Promise.resolve({ name: 'Gig', entries: ENTRIES })),
     getSongEntry: vi.fn((repertoireId: string) => Promise.resolve(repertoire(repertoireId))),
-    getTabs: vi.fn(async (repertoireId: string) => {
-      if (hold && repertoireId === 'rep-2') await hold
-      return [tabRow(repertoireId)]
+    // Keyed by song id since RH-123: `repertoire('rep-2').song_id` is
+    // `song-rep-2`, which is what `gatherSongs` now passes.
+    getTabs: vi.fn(async (songId: string) => {
+      if (hold && songId === 'song-rep-2') await hold
+      return [tabRow(songId)]
     }),
     // RH-83: the download captures the member's own row in band context.
     getPersonalEntryForSong: vi.fn(() => Promise.resolve(null)),

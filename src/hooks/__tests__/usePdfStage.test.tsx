@@ -48,7 +48,6 @@ function setup(overrides: Partial<UsePdfStageOptions> = {}) {
   const actions = (overrides.actions as ActionSpies | undefined) ?? makeActions()
   const initialProps: UsePdfStageOptions = {
     tabId: 't-1',
-    repertoireId: 'rep-1',
     ...overrides,
     actions,
   }
@@ -86,7 +85,7 @@ describe('usePdfStage', () => {
     expect(result.current.isOpen).toBe(true)
 
     await waitFor(() => expect(result.current.annotations).toEqual(ANNOTATIONS))
-    expect(actions.getAnnotations).toHaveBeenCalledWith('t-1', 'rep-1')
+    expect(actions.getAnnotations).toHaveBeenCalledWith('t-1')
     expect(actions.getAnnotations).toHaveBeenCalledTimes(1)
     expect(result.current.annotationsError).toBeNull()
   })
@@ -124,20 +123,20 @@ describe('usePdfStage', () => {
 
     expect(result.current.annotations).toBeNull()
     expect(result.current.annotationsError).toBeNull()
-    expect(actions.getAnnotations).toHaveBeenLastCalledWith('t-2', 'rep-1')
+    expect(actions.getAnnotations).toHaveBeenLastCalledWith('t-2')
   })
 
-  it('passes a save through to the action with the active tab and repertoire ids', async () => {
+  it('passes a save through to the action with the active file id', async () => {
     const { result, actions } = setup()
 
     const res = await result.current.saveAnnotations(2, [STROKE])
 
-    expect(actions.saveAnnotations).toHaveBeenCalledWith('t-1', 'rep-1', 2, [STROKE])
+    expect(actions.saveAnnotations).toHaveBeenCalledWith('t-1', 2, [STROKE])
     expect(res).toEqual({ success: true })
   })
 
   it('refuses to save when no tab is active and never calls the action', async () => {
-    const { result, actions } = setup({ tabId: null, repertoireId: null })
+    const { result, actions } = setup({ tabId: null })
 
     expect(await result.current.saveAnnotations(1, [STROKE])).toEqual({ error: 'Tab not found' })
     expect(actions.saveAnnotations).not.toHaveBeenCalled()

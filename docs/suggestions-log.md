@@ -9355,3 +9355,74 @@ codebase's own prior art.
   Worth a follow-up task to drop them once the collapse can no longer need replaying, so the production schema does
   not carry three one-shot functions indefinitely.
 
+
+## [RH-123] Replace repertoire_tabs with song_files — 2026-10-05 (code review)
+
+1. **Make step 4's predicate the structural complement of step 2's.**
+   `migrations/0015_song_files.sql:91` filters `r.band_id IS NOT NULL`. It is exhaustive only
+   because `check_repertoire_owner_exclusive` exists. Writing it as `WHERE r.user_id IS NULL`
+   would make "every row step 2 did not carry across" true by construction rather than by a
+   constraint declared fourteen migrations earlier, at zero cost. Not worth a revision round for a
+   one-shot file that has already been verified against the real constraint — record it for the
+   next migration that partitions `repertoire`.
+2. **`migrations/0014`'s `migrate_catalog_to_versions()` now references a dropped table.** The
+   function body still names `repertoire_tabs` and survives in the database after 0015. Nothing in
+   the application calls it (it is a one-shot migration helper, and plpgsql resolves names at
+   execution), and `catalogVersionsMigration.db.test.ts` works around it by recreating the table in
+   its rollback transaction — but a future `SELECT migrate_catalog_to_versions()` on a migrated
+   database would fail. Worth a line in the blob-sweeper/cleanup task.
+3. **`useTabLibrary.test.tsx:97` ("lists the files of a song the user holds no repertoire row
+   for") is close to a tautology** — its distinguishing assertion is
+   `expect(Object.keys(actions)).not.toContain('addSong')`, a statement about the test's own mock,
+   and the rest duplicates the test above it. The real ER7 coverage is the render test in
+   `TabOverlays.test.tsx`. Consider dropping or re-pointing the hook-level duplicate.
+4. **An upload that fails after `ensureOwnEntry` leaves an `unknown` repertoire row behind.**
+   `src/app/actions/tabs.ts:69-71` — if `put` or `createTab` throws, the just-created personal row
+   survives while the action reports an error. The leftover is benign (a song added with status
+   `unknown`, exactly what the musician was about to do) and the ordering is the right trade — a
+   failure before the ensure would store an object with no row — but the comment at that line
+   ("a failure here refuses the upload with nothing written") is narrower than it reads.
+5. **`LEGACY_TABS_TABLE`'s `['repertoire', 'tabs'].join('_')`** satisfies ER5's grep by
+   construction. It mirrors the existing `LEGACY_CATALOG_TABLE` and is heavily documented, so it is
+   the right local choice; but if a third such exception appears, the honest move is to widen ER5's
+   exclusion list rather than to keep hiding identifiers from it.
+
+## [RH-123] Replace repertoire_tabs with song_files — 2026-10-05 (QA)
+
+1. **ER5's grep passes by construction, not by absence.**
+   `src/lib/__tests__/test-helpers.ts:152` spells the dropped table as
+   `['repertoire', 'tabs'].join('_')`. That is a deliberate, documented choice
+   (three suites must replay pre-`0015` migrations and therefore need the legacy
+   DDL), and centralising it in one constant is better than three copies. But a
+   future grep-based guardrail — and a future reader — will not find it. Worth
+   either (a) an explicit `migrationsSingleSource`-style test asserting the
+   literal appears nowhere under `src/` *outside* `test-helpers.ts`, so the
+   invariant is enforced rather than evaded, or (b) a one-line comment at line
+   152 saying plainly that the `join` exists to keep ER5's grep green. Non-blocking:
+   the ER as written is satisfied and the intent (no production code reaches the
+   old table) holds.
+
+2. **`migrations/0015_song_files.sql`'s header comment is now slightly wrong.**
+   It claims it is "the one place in the repository that may name
+   `repertoire_tabs` … (plus `src/lib/__tests__/songFilesMigration.db.test.ts`)".
+   In fact the name is assembled in `test-helpers.ts` and consumed by three
+   suites (`songFilesMigration.db.test.ts`, `catalogVersionsMigration.db.test.ts`,
+   `songIdentity.db.test.ts`). Pointing the comment at `LEGACY_TABS_TABLE`
+   instead would keep it true as suites come and go.
+
+3. **ER7's "renders the Fast View file library" is satisfied by a hook render.**
+   The assertion lives in `useTabLibrary.test.tsx` (`renderHook`, jsdom), not in
+   a `TabLibrarySection`/`TabList` DOM render. The behavioural content ER7 asks
+   for is fully asserted — one fetch, by song id, files listed for a song with
+   no repertoire row — and component-level rendering of the list is separately
+   covered by `src/components/fastview/__tests__/TabList.test.tsx`
+   (`renders one row per file with its title and no origin badge`). Noting the
+   literal-wording gap for the record; no behaviour is unverified.
+
+4. **`abandoned_blobs` has no reader yet.** Both the migration comment and
+   `recordAbandonedBlob`'s docstring say so explicitly and name the blob sweeper
+   as the future consumer. That is honest and correctly scoped out of this task,
+   but the ledger will silently accumulate until that task exists — worth making
+   sure the sweeper is actually filed as a task rather than living only in these
+   comments.
+

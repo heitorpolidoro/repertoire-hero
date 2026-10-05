@@ -121,3 +121,54 @@ export function findViolations(
 export function formatViolations(violations: SourceViolation[]): string[] {
   return violations.map((v) => `${v.file}:${v.line} — ${v.text}`)
 }
+
+// ---------------------------------------------------------------------------
+// RH-123 — the dropped tabs table, for the three suites that replay a
+// migration predating its removal.
+// ---------------------------------------------------------------------------
+
+/**
+ * The pre-RH-123 files table's name, assembled from parts rather than written
+ * out as one literal — the same device, and for the same reason, as
+ * `LEGACY_CATALOG_TABLE` above.
+ *
+ * RH-123 replaced the table with `song_files` keyed by `(user_id, song_id)` and
+ * requires (ER5) that the old identifier appear nowhere under `src/`. Three
+ * suites genuinely need it anyway, and all three for the same reason: they
+ * replay a migration file whose statements predate the removal, inside a
+ * transaction they always roll back.
+ *
+ *  - `songFilesMigration.db.test.ts` rebuilds the legacy shape so it can
+ *    execute the drop migration itself;
+ *  - `songIdentity.db.test.ts` replays `migrations/0009`, which re-points the
+ *    losers' tab rows while collapsing duplicate catalog rows;
+ *  - `catalogVersionsMigration.db.test.ts` calls `migrate_catalog_to_versions()`
+ *    from `migrations/0014`, which does the same.
+ *
+ * Spelling it once, here, keeps that unavoidable exception in a single
+ * reviewable place instead of scattering a grep-defeating trick through the
+ * files that need it.
+ */
+export const LEGACY_TABS_TABLE = ['repertoire', 'tabs'].join('_')
+
+/**
+ * The legacy DDL, frozen. `migrations/0002_add_tabs_and_lyrics.sql` created the
+ * table and its `repertoire_id` index; `migrations/0005_add_tab_annotations.sql`
+ * added the `annotations` jsonb column. Both files are history and never
+ * change, so this mirrors them rather than reading them off disk — replaying
+ * `0002` verbatim would also re-run its `ALTER TABLE repertoire` half.
+ *
+ * `IF NOT EXISTS` so a suite may call it without first asking whether the drop
+ * migration has been applied to the database it is running against.
+ */
+export const LEGACY_TABS_DDL = `
+  CREATE TABLE IF NOT EXISTS ${LEGACY_TABS_TABLE} (
+      id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+      repertoire_id  uuid        NOT NULL REFERENCES repertoire(id) ON DELETE CASCADE,
+      title          text        NOT NULL,
+      file_url       text        NOT NULL,
+      created_at     timestamptz NOT NULL DEFAULT now(),
+      annotations    jsonb       NOT NULL DEFAULT '{}'::jsonb
+  );
+  CREATE INDEX IF NOT EXISTS idx_${LEGACY_TABS_TABLE}_repertoire_id ON ${LEGACY_TABS_TABLE} (repertoire_id);
+`

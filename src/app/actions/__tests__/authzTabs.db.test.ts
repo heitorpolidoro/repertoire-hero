@@ -1,17 +1,26 @@
 /**
- * RH-45 — the tab actions are band-scoped, against the real database.
+ * RH-123 ER13 — the file actions are scoped to their row's own `user_id`,
+ * against the real database.
  *
  * Same shape as the three RH-34 suites: only the session, Vercel Blob and
- * `revalidatePath` are mocked; every statement really runs. The SQL these
- * actions issue moved into `src/lib/tabs.ts` in this task, so this suite is
- * what proves the move preserved behaviour — `assertRepertoireAccess` still
- * gates all five operations, and a refusal writes nothing.
+ * `revalidatePath` are mocked; every statement really runs.
  *
- * Fixture: band X has A as its only member and one band repertoire entry
- * carrying one seeded tab; user C is not a member.
+ * The fixture used to be a band one, because a tab was reached through a
+ * repertoire entry and band membership was what granted access to it. That is
+ * gone: a file belongs to a musician and a song, `song_files` has no
+ * `band_id`, and the only predicate is the row's own owner. So the fixture is
+ * **two users**, each holding their own file for the same song, plus a band
+ * both of them belong to — present precisely to show that membership grants
+ * nothing. A refusal is now indistinguishable from "no such row", which is the
+ * right answer to give, so the expected message is `Tab not found` rather than
+ * `Access denied`.
+ *
+ * It also carries the two assertions that need a real database to mean
+ * anything: ER12 (a band-context upload creates the uploader's own repertoire
+ * row, status `unknown`) and ER11's ledger write.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 
 vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
@@ -19,7 +28,7 @@ vi.mock('@vercel/blob', () => ({ put: vi.fn(), del: vi.fn() }))
 
 import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
 import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
-import { createBand } from '@/lib/bands'
+import { createBand, joinBandByInviteClient } from '@/lib/bands'
 import { query } from '@/lib/db'
 import { put, del } from '@vercel/blob'
 import {
@@ -31,21 +40,22 @@ import {
 } from '../tabs'
 import type { Stroke } from '@/types/database'
 
-const SEEDED_URL = 'https://blob.example/rh45/seeded.pdf'
-const UPLOADED_URL = 'https://blob.example/rh45/uploaded.pdf'
-const PDF_BYTES = Buffer.from('%PDF-1.4 rh45', 'latin1')
+const A_URL = 'https://blob.example/rh123/user-a.pdf'
+const B_URL = 'https://blob.example/rh123/user-b.pdf'
+const UPLOADED_URL = 'https://blob.example/rh123/uploaded.pdf'
+const PDF_BYTES = Buffer.from('%PDF-1.4 rh123', 'latin1')
 
 const STROKES: Stroke[] = [
   { id: 'stroke-1', color: '#ef4444', width: 0.01, points: [[0.1, 0.1], [0.5, 0.5]] },
 ]
 
 /** A stand-in `FormData`/`File`: the action reads only these members. */
-const uploadForm = (repertoireId: string) =>
+const uploadForm = (songId: string) =>
   ({
     get: (key: string) =>
       ({
-        repertoireId,
-        title: 'RH-45 Chart',
+        songId,
+        title: 'RH-123 Chart',
         file: {
           name: 'chart.pdf',
           type: 'application/pdf',
@@ -55,156 +65,206 @@ const uploadForm = (repertoireId: string) =>
       })[key] ?? null,
   }) as unknown as FormData
 
-/** The message an action reports, whether it throws or returns an envelope. */
-async function refusalMessage(run: () => Promise<unknown>): Promise<string> {
-  try {
-    const result = (await run()) as { error?: string } | null
-    return result?.error ?? 'no refusal: the action resolved'
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err)
-  }
-}
-
-describe.skipIf(!RUN_DB_TESTS)('tab actions are band-scoped (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('the file actions are scoped to user_id (real database)', () => {
   const suffix = Date.now()
 
   let userAId: string
-  let userCId: string
+  let userBId: string
   let bandId: string
-  let bandEntryId: string
   let songId: string
-  let seededTabId: string
+  /** A second catalog song, used only by the ER12 case below: it needs a song
+   *  the uploader demonstrably holds no repertoire row for. */
+  let bandOnlySongId: string
+  let fileAId: string
+  let fileBId: string
 
-  const tabCount = () =>
-    countRows('SELECT count(*)::int AS count FROM repertoire_tabs WHERE repertoire_id = $1', [
-      bandEntryId,
+  const fileCount = (userId: string) =>
+    countRows('SELECT count(*)::int AS count FROM song_files WHERE user_id = $1 AND song_id = $2', [
+      userId,
+      songId,
     ])
 
-  const storedAnnotations = async (tabId: string) => {
-    const res = await query('SELECT annotations FROM repertoire_tabs WHERE id = $1', [tabId])
+  const storedAnnotations = async (fileId: string) => {
+    const res = await query('SELECT annotations FROM song_files WHERE id = $1', [fileId])
     return res.rows[0]?.annotations ?? null
   }
 
+  const seedFile = async (userId: string, title: string, url: string) => {
+    const res = await query(
+      'INSERT INTO song_files (user_id, song_id, title, file_url) VALUES ($1, $2, $3, $4) RETURNING id',
+      [userId, songId, title, url],
+    )
+    return res.rows[0].id as string
+  }
+
   beforeAll(async () => {
-    userAId = await createTestUser({ email: `rh45-tabs-a-${suffix}@example.com` })
-    userCId = await createTestUser({ email: `rh45-tabs-c-${suffix}@example.com` })
+    userAId = await createTestUser({ email: `rh123-a-${suffix}@example.com` })
+    userBId = await createTestUser({ email: `rh123-b-${suffix}@example.com` })
 
-    bandId = await createBand(userAId, `RH-45 Tabs Band ${suffix}`, null, null)
-
-    songId = await createTestSong(`RH-45 Tabs Song ${suffix}`)
-    const entry = await query(
-      "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') RETURNING id",
-      [bandId, songId],
+    // Both users are in one band. Nothing below depends on that, and that is
+    // the point of including it.
+    bandId = await createBand(userAId, `RH-123 Band ${suffix}`, null, null)
+    const invite = await query<{ invite_code: string }>(
+      'SELECT invite_code FROM bands WHERE id = $1',
+      [bandId],
     )
-    bandEntryId = entry.rows[0].id as string
+    await joinBandByInviteClient(userBId, invite.rows[0].invite_code)
 
-    const seeded = await query(
-      'INSERT INTO repertoire_tabs (repertoire_id, title, file_url) VALUES ($1, $2, $3) RETURNING id',
-      [bandEntryId, `RH-45 Seeded Tab ${suffix}`, SEEDED_URL],
-    )
-    seededTabId = seeded.rows[0].id as string
+    songId = await createTestSong(`RH-123 Song ${suffix}`)
+    bandOnlySongId = await createTestSong(`RH-123 Band Song ${suffix}`)
+    // On the *band's* row and nobody's own — the band-context starting point.
+    await query("INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'polishing')", [
+      bandId,
+      bandOnlySongId,
+    ])
+    await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'learning')", [
+      userAId,
+      songId,
+    ])
+
+    fileAId = await seedFile(userAId, `RH-123 A ${suffix}`, A_URL)
+    fileBId = await seedFile(userBId, `RH-123 B ${suffix}`, B_URL)
   })
 
   afterAll(async () => {
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
-    for (const user of [userAId, userCId]) {
+    for (const user of [userAId, userBId]) {
       if (user) await deleteTestUser(user)
     }
-    if (songId) await query('DELETE FROM songs WHERE id = $1', [songId])
+    for (const song of [songId, bandOnlySongId]) {
+      if (song) await query('DELETE FROM songs WHERE id = $1', [song])
+    }
+    await query('DELETE FROM abandoned_blobs WHERE file_url = ANY($1)', [[A_URL, B_URL, UPLOADED_URL]])
   })
 
-  describe('a non-member is refused on every tab action', () => {
+  beforeEach(() => {
+    vi.mocked(put).mockReset()
+    vi.mocked(put).mockResolvedValue({ url: UPLOADED_URL } as never)
+    vi.mocked(del).mockReset()
+  })
+
+  describe("user B cannot touch user A's file, band membership notwithstanding", () => {
     it.each([
-      ['uploadTabAction', () => uploadTabAction(uploadForm(bandEntryId))],
-      ['getTabsAction', () => getTabsAction(bandEntryId)],
-      ['getTabAnnotationsAction', () => getTabAnnotationsAction(seededTabId, bandEntryId)],
-      [
-        'saveTabAnnotationsAction',
-        () => saveTabAnnotationsAction(seededTabId, bandEntryId, 1, STROKES),
-      ],
-      ['deleteTabAction', () => deleteTabAction(seededTabId, bandEntryId)],
+      ['getTabAnnotationsAction', () => getTabAnnotationsAction(fileAId)],
+      ['saveTabAnnotationsAction', () => saveTabAnnotationsAction(fileAId, 1, STROKES)],
+      ['deleteTabAction', () => deleteTabAction(fileAId)],
     ])('%s is refused and writes nothing', async (_label, run) => {
-      const countBefore = await tabCount()
-      const annotationsBefore = await storedAnnotations(seededTabId)
-      vi.mocked(put).mockClear()
-      vi.mocked(del).mockClear()
-      asUser(userCId)
+      const countBefore = await fileCount(userAId)
+      const annotationsBefore = await storedAnnotations(fileAId)
+      asUser(userBId)
 
-      expect(await refusalMessage(run)).toContain('Access denied')
+      await expect(run()).resolves.toEqual({ error: 'Tab not found' })
 
-      expect(await tabCount()).toBe(countBefore)
-      expect(await storedAnnotations(seededTabId)).toEqual(annotationsBefore)
-      // Nothing reached Vercel Blob either: the refusal precedes the side effect.
-      expect(put).not.toHaveBeenCalled()
+      expect(await fileCount(userAId)).toBe(countBefore)
+      expect(await storedAnnotations(fileAId)).toEqual(annotationsBefore)
+      // Nothing reached Vercel Blob either: the row read refused first.
       expect(del).not.toHaveBeenCalled()
     })
-  })
 
-  describe('a band member gets the same behaviour as before the move', () => {
-    let uploadedTabId: string
+    it("getTabsAction never lists another user's file for the same song", async () => {
+      asUser(userBId)
 
-    it('uploads a tab and gets the inserted row back', async () => {
-      asUser(userAId)
-      vi.mocked(put).mockResolvedValue({ url: UPLOADED_URL } as never)
+      const files = await getTabsAction(songId)
 
-      const result = await uploadTabAction(uploadForm(bandEntryId))
+      expect(files.map((file) => file.id)).toEqual([fileBId])
+      expect(files.every((file) => file.user_id === userBId)).toBe(true)
+    })
+
+    it('uploadTabAction writes a row owned by the caller and nobody else', async () => {
+      asUser(userBId)
+
+      const result = await uploadTabAction(uploadForm(songId))
 
       expect(result.error).toBeUndefined()
-      expect(result.data).toMatchObject({
-        repertoire_id: bandEntryId,
-        title: 'RH-45 Chart',
-        file_url: UPLOADED_URL,
-      })
-      expect(result.data!.created_at).toEqual(expect.any(String))
-
-      uploadedTabId = result.data!.id
-      expect(await tabCount()).toBe(2)
+      expect(result.data).toMatchObject({ user_id: userBId, song_id: songId, file_url: UPLOADED_URL })
+      await query('DELETE FROM song_files WHERE id = $1', [result.data!.id])
     })
+  })
 
-    it('lists both tabs of the entry', async () => {
+  describe('a user gets the same behaviour as before the re-key, on their own file', () => {
+    it('reads the empty annotations a fresh file starts with', async () => {
       asUser(userAId)
 
-      const tabs = await getTabsAction(bandEntryId)
-
-      expect(tabs.map((t) => t.id).sort()).toEqual([seededTabId, uploadedTabId].sort())
-    })
-
-    it('reads the empty annotations a fresh tab starts with', async () => {
-      asUser(userAId)
-
-      await expect(getTabAnnotationsAction(uploadedTabId, bandEntryId)).resolves.toEqual({ data: {} })
+      await expect(getTabAnnotationsAction(fileAId)).resolves.toEqual({ data: {} })
     })
 
     it('writes one page of annotations and reads it back', async () => {
       asUser(userAId)
 
-      await expect(
-        saveTabAnnotationsAction(uploadedTabId, bandEntryId, 2, STROKES),
-      ).resolves.toEqual({ success: true })
+      await expect(saveTabAnnotationsAction(fileAId, 2, STROKES)).resolves.toEqual({ success: true })
 
-      await expect(getTabAnnotationsAction(uploadedTabId, bandEntryId)).resolves.toEqual({
-        data: { '2': STROKES },
-      })
-      // The other tab of the same entry is untouched.
-      expect(await storedAnnotations(seededTabId)).toEqual({})
+      await expect(getTabAnnotationsAction(fileAId)).resolves.toEqual({ data: { '2': STROKES } })
+      // The other user's file for the same song is untouched.
+      expect(await storedAnnotations(fileBId)).toEqual({})
     })
 
-    it("reports 'Tab not found' for a tab id that belongs to no entry of theirs", async () => {
+    it("reports 'Tab not found' for a file id that exists nowhere", async () => {
       asUser(userAId)
 
       await expect(
-        getTabAnnotationsAction('00000000-0000-0000-0000-000000000000', bandEntryId),
+        getTabAnnotationsAction('00000000-0000-0000-0000-000000000000'),
       ).resolves.toEqual({ error: 'Tab not found' })
     })
+  })
 
-    it('deletes the uploaded tab, file first', async () => {
+  // ER12. The upload happens while the uploader holds no row for the song: the
+  // band may, but a band row is not theirs and files no longer hang off one.
+  it("an upload creates the uploader's own repertoire row with status unknown", async () => {
+    asUser(userBId)
+    const before = await countRows(
+      'SELECT count(*)::int AS count FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      [userBId, bandOnlySongId],
+    )
+    expect(before).toBe(0)
+
+    const result = await uploadTabAction(uploadForm(bandOnlySongId))
+
+    expect(result.error).toBeUndefined()
+    expect(result.entry).toMatchObject({
+      user_id: userBId,
+      song_id: bandOnlySongId,
+      status: 'unknown',
+    })
+    const row = await query<{ status: string }>(
+      'SELECT status::text AS status FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      [userBId, bandOnlySongId],
+    )
+    expect(row.rows.map((r) => r.status)).toEqual(['unknown'])
+
+    await query('DELETE FROM song_files WHERE id = $1', [result.data!.id])
+  })
+
+  // ER11. The row goes first, so a failed object delete leaves storage to be
+  // swept rather than a row pointing at nothing.
+  describe('the delete order and the recovery ledger', () => {
+    const ledgerRows = (url: string) =>
+      countRows('SELECT count(*)::int AS count FROM abandoned_blobs WHERE file_url = $1', [url])
+
+    it('deletes the row first and reports success when the object delete rejects', async () => {
       asUser(userAId)
-      vi.mocked(del).mockClear()
+      const doomedId = await seedFile(userAId, `RH-123 doomed ${suffix}`, UPLOADED_URL)
+      vi.mocked(del).mockRejectedValue(new Error('blob store unreachable'))
 
-      await expect(deleteTabAction(uploadedTabId, bandEntryId)).resolves.toEqual({ success: true })
+      await expect(deleteTabAction(doomedId)).resolves.toEqual({ success: true })
+
+      const left = await countRows('SELECT count(*)::int AS count FROM song_files WHERE id = $1', [
+        doomedId,
+      ])
+      expect(left).toBe(0)
+      expect(await ledgerRows(UPLOADED_URL)).toBe(1)
+
+      await query('DELETE FROM abandoned_blobs WHERE file_url = $1', [UPLOADED_URL])
+    })
+
+    it('writes no ledger row when the object delete resolves', async () => {
+      asUser(userAId)
+      const doomedId = await seedFile(userAId, `RH-123 clean ${suffix}`, UPLOADED_URL)
+      vi.mocked(del).mockResolvedValue(undefined as never)
+
+      await expect(deleteTabAction(doomedId)).resolves.toEqual({ success: true })
 
       expect(del).toHaveBeenCalledWith(UPLOADED_URL)
-      expect(await tabCount()).toBe(1)
+      expect(await ledgerRows(UPLOADED_URL)).toBe(0)
     })
   })
 })

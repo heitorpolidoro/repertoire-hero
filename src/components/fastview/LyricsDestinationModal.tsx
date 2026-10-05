@@ -21,8 +21,8 @@ export interface LyricsDestinationModalProps {
  * consistency over fewer taps: the question "whose text am I about to change?"
  * has the same answer-shape every time (RH-83 ER4).
  *
- * Modelled on `TabDestinationModal` and rendered at the page's root fragment
- * for the same reason: `<main>` carries a `translate-*` class, which makes it
+ * Rendered at the page's root fragment rather than inside `<main>`:
+ * `<main>` carries a `translate-*` class, which makes it
  * the containing block of any fixed-position descendant, so `fixed inset-0`
  * would resolve against the narrow reading column instead of the viewport.
  */
