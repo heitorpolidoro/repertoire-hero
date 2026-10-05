@@ -20,12 +20,10 @@ export interface LyricsEditorActions {
   fetchLyrics: (artist: string, title: string) => Promise<string | null>
   /**
    * Creates the member's own entry the first time they save personal lyrics.
-   * `seedStatusFromBandId` is the band whose current status for the song the
-   * new row copies, so writing a lyric note cannot drag the band's mastery to
-   * Unknown (RH-83 ER16). Never "the owner of the new row" — that is always
-   * the session's own user.
+   * The new row is always the session user's own and is born `unknown`, so the
+   * call needs nothing but the song (RH-96).
    */
-  addSong: (songId: string, seedStatusFromBandId: string | null) => Promise<Repertoire>
+  addSong: (songId: string) => Promise<Repertoire>
 }
 
 export interface UseLyricsEditorOptions {
@@ -119,7 +117,7 @@ export function useLyricsEditor({
       const text = target.toPersonalEntry && !draft.trim() ? '' : draft
       let repertoireId = target.repertoireId
       if (repertoireId === null) {
-        const created = await actions.addSong(entry.song_id, entry.band_id)
+        const created = await actions.addSong(entry.song_id)
         onPersonalEntryCreated(created)
         repertoireId = created.id
       }

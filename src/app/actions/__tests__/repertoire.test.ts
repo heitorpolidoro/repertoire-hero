@@ -38,6 +38,7 @@ vi.mock('@/lib/songs', () => ({
 
 vi.mock('@/lib/bands', () => ({
   assertBandMember: vi.fn(),
+  assertBandAdmin: vi.fn(),
 }))
 
 import {
@@ -74,7 +75,7 @@ import {
   applySongLinkUpdate,
   getPersonalEntryForSong,
 } from '@/lib/songs'
-import { assertBandMember } from '@/lib/bands'
+import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import type { Repertoire, SongLink } from '@/types/database'
 
 const USER_ID = 'user-1'
@@ -86,13 +87,20 @@ const ENTRY = { id: REPERTOIRE_ID, song_id: SONG_ID } as unknown as Repertoire
 const UPDATE_DATA = { title: 'New Title' }
 const CREATE_DATA = { title: 'Fresh', artist: 'Someone' }
 
-/** Every action that funnels through `resolveOwner` before delegating to `@/lib/songs`. */
+/**
+ * Every action that resolves an owner before delegating to `@/lib/songs`.
+ *
+ * `adminGated` names the band guard the action authorizes through: the two
+ * actions that write `repertoire.status` go through `assertBandAdmin` (RH-96),
+ * every other one through `assertBandMember`.
+ */
 const DELEGATIONS: Array<{
   label: string
   lib: () => ReturnType<typeof vi.fn>
   run: (bandId?: string | null) => Promise<unknown>
   tail: unknown[]
   revalidates: boolean
+  adminGated?: boolean
 }> = [
   {
     label: 'getRepertoireAction',
@@ -105,7 +113,7 @@ const DELEGATIONS: Array<{
     label: 'addSongAction',
     lib: () => vi.mocked(addSongToRepertoire),
     run: (bandId) => addSongAction(SONG_ID, bandId),
-    tail: [SONG_ID, null],
+    tail: [SONG_ID],
     revalidates: true,
   },
   {
@@ -114,6 +122,7 @@ const DELEGATIONS: Array<{
     run: (bandId) => updateSongStatusAction(REPERTOIRE_ID, 'learning', bandId),
     tail: [REPERTOIRE_ID, 'learning'],
     revalidates: true,
+    adminGated: true,
   },
   {
     label: 'updateSongTagsAction',
@@ -142,6 +151,7 @@ const DELEGATIONS: Array<{
     run: (bandId) => updateSongAction(ENTRY, UPDATE_DATA, bandId),
     tail: [ENTRY, UPDATE_DATA],
     revalidates: true,
+    adminGated: true,
   },
   {
     label: 'createAndAddSongAction',
@@ -159,6 +169,8 @@ beforeEach(() => {
   vi.mocked(getRequiredUserId).mockResolvedValue(USER_ID)
   vi.mocked(assertBandMember).mockReset()
   vi.mocked(assertBandMember).mockResolvedValue('member')
+  vi.mocked(assertBandAdmin).mockReset()
+  vi.mocked(assertBandAdmin).mockResolvedValue(undefined)
   vi.mocked(assertRepertoireAccess).mockReset()
   vi.mocked(assertRepertoireAccess).mockResolvedValue({
     id: REPERTOIRE_ID,
@@ -179,7 +191,7 @@ afterEach(() => {
 describe('owner resolution', () => {
   it.each(DELEGATIONS)(
     '$label forks on bandId: { bandId } when supplied, { userId } when absent or null',
-    async ({ lib, run, tail, revalidates }) => {
+    async ({ lib, run, tail, revalidates, adminGated }) => {
       const delegate = lib()
       delegate.mockResolvedValue('result')
 
@@ -195,14 +207,19 @@ describe('owner resolution', () => {
       // The session is resolved on every call, band-owned or not, and the band
       // context is authorized against the caller exactly once (the band case).
       expect(vi.mocked(getRequiredUserId)).toHaveBeenCalledTimes(3)
-      expect(assertBandMember).toHaveBeenCalledExactlyOnceWith(BAND_ID, USER_ID)
+      const guard = adminGated ? vi.mocked(assertBandAdmin) : vi.mocked(assertBandMember)
+      expect(guard).toHaveBeenCalledExactlyOnceWith(BAND_ID, USER_ID)
       expect(vi.mocked(revalidatePath).mock.calls.length > 0).toBe(revalidates)
       if (revalidates) expect(revalidatePath).toHaveBeenCalledWith('/')
     },
   )
 
-  it.each(DELEGATIONS)('$label refuses a bandId the caller is not a member of', async ({ lib, run }) => {
-    vi.mocked(assertBandMember).mockRejectedValue(new Error('Access denied: not a member of this band'))
+  it.each(DELEGATIONS)('$label refuses a bandId the caller is not a member of', async ({ lib, run, adminGated }) => {
+    const refusal = new Error('Access denied: not a member of this band')
+    vi.mocked(assertBandMember).mockRejectedValue(refusal)
+    // The admin-gated pair never consults `assertBandMember` directly, so the
+    // non-member refusal has to come out of the guard they do use.
+    if (adminGated) vi.mocked(assertBandAdmin).mockRejectedValue(refusal)
 
     await expect(run(BAND_ID)).rejects.toThrow('Access denied')
     expect(lib()).not.toHaveBeenCalled()
@@ -222,26 +239,53 @@ describe('owner resolution', () => {
   })
 })
 
-describe('addSongAction status seeding (RH-83 ER16)', () => {
-  it('passes the band to seed the new row\'s status from, after checking membership', async () => {
-    await addSongAction(SONG_ID, null, BAND_ID)
+/**
+ * RH-96 — a band's status is authored by a band admin. The two actions that
+ * write `repertoire.status` authorize through `assertBandAdmin`, which is the
+ * only admin check either of them makes.
+ */
+describe('the band-admin gate on the two status writers', () => {
+  const STATUS_WRITERS: Array<{
+    label: string
+    lib: () => ReturnType<typeof vi.fn>
+    run: (bandId?: string | null) => Promise<unknown>
+  }> = [
+    {
+      label: 'updateSongStatusAction',
+      lib: () => vi.mocked(updateSongStatus),
+      run: (bandId) => updateSongStatusAction(REPERTOIRE_ID, 'mastered', bandId),
+    },
+    {
+      label: 'updateSongAction',
+      lib: () => vi.mocked(updateSong),
+      run: (bandId) => updateSongAction(ENTRY, UPDATE_DATA, bandId),
+    },
+  ]
 
-    expect(assertBandMember).toHaveBeenCalledWith(BAND_ID, USER_ID)
-    expect(addSongToRepertoire).toHaveBeenCalledExactlyOnceWith({ userId: USER_ID }, SONG_ID, BAND_ID)
-  })
+  it.each(STATUS_WRITERS)('$label refuses a non-admin member and writes nothing', async ({ lib, run }) => {
+    vi.mocked(assertBandAdmin).mockRejectedValueOnce(new Error('Access denied: band admin required'))
 
-  it('seeds nothing when no band is named — the dashboard and the song picker path', async () => {
-    await addSongAction(SONG_ID)
+    await expect(run(BAND_ID)).rejects.toThrow('Access denied: band admin required')
 
-    expect(addSongToRepertoire).toHaveBeenCalledExactlyOnceWith({ userId: USER_ID }, SONG_ID, null)
-  })
-
-  it('refuses a seed band the caller is not a member of, without inserting', async () => {
-    vi.mocked(assertBandMember).mockRejectedValueOnce(new Error('Access denied: not a member of this band'))
-
-    await expect(addSongAction(SONG_ID, null, BAND_ID)).rejects.toThrow('Access denied')
-    expect(addSongToRepertoire).not.toHaveBeenCalled()
+    expect(assertBandAdmin).toHaveBeenCalledExactlyOnceWith(BAND_ID, USER_ID)
+    expect(lib()).not.toHaveBeenCalled()
     expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it.each(STATUS_WRITERS)('$label lets an admin through', async ({ lib, run }) => {
+    await run(BAND_ID)
+
+    expect(assertBandAdmin).toHaveBeenCalledExactlyOnceWith(BAND_ID, USER_ID)
+    expect(lib()).toHaveBeenCalledOnce()
+    expect(lib().mock.calls[0][0]).toEqual({ bandId: BAND_ID })
+  })
+
+  it.each(STATUS_WRITERS)('$label asks for no band role at all in personal context', async ({ lib, run }) => {
+    await run(null)
+
+    expect(assertBandAdmin).not.toHaveBeenCalled()
+    expect(assertBandMember).not.toHaveBeenCalled()
+    expect(lib().mock.calls[0][0]).toEqual({ userId: USER_ID })
   })
 })
 

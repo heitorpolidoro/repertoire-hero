@@ -166,42 +166,6 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(entry.status).toBe('unknown')
   })
 
-  // RH-83 ER16 — the personal row a lyrics note (or a tab upload) creates must
-  // not become the new floor of the band's MIN(status) recompute.
-  it('addSongToRepertoire seeds the new personal row from the band row status', async () => {
-    const seeded = await createAndAddSong(
-      { userId },
-      { title: `Seed Status_${suffix}`, artist: 'Seed Artist' },
-    )
-    createdGlobalSongIds.add(seeded.song_id)
-    const bandEntry = await addSongToRepertoire({ bandId }, seeded.song_id)
-    await updateSongStatus({ bandId }, bandEntry.id, 'polishing')
-
-    // A second user's first row for the same song, seeded from that band.
-    const otherUserId = await createTestUser({ email: `test-seed-${suffix}@example.com` })
-    try {
-      // One personal row per (user, song), so each case is taken and dropped.
-      const takeStatus = async (seedFrom: string | null) => {
-        const row = await addSongToRepertoire({ userId: otherUserId }, seeded.song_id, seedFrom)
-        await query('DELETE FROM repertoire WHERE id = $1', [row.id])
-        return row.status
-      }
-
-      expect(await takeStatus(bandId)).toBe('polishing')
-      // ...and a null seed is byte-for-byte the old behaviour.
-      expect(await takeStatus(null)).toBe('unknown')
-      // A band with no row for the song seeds nothing either.
-      const emptyBandId = await createBand(otherUserId, `Seed Empty Band ${suffix}`, null, null)
-      expect(await takeStatus(emptyBandId)).toBe('unknown')
-
-      // A band owner ignores the parameter: a band row is never seeded from one.
-      const bandRow = await addSongToRepertoire({ bandId: emptyBandId }, seeded.song_id, bandId)
-      expect(bandRow.status).toBe('unknown')
-    } finally {
-      await deleteTestUser(otherUserId)
-    }
-  })
-
   it('updateSongStatus updates the song status', async () => {
     const songData = {
       title: `Song E_${suffix}`,

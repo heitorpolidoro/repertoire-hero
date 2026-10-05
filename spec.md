@@ -36,7 +36,7 @@ Musicians often lose time organizing songs across different platforms (folders, 
 - **Playlists:** Ability for users to create personal collections of songs.
 - **Band Mode:** 
     - Shared playlists for bands/groups.
-    - **Aggregate Progress:** Band song status derived from all members' individual progress.
+    - **Band Progress:** A band's song status is its own, authored by a band admin — never derived from the members' individual progress.
     - **Band-Specific Tags:** Exclusive tags for songs within a band context.
 
 ## 4. Constraints

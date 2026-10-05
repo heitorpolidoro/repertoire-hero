@@ -7,6 +7,7 @@ import {
   updateSongStatusAction,
   updateSongTagsAction,
 } from "@/app/actions/repertoire";
+import { getBandRoleAction } from "@/app/actions/bands";
 import { submitGlobalSongEditAction } from "@/app/actions/moderation";
 import LandingPage from "@/components/landing/LandingPage";
 import RepertoireDashboard, {
@@ -26,6 +27,7 @@ const REPERTOIRE_DASHBOARD_ACTIONS: RepertoireDashboardActions = {
   updateSongStatus: updateSongStatusAction,
   updateSongTags: updateSongTagsAction,
   submitGlobalSongEdit: submitGlobalSongEditAction,
+  getBandRole: getBandRoleAction,
 };
 
 /**

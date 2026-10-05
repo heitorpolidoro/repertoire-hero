@@ -56,7 +56,7 @@ export async function assertBandMember(
 }
 
 /** Throws unless the caller is an admin of the band. */
-async function assertBandAdmin(bandId: string, userId: string): Promise<void> {
+export async function assertBandAdmin(bandId: string, userId: string): Promise<void> {
   const role = await assertBandMember(bandId, userId)
   if (role !== 'admin') throw new Error('Access denied: band admin required')
 }

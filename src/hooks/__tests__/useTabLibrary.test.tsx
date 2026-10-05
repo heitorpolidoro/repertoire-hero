@@ -250,10 +250,9 @@ describe('useTabLibrary', () => {
       await result.current.chooseDestination('personal')
     })
 
-    // RH-83 ER16: the band id is passed so the new personal row copies the
-    // band's status instead of being inserted as `unknown`, which the band
-    // status recompute would then read as the new MIN.
-    expect(actions.addSong).toHaveBeenCalledWith('song-1', 'band-1')
+    // RH-96: the song is the whole call. The new row is the member's own and is
+    // born `unknown`; nothing recomputes a band's status from it any more.
+    expect(actions.addSong).toHaveBeenCalledExactlyOnceWith('song-1')
     expect(onPersonalEntryCreated).toHaveBeenCalledWith(PERSONAL_ENTRY)
     const formData = actions.uploadTab.mock.calls[0][0] as FormData
     expect(formData.get('repertoireId')).toBe('rep-created')

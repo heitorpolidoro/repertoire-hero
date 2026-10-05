@@ -69,15 +69,20 @@ describe('the unify-song-identity migration file (RH-95 ER1)', () => {
     expect(migrationFileNames()).toHaveLength(1)
   })
 
-  it('carries the next four-digit prefix after every other migration', () => {
+  it('carries a unique four-digit prefix with no gap below it', () => {
     const [name] = migrationFileNames()
     const prefixOf = (file: string) => Number(file.slice(0, 4))
     const others = fs
       .readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql') && f !== name)
       .map(prefixOf)
+    const prefix = prefixOf(name)
 
-    expect(prefixOf(name)).toBe(Math.max(...others) + 1)
+    // It took the next free number when it landed, and nothing may share it.
+    // Asserting it is still the *highest* would break on every later migration
+    // (RH-96's drop took the next one), which says nothing about this file.
+    expect(others).not.toContain(prefix)
+    for (let n = 1; n < prefix; n += 1) expect(others).toContain(n)
   })
 })
 

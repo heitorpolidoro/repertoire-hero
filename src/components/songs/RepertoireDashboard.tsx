@@ -7,22 +7,26 @@ import type { SongStatus, Repertoire, GlobalSong } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { useBandContextStore, type BandContext } from "@/store/bandContextStore";
 import { useHydrated } from "@/hooks/useHydrated";
-import { STATUS_CONFIG, STATUS_ORDER, nextStatus } from "@/lib/statusConfig";
+import { useBandRole, type BandRole } from "@/hooks/useBandRole";
+import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
 import SongResultItem from "@/components/songs/SongResultItem";
+import SongStatusBadge from "@/components/songs/SongStatusBadge";
 
 /**
  * RH-77 — the signed-in half of `/`, moved verbatim out of `src/app/page.tsx`
  * when that page became an async Server Component.
  *
- * The seven Server Actions it used to import from `@/app/actions/*` are
+ * The eight Server Actions it needs from `@/app/actions/*` are
  * injected instead: `src/components` must never point back into the App Router
  * tree (F21). `src/app/page.tsx` owns the bundle.
  */
 export interface RepertoireDashboardActions extends SongFormActions {
   addSong: (songId: string) => Promise<unknown>;
   searchGlobalSongs: (query: string) => Promise<GlobalSong[]>;
+  /** The caller's role in the active band (RH-96); see `useBandRole`. */
+  getBandRole: (bandId: string) => Promise<BandRole>;
 }
 
 interface RepertoireDashboardProps {
@@ -79,6 +83,15 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
     }),
     [actions],
   );
+
+  // RH-96: a band row's status is authored by a band admin, a personal row's by
+  // its owner. `useBandRole` fails closed, so the control appears only once the
+  // server has answered `admin` — as the gate on the write will.
+  const bandRole = useBandRole(
+    bandContext.type === "band" ? bandContext.id : null,
+    actions.getBandRole,
+  );
+  const canEditStatus = bandContext.type !== "band" || bandRole === "admin";
 
   const [modal, setModal] = useState<ModalState>({ open: false });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -384,26 +397,13 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
                     </div>
                   </Link>
 
-                  {/* Status badge — read-only in band mode (computed by trigger), cycles in personal mode */}
-                  {bandContext.type === 'band' ? (
-                    <span
-                      title="Band status is computed from all members"
-                      className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current opacity-75 cursor-default ${cfg.bgColor} ${cfg.textColor}`}
-                    >
-                      {cfg.label}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateStatus(song.id, nextStatus(song.status));
-                      }}
-                      aria-label={`Status: ${cfg.label}. Click to advance.`}
-                      className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
-                    >
-                      {cfg.label}
-                    </button>
-                  )}
+                  <SongStatusBadge
+                    status={song.status}
+                    editable={canEditStatus}
+                    onAdvance={(next) => {
+                      updateStatus(song.id, next);
+                    }}
+                  />
 
                   {/* Edit button */}
                   <button

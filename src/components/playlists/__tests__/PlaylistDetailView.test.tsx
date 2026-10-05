@@ -7,8 +7,8 @@
  * waits for a load, and one proves mechanically that a plain render issues no
  * request at all — the mount-effect read the page used to run is gone, not
  * relocated into the island. The last one renders the display half of the
- * owner-context decision: a band playlist shows the read-only aggregate badge,
- * a personal one shows the cycling button.
+ * owner-context decision: a band playlist shows the read-only badge, a
+ * personal one shows the cycling button.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
@@ -214,7 +214,7 @@ describe('PlaylistDetailView (RH-71)', () => {
     expect(ACTIONS.deletePlaylist).toHaveBeenCalledWith('pl-1')
   })
 
-  it('renders the band aggregate badge instead of the status button for a band playlist', () => {
+  it('renders the read-only band badge instead of the status button for a band playlist', () => {
     setup({
       playlist: playlist({ user_id: null, band_id: 'band-1' }),
       repertoire: [
@@ -223,7 +223,7 @@ describe('PlaylistDetailView (RH-71)', () => {
       ],
     })
 
-    expect(screen.getAllByTitle('Band status is computed from all members')).toHaveLength(2)
+    expect(screen.getAllByTitle('Band status is set by a band admin')).toHaveLength(2)
     expect(
       screen.queryByRole('button', { name: 'Status: Unknown. Click to advance.' }),
     ).toBeNull()

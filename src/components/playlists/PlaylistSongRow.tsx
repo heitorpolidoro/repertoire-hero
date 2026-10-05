@@ -65,10 +65,11 @@ export function PlaylistSongRow({
             {formatPlaylistDuration(ps.song.duration_seconds)}
           </span>
         )}
-        {/* Status badge — read-only in band mode (computed by trigger), cycles in personal mode */}
+        {/* Status badge — read-only on a band playlist, cycles on a personal one.
+            Making a band row editable here is RH-71's named follow-up. */}
         {bandId ? (
           <span
-            title="Band status is computed from all members"
+            title="Band status is set by a band admin"
             className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current opacity-75 cursor-default ${cfg.bgColor} ${cfg.textColor}`}
           >
             {cfg.label}

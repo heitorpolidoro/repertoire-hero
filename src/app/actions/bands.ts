@@ -3,6 +3,7 @@
 import { put } from '@vercel/blob'
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
+  assertBandMember,
   getBands,
   getBandWithMembers,
   createBand,
@@ -19,6 +20,20 @@ import type { Band, Playlist } from '@/types/database'
 export async function getBandsAction(): Promise<Band[]> {
   const userId = await getRequiredUserId()
   return getBands(userId)
+}
+
+/**
+ * The caller's role in one band (RH-96).
+ *
+ * The dashboard is a client island whose band comes from `localStorage`, so the
+ * server page that renders it cannot know which band to resolve a role for —
+ * hence a read action rather than a page prop. It resolves its own session like
+ * every other action and reuses the membership check that already returns the
+ * role, so a caller who is not a member is refused rather than told `member`.
+ */
+export async function getBandRoleAction(bandId: string): Promise<'admin' | 'member'> {
+  const userId = await getRequiredUserId()
+  return assertBandMember(bandId, userId)
 }
 
 export async function getBandWithMembersAction(bandId: string): Promise<Band | null> {

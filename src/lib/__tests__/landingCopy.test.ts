@@ -77,6 +77,24 @@ describe('landing copy', () => {
     }
   })
 
+  it('EN f3 card sells a band repertoire of its own, authored not derived (RH-96)', () => {
+    for (const term of ['key', 'lyric', 'readiness', 'authored']) {
+      expect(en.landing.f3Desc).toMatch(new RegExp(term, 'i'))
+    }
+  })
+
+  it('PT f3 card sells a band repertoire of its own, authored not derived (RH-96)', () => {
+    for (const term of ['tom', 'letra', 'prontidão', 'definid']) {
+      expect(ptBR.landing.f3Desc).toMatch(new RegExp(term, 'i'))
+    }
+  })
+
+  it('landing copy never mentions the deleted weakest-link rule (RH-96)', () => {
+    for (const value of [...landingStrings(en), ...landingStrings(ptBR)]) {
+      expect(value).not.toMatch(/weakest|menor n[ií]vel|aggregate/i)
+    }
+  })
+
   it('the landing page renders a card for every feature key it has copy for', () => {
     const source = readFileSync(
       resolve(__dirname, '../../components/landing/LandingPage.tsx'),

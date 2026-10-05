@@ -264,7 +264,6 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
             <span className="font-bold">Band Mode</span>
             <span className="opacity-50" aria-hidden="true">·</span>
             <span className="font-semibold truncate">{band.name}</span>
-            <span className="hidden sm:inline text-xs opacity-75 ml-1">— Status is read-only, computed from all members</span>
             <button
               type="button"
               onClick={handleExitBandMode}

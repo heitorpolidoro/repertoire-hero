@@ -69,31 +69,21 @@ export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[
 /**
  * Adds a catalog song to a personal or band repertoire.
  *
- * `seedStatusFromBandId` is the band whose current status for this song the new
- * row copies (RH-83 ER16). It matters because `unknown` is the *floor* of
- * `song_status` and `sync_band_repertoire_on_member_update` recomputes the band
- * row as `MIN(status)` over every member's row: a row inserted as `unknown`
- * would drag the band's displayed status to Unknown at the next status change
- * by anyone. The band row's own status is already that `MIN`, so a row equal to
- * it cannot lower it.
- *
- * Conditional by construction: a `NULL` $4 matches no row and the `COALESCE`
- * yields `'unknown'` — byte-for-byte the old behaviour, which is what personal
- * context, the song picker and the dashboard keep getting. Ignored for a band
- * owner; a band row is never seeded from itself.
+ * The new row's `status` is left to the column default, `unknown`, in band
+ * context exactly as in personal context: status is per-owner, and nothing
+ * derives one owner's value from another's (RH-96).
  */
 export async function addSongToRepertoire(
   owner: RepertoireOwner,
   songId: string,
-  seedStatusFromBandId: string | null = null,
 ): Promise<Repertoire> {
   const isBand = 'bandId' in owner
   const userId = isBand ? null : owner.userId
   const bandId = isBand ? owner.bandId : null
   const sql = `
     WITH inserted AS (
-      INSERT INTO repertoire (song_id, user_id, band_id, status)
-      VALUES ($1, $2, $3, COALESCE((SELECT b.status FROM repertoire b WHERE b.band_id = $4 AND b.song_id = $1), 'unknown'))
+      INSERT INTO repertoire (song_id, user_id, band_id)
+      VALUES ($1, $2, $3)
       RETURNING *
     )
     SELECT i.*,
@@ -102,7 +92,7 @@ export async function addSongToRepertoire(
     JOIN global_songs s ON i.song_id = s.id
   `
   try {
-    const res = await query<Repertoire>(sql, [songId, userId, bandId, isBand ? null : seedStatusFromBandId])
+    const res = await query<Repertoire>(sql, [songId, userId, bandId])
     return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))

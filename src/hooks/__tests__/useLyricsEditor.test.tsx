@@ -228,8 +228,9 @@ describe('useLyricsEditor', () => {
       await result.current.save()
     })
 
-    // ER6/ER16: the second argument is the band the new row seeds its status from.
-    expect(actions.addSong).toHaveBeenCalledWith('song-1', 'band-1')
+    // RH-96: the song is the whole call — the new row is the session user's own
+    // and is born `unknown`, so there is no band id to pass.
+    expect(actions.addSong).toHaveBeenCalledExactlyOnceWith('song-1')
     expect(onPersonalEntryCreated).toHaveBeenCalledWith(PERSONAL_ENTRY)
     expect(actions.updateLyrics).toHaveBeenCalledWith('personal-rep', 'my first version', null)
     expect(onPersonalLyricsSaved).toHaveBeenCalledWith('my first version')

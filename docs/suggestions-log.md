@@ -8923,3 +8923,58 @@ full-suite coverage gate passes.
 - `src/lib/songIdentity.ts` does not appear in the `text` coverage table, which means it is at 100% on every metric (the reporter omits fully covered files). Worth nothing further; noted only so a future reader does not mistake its absence for exclusion — it is inside the `src/lib/**/*.ts` coverage universe and not in the `exclude` list.
 - `primaryArtistName` reduces a legitimately comma-bearing artist ("Earth, Wind & Fire") to its first segment. The module's own docblock states this cost explicitly and keeps lookup and insert consistent, so the catalog stays self-consistent; if a user reports it, the fix belongs with the `song_versions` work (RH-105) rather than here.
 - The merge scenario runs with `uq_global_songs_artist_title` dropped inside a rolled-back transaction. That is the only way to seed duplicates post-migration and it is correctly undone, but it does take an ACCESS EXCLUSIVE-ish lock path on `global_songs` for the duration; if the DB suite is ever parallelised across files, that test should be pinned to a serial pool to avoid contending with the ER5-ER9 tests in the same file's sibling describe.
+
+## [RH-96] Drop the band status trigger and author band status directly — 2026-10-05 (code review)
+- `src/components/playlists/PlaylistSongRow.tsx:69-75` still hand-rolls the
+  read-only pill (`title`, `shape` classes, `opacity-75 cursor-default`) that
+  `src/components/songs/SongStatusBadge.tsx:30-37` now owns. The caption string
+  is duplicated in both places and `PlaylistDetailView.test.tsx` pins it in a
+  third. Rendering `<SongStatusBadge status={...} editable={false} />` there
+  would collapse the three copies into one. Deliberately out of scope per the
+  spec's RH-71 follow-up note, so non-blocking — but the duplication is new as
+  of this diff (before it, neither site had a shared component to reuse).
+- `src/components/songs/SongStatusBadge.tsx:31` hardcodes
+  `title="Band status is set by a band admin"` in the non-editable branch. The
+  component's own prop surface (`status`, `editable`, `onAdvance`) is
+  owner-agnostic, so the band-specific caption is a latent mismatch if the
+  read-only form is ever rendered for a personal row. Today it cannot be —
+  `canEditStatus` in `RepertoireDashboard.tsx:94` is unconditionally `true`
+  outside band context — but passing the caption in as a prop would make the
+  coupling explicit rather than implicit.
+- `'admin' | 'member'` is now spelled out in three places:
+  `src/lib/bands.ts:38` (`assertBandMember`'s return),
+  `src/app/actions/bands.ts:32` (`getBandRoleAction`'s return) and
+  `src/hooks/useBandRole.ts:3` (`BandRole`). Exporting one of them (most
+  naturally a `BandRole` from `src/types/database` or `src/lib/bands.ts`) and
+  having the other two reference it would keep the three in lockstep if a third
+  role is ever added.
+- `src/lib/songs.ts` `updateSong` writes `global_songs` and `repertoire` in one
+  transaction but never checks the `repertoire` statement's `rowCount`. A
+  non-admin member who calls `updateSongAction` with `bandId: null` for a band
+  entry now passes `resolveStatusWriteOwner`'s personal branch, fills empty
+  catalog fields on `global_songs`, and has the `repertoire` UPDATE match zero
+  rows — silently, with no error. This is pre-existing (the same shape existed
+  before RH-96) and the catalog is wiki-style writable by any signed-in user by
+  design, so it is not a privilege escalation introduced here: the band row's
+  `status`/`tags`/`personal_key` are untouched, which is exactly what the gate
+  protects. Worth a `rowCount === 0` throw in a future task.
+- A non-admin member in band context still sees the row's Edit button, and
+  `updateSongAction` will refuse the save with
+  `Access denied: band admin required` only after the modal is filled in. The
+  spec names this consequence and accepts it; flagged only so it is a conscious
+  state rather than a surprise in QA.
+
+
+## [RH-96] Drop the band status trigger and author band status directly — 2026-10-05 (QA)
+
+- `src/hooks/useBandRole.ts` swallows every rejection from `getBandRole` into the
+  fail-closed `null`, which is the right default, but it also silences a genuine infra
+  failure (DB down, action throw). The doc comment argues the case and the gate is
+  server-side enforced regardless, so this is cosmetic: a `logger.error` on a rejection
+  whose message is not the membership refusal would keep the behaviour and recover the
+  signal.
+- `migrations/0010_drop_band_status_trigger.sql` deliberately leaves the statuses the old
+  trigger last wrote in place as a starting value for band admins. That is the documented
+  decision, so nothing to change — but the band rows in any existing database still carry
+  MIN-derived values that no longer have a stated provenance in the UI. Worth a line in
+  release notes rather than in code.

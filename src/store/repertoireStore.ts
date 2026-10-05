@@ -96,9 +96,10 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
   },
 
   updateStatus: async (id: string, status: SongStatus) => {
+    // RH-96: a band's status is its own row's, authored by a band admin — not
+    // recomputed from the members — so the band branch writes like the personal
+    // one. The server refuses a caller who is not an admin of that band.
     const bandId = useBandContextStore.getState().bandId()
-    // Band status is computed by DB trigger (MIN across members) — read-only in band mode.
-    if (bandId) return
     // Invalidate reads already in flight before the optimistic write, so none
     // of them can land afterwards and restore the old status.
     invalidateReads()
@@ -106,7 +107,7 @@ export const useRepertoireStore = create<RepertoireState>((set, get) => ({
       songs: state.songs.map((s) => (s.id === id ? { ...s, status } : s)),
     }))
     try {
-      await updateSongStatus(id, status)
+      await updateSongStatus(id, status, bandId)
     } catch (error) {
       await get().loadSongs()
       throw error

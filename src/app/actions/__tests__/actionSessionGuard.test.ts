@@ -58,6 +58,7 @@ import { getRequiredUserId } from '@/lib/auth-session'
 import { allExportedActionNames } from './actionScan'
 import {
   getBandsAction,
+  getBandRoleAction,
   getBandWithMembersAction,
   createBandAction,
   updateBandAction,
@@ -142,6 +143,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- bands.ts ---
   getBandsAction: { run: () => getBandsAction(), mode: 'throws' },
   getBandWithMembersAction: { run: () => getBandWithMembersAction(BAND_ID), mode: 'throws' },
+  getBandRoleAction: { run: () => getBandRoleAction(BAND_ID), mode: 'throws' },
   createBandAction: { run: () => createBandAction('The Band'), mode: 'throws' },
   updateBandAction: { run: () => updateBandAction(BAND_ID, { name: 'Renamed' }), mode: 'throws' },
   deleteBandAction: { run: () => deleteBandAction(BAND_ID), mode: 'throws' },

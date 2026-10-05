@@ -19,7 +19,7 @@ import {
   type RepertoireOwner,
   type SongUpdateInput,
 } from '@/lib/songs'
-import { assertBandMember } from '@/lib/bands'
+import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import type { Repertoire, SongLink, SongStatus } from '@/types/database'
 
 async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
@@ -31,30 +31,35 @@ async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
   return { bandId }
 }
 
+/**
+ * The owner resolution for the two actions that write `repertoire.status`.
+ *
+ * A band's status is authored by a band admin (RH-96), so membership is not
+ * enough: `assertBandAdmin` is the only admin check either action makes, and it
+ * throws `Access denied: band admin required` for a plain member before any
+ * statement runs. A personal owner is resolved exactly as everywhere else.
+ */
+async function resolveStatusWriteOwner(bandId?: string | null): Promise<RepertoireOwner> {
+  const userId = await getRequiredUserId()
+  if (!bandId) return { userId }
+  await assertBandAdmin(bandId, userId)
+  return { bandId }
+}
+
 export async function getRepertoireAction(bandId?: string | null) {
   const owner = await resolveOwner(bandId)
   return getRepertoire(owner)
 }
 
-/**
- * `seedStatusFromBandId` selects a band row to *read a status from*, so it is
- * authorized exactly like an owner would be: it arrives from the client, and a
- * band the caller is not a member of throws before any INSERT (RH-83 ER16).
- */
-export async function addSongAction(
-  songId: string,
-  bandId?: string | null,
-  seedStatusFromBandId?: string | null,
-) {
+export async function addSongAction(songId: string, bandId?: string | null) {
   const owner = await resolveOwner(bandId)
-  if (seedStatusFromBandId) await assertBandMember(seedStatusFromBandId, await getRequiredUserId())
-  const result = await addSongToRepertoire(owner, songId, seedStatusFromBandId ?? null)
+  const result = await addSongToRepertoire(owner, songId)
   revalidatePath('/')
   return result
 }
 
 export async function updateSongStatusAction(repertoireId: string, status: SongStatus, bandId?: string | null) {
-  const owner = await resolveOwner(bandId)
+  const owner = await resolveStatusWriteOwner(bandId)
   const result = await updateSongStatus(owner, repertoireId, status)
   revalidatePath('/')
   return result
@@ -89,7 +94,9 @@ export async function updateSongAction(
   data: SongUpdateInput,
   bandId?: string | null
 ) {
-  const owner = await resolveOwner(bandId)
+  // `updateSong`'s second statement writes `status` together with `tags` and
+  // `personal_key`, so this action is gated on band admin too (RH-96).
+  const owner = await resolveStatusWriteOwner(bandId)
   const result = await updateSong(owner, entry, data)
   revalidatePath('/')
   return result

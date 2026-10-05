@@ -40,6 +40,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
   const suffix = Date.now()
 
   let userAId: string
+  let userBId: string
   let userCId: string
   let adminUserId: string
   let bandId: string
@@ -75,11 +76,17 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
 
   beforeAll(async () => {
     userAId = await createTestUser({ email: `rh34-rep-a-${suffix}@example.com` })
+    userBId = await createTestUser({ email: `rh96-rep-b-${suffix}@example.com` })
     userCId = await createTestUser({ email: `rh34-rep-c-${suffix}@example.com` })
     adminUserId = await createTestUser({ email: `rh34-rep-admin-${suffix}@example.com` })
     await query('UPDATE profiles SET is_system_admin = true WHERE id = $1', [adminUserId])
 
     bandId = await createBand(userAId, `RH-34 Repertoire Band ${suffix}`, null, null)
+    // B joins as a plain member: the RH-96 gate's subject.
+    await query("INSERT INTO band_members (band_id, user_id, role) VALUES ($1, $2, 'member')", [
+      bandId,
+      userBId,
+    ])
 
     const bandSongId = await createSong(`RH-34 Band Song ${suffix}`)
     const bandEntry = await query(
@@ -98,7 +105,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
 
   afterAll(async () => {
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
-    for (const user of [userAId, userCId, adminUserId]) {
+    for (const user of [userAId, userBId, userCId, adminUserId]) {
       if (user) await deleteTestUser(user)
     }
     for (const song of createdSongIds) {
@@ -209,6 +216,69 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
 
       expect(created.band_id).toBe(bandId)
       expect((await bandRepertoire()).some((r) => r.id === created.id)).toBe(true)
+    })
+  })
+
+  /**
+   * RH-96 — a band's status is authored by a band admin. Only the two actions
+   * that write `repertoire.status` are gated; everything else a member could do
+   * to a band row before, they can still do.
+   */
+  describe('a band member who is not an admin', () => {
+    it.each([
+      ['updateSongStatusAction', () => updateSongStatusAction(bandEntryId, 'mastered', bandId)],
+      [
+        'updateSongAction',
+        () =>
+          updateSongAction({ id: bandEntryId } as Repertoire, {
+            title: 'Member Edit',
+            artist: 'Member Edit',
+            key: 'C',
+            status: 'mastered',
+            tags: ['member-edit'],
+            links: [],
+          }, bandId),
+      ],
+    ])('is refused on %s and writes nothing', async (_label, run) => {
+      const before = await bandRepertoire()
+      asUser(userBId)
+
+      await expect(run()).rejects.toThrow('Access denied: band admin required')
+
+      expect(await bandRepertoire()).toEqual(before)
+    })
+
+    it('still reads, tags and writes lyrics on a band row', async () => {
+      asUser(userBId)
+
+      expect((await getRepertoireAction(bandId)).map((r) => r.id)).toContain(bandEntryId)
+      await updateSongTagsAction(bandEntryId, ['member-tag'], bandId)
+      await updateLyricsAction(bandEntryId, 'member lyrics', bandId)
+
+      const row = (await bandRepertoire()).find((r) => r.id === bandEntryId)
+      expect(row).toMatchObject({ tags: ['member-tag'], lyrics: 'member lyrics' })
+    })
+
+    it('still sets their own personal status', async () => {
+      asUser(userBId)
+      const personal = await addSongAction(catalogSongId)
+      try {
+        await updateSongStatusAction(personal.id, 'polishing')
+
+        const res = await query('SELECT status FROM repertoire WHERE id = $1', [personal.id])
+        expect(res.rows[0].status).toBe('polishing')
+      } finally {
+        await query('DELETE FROM repertoire WHERE id = $1', [personal.id])
+      }
+    })
+
+    it('leaves the band admin able to set the band row status', async () => {
+      asUser(userAId)
+
+      await updateSongStatusAction(bandEntryId, 'mastered', bandId)
+
+      const row = (await bandRepertoire()).find((r) => r.id === bandEntryId)
+      expect(row).toMatchObject({ status: 'mastered' })
     })
   })
 

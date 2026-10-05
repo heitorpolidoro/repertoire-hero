@@ -72,7 +72,10 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/app/join/\\[code\\]/page.tsx"], rules: { "max-lines-per-function": ["error", 249] } },
   { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 663] } },
   { name: "complexity-budget/override", files: ["src/components/layout/AppLayout.tsx"], rules: { complexity: ["error", 21] } },
-  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 18], "max-lines-per-function": ["error", 530], "max-lines": ["error", 579] } },
+  // RH-96: the status badge moved into `SongStatusBadge.tsx` and the band-role
+  // read into `useBandRole.ts`, so the row's worst complexity fell from 18 to
+  // 17 and the component function from 530 lines to 526.
+  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 526], "max-lines": ["error", 579] } },
   { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 459], "max-lines": ["error", 612] } },
   { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 757], "max-lines": ["error", 819] } },
   { name: "complexity-budget/override", files: ["src/hooks/useTabLibrary.ts"], rules: { "max-params": ["error", 5] } },
@@ -82,8 +85,9 @@ const eslintConfig = defineConfig([
   // `src/lib/songIdentity.ts` and its statements into one `withTransaction`
   // callback, so the file's worst complexity fell from 21 to 8 — under the base
   // budget of 15, which is why the `complexity` entry is gone rather than
-  // lowered — and its length from 505 to 483.
-  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 483] } },
+  // lowered — and its length from 505 to 483. RH-96 dropped the RH-83 status
+  // seed from `addSongToRepertoire`, taking it from 483 to 473.
+  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 473] } },
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },

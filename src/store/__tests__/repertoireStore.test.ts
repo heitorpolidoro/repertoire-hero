@@ -274,13 +274,25 @@ describe('repertoireStore mutations', () => {
     expect(useRepertoireStore.getState().isLoading).toBe(false)
   })
 
-  it('does not write in band context', async () => {
+  // RH-96 — nothing computes a band's status any more, so the band branch
+  // writes the band's own row instead of returning early. The server refuses a
+  // caller who is not an admin of that band; the dashboard only offers the
+  // control to one who is.
+  it('writes the band row in band context', async () => {
     useBandContextStore.getState().setBandContext('band-b', 'Band B')
     useRepertoireStore.setState({ songs: [entry('s1')] })
 
     await useRepertoireStore.getState().updateStatus('s1', 'mastered')
 
-    expect(updateSongStatusAction).not.toHaveBeenCalled()
-    expect(useRepertoireStore.getState().songs[0].status).toBe('learning')
+    expect(updateSongStatusAction).toHaveBeenCalledExactlyOnceWith('s1', 'mastered', 'band-b')
+    expect(useRepertoireStore.getState().songs[0].status).toBe('mastered')
+  })
+
+  it('names no band when the context is personal', async () => {
+    useRepertoireStore.setState({ songs: [entry('s1')] })
+
+    await useRepertoireStore.getState().updateStatus('s1', 'mastered')
+
+    expect(updateSongStatusAction).toHaveBeenCalledExactlyOnceWith('s1', 'mastered', null)
   })
 })
