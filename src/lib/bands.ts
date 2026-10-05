@@ -241,7 +241,7 @@ export async function getBandPlaylists(
                'song', json_build_object('duration_seconds', s.duration_seconds)
              ))
               FROM playlist_songs ps
-              JOIN global_songs s ON ps.song_id = s.id
+              JOIN songs s ON ps.song_id = s.id
               WHERE ps.playlist_id = p.id
              ), '[]'::json) as songs
     FROM playlists p

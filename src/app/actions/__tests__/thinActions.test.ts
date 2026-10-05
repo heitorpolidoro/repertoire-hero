@@ -20,24 +20,24 @@ vi.mock('next/headers', () => ({
 }))
 
 vi.mock('@/lib/moderation', () => ({
-  submitGlobalSongEdit: vi.fn(),
-  getPendingGlobalSongEdits: vi.fn(),
-  reviewGlobalSongEdit: vi.fn(),
+  submitSongEdit: vi.fn(),
+  getPendingSongEdits: vi.fn(),
+  reviewSongEdit: vi.fn(),
 }))
 
 import { getProfileAction, updateProfileAction, requestEmailChangeAction } from '../profile'
 import {
-  submitGlobalSongEditAction,
-  getPendingGlobalSongEditsAction,
-  reviewGlobalSongEditAction,
+  submitSongEditAction,
+  getPendingSongEditsAction,
+  reviewSongEditAction,
 } from '../moderation'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getProfile, updateProfile } from '@/lib/profile'
 import { requestEmailChange } from '@/lib/emailChange'
 import {
-  submitGlobalSongEdit,
-  getPendingGlobalSongEdits,
-  reviewGlobalSongEdit,
+  submitSongEdit,
+  getPendingSongEdits,
+  reviewSongEdit,
 } from '@/lib/moderation'
 
 const USER_ID = 'user-1'
@@ -79,27 +79,27 @@ const THIN_ACTIONS: Array<{
     expected: [expect.any(Headers), 'new@example.com'],
   },
   {
-    name: 'submitGlobalSongEditAction',
-    invoke: () => submitGlobalSongEditAction(SONG_ID, SONG_PATCH),
-    target: () => vi.mocked(submitGlobalSongEdit),
+    name: 'submitSongEditAction',
+    invoke: () => submitSongEditAction(SONG_ID, SONG_PATCH),
+    target: () => vi.mocked(submitSongEdit),
     expected: [USER_ID, SONG_ID, SONG_PATCH],
   },
   {
-    name: 'getPendingGlobalSongEditsAction',
-    invoke: () => getPendingGlobalSongEditsAction(),
-    target: () => vi.mocked(getPendingGlobalSongEdits),
+    name: 'getPendingSongEditsAction',
+    invoke: () => getPendingSongEditsAction(),
+    target: () => vi.mocked(getPendingSongEdits),
     expected: [USER_ID],
   },
   {
-    name: 'reviewGlobalSongEditAction (approve)',
-    invoke: () => reviewGlobalSongEditAction(EDIT_ID, 'approve'),
-    target: () => vi.mocked(reviewGlobalSongEdit),
+    name: 'reviewSongEditAction (approve)',
+    invoke: () => reviewSongEditAction(EDIT_ID, 'approve'),
+    target: () => vi.mocked(reviewSongEdit),
     expected: [USER_ID, EDIT_ID, 'approve', undefined],
   },
   {
-    name: 'reviewGlobalSongEditAction (reject with a reason)',
-    invoke: () => reviewGlobalSongEditAction(EDIT_ID, 'reject', 'Wrong album'),
-    target: () => vi.mocked(reviewGlobalSongEdit),
+    name: 'reviewSongEditAction (reject with a reason)',
+    invoke: () => reviewSongEditAction(EDIT_ID, 'reject', 'Wrong album'),
+    target: () => vi.mocked(reviewSongEdit),
     expected: [USER_ID, EDIT_ID, 'reject', 'Wrong album'],
   },
 ]

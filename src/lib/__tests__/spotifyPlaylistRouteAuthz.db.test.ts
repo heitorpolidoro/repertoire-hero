@@ -132,7 +132,7 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
     bandZId = await createBand(userCId, `RH-35 Band Z ${suffix}`, null, null)
 
     const song = await query(
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [`RH-35 Fixture Song ${suffix}`, TRACK_ARTIST],
     )
     songOneId = song.rows[0].id as string
@@ -165,8 +165,8 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
     for (const user of [userAId, userBId, userCId]) {
       if (user) await deleteTestUser(user)
     }
-    if (songOneId) await query('DELETE FROM global_songs WHERE id = $1', [songOneId])
-    await query('DELETE FROM global_songs WHERE title = $1 AND artist = $2', [
+    if (songOneId) await query('DELETE FROM songs WHERE id = $1', [songOneId])
+    await query('DELETE FROM songs WHERE title = $1 AND artist = $2', [
       TRACK_TITLE,
       TRACK_ARTIST,
     ])
@@ -316,7 +316,7 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
       const entries = await playlistEntries(playlistId)
       expect(entries).toHaveLength(1)
       expect(entries[0].position).toBe(1)
-      const song = await query('SELECT title FROM global_songs WHERE id = $1', [entries[0].song_id])
+      const song = await query('SELECT title FROM songs WHERE id = $1', [entries[0].song_id])
       expect(song.rows[0].title).toBe(TRACK_TITLE)
 
       const stampsAfter = await playlistStamps(playlistId)

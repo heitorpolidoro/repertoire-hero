@@ -1,11 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import type { GlobalSong } from "@/types/database";
+import type { Song } from "@/types/database";
 
 export interface PlaylistSongIdentityProps {
   /** The catalog song of the row; absent for a playlist row whose song failed to load. */
-  song?: GlobalSong;
+  song?: Song;
   /**
    * True when the block sits inside the row's Fast View `<Link>`, which is the
    * only difference between the two copies RH-68 replaced with this component:

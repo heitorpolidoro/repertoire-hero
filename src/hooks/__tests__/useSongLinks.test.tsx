@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongLinks, type SongLinksActions, type UseSongLinksOptions } from '@/hooks/useSongLinks'
-import type { GlobalSong, Repertoire, SongLink } from '@/types/database'
+import type { Song, Repertoire, SongLink } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -11,7 +11,7 @@ const LINKS: SongLink[] = [
   { label: 'Video', url: 'https://youtube.com/watch?v=1' },
 ]
 
-const SONG: GlobalSong = {
+const SONG: Song = {
   id: 'song-1',
   title: 'Black Dog',
   artist: 'Led Zeppelin',

@@ -23,9 +23,9 @@ import {
   findRepertoireSongIdByTrack,
 } from '@/lib/songPicker'
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { GlobalSong, Repertoire } from '@/types/database'
+import type { Song, Repertoire } from '@/types/database'
 
-function song(overrides: Partial<GlobalSong> & Pick<GlobalSong, 'id' | 'title' | 'artist'>): GlobalSong {
+function song(overrides: Partial<Song> & Pick<Song, 'id' | 'title' | 'artist'>): Song {
   return {
     album: null,
     standard_key: null,

@@ -16,7 +16,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { query, withTransaction } from '@/lib/db'
 import { updateSong } from '@/lib/songs'
-import { reviewGlobalSongEdit } from '@/lib/moderation'
+import { reviewSongEdit } from '@/lib/moderation'
 import { addSongToPlaylist, removeSongFromPlaylist } from '@/lib/playlists'
 import type { Repertoire } from '@/types/database'
 
@@ -92,7 +92,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     await query('UPDATE profiles SET is_system_admin = true WHERE id = $1', [adminUserId])
 
     const song = await one(
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [`RH-36 Song ${suffix}`, 'RH-36 Artist'],
     )
     songId = song.id as string
@@ -119,7 +119,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
 
     for (const label of ['A', 'B', 'C', 'D']) {
       const extra = await one(
-        'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+        'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
         [`RH-36 Extra ${label} ${suffix}`, 'RH-36 Artist'],
       )
       extraSongIds.push(extra.id as string)
@@ -139,12 +139,12 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
       if (user) await deleteTestUser(user)
     }
     for (const song of [songId, ...extraSongIds]) {
-      if (song) await query('DELETE FROM global_songs WHERE id = $1', [song])
+      if (song) await query('DELETE FROM songs WHERE id = $1', [song])
     }
     await query('DROP FUNCTION IF EXISTS rh36_raise() CASCADE')
   })
 
-  it('updateSong leaves global_songs untouched when the repertoire update fails', async () => {
+  it('updateSong leaves songs untouched when the repertoire update fails', async () => {
     await injectFailure('rh36_fail_repertoire', 'repertoire', 'UPDATE', `OLD.id = '${entryId}'`)
 
     const entry = (await one('SELECT * FROM repertoire WHERE id = $1', [entryId])) as Repertoire
@@ -161,7 +161,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
       }),
     ).rejects.toThrow(/^Failed to update song:/)
 
-    const song = await one('SELECT album, standard_key FROM global_songs WHERE id = $1', [songId])
+    const song = await one('SELECT album, standard_key FROM songs WHERE id = $1', [songId])
     expect(song.album).toBeNull()
     expect(song.standard_key).toBeNull()
 
@@ -173,14 +173,14 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     expect(after.personal_key).toBeNull()
   })
 
-  it('reviewGlobalSongEdit leaves global_songs untouched when marking the edit reviewed fails', async () => {
+  it('reviewSongEdit leaves songs untouched when marking the edit reviewed fails', async () => {
     await injectFailure('rh36_fail_edits', 'global_song_edits', 'UPDATE', `OLD.id = '${editId}'`)
 
-    await expect(reviewGlobalSongEdit(adminUserId, editId, 'approve')).rejects.toThrow(
+    await expect(reviewSongEdit(adminUserId, editId, 'approve')).rejects.toThrow(
       /^Failed to review global song edit:/,
     )
 
-    const song = await one('SELECT title FROM global_songs WHERE id = $1', [songId])
+    const song = await one('SELECT title FROM songs WHERE id = $1', [songId])
     expect(song.title).toBe(`RH-36 Song ${suffix}`)
 
     const edit = await one('SELECT status FROM global_song_edits WHERE id = $1', [editId])

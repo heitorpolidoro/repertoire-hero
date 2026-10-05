@@ -100,7 +100,6 @@ const INPUT = {
   cover_url: 'http://art',
   duration_seconds: 294,
   links: [{ label: 'YT', url: 'http://yt' }],
-  contributorId: 'user-1',
 }
 
 describe('resolveOrCreateSongIdentity', () => {
@@ -142,10 +141,12 @@ describe('resolveOrCreateSongIdentity', () => {
     })
 
     const [sql, values] = mockedQuery.mock.calls[1]
-    expect(sql).toContain('INSERT INTO global_songs')
+    expect(sql).toContain('INSERT INTO songs')
     expect(sql).toContain('ON CONFLICT DO NOTHING')
+    // Seven columns, seven placeholders: RH-121 dropped the catalog's
+    // contributor column, so the bind list starts at the title.
+    expect(sql).toContain('VALUES ($1, $2, $3, $4, $5, $6, $7)')
     expect(values).toEqual([
-      'user-1',
       'Song X',
       'Michael Jackson',
       'Thriller',
@@ -164,7 +165,7 @@ describe('resolveOrCreateSongIdentity', () => {
     const resolved = await resolveOrCreateSongIdentity({ title: 'Bare', artist: 'Nobody' })
 
     expect(resolved).toEqual({ id: 'song-new', links: [], created: true })
-    expect(mockedQuery.mock.calls[1][1]).toEqual([null, 'Bare', 'Nobody', null, null, null, null, '[]'])
+    expect(mockedQuery.mock.calls[1][1]).toEqual(['Bare', 'Nobody', null, null, null, null, '[]'])
   })
 
   it('re-reads the row a concurrent caller inserted when the insert does nothing', async () => {

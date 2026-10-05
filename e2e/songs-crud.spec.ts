@@ -54,8 +54,8 @@ test('add a new song and verify it appears in the list', async ({ page }) => {
 })
 
 /**
- * `global_songs` is a shared catalog, so `updateSong` (src/lib/songs.ts) writes
- * it fill-if-empty: a field that already carries a value is left alone, and only
+ * `songs` is a shared catalog, so `updateSong` (src/lib/songs.ts) writes it
+ * fill-if-empty: a field that already carries a value is left alone, and only
  * an empty one is filled in. RH-97 made the form say so instead of accepting an
  * edit it knew would be dropped — a populated shared field renders read-only
  * with a "Suggest a correction" control (-> the RH-15 moderation queue), and

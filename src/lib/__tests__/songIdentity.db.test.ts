@@ -26,9 +26,9 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { query, withTransaction } from '@/lib/db'
 import { createAndAddSong, removeSongFromRepertoire } from '@/lib/songs'
-import { findOrCreateGlobalSong } from '@/lib/spotifyPlaylistSync'
+import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { LEGACY_CATALOG_TABLE, createTestUser, deleteTestUser } from './test-helpers'
 import type { SongLink } from '@/types/database'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -41,6 +41,35 @@ const MIGRATION_SUFFIX = '_unify_song_identity.sql'
 /** Resolves the migration by suffix and fails unless there is exactly one. */
 function migrationFileNames(): string[] {
   return fs.readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(MIGRATION_SUFFIX))
+}
+
+/**
+ * The migration's text, re-addressed at the catalog table's current name.
+ *
+ * `migrations/0009` was written when the catalog was still called by the name
+ * `LEGACY_CATALOG_TABLE` holds; RH-121's `migrations/0013` renamed it to
+ * `songs`. The ledger is append-only, so `0009` keeps the old name forever and
+ * replaying its text verbatim against a migrated database fails with
+ * `relation ... does not exist`.
+ *
+ * Substituting the name is sound because that is the *only* difference RH-121
+ * made to this table: a rename is a catalogue-only operation, so every
+ * statement below — the duplicate grouping, the column fill, the link union,
+ * the repointing of `repertoire`, `playlist_songs` and `global_song_edits`, and
+ * the unique index it ends with — operates on exactly the rows and the index it
+ * did before. What this file tests is `0009`'s merge logic, and that logic is
+ * untouched. The substitution does not reach `global_song_edits`: its name
+ * does not contain the catalog table's, which is why RH-121 could leave it
+ * alone.
+ *
+ * It also keeps the index name aligned. `0009` ends by creating its unique
+ * index under the old table's prefix, which `0013` renamed to
+ * `uq_songs_artist_title` — the same name the substitution produces, and the
+ * one the scenario drops before seeding its duplicates.
+ */
+function unifyMigrationSql(): string {
+  const raw = fs.readFileSync(path.join(MIGRATIONS_DIR, migrationFileNames()[0]), 'utf8')
+  return raw.replaceAll(LEGACY_CATALOG_TABLE, 'songs')
 }
 
 /** A collision-free, dash-free token: a dash would confuse `sanitizeSongTitle`. */
@@ -120,7 +149,7 @@ interface MergeScenario {
 const ROLLBACK = 'RH-95 migration scenario rollback'
 
 async function runMergeScenario(): Promise<MergeScenario> {
-  const migrationSql = fs.readFileSync(path.join(MIGRATIONS_DIR, migrationFileNames()[0]), 'utf8')
+  const migrationSql = unifyMigrationSql()
   const sfx = token()
   let scenario: MergeScenario | undefined
 
@@ -139,7 +168,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
     songs: (
       await client.query<MergeSnapshot['songs'][number]>(
         `SELECT id, title, album, standard_key, cover_url, duration_seconds, links
-         FROM global_songs WHERE id = ANY($1) ORDER BY title`,
+         FROM songs WHERE id = ANY($1) ORDER BY title`,
         [ids],
       )
     ).rows,
@@ -172,7 +201,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
   await withTransaction(async (client) => {
     // The index the migration creates has to be gone before duplicates can be
     // seeded — `npm run db:migrate` has already run it in this database.
-    await client.query('DROP INDEX IF EXISTS uq_global_songs_artist_title')
+    await client.query('DROP INDEX IF EXISTS uq_songs_artist_title')
 
     const userId = await seedUser(client, 'owner')
     const otherUserId = await seedUser(client, 'second')
@@ -181,13 +210,13 @@ async function runMergeScenario(): Promise<MergeScenario> {
     // in case and whitespace only, which is exactly what the index folds.
     const keeperId = await insertId(
       client,
-      `INSERT INTO global_songs (title, artist, links, created_at)
+      `INSERT INTO songs (title, artist, links, created_at)
        VALUES ($1, $2, $3::jsonb, now() - interval '2 days') RETURNING id`,
       [`Dup Song ${sfx}`, `Dup Artist ${sfx}`, JSON.stringify([{ label: 'Chords', url: 'http://chords' }])],
     )
     const dupId = await insertId(
       client,
-      `INSERT INTO global_songs (title, artist, album, standard_key, cover_url, duration_seconds, links, created_at)
+      `INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds, links, created_at)
        VALUES ($1, $2, 'Album B', 'G', 'http://cover', 200, $3::jsonb, now() - interval '1 day') RETURNING id`,
       [
         `  dup song ${sfx}  `,
@@ -200,7 +229,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
     )
     const otherId = await insertId(
       client,
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [`Other Song ${sfx}`, `Other Artist ${sfx}`],
     )
 
@@ -336,7 +365,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
   /** Every catalog row whose title carries our suffix, so nothing is missed. */
   const catalogRows = async (title: string) => {
     const res = await query<{ id: string }>(
-      'SELECT id FROM global_songs WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1))',
+      'SELECT id FROM songs WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1))',
       [title],
     )
     res.rows.forEach((r) => songIds.add(r.id))
@@ -359,21 +388,21 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
       if (id) await deleteTestUser(id)
     }
     if (songIds.size > 0) {
-      await query('DELETE FROM global_songs WHERE id = ANY($1)', [Array.from(songIds)])
+      await query('DELETE FROM songs WHERE id = ANY($1)', [Array.from(songIds)])
     }
   })
 
   it('ER1 — the identity index exists and the album index is gone', async () => {
     const res = await query<{ indexname: string; indexdef: string }>(
-      "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'global_songs'",
+      "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'songs'",
     )
     const byName = new Map(res.rows.map((r) => [r.indexname, r.indexdef]))
 
-    expect(byName.get('uq_global_songs_artist_title')).toContain(
+    expect(byName.get('uq_songs_artist_title')).toContain(
       '(lower(btrim(artist)), lower(btrim(title)))',
     )
-    expect(byName.get('uq_global_songs_artist_title')).toContain('CREATE UNIQUE INDEX')
-    expect(byName.has('uq_global_songs_title_album')).toBe(false)
+    expect(byName.get('uq_songs_artist_title')).toContain('CREATE UNIQUE INDEX')
+    expect(byName.has('uq_songs_title_album')).toBe(false)
   })
 
   it('ER5 — one title, two artists, no album: two catalog rows', async () => {
@@ -429,7 +458,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     const artist = `Manual First Artist ${sfx}`
     const entry = await createAndAddSong({ userId }, { title, artist })
 
-    const songId = await findOrCreateGlobalSong(
+    const songId = await findOrCreateSong(
       spotifyTrack({ title, artist, spotifyUrl: 'https://open.spotify.com/track/manual-first' }),
     )
 
@@ -440,7 +469,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
   it('ER7 — the Spotify path then the manual path converge on one row', async () => {
     const title = `Spotify First ${sfx}`
     const artist = `Spotify First Artist ${sfx}`
-    const songId = await findOrCreateGlobalSong(
+    const songId = await findOrCreateSong(
       spotifyTrack({ title, artist, spotifyUrl: 'https://open.spotify.com/track/spotify-first' }),
     )
 
@@ -455,7 +484,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     const artist = `Michael Jackson ${sfx}`
     const entry = await createAndAddSong({ userId }, { title, artist })
 
-    const songId = await findOrCreateGlobalSong(
+    const songId = await findOrCreateSong(
       spotifyTrack({
         title,
         // What `primarySpotifyArtist` hands the sync for ["Michael Jackson", "Akon"].

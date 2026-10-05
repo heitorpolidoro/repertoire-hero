@@ -30,7 +30,7 @@ import {
   updateLyricsAction,
   updateSongLinksAction,
 } from '../repertoire'
-import { reviewGlobalSongEditAction } from '../moderation'
+import { reviewSongEditAction } from '../moderation'
 import type { Repertoire, SongLink } from '@/types/database'
 
 const ORIGINAL_LINK: SongLink = { label: 'Chords', url: 'https://tabs.example/rh34-original' }
@@ -60,7 +60,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
 
   /** The catalog links of song S, as stored — text so the comparison is exact. */
   const catalogLinks = async (): Promise<string> => {
-    const res = await query('SELECT links::text AS links FROM global_songs WHERE id = $1', [catalogSongId])
+    const res = await query('SELECT links::text AS links FROM songs WHERE id = $1', [catalogSongId])
     return res.rows[0].links as string
   }
 
@@ -109,7 +109,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       if (user) await deleteTestUser(user)
     }
     for (const song of createdSongIds) {
-      await query('DELETE FROM global_songs WHERE id = $1', [song])
+      await query('DELETE FROM songs WHERE id = $1', [song])
     }
   })
 
@@ -303,7 +303,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect(await catalogLinks()).toBe(before)
     })
 
-    it('no longer accepts a global_songs id in place of a repertoire id', async () => {
+    it('no longer accepts a songs id in place of a repertoire id', async () => {
       const before = await catalogLinks()
       asUser(userAId)
 
@@ -353,7 +353,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       )
       asUser(adminUserId)
 
-      await reviewGlobalSongEditAction(pending.rows[0].id as string, 'approve')
+      await reviewSongEditAction(pending.rows[0].id as string, 'approve')
 
       expect(JSON.parse(await catalogLinks())).toEqual([ADDED_LINK])
     })

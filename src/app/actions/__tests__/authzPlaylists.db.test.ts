@@ -91,7 +91,7 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
       if (user) await deleteTestUser(user)
     }
     for (const song of [songOneId, songTwoId]) {
-      if (song) await query('DELETE FROM global_songs WHERE id = $1', [song])
+      if (song) await query('DELETE FROM songs WHERE id = $1', [song])
     }
   })
 

@@ -8,7 +8,7 @@ const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
 
 import { ModerationQueue, type ModerationQueueActions } from '../ModerationQueue'
-import type { GlobalSongEdit } from '@/types/database'
+import type { SongEdit } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -38,13 +38,13 @@ const EDITS = [
     song: { title: 'Yesterday', artist: 'Beatles', album: 'Help!', standard_key: 'F' },
     requester: { full_name: null, email: 'grace@example.com' },
   },
-] as unknown as GlobalSongEdit[]
+] as unknown as SongEdit[]
 
 function makeActions(overrides: Partial<ModerationQueueActions> = {}) {
   return {
-    reviewGlobalSongEdit: vi.fn().mockResolvedValue({}),
+    reviewSongEdit: vi.fn().mockResolvedValue({}),
     ...overrides,
-  } as unknown as ModerationQueueActions & { reviewGlobalSongEdit: ReturnType<typeof vi.fn> }
+  } as unknown as ModerationQueueActions & { reviewSongEdit: ReturnType<typeof vi.fn> }
 }
 
 function setup(props: Partial<React.ComponentProps<typeof ModerationQueue>> = {}) {
@@ -83,7 +83,7 @@ describe('ModerationQueue', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Approve & Apply' })[0])
 
-    await waitFor(() => expect(actions.reviewGlobalSongEdit).toHaveBeenCalledWith(EDITS[0].id, 'approve'))
+    await waitFor(() => expect(actions.reviewSongEdit).toHaveBeenCalledWith(EDITS[0].id, 'approve'))
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Approve & Apply' })).toHaveLength(1))
     expect(screen.getByText('1 Pending Request')).toBeDefined()
     expect(screen.getByText('Song edit approved and applied to global catalog.')).toBeDefined()
@@ -100,7 +100,7 @@ describe('ModerationQueue', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Rejection' }))
 
     await waitFor(() =>
-      expect(actions.reviewGlobalSongEdit).toHaveBeenCalledWith(
+      expect(actions.reviewSongEdit).toHaveBeenCalledWith(
         EDITS[0].id,
         'reject',
         'Duplicate submission',
@@ -113,8 +113,8 @@ describe('ModerationQueue', () => {
   it('disables the approve and reject buttons while a review is in flight', async () => {
     let release: (() => void) | undefined
     const actions = makeActions({
-      reviewGlobalSongEdit: vi.fn(
-        () => new Promise<GlobalSongEdit>((resolve) => { release = () => resolve({} as GlobalSongEdit) }),
+      reviewSongEdit: vi.fn(
+        () => new Promise<SongEdit>((resolve) => { release = () => resolve({} as SongEdit) }),
       ),
     })
     setup({ actions })
@@ -133,7 +133,7 @@ describe('ModerationQueue', () => {
 
   it('shows an error banner when the injected review action rejects', async () => {
     const actions = makeActions({
-      reviewGlobalSongEdit: vi.fn().mockRejectedValue(new Error('Failed to review global song edit: boom')),
+      reviewSongEdit: vi.fn().mockRejectedValue(new Error('Failed to review global song edit: boom')),
     })
     setup({ actions })
 
@@ -159,7 +159,7 @@ describe('ModerationQueue', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Approve & Apply' })[0])
 
-    await waitFor(() => expect(actions.reviewGlobalSongEdit).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(actions.reviewSongEdit).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(router.refresh).toHaveBeenCalledTimes(1))
     expect(router.push).not.toHaveBeenCalled()
   })

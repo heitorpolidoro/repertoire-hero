@@ -15,7 +15,7 @@ import {
   updateSongTags,
   updatePersonalKey,
   removeSongFromRepertoire,
-  searchGlobalSongs,
+  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
@@ -104,8 +104,8 @@ beforeEach(() => {
       return { rowCount: 1, rows: [{ user_id: "mock-user-id", band_id: null }] };
     }
 
-    // 2. global_songs lookup
-    if (normalizedSql.includes("from global_songs")) {
+    // 2. songs lookup
+    if (normalizedSql.includes("from songs")) {
       if (failLookup) {
         throw mockError;
       }
@@ -273,8 +273,8 @@ describe("Data Layer Error Handling", () => {
       );
     });
 
-    it("searchGlobalSongs throws on DB error", async () => {
-      await expect(searchGlobalSongs("test")).rejects.toThrow(
+    it("searchSongs throws on DB error", async () => {
+      await expect(searchSongs("test")).rejects.toThrow(
         "Failed to search global songs: Mocked Database Error",
       );
     });

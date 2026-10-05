@@ -103,8 +103,10 @@ const eslintConfig = defineConfig([
   // lowered — and its length from 505 to 483. RH-96 dropped the RH-83 status
   // seed from `addSongToRepertoire`, taking it from 483 to 473. RH-97 replaced
   // `updateSong`'s seven-column `CASE WHEN` with the fill/refuse split in
-  // `src/lib/catalogFields.ts`: 473 to 471.
-  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 471] } },
+  // `src/lib/catalogFields.ts`: 473 to 471. RH-121 dropped `contributor_id`
+  // from `SONG_JSON` and from the `resolveOrCreateSongIdentity` call, which
+  // reflowed both into one line fewer: 471 to 470.
+  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 470] } },
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },

@@ -6,9 +6,9 @@ import {
   withSongLinks,
   withStatus,
 } from '@/lib/songEntry'
-import type { GlobalSong, Repertoire } from '@/types/database'
+import type { Song, Repertoire } from '@/types/database'
 
-const SONG: GlobalSong = {
+const SONG: Song = {
   id: 'song-1',
   title: 'Black Dog',
   artist: 'Led Zeppelin',

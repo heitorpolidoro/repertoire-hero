@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Seed catalogue: scripts/seed-catalog.sql
--- Description: Populates global_songs with a diverse catalogue of songs
+-- Description: Populates the `songs` catalogue with a diverse selection
 --              spanning rock, bossa nova, samba, pop, and jazz genres.
 --
 -- Usage:
@@ -10,14 +10,14 @@
 --   script's own users/profiles/band inserts.
 --
 -- Notes:
---   - This file only populates global_songs. Auth users are created by
+--   - This file only populates `songs`. Auth users are created by
 --     scripts/dev-seed — run: npm run seed
 --   - Running this file multiple times is safe: the ON CONFLICT clause
 --     skips rows whose (title, artist) pair already exists.
 --   - The `links` column stores a JSON array of {label, url} objects.
 -- =============================================================================
 
-INSERT INTO global_songs (title, artist, standard_key, links)
+INSERT INTO songs (title, artist, standard_key, links)
 VALUES
 
     -- Rock -------------------------------------------------------------------

@@ -21,7 +21,7 @@ import {
   type UsePlaylistDetailOptions,
 } from '@/hooks/usePlaylistDetail'
 import type { SongPickerActions } from '@/hooks/useSongPicker'
-import type { GlobalSong, Playlist, PlaylistSong, Repertoire } from '@/types/database'
+import type { Song, Playlist, PlaylistSong, Repertoire } from '@/types/database'
 
 afterEach(cleanup)
 afterEach(() => vi.unstubAllGlobals())
@@ -304,7 +304,7 @@ describe('usePlaylistDetail (RH-71)', () => {
     const { result, onRefresh } = setup({ pickerActions })
 
     await act(async () => {
-      await result.current.picker.addCatalogSong({ id: 's3' } as GlobalSong)
+      await result.current.picker.addCatalogSong({ id: 's3' } as Song)
     })
 
     expect(pickerActions.addSongToPlaylist).toHaveBeenCalledWith('pl-1', 's3')

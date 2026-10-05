@@ -23,8 +23,8 @@ export interface BandMemberRoleRow {
   role: 'admin' | 'member'
 }
 
-/** `SELECT id, links FROM global_songs WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))`, and the `RETURNING id, links` of the matching insert. */
-export interface GlobalSongLinksRow {
+/** `SELECT id, links FROM songs WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))`, and the `RETURNING id, links` of the matching insert. */
+export interface SongLinksRow {
   id: string
   links: SongLink[]
 }
@@ -56,7 +56,7 @@ export interface PlaylistSongIdRow {
   song_id: string
 }
 
-/** `SELECT ps.song_id, ps.position, s.links FROM playlist_songs ps JOIN global_songs s ...` */
+/** `SELECT ps.song_id, ps.position, s.links FROM playlist_songs ps JOIN songs s ...` */
 export interface PlaylistSongLinksRow {
   song_id: string
   position: number

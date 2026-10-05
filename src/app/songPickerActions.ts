@@ -5,7 +5,7 @@ import {
 import {
   addSongAction,
   createAndAddSongAction,
-  searchGlobalSongsAction,
+  searchSongsAction,
 } from '@/app/actions/repertoire'
 import type { SongPickerActions } from '@/hooks/useSongPicker'
 
@@ -20,7 +20,7 @@ import type { SongPickerActions } from '@/hooks/useSongPicker'
  * imports it and nothing has to be carried across the import-direction line.
  */
 export const SONG_PICKER_ACTIONS: SongPickerActions = {
-  searchCatalog: searchGlobalSongsAction,
+  searchCatalog: searchSongsAction,
   addToRepertoire: addSongAction,
   createAndAddSong: createAndAddSongAction,
   addSongToPlaylist: addSongToPlaylistAction,

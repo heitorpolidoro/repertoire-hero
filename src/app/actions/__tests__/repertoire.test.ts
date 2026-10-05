@@ -26,7 +26,7 @@ vi.mock('@/lib/songs', () => ({
   updateSongStatus: vi.fn(),
   updateSongTags: vi.fn(),
   removeSongFromRepertoire: vi.fn(),
-  searchGlobalSongs: vi.fn(),
+  searchSongs: vi.fn(),
   getSongEntry: vi.fn(),
   updateSong: vi.fn(),
   createAndAddSong: vi.fn(),
@@ -47,7 +47,7 @@ import {
   updateSongStatusAction,
   updateSongTagsAction,
   removeSongAction,
-  searchGlobalSongsAction,
+  searchSongsAction,
   getSongEntryAction,
   updateSongAction,
   createAndAddSongAction,
@@ -66,7 +66,7 @@ import {
   updateSongStatus,
   updateSongTags,
   removeSongFromRepertoire,
-  searchGlobalSongs,
+  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
@@ -226,11 +226,11 @@ describe('owner resolution', () => {
   })
 
   it('resolves a session for the ownerless catalog actions too', async () => {
-    vi.mocked(searchGlobalSongs).mockResolvedValue(['hit'] as never)
+    vi.mocked(searchSongs).mockResolvedValue(['hit'] as never)
     vi.mocked(fetchUrlTitle).mockResolvedValue('Some Title')
 
-    await expect(searchGlobalSongsAction('nirvana')).resolves.toEqual(['hit'])
-    expect(searchGlobalSongs).toHaveBeenCalledWith('nirvana')
+    await expect(searchSongsAction('nirvana')).resolves.toEqual(['hit'])
+    expect(searchSongs).toHaveBeenCalledWith('nirvana')
 
     await expect(fetchUrlTitleAction('https://example.com')).resolves.toBe('Some Title')
     expect(fetchUrlTitle).toHaveBeenCalledWith('https://example.com')

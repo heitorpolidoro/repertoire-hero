@@ -38,13 +38,13 @@ let failRepertoireUpdate = false
 let playlistsReturnBandId = false
 
 /**
- * The two `SELECT ... FROM global_songs` reads the mocked layer has to tell
+ * The two `SELECT ... FROM songs` reads the mocked layer has to tell
  * apart. `resolveOrCreateSongIdentity` looks a song up and must miss, so the
  * insert path runs; `updateSong` reads the row it may fill `FOR UPDATE` and
  * must hit, with every column empty so the fill/refuse split (RH-97) leaves
  * the repertoire UPDATE as the only failure under test.
  */
-const globalSongsSelect = (normalizedSql: string) => {
+const songsSelect = (normalizedSql: string) => {
   if (!normalizedSql.includes('for update')) return { rowCount: 0, rows: [] }
   return {
     rowCount: 1,
@@ -123,15 +123,15 @@ beforeEach(() => {
       return { rowCount: mockData ? 1 : 0, rows: mockData ? [mockData] : [] }
     }
 
-    // 6. global_songs lookup (see `globalSongsSelect` — the FOR UPDATE read
+    // 6. songs lookup (see `songsSelect` — the FOR UPDATE read
     // RH-97 added is dispatched there, so this function's complexity, pinned
     // by the F20 ratchet at its current worst, does not grow).
-    if (normalizedSql.includes('from global_songs')) {
-      return globalSongsSelect(normalizedSql)
+    if (normalizedSql.includes('from songs')) {
+      return songsSelect(normalizedSql)
     }
 
-    // 7. insert into global_songs
-    if (normalizedSql.includes('insert into global_songs')) {
+    // 7. insert into songs
+    if (normalizedSql.includes('insert into songs')) {
       if (mockInsertError) {
         throw mockInsertError
       }
@@ -146,8 +146,8 @@ beforeEach(() => {
       return { rowCount: mockData ? mockData.length : 0, rows: mockData || [] }
     }
 
-    // 9. update global_songs
-    if (normalizedSql.includes('update global_songs')) {
+    // 9. update songs
+    if (normalizedSql.includes('update songs')) {
       return { rowCount: 1, rows: [{ id: 'global-song-id' }] }
     }
 
@@ -203,7 +203,7 @@ describe('Data Layer Edge Cases', () => {
       await expect(removeSongFromRepertoire({ userId: 'mock-user-id' }, '1')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
-    it('updateSong throws if repertoire update fails but global_songs update succeeds', async () => {
+    it('updateSong throws if repertoire update fails but songs update succeeds', async () => {
       mockData = []
       failRepertoireUpdate = true
 

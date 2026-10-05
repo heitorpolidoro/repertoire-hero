@@ -12,7 +12,7 @@ import {
   withoutPickerRowError,
   type SongPickerController,
 } from '@/lib/songPicker'
-import type { GlobalSong, Playlist, PlaylistSong, Repertoire, SongLink } from '@/types/database'
+import type { Song, Playlist, PlaylistSong, Repertoire, SongLink } from '@/types/database'
 
 /** How long the picker waits after the last keystroke before it searches. */
 const PICKER_DEBOUNCE_MS = 500
@@ -36,7 +36,7 @@ export interface PickerSongInput {
  * it directly and no injection is needed.
  */
 export interface SongPickerActions {
-  searchCatalog: (query: string) => Promise<GlobalSong[]>
+  searchCatalog: (query: string) => Promise<Song[]>
   addToRepertoire: (songId: string) => Promise<Repertoire>
   createAndAddSong: (data: PickerSongInput) => Promise<Repertoire>
   addSongToPlaylist: (playlistId: string, songId: string) => Promise<void>
@@ -77,7 +77,7 @@ export function useSongPicker({
   afterAdd,
 }: UseSongPickerOptions): SongPickerController {
   const [query, setQuery] = useState('')
-  const [catalogResults, setCatalogResults] = useState<GlobalSong[]>([])
+  const [catalogResults, setCatalogResults] = useState<Song[]>([])
   const [spotifyResults, setSpotifyResults] = useState<SpotifyTrack[]>([])
   const [loading, setLoading] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
@@ -98,7 +98,7 @@ export function useSongPicker({
       setLoading(true)
       try {
         const [catalog, spotify] = await Promise.all([
-          actions.searchCatalog(next).catch(() => [] as GlobalSong[]),
+          actions.searchCatalog(next).catch(() => [] as Song[]),
           searchSpotify(next).catch(() => [] as SpotifyTrack[]),
         ])
         // A slower earlier query must not overwrite the answer to this one.
@@ -173,7 +173,7 @@ export function useSongPicker({
   )
 
   const addCatalogSong = useCallback(
-    async (song: GlobalSong) => {
+    async (song: Song) => {
       setAddingId(song.id)
       setRowErrors((prev) => withoutPickerRowError(prev, song.id))
       try {

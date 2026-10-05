@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { GlobalSong, SongLink } from "@/types/database";
+import type { Song, SongLink } from "@/types/database";
 import {
   catalogDraftFromSong,
   changedCatalogFields,
@@ -16,11 +16,11 @@ import { SongLinksEditor } from "./SongLinksEditor";
  * `Record<string, unknown>` parameter (see the action's signature).
  *
  * Every catalog column is optional because only the ones the user actually
- * changed are sent (RH-97): `parseGlobalSongEditPayload` accepts any non-empty
+ * changed are sent (RH-97): `parseSongEditPayload` accepts any non-empty
  * subset, and a queue row naming one column is what RH-107's one-row-per-field
  * model will want.
  */
-export type GlobalSongCorrectionInput = {
+export type SongCorrectionInput = {
   title?: string;
   artist?: string;
   album?: string | null;
@@ -32,7 +32,7 @@ export type GlobalSongCorrectionInput = {
 };
 
 export interface CorrectionModalProps {
-  song: GlobalSong;
+  song: Song;
   /**
    * Values to open with instead of the catalog's own — the proposals a save was
    * refused on, so nothing has to be retyped. They still count as changes,
@@ -44,7 +44,7 @@ export interface CorrectionModalProps {
   onClose: () => void;
   onSuccess: () => void;
   /** The injected global-song-edit Server Action — `src/components` never imports `@/app` (F21). */
-  onSubmitCorrection: (songId: string, data: GlobalSongCorrectionInput) => Promise<unknown>;
+  onSubmitCorrection: (songId: string, data: SongCorrectionInput) => Promise<unknown>;
 }
 
 const INPUT_CLASS =

@@ -47,11 +47,11 @@ const NOOP_ACTIONS = {
   addSong: async () => {
     throw new Error('not called in a first render')
   },
-  searchGlobalSongs: async () => [],
+  searchSongs: async () => [],
   updateSong: async () => {},
   updateSongStatus: async () => {},
   updateSongTags: async () => {},
-  submitGlobalSongEdit: async () => {},
+  submitSongEdit: async () => {},
 } as unknown as RepertoireDashboardActions
 
 describe('RepertoireDashboard first render (RH-77 hydration guard)', () => {

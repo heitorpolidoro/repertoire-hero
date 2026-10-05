@@ -5,7 +5,7 @@ import { logger } from '@/lib/logger'
 import { resolveSpotifyRouteAccess, resolveOwnedPlaylist } from '@/lib/spotifyRouteAuth'
 import {
   fetchAllSpotifyTracks,
-  findOrCreateGlobalSong,
+  findOrCreateSong,
   ensureInRepertoire,
   buildPlaylistSongsInsert,
 } from '@/lib/spotifyPlaylistSync'
@@ -73,7 +73,7 @@ export async function POST(
       const seenSpotifySongs = new Set<string>()
 
       for (const track of spotifyTracks) {
-        const songId = await findOrCreateGlobalSong(track)
+        const songId = await findOrCreateSong(track)
         await ensureInRepertoire(songId, owner)
         if (!seenSpotifySongs.has(songId)) {
           seenSpotifySongs.add(songId)
@@ -112,7 +112,7 @@ export async function POST(
       const playlistSongsRes = await query<PlaylistSongLinksRow>(`
         SELECT ps.song_id, ps.position, s.links
         FROM playlist_songs ps
-        JOIN global_songs s ON ps.song_id = s.id
+        JOIN songs s ON ps.song_id = s.id
         WHERE ps.playlist_id = $1
         ORDER BY ps.position ASC
       `, [localPlaylistId])

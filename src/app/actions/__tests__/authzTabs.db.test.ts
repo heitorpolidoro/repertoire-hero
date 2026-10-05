@@ -110,7 +110,7 @@ describe.skipIf(!RUN_DB_TESTS)('tab actions are band-scoped (real database)', ()
     for (const user of [userAId, userCId]) {
       if (user) await deleteTestUser(user)
     }
-    if (songId) await query('DELETE FROM global_songs WHERE id = $1', [songId])
+    if (songId) await query('DELETE FROM songs WHERE id = $1', [songId])
   })
 
   describe('a non-member is refused on every tab action', () => {

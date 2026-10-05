@@ -52,7 +52,7 @@ describe.skipIf(!RUN_DB_TESTS)('band status is authored, not aggregated (real da
 
   const createSong = async (title: string): Promise<string> => {
     const res = await query<{ id: string }>(
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [title, 'RH-96 Artist'],
     )
     createdSongIds.push(res.rows[0].id)
@@ -76,7 +76,7 @@ describe.skipIf(!RUN_DB_TESTS)('band status is authored, not aggregated (real da
       if (user) await deleteTestUser(user)
     }
     for (const song of createdSongIds) {
-      await query('DELETE FROM global_songs WHERE id = $1', [song])
+      await query('DELETE FROM songs WHERE id = $1', [song])
     }
   })
 

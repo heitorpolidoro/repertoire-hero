@@ -2,13 +2,13 @@ import { getSession } from "@/lib/auth-session";
 import {
   createAndAddSongAction,
   addSongAction,
-  searchGlobalSongsAction,
+  searchSongsAction,
   updateSongAction,
   updateSongStatusAction,
   updateSongTagsAction,
 } from "@/app/actions/repertoire";
 import { getBandRoleAction } from "@/app/actions/bands";
-import { submitGlobalSongEditAction } from "@/app/actions/moderation";
+import { submitSongEditAction } from "@/app/actions/moderation";
 import LandingPage from "@/components/landing/LandingPage";
 import RepertoireDashboard, {
   type RepertoireDashboardActions,
@@ -22,11 +22,11 @@ import RepertoireDashboard, {
 const REPERTOIRE_DASHBOARD_ACTIONS: RepertoireDashboardActions = {
   createAndAddSong: createAndAddSongAction,
   addSong: addSongAction,
-  searchGlobalSongs: searchGlobalSongsAction,
+  searchSongs: searchSongsAction,
   updateSong: updateSongAction,
   updateSongStatus: updateSongStatusAction,
   updateSongTags: updateSongTagsAction,
-  submitGlobalSongEdit: submitGlobalSongEditAction,
+  submitSongEdit: submitSongEditAction,
   getBandRole: getBandRoleAction,
 };
 

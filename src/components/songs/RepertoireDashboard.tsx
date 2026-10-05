@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import type { SongStatus, Repertoire, GlobalSong } from "@/types/database";
+import type { SongStatus, Repertoire, Song } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { useBandContextStore, type BandContext } from "@/store/bandContextStore";
 import { useHydrated } from "@/hooks/useHydrated";
@@ -24,7 +24,7 @@ import { StatusNotes } from "@/components/ui/StatusNotes";
  */
 export interface RepertoireDashboardActions extends SongFormActions {
   addSong: (songId: string) => Promise<unknown>;
-  searchGlobalSongs: (query: string) => Promise<GlobalSong[]>;
+  searchSongs: (query: string) => Promise<Song[]>;
   /** The caller's role in the active band (RH-96); see `useBandRole`. */
   getBandRole: (bandId: string) => Promise<BandRole>;
 }
@@ -79,7 +79,7 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
       updateSong: actions.updateSong,
       updateSongStatus: actions.updateSongStatus,
       updateSongTags: actions.updateSongTags,
-      submitGlobalSongEdit: actions.submitGlobalSongEdit,
+      submitSongEdit: actions.submitSongEdit,
     }),
     [actions],
   );
@@ -100,7 +100,7 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
   >({});
 
   // Catalog search state
-  const [catalogResults, setCatalogResults] = useState<GlobalSong[]>([]);
+  const [catalogResults, setCatalogResults] = useState<Song[]>([]);
   const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
   const [catalogRowErrors, setCatalogRowErrors] = useState<
     Record<string, string>
@@ -136,7 +136,7 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
 
     try {
       const [catalog, spotify] = await Promise.all([
-        actions.searchGlobalSongs(query).catch(() => [] as GlobalSong[]),
+        actions.searchSongs(query).catch(() => [] as Song[]),
         searchSpotify(query).catch(() => [] as SpotifyTrack[]),
       ]);
       // Discard if a newer query already fired
@@ -217,7 +217,7 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
   const closeModal = () => setModal({ open: false });
   const handleSuccess = () => setModal({ open: false });
 
-  const handleAddFromCatalog = async (song: GlobalSong) => {
+  const handleAddFromCatalog = async (song: Song) => {
     setAddingCatalogId(song.id);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setCatalogRowErrors(({ [song.id]: _, ...rest }) => rest);

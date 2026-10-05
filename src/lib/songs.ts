@@ -1,22 +1,22 @@
 import { query, withTransaction } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
-import { submitGlobalSongEdit } from '@/lib/moderation'
+import { submitSongEdit } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
 import { splitCatalogUpdate } from '@/lib/catalogFields'
 import type { RepertoireAccessRow } from '@/lib/dbRows'
-import type { GlobalSong, Repertoire, SongLink, SongStatus, SongUpdateResult } from '@/types/database'
+import type { Song, Repertoire, SongLink, SongStatus, SongUpdateResult } from '@/types/database'
 
 export type RepertoireOwner = { userId: string } | { bandId: string }
 
 /**
- * The `song` column every repertoire read returns: the joined `global_songs`
- * row as JSON. Spelled once because five queries embed it — five copies is
- * what kept this file pressed against its `max-lines` ceiling (F20).
+ * The `song` column every repertoire read returns: the joined `songs` row as
+ * JSON. Spelled once because five queries embed it — five copies is what kept
+ * this file pressed against its `max-lines` ceiling (F20).
  */
 const SONG_JSON = `json_build_object(
-             'id', s.id, 'contributor_id', s.contributor_id, 'title', s.title,
-             'artist', s.artist, 'album', s.album, 'standard_key', s.standard_key,
+             'id', s.id, 'title', s.title, 'artist', s.artist,
+             'album', s.album, 'standard_key', s.standard_key,
              'cover_url', s.cover_url, 'duration_seconds', s.duration_seconds,
              'links', s.links, 'created_at', s.created_at
            ) as song`
@@ -53,7 +53,7 @@ export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[
     SELECT r.*,
            ${SONG_JSON}
     FROM repertoire r
-    JOIN global_songs s ON r.song_id = s.id
+    JOIN songs s ON r.song_id = s.id
     WHERE ${isBand ? 'r.band_id = $1' : 'r.user_id = $1'}
     ORDER BY r.id DESC
   `
@@ -90,7 +90,7 @@ export async function addSongToRepertoire(
     SELECT i.*,
            ${SONG_JSON}
     FROM inserted i
-    JOIN global_songs s ON i.song_id = s.id
+    JOIN songs s ON i.song_id = s.id
   `
   try {
     const res = await query<Repertoire>(sql, [songId, userId, bandId])
@@ -177,17 +177,17 @@ export async function removeSongFromRepertoire(owner: RepertoireOwner, repertoir
   }
 }
 
-export async function searchGlobalSongs(queryStr: string): Promise<GlobalSong[]> {
+export async function searchSongs(queryStr: string): Promise<Song[]> {
   const trimmed = queryStr.trim()
   if (!trimmed) return []
   const sql = `
-    SELECT * FROM global_songs
+    SELECT * FROM songs
     WHERE title ILIKE $1 OR artist ILIKE $1
     ORDER BY title ASC
     LIMIT 20
   `
   try {
-    const res = await query<GlobalSong>(sql, [`%${trimmed}%`])
+    const res = await query<Song>(sql, [`%${trimmed}%`])
     return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -203,7 +203,7 @@ export async function getSongEntry(owner: RepertoireOwner, repertoireId: string)
     SELECT r.*,
            ${SONG_JSON}
     FROM repertoire r
-    JOIN global_songs s ON r.song_id = s.id
+    JOIN songs s ON r.song_id = s.id
     WHERE r.id = $1 AND ${isBand ? 'r.band_id = $2' : 'r.user_id = $2'}
   `
   try {
@@ -250,8 +250,8 @@ export async function updateSong(
       // `FOR UPDATE`, because the fill-or-refuse split below is a
       // read-modify-write on a row every owner of this song shares: a
       // concurrent save must queue behind it rather than read the same blank.
-      const songRes = await client.query<GlobalSong>(
-        'SELECT * FROM global_songs WHERE id = $1 FOR UPDATE',
+      const songRes = await client.query<Song>(
+        'SELECT * FROM songs WHERE id = $1 FOR UPDATE',
         [entry.song_id],
       )
       if (songRes.rowCount === 0) throw new Error('Song entry not found')
@@ -275,7 +275,7 @@ export async function updateSong(
         // Column names come from `CATALOG_COLUMNS`, never from the caller.
         const setList = fill.map((f, i) => `${f.column} = $${i + 1}${f.cast}`).join(', ')
         await client.query<never>(
-          `UPDATE global_songs SET ${setList}, updated_at = now() WHERE id = $${fill.length + 1}`,
+          `UPDATE songs SET ${setList}, updated_at = now() WHERE id = $${fill.length + 1}`,
           [...fill.map((f) => f.value), entry.song_id],
         )
       }
@@ -322,7 +322,7 @@ export async function createAndAddSong(
     SELECT i.*,
            ${SONG_JSON}
     FROM inserted i
-    JOIN global_songs s ON i.song_id = s.id
+    JOIN songs s ON i.song_id = s.id
   `
 
   try {
@@ -339,7 +339,6 @@ export async function createAndAddSong(
           cover_url: data.cover_url,
           duration_seconds: data.duration_seconds,
           links: data.links,
-          contributorId: userId,
         },
         client,
       )
@@ -385,7 +384,7 @@ export async function updateLyrics(
 }
 
 /**
- * Applies a link edit to the shared `global_songs` catalog on behalf of a user
+ * Applies a link edit to the shared `songs` catalog on behalf of a user
  * who already proved a claim on a repertoire entry for the song.
  *
  * Additive changes land directly (a musician adding a chords link mid-rehearsal
@@ -400,7 +399,7 @@ export async function applySongLinkUpdate(
 ): Promise<{ success: true; pending?: true }> {
   let songRes
   try {
-    songRes = await query<{ links: SongLink[] | null }>('SELECT links FROM global_songs WHERE id = $1', [songId])
+    songRes = await query<{ links: SongLink[] | null }>('SELECT links FROM songs WHERE id = $1', [songId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update song links', err, { songId })
@@ -425,12 +424,12 @@ export async function applySongLinkUpdate(
   const isAdditive = currentLinks.every((l) => submittedUrls.has(l.url))
 
   if (!isAdditive) {
-    await submitGlobalSongEdit(userId, songId, { links: processedLinks })
+    await submitSongEdit(userId, songId, { links: processedLinks })
     return { success: true, pending: true }
   }
 
   try {
-    await query<never>('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2', [
+    await query<never>('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [
       JSON.stringify(processedLinks),
       songId,
     ])
@@ -456,7 +455,7 @@ export async function getPersonalEntryForSong(
     SELECT r.*,
            ${SONG_JSON}
     FROM repertoire r
-    JOIN global_songs s ON r.song_id = s.id
+    JOIN songs s ON r.song_id = s.id
     WHERE r.song_id = $1 AND r.user_id = $2
   `
   try {

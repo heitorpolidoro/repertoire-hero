@@ -26,7 +26,7 @@ export async function countRows(sql: string, params: unknown[]): Promise<number>
 /** Inserts a global song with the given links and returns its id. */
 export async function createTestSong(title: string, links: unknown[] = []): Promise<string> {
   const res = await query(
-    'INSERT INTO global_songs (title, artist, links) VALUES ($1, $2, $3::jsonb) RETURNING id',
+    'INSERT INTO songs (title, artist, links) VALUES ($1, $2, $3::jsonb) RETURNING id',
     [title, 'RH-34 Artist', JSON.stringify(links)],
   )
   return res.rows[0].id as string

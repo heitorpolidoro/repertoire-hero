@@ -10,7 +10,7 @@ export interface SongLink {
   url: string;
 }
 
-export interface GlobalSong {
+export interface Song {
   id: string;
   title: string;
   artist: string;
@@ -23,7 +23,7 @@ export interface GlobalSong {
 }
 
 /**
- * The shared `global_songs` columns a direct song edit can be refused on
+ * The shared `songs` columns a direct song edit can be refused on
  * (RH-97). `standard_key` is deliberately absent: the song form's key input
  * writes `repertoire.personal_key`, which always succeeds, so reporting a
  * refused catalog key would be a false alarm.
@@ -65,7 +65,7 @@ export interface Repertoire {
   tags: string[];
   last_practiced: string | null;
   lyrics: string | null;
-  song?: GlobalSong;
+  song?: Song;
 }
 
 export interface Profile {
@@ -80,7 +80,7 @@ export interface Profile {
 
 export type EditStatus = "pending" | "approved" | "rejected";
 
-export interface GlobalSongEdit {
+export interface SongEdit {
   id: string;
   song_id: string;
   requested_by: string;
@@ -90,7 +90,7 @@ export interface GlobalSongEdit {
   rejection_reason: string | null;
   created_at: string;
   updated_at: string;
-  song?: GlobalSong;
+  song?: Song;
   requester?: Profile;
 }
 
@@ -147,7 +147,7 @@ export interface PlaylistSong {
   playlist_id: string;
   song_id: string;
   position: number;
-  song?: GlobalSong;
+  song?: Song;
 }
 
 export interface SpotifyPlaylist {

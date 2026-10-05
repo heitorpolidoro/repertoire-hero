@@ -8,7 +8,7 @@ import {
   updateSongStatus,
   updateSongTags,
   removeSongFromRepertoire,
-  searchGlobalSongs,
+  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
@@ -79,9 +79,9 @@ export async function removeSongAction(repertoireId: string, bandId?: string | n
   return result
 }
 
-export async function searchGlobalSongsAction(queryStr: string) {
+export async function searchSongsAction(queryStr: string) {
   await getRequiredUserId()
-  return searchGlobalSongs(queryStr)
+  return searchSongs(queryStr)
 }
 
 export async function getSongEntryAction(repertoireId: string, bandId?: string | null) {
@@ -145,10 +145,10 @@ export async function fetchLyricsAction(artist: string, title: string): Promise<
 }
 
 /**
- * Writes to the shared `global_songs.links` catalog on behalf of a repertoire
- * owner. The entry is what resolves the song id and what authorizes the caller,
- * so `assertRepertoireAccess` stays here; the additive-vs-moderated decision
- * and both statements live in `applySongLinkUpdate`.
+ * Writes to the shared `songs.links` catalog on behalf of a repertoire owner.
+ * The entry is what resolves the song id and what authorizes the caller, so
+ * `assertRepertoireAccess` stays here; the additive-vs-moderated decision and
+ * both statements live in `applySongLinkUpdate`.
  */
 export async function updateSongLinksAction(
   repertoireId: string,

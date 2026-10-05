@@ -6,7 +6,7 @@
  * old implementation passed every value into the UPDATE and let a `CASE WHEN`
  * drop it, which is exactly the step a mock would skip.
  *
- * Each test builds its own `global_songs` row so the fixtures cannot interfere:
+ * Each test builds its own `songs` row so the fixtures cannot interfere:
  * the whole point of the feature is that a populated column behaves differently
  * from an empty one.
  */
@@ -45,12 +45,12 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       standard_key: null,
       cover_url: null,
       duration_seconds: null,
-      // `global_songs.links` is NOT NULL DEFAULT '[]', so "empty" means `[]`.
+      // `songs.links` is NOT NULL DEFAULT '[]', so "empty" means `[]`.
       links: [] as SongLink[],
       ...columns,
     }
     const res = await query<{ id: string }>(
-      `INSERT INTO global_songs (title, artist, album, standard_key, cover_url, duration_seconds, links)
+      `INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds, links)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
       [
         row.title,
@@ -76,7 +76,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       duration_seconds: number | null
       links: SongLink[]
     }>(
-      'SELECT title, artist, album, standard_key, cover_url, duration_seconds, links FROM global_songs WHERE id = $1',
+      'SELECT title, artist, album, standard_key, cover_url, duration_seconds, links FROM songs WHERE id = $1',
       [songId],
     )
     return res.rows[0]
@@ -118,7 +118,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
   afterAll(async () => {
     if (userId) await deleteTestUser(userId)
     for (const songId of createdSongIds) {
-      await query('DELETE FROM global_songs WHERE id = $1', [songId])
+      await query('DELETE FROM songs WHERE id = $1', [songId])
     }
   })
 

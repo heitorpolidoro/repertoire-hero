@@ -64,7 +64,7 @@ function makeActions(): { [K in keyof SongFormActions]: ReturnType<typeof vi.fn>
     updateSong: vi.fn().mockResolvedValue({ refused: [] }),
     updateSongStatus: vi.fn().mockResolvedValue(undefined),
     updateSongTags: vi.fn().mockResolvedValue(undefined),
-    submitGlobalSongEdit: vi.fn().mockResolvedValue({}),
+    submitSongEdit: vi.fn().mockResolvedValue({}),
   }
 }
 
@@ -151,15 +151,15 @@ describe('SongForm calls its injected actions (RH-47)', () => {
     expect(onSuccess).not.toHaveBeenCalled()
   })
 
-  it('passes the injected submitGlobalSongEdit down to the correction modal', async () => {
+  it('passes the injected submitSongEdit down to the correction modal', async () => {
     const { actions } = setup(ENTRY)
 
     fireEvent.click(screen.getByRole('button', { name: /Correct Global Info/ }))
     fireEvent.change(screen.getByLabelText('Artist'), { target: { value: 'Cold Play' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
 
-    await waitFor(() => expect(actions.submitGlobalSongEdit).toHaveBeenCalledTimes(1))
-    expect(actions.submitGlobalSongEdit).toHaveBeenCalledWith('song-1', {
+    await waitFor(() => expect(actions.submitSongEdit).toHaveBeenCalledTimes(1))
+    expect(actions.submitSongEdit).toHaveBeenCalledWith('song-1', {
       artist: 'Cold Play',
       reason: null,
     })
@@ -251,8 +251,8 @@ describe('"Suggest a correction" opens the correction modal (ER7)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
 
-    await waitFor(() => expect(actions.submitGlobalSongEdit).toHaveBeenCalledTimes(1))
-    expect(actions.submitGlobalSongEdit).toHaveBeenCalledWith('song-1', {
+    await waitFor(() => expect(actions.submitSongEdit).toHaveBeenCalledTimes(1))
+    expect(actions.submitSongEdit).toHaveBeenCalledWith('song-1', {
       title: 'Yellow (Live)',
       reason: null,
     })
@@ -269,7 +269,7 @@ describe('"Suggest a correction" opens the correction modal (ER7)', () => {
         screen.getByText('Change at least one value to suggest a correction.'),
       ).toBeDefined(),
     )
-    expect(actions.submitGlobalSongEdit).not.toHaveBeenCalled()
+    expect(actions.submitSongEdit).not.toHaveBeenCalled()
   })
 })
 
@@ -325,8 +325,8 @@ describe('a refused save is reported, not swallowed (ER9)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
 
-    await waitFor(() => expect(actions.submitGlobalSongEdit).toHaveBeenCalledTimes(1))
-    expect(actions.submitGlobalSongEdit).toHaveBeenCalledWith('song-1', {
+    await waitFor(() => expect(actions.submitSongEdit).toHaveBeenCalledTimes(1))
+    expect(actions.submitSongEdit).toHaveBeenCalledWith('song-1', {
       artist: 'Micheal Jackson',
       links: REFUSED[1].proposed,
       reason: null,

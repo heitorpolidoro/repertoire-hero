@@ -2,30 +2,30 @@
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
-  submitGlobalSongEdit,
-  getPendingGlobalSongEdits,
-  reviewGlobalSongEdit,
+  submitSongEdit,
+  getPendingSongEdits,
+  reviewSongEdit,
 } from '@/lib/moderation'
-import type { GlobalSongEdit } from '@/types/database'
+import type { SongEdit } from '@/types/database'
 
-export async function submitGlobalSongEditAction(
+export async function submitSongEditAction(
   songId: string,
   data: Record<string, unknown>
-): Promise<GlobalSongEdit> {
+): Promise<SongEdit> {
   const userId = await getRequiredUserId()
-  return submitGlobalSongEdit(userId, songId, data)
+  return submitSongEdit(userId, songId, data)
 }
 
-export async function getPendingGlobalSongEditsAction(): Promise<GlobalSongEdit[]> {
+export async function getPendingSongEditsAction(): Promise<SongEdit[]> {
   const adminUserId = await getRequiredUserId()
-  return getPendingGlobalSongEdits(adminUserId)
+  return getPendingSongEdits(adminUserId)
 }
 
-export async function reviewGlobalSongEditAction(
+export async function reviewSongEditAction(
   editId: string,
   action: 'approve' | 'reject',
   reason?: string
-): Promise<GlobalSongEdit> {
+): Promise<SongEdit> {
   const adminUserId = await getRequiredUserId()
-  return reviewGlobalSongEdit(adminUserId, editId, action, reason)
+  return reviewSongEdit(adminUserId, editId, action, reason)
 }

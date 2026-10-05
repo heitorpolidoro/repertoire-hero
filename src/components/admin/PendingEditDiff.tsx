@@ -1,7 +1,7 @@
-import type { GlobalSongEdit } from "@/types/database";
+import type { SongEdit } from "@/types/database";
 
 interface PendingEditDiffProps {
-  song: GlobalSongEdit["song"];
+  song: SongEdit["song"];
   proposed: Record<string, unknown>;
 }
 

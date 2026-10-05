@@ -1,8 +1,8 @@
 import { PendingEditDiff } from "@/components/admin/PendingEditDiff";
-import type { GlobalSongEdit } from "@/types/database";
+import type { SongEdit } from "@/types/database";
 
 interface PendingEditCardProps {
-  edit: GlobalSongEdit;
+  edit: SongEdit;
   isProcessing: boolean;
   isRejecting: boolean;
   rejectionReason: string;

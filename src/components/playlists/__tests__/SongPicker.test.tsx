@@ -21,11 +21,11 @@ import { SongPicker } from '@/components/playlists/SongPicker'
 import { SongPickerToggle } from '@/components/playlists/SongPickerToggle'
 import type { SongPickerController } from '@/lib/songPicker'
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { GlobalSong } from '@/types/database'
+import type { Song } from '@/types/database'
 
 afterEach(cleanup)
 
-function song(id: string, title: string): GlobalSong {
+function song(id: string, title: string): Song {
   return {
     id,
     title,

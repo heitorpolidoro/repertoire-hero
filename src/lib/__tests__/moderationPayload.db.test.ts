@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { query } from '@/lib/db'
-import { submitGlobalSongEdit, reviewGlobalSongEdit } from '@/lib/moderation'
+import { submitSongEdit, reviewSongEdit } from '@/lib/moderation'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const BAD_DURATION = 'Invalid global song edit: duration_seconds must be a non-negative integer or null'
@@ -44,7 +44,7 @@ describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real databa
     await query('UPDATE profiles SET is_system_admin = true WHERE id = $1', [adminUserId])
 
     const song = await one(
-      'INSERT INTO global_songs (title, artist, duration_seconds) VALUES ($1, $2, 217) RETURNING id',
+      'INSERT INTO songs (title, artist, duration_seconds) VALUES ($1, $2, 217) RETURNING id',
       [songTitle, 'RH-55 Artist'],
     )
     songId = song.id as string
@@ -55,13 +55,13 @@ describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real databa
     for (const user of [userId, adminUserId]) {
       if (user) await deleteTestUser(user)
     }
-    if (songId) await query('DELETE FROM global_songs WHERE id = $1', [songId])
+    if (songId) await query('DELETE FROM songs WHERE id = $1', [songId])
   })
 
   it('refuses an invalid payload at submission and inserts no edit row', async () => {
     const before = await countEdits()
 
-    await expect(submitGlobalSongEdit(userId, songId, { duration_seconds: 'abc' })).rejects.toThrowError(
+    await expect(submitSongEdit(userId, songId, { duration_seconds: 'abc' })).rejects.toThrowError(
       new Error(BAD_DURATION),
     )
 
@@ -76,11 +76,11 @@ describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real databa
     )
     const editId = edit.id as string
 
-    await expect(reviewGlobalSongEdit(adminUserId, editId, 'approve')).rejects.toThrowError(
+    await expect(reviewSongEdit(adminUserId, editId, 'approve')).rejects.toThrowError(
       new Error(BAD_DURATION),
     )
 
-    const song = await one('SELECT title, duration_seconds FROM global_songs WHERE id = $1', [songId])
+    const song = await one('SELECT title, duration_seconds FROM songs WHERE id = $1', [songId])
     expect(song.title).toBe(songTitle)
     expect(song.duration_seconds).toBe(217)
 

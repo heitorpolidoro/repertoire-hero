@@ -1,8 +1,8 @@
 /**
- * RH-101 — Guardrail: every `UPDATE global_songs` keeps `updated_at` current.
+ * RH-101 — Guardrail: every `UPDATE songs` keeps `updated_at` current.
  *
- * `migrations/0011_add_global_songs_updated_at.sql` gives `global_songs` the
- * `updated_at` column the other four mutable tables already carry, and this
+ * `migrations/0011` gave the catalog the `updated_at` column the other four
+ * mutable tables already carry, and this
  * repository maintains such a column in the writing statement's own `SET` list
  * (`src/lib/bands.ts`, `src/lib/playlists.ts`, `src/lib/spotifyAuth.ts`,
  * `src/lib/moderation.ts`) rather than with a `BEFORE UPDATE` trigger. Triggers
@@ -21,7 +21,7 @@
  * `migrations/`, no `e2e/`, no test file. Three things would otherwise break
  * the guard:
  *   1. `src/lib/__tests__/moderation.test.ts` asserts the bare fragment
- *      `stringContaining('UPDATE global_songs')`, which carries no `WHERE` of
+ *      `stringContaining('UPDATE songs')`, which carries no `WHERE` of
  *      its own — a scan would run past it to an unrelated later `WHERE` and
  *      report a false violation;
  *   2. a comment in that same file names the statement in prose;
@@ -30,8 +30,20 @@
  *      satisfied by the guard matching itself.
  *
  * Comments are stripped before matching, so `src/lib/catalogFields.ts`'s doc
- * comment ("One column the `UPDATE global_songs` SET list may carry") is prose,
+ * comment ("One column the `UPDATE songs` SET list may carry") is prose,
  * not a statement, and is not counted.
+ *
+ * WHY THE PATTERN STILL ONLY MATCHES THE CATALOG. RH-121 renamed the catalog
+ * table to `songs`, dropping the `global_` prefix it carried since
+ * `0001_initial_schema.sql`. That shortened the pattern to a string three
+ * sibling tables contain as a suffix — `playlist_songs`, and the `user_songs` /
+ * `band_songs` the restructuring plan will add. `UPDATE\s+songs\b` cannot
+ * match any of them: the whitespace run has to be followed immediately by
+ * `songs`, and in `UPDATE playlist_songs` the next character after it is `p`.
+ * The trailing `\b` closes the other end, so a future `songs_archive` is not
+ * matched either. Both halves are pinned by detector cases below, because the
+ * failure they guard against is silent: a false positive here would be read as
+ * a real stale-timestamp violation in a table that has no such rule.
  */
 
 import fs from 'fs'
@@ -42,7 +54,7 @@ import { stripComments } from './test-helpers'
 const REPO_ROOT = path.resolve(__dirname, '../../..')
 
 /**
- * The exact number of `UPDATE global_songs` statements production source is
+ * The exact number of `UPDATE songs` statements production source is
  * expected to hold: two in `src/lib/songs.ts`, one in
  * `src/lib/spotifyPlaylistSync.ts`, one in `src/lib/moderation.ts` and three in
  * `scripts/deduplicate-songs.mjs`. Asserted exactly, not as "at least one": an
@@ -52,7 +64,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../..')
 const EXPECTED_CATALOG_WRITERS = 7
 
 /** Start of a catalog write. Any case, any run of whitespace. */
-const CATALOG_UPDATE = /UPDATE\s+global_songs\b/gi
+const CATALOG_UPDATE = /UPDATE\s+songs\b/gi
 
 /** The clause that keeps the column current. */
 const TIMESTAMP_CLAUSE = /\bupdated_at\s*=\s*now\(\)/i
@@ -61,7 +73,7 @@ const TIMESTAMP_CLAUSE = /\bupdated_at\s*=\s*now\(\)/i
 const WHERE_KEYWORD = /\bWHERE\b/i
 
 /**
- * One `UPDATE global_songs` occurrence that does not set `updated_at` before
+ * One `UPDATE songs` occurrence that does not set `updated_at` before
  * its `WHERE`.
  */
 interface TimestampViolation {
@@ -72,7 +84,7 @@ interface TimestampViolation {
 }
 
 /**
- * Every catalog write in `source` whose text, from `UPDATE global_songs` up to
+ * Every catalog write in `source` whose text, from `UPDATE songs` up to
  * the next `WHERE`, omits `updated_at = now()`. The scan spans lines on
  * purpose: `src/lib/moderation.ts` builds its statement across three, with the
  * clause sitting between the interpolated `SET` list and `WHERE`.
@@ -130,12 +142,14 @@ function relative(full: string): string {
 
 // Built by concatenation so this file's own samples are not mistaken for the
 // real thing by a reader grepping for the statement.
-const UPD = 'UPDATE global_songs SET'
+const UPD = 'UPDATE songs SET'
 const STALE = `${UPD} links = $1 WHERE id = $2`
 const CURRENT = `${UPD} links = $1, updated_at = now() WHERE id = $2`
 const TEMPLATED = `const sql = \`${UPD} \${setClauses.join(\n  ', '\n)}, updated_at = now() WHERE id = $\${n}\``
 const PROSE = `/** One column the ${UPD} list may carry. */`
 const AFTER_WHERE = `${UPD} links = $1 WHERE id = $2 AND updated_at = now()`
+const SIBLING_TABLE = 'UPDATE playlist_songs SET song_id = $1 WHERE id = $2'
+const SUFFIXED_TABLE = 'UPDATE songs_archive SET links = $1 WHERE id = $2'
 
 describe('findStaleCatalogWrites (detector)', () => {
   it('flags a catalog write with no timestamp clause', () => {
@@ -158,6 +172,16 @@ describe('findStaleCatalogWrites (detector)', () => {
   it('flags a clause that sits after the WHERE instead of in the SET list', () => {
     expect(findStaleCatalogWrites(AFTER_WHERE)).toHaveLength(1)
   })
+
+  it('ignores a sibling table whose name merely ends in the catalog name', () => {
+    expect(countCatalogWrites(SIBLING_TABLE)).toBe(0)
+    expect(findStaleCatalogWrites(SIBLING_TABLE)).toEqual([])
+  })
+
+  it('ignores a table whose name merely starts with the catalog name', () => {
+    expect(countCatalogWrites(SUFFIXED_TABLE)).toBe(0)
+    expect(findStaleCatalogWrites(SUFFIXED_TABLE)).toEqual([])
+  })
 })
 
 describe('production catalog writers', () => {
@@ -170,8 +194,8 @@ describe('production catalog writers', () => {
 
     expect(
       violations,
-      `Every \`UPDATE global_songs\` must set \`updated_at = now()\` in its ` +
-        `\`SET\` list: \`global_songs\` has no timestamp trigger, so a ` +
+      `Every \`UPDATE songs\` must set \`updated_at = now()\` in its ` +
+        `\`SET\` list: \`songs\` has no timestamp trigger, so a ` +
         `statement that omits the clause leaves the column stale for every ` +
         `consumer of it (see this file's header). Offending statements:\n` +
         violations.join('\n'),

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type {
-  GlobalSong,
+  Song,
   RefusedCatalogField,
   SongLink,
   SongStatus,
@@ -55,7 +55,7 @@ export interface SongFormActions {
   updateSong: (entry: Repertoire, data: SongFormEditInput) => Promise<SongUpdateResult>;
   updateSongStatus: (repertoireId: string, status: SongStatus) => Promise<void>;
   updateSongTags: (repertoireId: string, tags: string[]) => Promise<void>;
-  submitGlobalSongEdit: CorrectionModalProps["onSubmitCorrection"];
+  submitSongEdit: CorrectionModalProps["onSubmitCorrection"];
 }
 
 interface SongFormProps {
@@ -111,7 +111,7 @@ const extractYoutubeAndOtherLinks = (
 
 const mapFormFields = (
   song: Repertoire,
-  inner: GlobalSong,
+  inner: Song,
   youtubeUrl: string,
   otherLinks: Array<SongLink & { id: string }>,
 ): FormState => {
@@ -180,7 +180,7 @@ type SharedTextColumn = "title" | "artist" | "album" | "cover_url" | "duration_s
  * overwrites nobody), the value itself otherwise.
  */
 const sharedText = (
-  catalog: GlobalSong | null,
+  catalog: Song | null,
   column: SharedTextColumn,
 ): string | null => {
   if (!catalog) return null;
@@ -197,10 +197,10 @@ const sharedText = (
  * its F20 `complexity` ceiling, and the ratchet may only shrink, so a decision
  * that does not need the component's state is made outside it.
  */
-const catalogOf = (song?: Repertoire): GlobalSong | null => song?.song ?? null;
+const catalogOf = (song?: Repertoire): Song | null => song?.song ?? null;
 
 /** The links fieldset follows the catalog rule as a unit, like the `links` column itself. */
-const areLinksLocked = (catalog: GlobalSong | null): boolean =>
+const areLinksLocked = (catalog: Song | null): boolean =>
   catalog !== null && !isCatalogFieldEmpty(catalog, "links");
 
 const editPayload = (form: FormState, links: SongLink[]): SongFormEditInput => ({
@@ -583,7 +583,7 @@ export default function SongForm({
           song={catalog}
           prefill={correction.prefill}
           focusField={correction.focusField}
-          onSubmitCorrection={actions.submitGlobalSongEdit}
+          onSubmitCorrection={actions.submitSongEdit}
           onClose={() => setCorrection(null)}
           onSuccess={() => {
             setToastMessage("Correction request submitted for admin review!");

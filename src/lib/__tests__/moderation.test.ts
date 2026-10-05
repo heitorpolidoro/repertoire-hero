@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
-  submitGlobalSongEdit,
-  getPendingGlobalSongEdits,
-  reviewGlobalSongEdit,
+  submitSongEdit,
+  getPendingSongEdits,
+  reviewSongEdit,
 } from '../moderation'
 import { query } from '@/lib/db'
 
@@ -19,7 +19,7 @@ describe('moderation domain module', () => {
     vi.mocked(query).mockReset()
   })
 
-  describe('submitGlobalSongEdit', () => {
+  describe('submitSongEdit', () => {
     it('successfully submits a pending global song edit request', async () => {
       const mockEdit = {
         id: 'edit-1',
@@ -38,7 +38,7 @@ describe('moderation domain module', () => {
         rows: [mockEdit],
       } as any)
 
-      const result = await submitGlobalSongEdit('user-1', 'song-1', {
+      const result = await submitSongEdit('user-1', 'song-1', {
         title: 'New Title (2026 Remaster)',
         artist: 'Artist',
       })
@@ -52,7 +52,7 @@ describe('moderation domain module', () => {
 
     it('rejects an invalid payload at submission without touching the database', async () => {
       await expect(
-        submitGlobalSongEdit('user-1', 'song-1', { duration_seconds: 'abc' })
+        submitSongEdit('user-1', 'song-1', { duration_seconds: 'abc' })
       ).rejects.toThrowError(new Error('Invalid global song edit: duration_seconds must be a non-negative integer or null'))
 
       expect(query).not.toHaveBeenCalled()
@@ -62,12 +62,12 @@ describe('moderation domain module', () => {
       vi.mocked(query).mockRejectedValueOnce(new Error('DB failure'))
 
       await expect(
-        submitGlobalSongEdit('user-1', 'song-1', { title: 'Test' })
+        submitSongEdit('user-1', 'song-1', { title: 'Test' })
       ).rejects.toThrow('Failed to submit global song edit: DB failure')
     })
   })
 
-  describe('getPendingGlobalSongEdits', () => {
+  describe('getPendingSongEdits', () => {
     it('returns pending edits when user is a system admin', async () => {
       // 1. Admin permission check query
       vi.mocked(query).mockResolvedValueOnce({
@@ -97,7 +97,7 @@ describe('moderation domain module', () => {
         rows: mockEdits,
       } as any)
 
-      const result = await getPendingGlobalSongEdits('admin-1')
+      const result = await getPendingSongEdits('admin-1')
 
       expect(result).toEqual(mockEdits)
       expect(query).toHaveBeenNthCalledWith(
@@ -118,7 +118,7 @@ describe('moderation domain module', () => {
         rows: [{ is_system_admin: false }],
       } as any)
 
-      await expect(getPendingGlobalSongEdits('regular-user')).rejects.toThrow(
+      await expect(getPendingSongEdits('regular-user')).rejects.toThrow(
         'Access denied: User is not a system admin'
       )
     })
@@ -129,13 +129,13 @@ describe('moderation domain module', () => {
         rows: [],
       } as any)
 
-      await expect(getPendingGlobalSongEdits('unknown-user')).rejects.toThrow(
+      await expect(getPendingSongEdits('unknown-user')).rejects.toThrow(
         'Access denied: User is not a system admin'
       )
     })
   })
 
-  describe('reviewGlobalSongEdit', () => {
+  describe('reviewSongEdit', () => {
     it('throws Access denied when admin user is not system admin', async () => {
       vi.mocked(query).mockResolvedValueOnce({
         rowCount: 1,
@@ -143,7 +143,7 @@ describe('moderation domain module', () => {
       } as any)
 
       await expect(
-        reviewGlobalSongEdit('regular-user', 'edit-1', 'approve')
+        reviewSongEdit('regular-user', 'edit-1', 'approve')
       ).rejects.toThrow('Access denied: User is not a system admin')
     })
 
@@ -161,7 +161,7 @@ describe('moderation domain module', () => {
       } as any)
 
       await expect(
-        reviewGlobalSongEdit('admin-1', 'nonexistent-edit', 'approve')
+        reviewSongEdit('admin-1', 'nonexistent-edit', 'approve')
       ).rejects.toThrow('Global song edit not found')
     })
 
@@ -179,7 +179,7 @@ describe('moderation domain module', () => {
       } as any)
 
       await expect(
-        reviewGlobalSongEdit('admin-1', 'edit-1', 'approve')
+        reviewSongEdit('admin-1', 'edit-1', 'approve')
       ).rejects.toThrow('Edit request is already reviewed')
     })
 
@@ -222,7 +222,7 @@ describe('moderation domain module', () => {
         rows: [rejectedEdit],
       } as any)
 
-      const result = await reviewGlobalSongEdit('admin-1', 'edit-1', 'reject', 'Incorrect metadata')
+      const result = await reviewSongEdit('admin-1', 'edit-1', 'reject', 'Incorrect metadata')
 
       expect(result).toEqual(rejectedEdit)
       expect(query).toHaveBeenNthCalledWith(
@@ -232,7 +232,7 @@ describe('moderation domain module', () => {
       )
     })
 
-    it('successfully approves an edit request and applies sanitized changes to global_songs', async () => {
+    it('successfully approves an edit request and applies sanitized changes to songs', async () => {
       // 1. Admin check
       vi.mocked(query).mockResolvedValueOnce({
         rowCount: 1,
@@ -260,7 +260,7 @@ describe('moderation domain module', () => {
 
       // Transaction statements (RH-36: no BEGIN/COMMIT through the mock any
       // more — `withTransaction` owns them on its own client):
-      // 3. UPDATE global_songs
+      // 3. UPDATE songs
       vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [] } as any)
 
       const approvedEdit = {
@@ -283,15 +283,15 @@ describe('moderation domain module', () => {
       // 4. UPDATE global_song_edits
       vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [approvedEdit] } as any)
 
-      const result = await reviewGlobalSongEdit('admin-1', 'edit-1', 'approve')
+      const result = await reviewSongEdit('admin-1', 'edit-1', 'approve')
 
       expect(result).toEqual(approvedEdit)
 
-      // Check title was sanitized to 'Plush' and album to 'Core' in global_songs update query
-      expect(query).toHaveBeenNthCalledWith(3, expect.stringContaining('UPDATE global_songs'), expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1']))
+      // Check title was sanitized to 'Plush' and album to 'Core' in songs update query
+      expect(query).toHaveBeenNthCalledWith(3, expect.stringContaining('UPDATE songs'), expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1']))
     })
 
-    it('rejects a historical proposed_data that no longer validates before updating global_songs', async () => {
+    it('rejects a historical proposed_data that no longer validates before updating songs', async () => {
       // 1. Admin check
       vi.mocked(query).mockResolvedValueOnce({
         rowCount: 1,
@@ -313,7 +313,7 @@ describe('moderation domain module', () => {
       } as any)
 
       await expect(
-        reviewGlobalSongEdit('admin-1', 'edit-1', 'approve')
+        reviewSongEdit('admin-1', 'edit-1', 'approve')
       ).rejects.toThrowError(new Error('Invalid global song edit: duration_seconds must be a non-negative integer or null'))
 
       // Only the admin check and the edit lookup ran: no UPDATE was issued.

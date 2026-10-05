@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongEntry, type SongEntryActions, type UseSongEntryOptions } from '@/hooks/useSongEntry'
 import { logger } from '@/lib/logger'
-import type { GlobalSong, Repertoire } from '@/types/database'
+import type { Song, Repertoire } from '@/types/database'
 
 vi.mock('@/lib/logger', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -11,7 +11,7 @@ vi.mock('@/lib/logger', () => ({
 
 afterEach(cleanup)
 
-const SONG: GlobalSong = {
+const SONG: Song = {
   id: 'song-1',
   title: 'Black Dog',
   artist: 'Led Zeppelin',

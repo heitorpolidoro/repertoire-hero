@@ -149,7 +149,7 @@ async function runDeduplication() {
 
   try {
     console.log('Running retroactive song deduplication & album/link title migration scan...');
-    const { rows: allSongs } = await pool.query('SELECT id, title, artist, album, links FROM global_songs ORDER BY created_at ASC');
+    const { rows: allSongs } = await pool.query('SELECT id, title, artist, album, links FROM songs ORDER BY created_at ASC');
 
     // 1. Sanitize Titles, Albums & Upgrade Links for all existing songs
     for (const song of allSongs) {
@@ -194,7 +194,7 @@ async function runDeduplication() {
 
       if (needsUpdate || linksChanged) {
         await pool.query(
-          'UPDATE global_songs SET title = $1, album = $2, links = $3, updated_at = now() WHERE id = $4',
+          'UPDATE songs SET title = $1, album = $2, links = $3, updated_at = now() WHERE id = $4',
           [finalTitle, finalAlbum, JSON.stringify(linksChanged ? updatedLinks : currentLinks), song.id]
         );
       }
@@ -224,7 +224,7 @@ async function runDeduplication() {
       console.log(`Deduplicating group: "${group.cleanTitle}" by ${group.artist} (${group.songs.length} entries)`);
 
       if (primary.title !== group.cleanTitle) {
-        await pool.query('UPDATE global_songs SET title = $1, updated_at = now() WHERE id = $2', [group.cleanTitle, primary.id]);
+        await pool.query('UPDATE songs SET title = $1, updated_at = now() WHERE id = $2', [group.cleanTitle, primary.id]);
       }
 
       for (const sec of secondaries) {
@@ -237,7 +237,7 @@ async function runDeduplication() {
             mergedLinks.push(l);
           }
         }
-        await pool.query('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2', [JSON.stringify(mergedLinks), primary.id]);
+        await pool.query('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [JSON.stringify(mergedLinks), primary.id]);
 
         // 2. Update playlist_songs
         const { rows: secPs } = await pool.query('SELECT playlist_id FROM playlist_songs WHERE song_id = $1', [sec.id]);
@@ -265,8 +265,8 @@ async function runDeduplication() {
           }
         }
 
-        // 4. Delete duplicate global song
-        await pool.query('DELETE FROM global_songs WHERE id = $1', [sec.id]);
+        // 4. Delete the duplicate catalog row
+        await pool.query('DELETE FROM songs WHERE id = $1', [sec.id]);
         mergedCount++;
       }
     }

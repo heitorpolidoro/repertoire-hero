@@ -1,20 +1,20 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth-session";
-import { getPendingGlobalSongEdits } from "@/lib/moderation";
-import { reviewGlobalSongEditAction } from "@/app/actions/moderation";
+import { getPendingSongEdits } from "@/lib/moderation";
+import { reviewSongEditAction } from "@/app/actions/moderation";
 import {
   ModerationQueue,
   type ModerationQueueActions,
 } from "@/components/admin/ModerationQueue";
-import type { GlobalSongEdit } from "@/types/database";
+import type { SongEdit } from "@/types/database";
 
 /**
  * Composition root for the moderation island: the page owns the Server Action
  * and injects it, so `src/components` never imports from `@/app/*` (F21).
  */
 const MODERATION_ACTIONS: ModerationQueueActions = {
-  reviewGlobalSongEdit: reviewGlobalSongEditAction,
+  reviewSongEdit: reviewSongEditAction,
 };
 
 function AccessDeniedPanel() {
@@ -44,7 +44,7 @@ function AccessDeniedPanel() {
 
 /**
  * Server Component: the pending queue is read here, not in a mount effect.
- * `getPendingGlobalSongEdits` re-throws its authorization failure unwrapped
+ * `getPendingSongEdits` re-throws its authorization failure unwrapped
  * (convention L1a), so `Access denied` is a reliable discriminator — the same
  * one the client page used. A non-admin gets the panel with HTTP 200; any other
  * failure is handed to the island, which surfaces it as an error banner.
@@ -54,10 +54,10 @@ export default async function AdminModerationPage() {
   const userId = session?.user?.id;
   if (!userId) redirect("/login");
 
-  let edits: GlobalSongEdit[] = [];
+  let edits: SongEdit[] = [];
   let loadError: string | null = null;
   try {
-    edits = await getPendingGlobalSongEdits(userId);
+    edits = await getPendingSongEdits(userId);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     loadError = err.message;

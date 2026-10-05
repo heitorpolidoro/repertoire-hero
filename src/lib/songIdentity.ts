@@ -1,8 +1,8 @@
 /**
- * RH-95 — the one song-identity rule for the shared `global_songs` catalog.
+ * RH-95 — the one song-identity rule for the shared `songs` catalog.
  *
  * Two code paths used to disagree about what makes a catalog row unique:
- * `createAndAddSong` matched on (title, album) and `findOrCreateGlobalSong` on
+ * `createAndAddSong` matched on (title, album) and `findOrCreateSong` on
  * (title, artist), so the same song arrived twice depending on which screen the
  * musician came in through. The rule in `docs/plans/repertoire-rework.md` is
  * `(lower(trim(primary artist)), lower(trim(sanitized title)))` — album is *not*
@@ -24,7 +24,7 @@
  */
 
 import { pool, type Queryable } from '@/lib/db'
-import type { GlobalSongLinksRow } from '@/lib/dbRows'
+import type { SongLinksRow } from '@/lib/dbRows'
 import { sanitizeAlbumName, sanitizeSongTitle } from '@/lib/songSanitizer'
 import type { SongLink } from '@/types/database'
 
@@ -43,7 +43,6 @@ export interface SongIdentityInput {
   cover_url?: string | null
   duration_seconds?: number | null
   links?: SongLink[]
-  contributorId?: string | null
 }
 
 /**
@@ -91,25 +90,25 @@ export function songIdentityOf(title: string, artist: string): SongIdentity {
 }
 
 /**
- * Mirrors `uq_global_songs_artist_title` exactly: `lower(btrim(...))` on both
+ * Mirrors `uq_songs_artist_title` exactly: `lower(btrim(...))` on both
  * columns. Any drift between this predicate and the index would hand back "no
  * row" for a row the insert below then cannot create.
  */
 const LOOKUP_SQL = `
-    SELECT id, links FROM global_songs
+    SELECT id, links FROM songs
     WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))
     LIMIT 1
   `
 
 /**
- * `ON CONFLICT DO NOTHING` in the bare form — it covers `uq_global_songs_artist_title`
+ * `ON CONFLICT DO NOTHING` in the bare form — it covers `uq_songs_artist_title`
  * without naming it — and never a caught 23505: inside a transaction a caught
  * 23505 leaves the transaction aborted, so every later statement fails with
  * 25P02 (AGENTS.md §Transactions).
  */
 const INSERT_SQL = `
-    INSERT INTO global_songs (contributor_id, title, artist, album, standard_key, cover_url, duration_seconds, links)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds, links)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT DO NOTHING
     RETURNING id, links
   `
@@ -118,7 +117,7 @@ async function lookupSongIdentity(
   identity: SongIdentity,
   db: Queryable,
 ): Promise<ResolvedSongIdentity | null> {
-  const res = await db.query<GlobalSongLinksRow>(LOOKUP_SQL, [identity.title, identity.artist])
+  const res = await db.query<SongLinksRow>(LOOKUP_SQL, [identity.title, identity.artist])
   const row = res.rows[0]
   return row ? { id: row.id, links: row.links ?? [], created: false } : null
 }
@@ -142,8 +141,7 @@ export async function resolveOrCreateSongIdentity(
   const existing = await lookupSongIdentity(identity, db)
   if (existing) return existing
 
-  const inserted = await db.query<GlobalSongLinksRow>(INSERT_SQL, [
-    input.contributorId ?? null,
+  const inserted = await db.query<SongLinksRow>(INSERT_SQL, [
     identity.title,
     identity.artist,
     sanitizeAlbumName(input.album),

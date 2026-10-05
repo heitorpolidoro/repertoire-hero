@@ -1,13 +1,20 @@
 import { query, withTransaction } from '@/lib/db'
-import { parseGlobalSongEditPayload } from '@/lib/globalSongEditPayload'
+import { parseSongEditPayload } from '@/lib/songEditPayload'
 import { logger } from '@/lib/logger'
-import type { GlobalSongEdit, SongLink } from '@/types/database'
+import type { SongEdit, SongLink } from '@/types/database'
 
-export async function submitGlobalSongEdit(
+export async function submitSongEdit(
   userId: string,
   songId: string,
   data: Record<string, unknown>
-): Promise<GlobalSongEdit> {
+): Promise<SongEdit> {
+  // `global_song_edits` keeps its name on purpose. RH-121 renamed the catalog
+  // table to `songs` and moved this module's TypeScript vocabulary with it
+  // (`SongEdit`, `submitSongEdit`), but not the queue table: the plan replaces
+  // it wholesale with a differently shaped `catalog_suggestions` — one row per
+  // proposed field instead of a jsonb of several — so renaming it to
+  // `song_edits` now would be churn that part deletes. Until then the mismatch
+  // between `SongEdit` and `global_song_edits` is a decision, not an oversight.
   const sql = `
     INSERT INTO global_song_edits (song_id, requested_by, proposed_data, status)
     VALUES ($1, $2, $3, 'pending')
@@ -16,9 +23,9 @@ export async function submitGlobalSongEdit(
   // Outside the wrapper (convention L1a): the UI shows this message verbatim.
   // Validation only — `proposed_data` is stored verbatim so the moderation queue
   // keeps the requester's `reason` (see src/app/admin/moderation/page.tsx).
-  parseGlobalSongEditPayload(data)
+  parseSongEditPayload(data)
   try {
-    const res = await query<GlobalSongEdit>(sql, [songId, userId, JSON.stringify(data)])
+    const res = await query<SongEdit>(sql, [songId, userId, JSON.stringify(data)])
     return res.rows[0]
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -35,9 +42,9 @@ export async function checkSystemAdmin(userId: string): Promise<void> {
   }
 }
 
-export async function getPendingGlobalSongEdits(
+export async function getPendingSongEdits(
   adminUserId: string
-): Promise<GlobalSongEdit[]> {
+): Promise<SongEdit[]> {
   try {
     await checkSystemAdmin(adminUserId)
 
@@ -64,12 +71,12 @@ export async function getPendingGlobalSongEdits(
                'is_system_admin', p.is_system_admin
              ) as requester
       FROM global_song_edits e
-      JOIN global_songs s ON e.song_id = s.id
+      JOIN songs s ON e.song_id = s.id
       JOIN profiles p ON e.requested_by = p.id
       WHERE e.status = 'pending'
       ORDER BY e.created_at ASC
     `
-    const res = await query<GlobalSongEdit>(sql, [])
+    const res = await query<SongEdit>(sql, [])
     return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -81,16 +88,16 @@ export async function getPendingGlobalSongEdits(
   }
 }
 
-export async function reviewGlobalSongEdit(
+export async function reviewSongEdit(
   adminUserId: string,
   editId: string,
   action: 'approve' | 'reject',
   reason?: string
-): Promise<GlobalSongEdit> {
+): Promise<SongEdit> {
   try {
     await checkSystemAdmin(adminUserId)
 
-    const editRes = await query<GlobalSongEdit>(
+    const editRes = await query<SongEdit>(
       'SELECT * FROM global_song_edits WHERE id = $1',
       [editId]
     )
@@ -112,15 +119,15 @@ export async function reviewGlobalSongEdit(
         WHERE id = $3
         RETURNING *
       `
-      const res = await query<GlobalSongEdit>(updateSql, [adminUserId, reason || null, editId])
+      const res = await query<SongEdit>(updateSql, [adminUserId, reason || null, editId])
       return res.rows[0]
     }
 
     // Action: approve. The row was written by whoever submitted it, so its
     // fields are narrowed before any of them reaches the catalog UPDATE.
-    const payload = parseGlobalSongEditPayload(edit.proposed_data)
-    // The payload only ever holds the seven `global_songs` column names, in
-    // column order, so interpolating a key as a SQL identifier is safe here.
+    const payload = parseSongEditPayload(edit.proposed_data)
+    // The payload only ever holds the seven `songs` column names, in column
+    // order, so interpolating a key as a SQL identifier is safe here.
     const fields: Array<[string, string | number | null | SongLink[]]> = Object.entries(payload)
     const setClauses: string[] = []
     const values: (string | number | null)[] = []
@@ -139,7 +146,7 @@ export async function reviewGlobalSongEdit(
       // `updated_at` belongs to the template, never to `setClauses`: that array
       // is the narrowed set of columns a submitted edit may propose, and the
       // timestamp is not one of them (RH-101).
-      const updateSongSql = `UPDATE global_songs SET ${setClauses.join(
+      const updateSongSql = `UPDATE songs SET ${setClauses.join(
         ', '
       )}, updated_at = now() WHERE id = $${values.length}`
       await client.query<never>(updateSongSql, values)
@@ -150,7 +157,7 @@ export async function reviewGlobalSongEdit(
         WHERE id = $2
         RETURNING *
       `
-      const res = await client.query<GlobalSongEdit>(updateEditSql, [adminUserId, editId])
+      const res = await client.query<SongEdit>(updateEditSql, [adminUserId, editId])
       return res.rows[0]
     })
   } catch (error) {

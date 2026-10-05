@@ -61,7 +61,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     }
     // Delete global songs
     if (createdSongs.length > 0) {
-      await query('DELETE FROM global_songs WHERE id = ANY($1)', [createdSongs])
+      await query('DELETE FROM songs WHERE id = ANY($1)', [createdSongs])
     }
     // Delete users (CASCADE handles repertoire, profiles, etc.)
     if (userAId) await deleteTestUser(userAId)
@@ -132,7 +132,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // 1. Create a test global song first
     const songTitle = `Playlist Song ${suffix}`
     const songInsert = await query<{ id: string }>(
-      `INSERT INTO global_songs (title, artist, album, duration_seconds, links)
+      `INSERT INTO songs (title, artist, album, duration_seconds, links)
        VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`,
       [songTitle, 'Test Artist', 'Test Album', 240, JSON.stringify([])],
     )
@@ -211,7 +211,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // 4. Create a global song
     const songTitle = `Autogest Song ${suffix}`
     const songInsert = await query<{ id: string }>(
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [songTitle, 'Band Autogest Artist'],
     )
     const songId = songInsert.rows[0].id
@@ -265,7 +265,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
     const insertSong = async (title: string, artist: string): Promise<string> => {
       const res = await query(
-        'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+        'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
         [title, artist],
       )
       const id = res.rows[0].id as string

@@ -14,7 +14,7 @@
  */
 
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { GlobalSong, Repertoire } from '@/types/database'
+import type { Song, Repertoire } from '@/types/database'
 
 /** Shortest query the picker will search for, counted after trimming. */
 export const MIN_PICKER_QUERY_LENGTH = 2
@@ -38,9 +38,9 @@ export function shouldSearchPicker(query: string): boolean {
 
 /** Catalog results minus the songs the playlist already holds. */
 export function visiblePickerCatalog(
-  results: readonly GlobalSong[],
+  results: readonly Song[],
   playlistSongIds: ReadonlySet<string>,
-): GlobalSong[] {
+): Song[] {
   return results.filter((song) => !playlistSongIds.has(song.id))
 }
 
@@ -121,13 +121,13 @@ export interface SongPickerController {
   /** Per-row failure messages, keyed by row id. */
   rowErrors: Record<string, string>
   /** Catalog matches not already in the playlist. */
-  catalogResults: GlobalSong[]
+  catalogResults: Song[]
   /** Spotify matches the catalog rows do not already cover. */
   spotifyResults: SpotifyTrack[]
   /** Type into the search box; the search itself is debounced. */
   changeQuery: (query: string) => void
   /** Add a catalog row. Never rejects — a failure lands in `rowErrors`. */
-  addCatalogSong: (song: GlobalSong) => Promise<void>
+  addCatalogSong: (song: Song) => Promise<void>
   /** Add a Spotify row. Never rejects — a failure lands in `rowErrors`. */
   addSpotifyTrack: (track: SpotifyTrack) => Promise<void>
 }

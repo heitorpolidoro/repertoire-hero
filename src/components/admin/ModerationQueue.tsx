@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 import { PendingEditCard } from "@/components/admin/PendingEditCard";
-import type { GlobalSongEdit } from "@/types/database";
+import type { SongEdit } from "@/types/database";
 
 /**
  * The Server Action the queue calls. Injected by
@@ -12,16 +12,16 @@ import type { GlobalSongEdit } from "@/types/database";
  * never points back into `src/app` (F21).
  */
 export interface ModerationQueueActions {
-  reviewGlobalSongEdit: (
+  reviewSongEdit: (
     editId: string,
     action: "approve" | "reject",
     reason?: string,
-  ) => Promise<GlobalSongEdit>;
+  ) => Promise<SongEdit>;
 }
 
 interface ModerationQueueProps {
-  /** Read on the server by `getPendingGlobalSongEdits(userId)`; this island never fetches. */
-  initialEdits: GlobalSongEdit[];
+  /** Read on the server by `getPendingSongEdits(userId)`; this island never fetches. */
+  initialEdits: SongEdit[];
   /** A non-authorization server-side read failure, seeded into the error banner. */
   initialError: string | null;
   actions: ModerationQueueActions;
@@ -29,7 +29,7 @@ interface ModerationQueueProps {
 
 export function ModerationQueue({ initialEdits, initialError, actions }: ModerationQueueProps) {
   const router = useRouter();
-  const [edits, setEdits] = useState<GlobalSongEdit[]>(initialEdits);
+  const [edits, setEdits] = useState<SongEdit[]>(initialEdits);
   const [error, setError] = useState<string | null>(initialError);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -43,7 +43,7 @@ export function ModerationQueue({ initialEdits, initialError, actions }: Moderat
     setError(null);
     setSuccess(null);
     try {
-      await actions.reviewGlobalSongEdit(editId, "approve");
+      await actions.reviewSongEdit(editId, "approve");
       setEdits((prev) => prev.filter((e) => e.id !== editId));
       setSuccess("Song edit approved and applied to global catalog.");
       // Local state is what the user sees; `refresh()` only re-seeds the props a
@@ -62,7 +62,7 @@ export function ModerationQueue({ initialEdits, initialError, actions }: Moderat
     setError(null);
     setSuccess(null);
     try {
-      await actions.reviewGlobalSongEdit(
+      await actions.reviewSongEdit(
         editId,
         "reject",
         rejectionReason.trim() || undefined

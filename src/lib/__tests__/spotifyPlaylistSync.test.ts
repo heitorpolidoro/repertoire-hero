@@ -20,7 +20,7 @@ vi.mock('@/lib/db', () => {
 import { query } from '@/lib/db'
 import {
   fetchAllSpotifyTracks,
-  findOrCreateGlobalSong,
+  findOrCreateSong,
   ensureInRepertoire,
   buildPlaylistSongsInsert,
 } from '../spotifyPlaylistSync'
@@ -117,7 +117,7 @@ const rawTrack: SpotifyRawTrack = {
   durationSeconds: 185,
 }
 
-describe('findOrCreateGlobalSong', () => {
+describe('findOrCreateSong', () => {
   it('returns the existing id and appends the Spotify link when it is absent', async () => {
     mockedQuery
       .mockResolvedValueOnce({
@@ -126,12 +126,12 @@ describe('findOrCreateGlobalSong', () => {
       })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
-    const songId = await findOrCreateGlobalSong(rawTrack)
+    const songId = await findOrCreateSong(rawTrack)
 
     expect(songId).toBe('song-1')
     expect(mockedQuery).toHaveBeenCalledTimes(2)
     const [updateSql, updateValues] = mockedQuery.mock.calls[1]
-    expect(updateSql).toBe('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2')
+    expect(updateSql).toBe('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2')
     expect(JSON.parse(updateValues[0] as string)).toEqual([
       { label: 'Chords', url: 'http://chords' },
       { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },
@@ -147,7 +147,7 @@ describe('findOrCreateGlobalSong', () => {
       rowCount: 1,
     })
 
-    expect(await findOrCreateGlobalSong(rawTrack)).toBe('song-1')
+    expect(await findOrCreateSong(rawTrack)).toBe('song-1')
     expect(mockedQuery).toHaveBeenCalledTimes(1)
   })
 
@@ -156,23 +156,25 @@ describe('findOrCreateGlobalSong', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
 
-    expect(await findOrCreateGlobalSong(rawTrack)).toBe('song-new')
+    expect(await findOrCreateSong(rawTrack)).toBe('song-new')
 
     // Both statements come from `@/lib/songIdentity` now (RH-95): the lookup
     // carries the artist predicate and no album one, and the insert seeds the
     // row rather than this module doing it itself.
     const [lookupSql, lookupValues] = mockedQuery.mock.calls[0]
-    expect(lookupSql).toContain('SELECT id, links FROM global_songs')
+    expect(lookupSql).toContain('SELECT id, links FROM songs')
     expect(lookupValues).toEqual(['Song Name', 'Artist A'])
 
+    // The bind list starts at the title: RH-121 dropped the catalog's
+    // contributor column, which used to take $1.
     const [insertSql, insertValues] = mockedQuery.mock.calls[1]
-    expect(insertSql).toContain('INSERT INTO global_songs')
-    expect(insertValues[1]).toBe('Song Name')
-    expect(insertValues[2]).toBe('Artist A')
-    expect(insertValues[3]).toBe('Album')
-    expect(insertValues[6]).toBe(185)
-    expect(insertValues[5]).toBe('http://art')
-    expect(JSON.parse(insertValues[7] as string)).toEqual([
+    expect(insertSql).toContain('INSERT INTO songs')
+    expect(insertValues[0]).toBe('Song Name')
+    expect(insertValues[1]).toBe('Artist A')
+    expect(insertValues[2]).toBe('Album')
+    expect(insertValues[5]).toBe(185)
+    expect(insertValues[4]).toBe('http://art')
+    expect(JSON.parse(insertValues[6] as string)).toEqual([
       { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },
     ])
   })
@@ -182,7 +184,7 @@ describe('findOrCreateGlobalSong', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
 
-    await findOrCreateGlobalSong(rawTrack)
+    await findOrCreateSong(rawTrack)
 
     expect(mockedQuery).toHaveBeenCalledTimes(2)
   })

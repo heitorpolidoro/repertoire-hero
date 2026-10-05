@@ -71,9 +71,9 @@ import {
   uploadBandCoverAction,
 } from '../bands'
 import {
-  submitGlobalSongEditAction,
-  getPendingGlobalSongEditsAction,
-  reviewGlobalSongEditAction,
+  submitSongEditAction,
+  getPendingSongEditsAction,
+  reviewSongEditAction,
 } from '../moderation'
 import {
   getUserPlaylistsAction,
@@ -93,7 +93,7 @@ import {
   updateSongStatusAction,
   updateSongTagsAction,
   removeSongAction,
-  searchGlobalSongsAction,
+  searchSongsAction,
   getSongEntryAction,
   updateSongAction,
   createAndAddSongAction,
@@ -156,9 +156,9 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   uploadBandCoverAction: { run: () => uploadBandCoverAction(emptyFormData()), mode: 'envelope' },
 
   // --- moderation.ts ---
-  submitGlobalSongEditAction: { run: () => submitGlobalSongEditAction(SONG_ID, { title: 'x' }), mode: 'throws' },
-  getPendingGlobalSongEditsAction: { run: () => getPendingGlobalSongEditsAction(), mode: 'throws' },
-  reviewGlobalSongEditAction: { run: () => reviewGlobalSongEditAction('edit-1', 'approve'), mode: 'throws' },
+  submitSongEditAction: { run: () => submitSongEditAction(SONG_ID, { title: 'x' }), mode: 'throws' },
+  getPendingSongEditsAction: { run: () => getPendingSongEditsAction(), mode: 'throws' },
+  reviewSongEditAction: { run: () => reviewSongEditAction('edit-1', 'approve'), mode: 'throws' },
 
   // --- playlists.ts ---
   getUserPlaylistsAction: { run: () => getUserPlaylistsAction(), mode: 'throws' },
@@ -182,7 +182,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   updateSongStatusAction: { run: () => updateSongStatusAction(REPERTOIRE_ID, 'learning', BAND_ID), mode: 'throws' },
   updateSongTagsAction: { run: () => updateSongTagsAction(REPERTOIRE_ID, ['rock'], BAND_ID), mode: 'throws' },
   removeSongAction: { run: () => removeSongAction(REPERTOIRE_ID, BAND_ID), mode: 'throws' },
-  searchGlobalSongsAction: { run: () => searchGlobalSongsAction('nirvana'), mode: 'throws' },
+  searchSongsAction: { run: () => searchSongsAction('nirvana'), mode: 'throws' },
   getSongEntryAction: { run: () => getSongEntryAction(REPERTOIRE_ID, BAND_ID), mode: 'throws' },
   updateSongAction: { run: () => updateSongAction(ENTRY, SONG_PATCH, BAND_ID), mode: 'throws' },
   createAndAddSongAction: { run: () => createAndAddSongAction({ title: 'Fresh', artist: 'Someone' }, BAND_ID), mode: 'throws' },

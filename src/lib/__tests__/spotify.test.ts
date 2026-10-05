@@ -64,8 +64,8 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
   beforeAll(async () => {
     // Preventively clean up Songs A and B to avoid constraint violations in test reruns
-    await query("DELETE FROM global_songs WHERE title ILIKE 'Song A'")
-    await query("DELETE FROM global_songs WHERE title ILIKE 'Song B'")
+    await query("DELETE FROM songs WHERE title ILIKE 'Song A'")
+    await query("DELETE FROM songs WHERE title ILIKE 'Song B'")
 
     // Create the Better Auth user + profile rows the FK constraints need
     ;({ userId: userAId } = await createTestUserWithGoTrue({ email: USER_A.email, password: USER_A.password }))
@@ -125,7 +125,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
     // 5. Delete global songs
     if (createdSongs.length > 0) {
-      await query('DELETE FROM global_songs WHERE id = ANY($1)', [createdSongs])
+      await query('DELETE FROM songs WHERE id = ANY($1)', [createdSongs])
     }
 
     // 6. Delete users
@@ -425,9 +425,9 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       
       createdPlaylists.push(data.id)
 
-      // Verify the song was created in global_songs
+      // Verify the song was created in songs
       const songRows = await query<{ id: string }>(
-        "SELECT id FROM global_songs WHERE title ILIKE 'Song A'",
+        "SELECT id FROM songs WHERE title ILIKE 'Song A'",
       )
       expect(songRows.rows).toHaveLength(1)
       const songId = songRows.rows[0].id
@@ -462,7 +462,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
       // Find created song
       const songRows = await query<{ id: string }>(
-        "SELECT id FROM global_songs WHERE title ILIKE 'Song B'",
+        "SELECT id FROM songs WHERE title ILIKE 'Song B'",
       )
       expect(songRows.rows).toHaveLength(1)
       const songId = songRows.rows[0].id
@@ -489,12 +489,12 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
     beforeAll(async () => {
       // Clean up previous runs if any to prevent unique key constraint violations (title, album)
-      await query("DELETE FROM global_songs WHERE title ILIKE 'Sync Song A'")
-      await query("DELETE FROM global_songs WHERE title ILIKE 'Sync Song B'")
+      await query("DELETE FROM songs WHERE title ILIKE 'Sync Song A'")
+      await query("DELETE FROM songs WHERE title ILIKE 'Sync Song B'")
 
       // 1. Create global songs with Spotify links and exact albums matching the Spotify mock
       const songA = await query<{ id: string }>(
-        `INSERT INTO global_songs (title, artist, album, links)
+        `INSERT INTO songs (title, artist, album, links)
          VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
         [
           'Sync Song A',
@@ -507,7 +507,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       createdSongs.push(songIdA)
 
       const songB = await query<{ id: string }>(
-        `INSERT INTO global_songs (title, artist, album, links)
+        `INSERT INTO songs (title, artist, album, links)
          VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
         [
           'Sync Song B',
@@ -606,14 +606,14 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       const largePlaylistId = largePlaylist.rows[0].id
       createdPlaylists.push(largePlaylistId)
 
-      // Create 105 mock songs in global_songs in bulk to avoid DB overhead
+      // Create 105 mock songs in songs in bulk to avoid DB overhead
       const bulkTitles = Array.from({ length: 105 }, (_, i) => `Bulk Song ${i}`)
       const bulkLinks = bulkTitles.map((_, i) =>
         JSON.stringify([{ label: 'spotify', url: `https://open.spotify.com/track/bulktrackid${i}` }]),
       )
 
       const insertedSongs = await query<{ id: string }>(
-        `INSERT INTO global_songs (title, artist, links)
+        `INSERT INTO songs (title, artist, links)
          SELECT t, 'Bulk Artist', l::jsonb
          FROM unnest($1::text[], $2::text[]) AS s(t, l)
          RETURNING id`,

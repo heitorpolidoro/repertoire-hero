@@ -29,7 +29,7 @@ interface SharedCatalogFieldProps {
 }
 
 /**
- * One shared `global_songs` field in the song form (RH-97).
+ * One shared `songs` field in the song form (RH-97).
  *
  * The catalog is a wiki: a blank may be filled by anyone, a value may not be
  * overwritten by one repertoire owner. `updateSong` has always enforced that

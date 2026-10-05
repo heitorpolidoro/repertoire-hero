@@ -20,7 +20,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongPicker, type SongPickerActions, type UseSongPickerOptions } from '@/hooks/useSongPicker'
 import { searchSpotify } from '@/lib/spotify'
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { GlobalSong, PlaylistSong, Repertoire } from '@/types/database'
+import type { Song, PlaylistSong, Repertoire } from '@/types/database'
 
 vi.mock('@/lib/spotify', () => ({ searchSpotify: vi.fn() }))
 
@@ -34,7 +34,7 @@ afterEach(cleanup)
 
 const PLAYLIST_ID = 'playlist-1'
 
-function song(id: string, title: string, artist = 'Led Zeppelin'): GlobalSong {
+function song(id: string, title: string, artist = 'Led Zeppelin'): Song {
   return {
     id,
     title,
@@ -181,11 +181,11 @@ describe('useSongPicker', () => {
 
   it('keeps the results of the latest query when an earlier search resolves last', async () => {
     const actions = makeActions()
-    let resolveFirst: (songs: GlobalSong[]) => void = () => {}
-    let resolveSecond: (songs: GlobalSong[]) => void = () => {}
+    let resolveFirst: (songs: Song[]) => void = () => {}
+    let resolveSecond: (songs: Song[]) => void = () => {}
     actions.searchCatalog
-      .mockImplementationOnce(() => new Promise<GlobalSong[]>((resolve) => { resolveFirst = resolve }))
-      .mockImplementationOnce(() => new Promise<GlobalSong[]>((resolve) => { resolveSecond = resolve }))
+      .mockImplementationOnce(() => new Promise<Song[]>((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise<Song[]>((resolve) => { resolveSecond = resolve }))
     const { result } = setup({ actions })
 
     act(() => result.current.changeQuery('old'))

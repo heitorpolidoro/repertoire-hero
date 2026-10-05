@@ -3,12 +3,12 @@
  * `proposed_data`.
  *
  * A `global_song_edits` row holds whatever the requester submitted, so its
- * fields must be narrowed before they reach the `global_songs` UPDATE. This
- * module owns that narrowing for the seven mutable catalog columns: it accepts
- * a subset of them, normalizes each one the way the catalog stores it, and
- * throws a message the UI can show verbatim otherwise.
+ * fields must be narrowed before they reach the `songs` UPDATE. This module
+ * owns that narrowing for the seven mutable catalog columns: it accepts a
+ * subset of them, normalizes each one the way the catalog stores it, and throws
+ * a message the UI can show verbatim otherwise.
  *
- * Keys that are not `global_songs` columns are ignored rather than rejected
+ * Keys that are not `songs` columns are ignored rather than rejected
  * (`src/components/songs/CorrectionModal.tsx` sends a `reason` alongside the
  * proposed columns, and the admin queue renders it), and they never appear in
  * the returned payload.
@@ -16,7 +16,7 @@
 import { sanitizeSongTitle, sanitizeAlbumName } from '@/lib/songSanitizer'
 import type { SongLink } from '@/types/database'
 
-export interface GlobalSongEditPayload {
+export interface SongEditPayload {
   title?: string
   artist?: string
   album?: string | null
@@ -85,7 +85,7 @@ function parseLinks(value: unknown): SongLink[] {
 }
 
 /**
- * Narrows an edit payload to the `global_songs` columns it may propose.
+ * Narrows an edit payload to the `songs` columns it may propose.
  *
  * Fields are read in column order, so `Object.entries` over the result is
  * deterministic — the approval UPDATE builds its SET list from it.
@@ -93,13 +93,13 @@ function parseLinks(value: unknown): SongLink[] {
  * @throws when the payload is not a plain object, proposes no known column, or
  * carries a known column whose value the catalog cannot store.
  */
-export function parseGlobalSongEditPayload(data: unknown): GlobalSongEditPayload {
+export function parseSongEditPayload(data: unknown): SongEditPayload {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new Error(`${PREFIX}: payload must be a plain object`)
   }
 
   const source: Record<string, unknown> = { ...data }
-  const payload: GlobalSongEditPayload = {}
+  const payload: SongEditPayload = {}
 
   if (source.title !== undefined) payload.title = parseTitle(source.title)
   if (source.artist !== undefined) payload.artist = parseArtist(source.artist)

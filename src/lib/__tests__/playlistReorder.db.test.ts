@@ -71,7 +71,7 @@ describe.skipIf(!RUN_DB_TESTS)('reorderPlaylistSongs (real database)', () => {
 
     for (const label of ['A', 'B', 'C', 'D', 'E']) {
       const res = await query<{ id: string }>(
-        'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+        'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
         [`RH-103 Song ${label} ${suffix}`, 'RH-103 Artist'],
       )
       songIds.push(res.rows[0].id)
@@ -107,7 +107,7 @@ describe.skipIf(!RUN_DB_TESTS)('reorderPlaylistSongs (real database)', () => {
       if (user) await deleteTestUser(user)
     }
     for (const songId of songIds) {
-      await query('DELETE FROM global_songs WHERE id = $1', [songId])
+      await query('DELETE FROM songs WHERE id = $1', [songId])
     }
   })
 

@@ -56,7 +56,7 @@ Key architectural decisions:
 - **Identity fields change only through Better Auth's verified flows (RH-42).** `"user".email` is the login identity: no SQL under `src/` may `UPDATE` the `"user"` table, and no application code writes `profiles.email`. A user-facing change goes through `requestEmailChange` (`src/lib/emailChange.ts`) -> `auth.api.changeEmail`, which mails a verification link and leaves the row untouched until the link is opened at `/api/auth/verify-email`; `profiles.email` follows automatically through the `sync_profile_email_on_user_update` trigger (`migrations/0008_sync_profile_email.sql`), in the same transaction as the write, so the two identity rows cannot diverge. Enforced by `src/lib/__tests__/identityWriteGuard.test.ts`.
 - **Fast View is a composition root (RH-38).** `src/app/songs/[id]/fast-view/page.tsx` holds no `useState`, no `useEffect` and no data access: it wires seven controller hooks (`usePlaylistNav`, `useTabLibrary`, `usePdfStage`, `useLyricsEditor`, `useSongEntry`, `useSongStatus`, `useSongLinks`) to the presentational components under `src/components/fastview/`, and the pure decisions live in `src/lib` (`playlistNav.ts`, `tabLibrary.ts`, `scrollHost.ts`, `stageHistory.ts`, `lyricsMarkdown.ts`, `lyricsEditor.ts`, `songEntry.ts`, `songStatus.ts`, `songLinks.ts`). Because of the import-direction rule below, no hook or component may import a Server Action: the page injects them as typed dependency objects from `src/app/fastViewNavActions.ts`, `fastViewTabActions.ts`, `fastViewLyricsActions.ts` and `fastViewEntryActions.ts`. New Fast View behaviour goes into a lib function, its hook and its component - never back into the page.
 
-Legacy/unused code to be aware of: the live data model is `src/types/database.ts`. The app's persistence and auth run on plain Postgres via Better Auth. The repository was originally built on a BaaS platform; RH-75 removed the last traces of it from the application source, the vitest suite and the dependency tree, and RH-76 removed the rest — the vendor directory and the ten-service local compose stack are gone, and the one live thing inside them, the `global_songs` catalogue, now lives at `scripts/seed-catalog.sql`. A repo-wide, case-insensitive grep of the tracked files for the vendor's name matches exactly one path, `src/lib/__tests__/migrationsSingleSource.test.ts`, whose prose and `SKIPPED_DIRECTORY_NAMES` record why that guardrail exists; keep it that way.
+Legacy/unused code to be aware of: the live data model is `src/types/database.ts`. The app's persistence and auth run on plain Postgres via Better Auth. The repository was originally built on a BaaS platform; RH-75 removed the last traces of it from the application source, the vitest suite and the dependency tree, and RH-76 removed the rest — the vendor directory and the ten-service local compose stack are gone, and the one live thing inside them, the shared song catalogue, now lives at `scripts/seed-catalog.sql`. A repo-wide, case-insensitive grep of the tracked files for the vendor's name matches exactly one path, `src/lib/__tests__/migrationsSingleSource.test.ts`, whose prose and `SKIPPED_DIRECTORY_NAMES` record why that guardrail exists; keep it that way.
 
 # Key Technologies & Stack
 
@@ -166,7 +166,7 @@ src/
 │   ├── db.ts                   Postgres connection pool + `query()` helper
 │   ├── auth.ts / auth-client.ts / auth-session.ts
 │   │                           Better Auth server config, browser client, session helpers
-│   ├── songs.ts                Global song catalog + repertoire read/write logic
+│   ├── songs.ts                Shared song catalog (`songs`) + repertoire read/write logic
 │   ├── bands.ts / bands.server.ts
 │   │                           Band domain logic; both import @/lib/db, so both are server-only.
 │   │                           The .server suffix marks a second return shape (see Module Layout)
@@ -203,7 +203,7 @@ docker/                         init-migrations.sh — the bundled Postgres's fi
 poli-runner.yml                 Makes the repo discoverable by poli-runner: commands, the
                                  `postgres` integration point and its `local` scenario
 scripts/                        migrate.mjs (schema migration runner), dev-seed (local data
-                                 seeding), seed-catalog.sql (the shared global_songs catalogue),
+                                 seeding), seed-catalog.sql (the shared `songs` catalogue),
                                  ensure-db.sh (provisions repertoire_hero on the shared Postgres)
 docs/                           security-audit.md, test-coverage-plan.md, suggestions-log.md,
                                  plans/ (code-quality-review.md, mobile-app-analysis.md) and
@@ -214,12 +214,12 @@ spec.md, SDS.md, plan.md, tasks.md
 
 # Domain Concepts
 
-- **Global Song (`global_songs`)** — A song definition (title, artist, album, key, links, cover, duration) shared across all users, wiki-style: any user can contribute a song, and it's looked up by title+album before creating a duplicate. `contributor_id` is informational only and does not imply ownership.
-- **Repertoire (`repertoire`)** — The join between a *global song* and an *owner* (a user or a band, never both — enforced by a DB constraint). This is where per-owner data lives: `status`, `tags`, `personal_key`, `lyrics`, `last_practiced`. A song can appear in many different repertoires (one per user/band that has added it).
+- **Song (`songs`)** — A song definition (title, artist, album, key, links, cover, duration) shared across all users, wiki-style: any user can contribute a song, and it's resolved by sanitized artist+title (`uq_songs_artist_title`, RH-95) before a duplicate is created. The table was called `global_songs` until RH-121 renamed it, dropping a `global_` prefix that distinguished it from a per-user song table that never existed — `repertoire` has always been the per-owner side. RH-121 also dropped its `contributor_id` column: it recorded only who happened to insert the row first, nothing authorized against it, no screen read it, and the moderation queue records authorship properly and per edit.
+- **Repertoire (`repertoire`)** — The join between a *song* and an *owner* (a user or a band, never both — enforced by a DB constraint). This is where per-owner data lives: `status`, `tags`, `personal_key`, `lyrics`, `last_practiced`. A song can appear in many different repertoires (one per user/band that has added it).
 - **Status / Mastery scale** — The 5-stage progress enum defined once in `statusConfig.ts` and the Postgres `song_status` type: `unknown → learning → practicing → polishing → mastered`. Represents how gig-ready a song is.
 - **Band status** — A band's `repertoire` row carries its own `status`, authored by a band admin like any other field on that row. It is not computed from the members, and a member's personal status change does not touch it (RH-96). A member who is not an admin sees the band's value read-only.
 - **Band / Band Member** — A group of users sharing a repertoire and playlists. Membership is `admin` or `member`; joining happens via a unique `invite_code` (see `/join/[code]`).
-- **Playlist** — An ordered collection of global songs (`playlist_songs`, ordered by `position`), owned by either a user or a band (same exclusivity rule as repertoire). Can optionally be linked to and synced from a Spotify playlist (`spotify_playlist_id`, `sync_with_spotify`, `last_synced_at`).
+- **Playlist** — An ordered collection of catalog songs (`playlist_songs`, ordered by `position`), owned by either a user or a band (same exclusivity rule as repertoire). Can optionally be linked to and synced from a Spotify playlist (`spotify_playlist_id`, `sync_with_spotify`, `last_synced_at`).
 - **Tags** — Freeform string arrays on `repertoire` and `playlists` rows (e.g., genre, "setlist-2026"), not a separate normalized table.
 - **Fast View** — A reading-mode page (`/songs/[id]/fast-view`) stripped of editing chrome, designed to be legible on a phone propped on a music stand mid-performance.
 - **Repertoire Tab (`repertoire_tabs`)** — A PDF file (chord chart, tab) attached to one specific repertoire entry, stored as a URL pointing into Vercel Blob.
@@ -323,8 +323,9 @@ Row shapes that are not already a domain type from `src/types/database.ts` live 
 `src/lib/dbRows.ts` - one exported interface per distinct SELECT list, named `<Subject>Row`
 and mirroring the projection column for column (`SpotifyTokenRow`, `PlaylistSongIdRow`).
 They live there rather than beside their SQL because `src/lib/songs.ts` is pinned at
-`max-lines: 471` by the RH-39 ratchet (lowered from 531 as the file shrank; RH-95 took it
-from 505 to 483, RH-96 to 473 and RH-97 to 471) and cannot grow by even one import line. Keep
+`max-lines: 470` by the RH-39 ratchet (lowered from 531 as the file shrank; RH-95 took it
+from 505 to 483, RH-96 to 473, RH-97 to 471 and RH-121 to 470) and cannot grow by even one
+import line. Keep
 `src/types/database.ts` as the app's public vocabulary and `dbRows.ts` as an implementation
 detail of the data layer: never duplicate a domain type there, name it at the call site
 instead. `knip` (`npm run lint:dead`) fails on a row interface nobody imports, so do not add
@@ -385,7 +386,7 @@ here rather than left for the next reader to discover.
 - **Type vocabulary.** Domain nouns live in `src/types/database.ts`; a raw SQL
   projection is `<Subject>Row` in `src/lib/dbRows.ts` `(guarded)`, see Database
   Row Types; a parsed-and-narrowed input shape is `<Subject>Payload`
-  (`GlobalSongEditPayload`, `BandUpdatePayload`) `(convention only)`.
+  (`SongEditPayload`, `BandUpdatePayload`) `(convention only)`.
 - **Tests sit in `__tests__/` beside the code they test** `(convention only)`,
   named `<subject>.test.ts`, or `.test.tsx` for a DOM test. A test that needs a
   live Postgres is `<subject>.db.test.ts` - nine of the 125 test files - which is

@@ -22,7 +22,7 @@ import {
   updateSongTags,
   updatePersonalKey,
   removeSongFromRepertoire,
-  searchGlobalSongs,
+  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
@@ -49,7 +49,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
   let userId: string
   // RH-45 — the band half of the `RepertoireOwner` fork `updateLyrics` takes.
   let bandId: string
-  const createdGlobalSongIds = new Set<string>()
+  const createdSongIds = new Set<string>()
 
   beforeAll(async () => {
     userId = await createTestUser({ email: TEST_USER.email })
@@ -63,9 +63,9 @@ describe.skipIf(skip)('songs service integration tests', () => {
   afterAll(async () => {
     if (bandId) await query('DELETE FROM bands WHERE id = $1', [bandId])
     if (userId) {
-      // Global songs first (contributor_id FK), then deleteTestUser cascades the rest
-      if (createdGlobalSongIds.size > 0) {
-        await query('DELETE FROM global_songs WHERE id = ANY($1)', [Array.from(createdGlobalSongIds)])
+      // Catalog rows first, then deleteTestUser cascades the rest
+      if (createdSongIds.size > 0) {
+        await query('DELETE FROM songs WHERE id = ANY($1)', [Array.from(createdSongIds)])
       }
       await deleteTestUser(userId)
     }
@@ -96,7 +96,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(entry.song!.links).toEqual(songData.links)
 
     // Track the created song ID for cleanup
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
   })
 
   // RH-95 turned the rule around: the catalog row is identified by
@@ -111,7 +111,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
 
     // First creation
     const entry1 = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry1.song_id)
+    createdSongIds.add(entry1.song_id)
 
     // Remove from repertoire (but keep the global song in database)
     await removeSongFromRepertoire({ userId: userId }, entry1.id)
@@ -126,7 +126,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
 
     // Same title, a different artist: a different song.
     const entry3 = await createAndAddSong({ userId: userId }, { ...songData, artist: 'Artist B2' })
-    createdGlobalSongIds.add(entry3.song_id)
+    createdSongIds.add(entry3.song_id)
     expect(entry3.song_id).not.toBe(entry1.song_id)
   })
 
@@ -137,7 +137,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     }
 
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     await expect(createAndAddSong({ userId: userId }, songData)).rejects.toThrow('Song already in your repertoire')
   })
@@ -153,11 +153,11 @@ describe.skipIf(skip)('songs service integration tests', () => {
   it('addSongToRepertoire adds an existing global song to user repertoire', async () => {
     // Insert the global song directly, so it acts as an already existing global song
     const inserted = await query<{ id: string }>(
-      'INSERT INTO global_songs (title, artist, contributor_id) VALUES ($1, $2, $3) RETURNING id',
-      [`Global Song D_${suffix}`, 'Artist D', userId],
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
+      [`Global Song D_${suffix}`, 'Artist D'],
     )
     const songId = inserted.rows[0].id
-    createdGlobalSongIds.add(songId)
+    createdSongIds.add(songId)
 
     const entry = await addSongToRepertoire({ userId: userId }, songId)
     expect(entry).toBeDefined()
@@ -172,7 +172,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       artist: 'Artist E',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     expect(entry.status).toBe('unknown')
 
@@ -190,7 +190,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       artist: 'Artist F',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     expect(entry.tags).toEqual([])
 
@@ -208,7 +208,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       artist: 'Artist G',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     expect(entry.personal_key).toBeNull()
 
@@ -225,7 +225,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       artist: 'Artist H',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     // Verify it exists first
     const before = await getSongEntry({ userId: userId }, entry.id)
@@ -238,25 +238,25 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(after).toBeNull()
   })
 
-  it('searchGlobalSongs searches by title or artist', async () => {
+  it('searchSongs searches by title or artist', async () => {
     // Add two test songs
     const song1 = await createAndAddSong({ userId: userId }, { title: `SearchTitle_${suffix}`, artist: 'SomeArtist' })
     const song2 = await createAndAddSong({ userId: userId }, { title: 'SomeTitle', artist: `SearchArtist_${suffix}` })
-    createdGlobalSongIds.add(song1.song_id)
-    createdGlobalSongIds.add(song2.song_id)
+    createdSongIds.add(song1.song_id)
+    createdSongIds.add(song2.song_id)
 
     // Search by title
-    const results1 = await searchGlobalSongs(`SearchTitle_${suffix}`)
+    const results1 = await searchSongs(`SearchTitle_${suffix}`)
     expect(results1.length).toBe(1)
     expect(results1[0].id).toBe(song1.song_id)
 
     // Search by artist
-    const results2 = await searchGlobalSongs(`SearchArtist_${suffix}`)
+    const results2 = await searchSongs(`SearchArtist_${suffix}`)
     expect(results2.length).toBe(1)
     expect(results2[0].id).toBe(song2.song_id)
 
     // Search with empty/whitespace query
-    const resultsEmpty = await searchGlobalSongs('   ')
+    const resultsEmpty = await searchSongs('   ')
     expect(resultsEmpty).toEqual([])
   })
 
@@ -266,7 +266,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       artist: 'Artist I',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     const retrieved = await getSongEntry({ userId: userId }, entry.id)
     expect(retrieved).not.toBeNull()
@@ -286,7 +286,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       standard_key: 'A',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     const updateData = {
       title: `Updated Title_${suffix}`,
@@ -310,7 +310,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
   })
 
   it('updateSong does not overwrite already-set global song fields (fill-if-empty)', async () => {
-    // global_songs is a shared catalog: fields that already have a value
+    // songs is a shared catalog: fields that already have a value
     // must survive an edit from any repertoire owner, so a stray/incorrect
     // edit from one user's repertoire can't clobber good data for everyone
     // else who has the same song. Correcting an already-set field (e.g. a
@@ -322,7 +322,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       standard_key: 'A',
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     const updateData = {
       title: `Updated Title_${suffix}`,
@@ -354,7 +354,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       // album/standard_key/cover_url/duration_seconds/links all start empty
     }
     const entry = await createAndAddSong({ userId: userId }, songData)
-    createdGlobalSongIds.add(entry.song_id)
+    createdSongIds.add(entry.song_id)
 
     const updateData = {
       title: songData.title,
@@ -390,7 +390,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
         { userId },
         { title: `Lyrics Personal_${suffix}`, artist: 'Lyrics Artist' },
       )
-      createdGlobalSongIds.add(entry.song_id)
+      createdSongIds.add(entry.song_id)
 
       await updateLyrics({ userId }, entry.id, 'verse one\nverse two')
 
@@ -403,7 +403,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
         { userId },
         { title: `Lyrics Band_${suffix}`, artist: 'Lyrics Artist' },
       )
-      createdGlobalSongIds.add(personalEntry.song_id)
+      createdSongIds.add(personalEntry.song_id)
 
       const bandEntry = await addSongToRepertoire({ bandId }, personalEntry.song_id)
 
@@ -429,7 +429,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
         { userId },
         { title: `Lyrics Mismatch_${suffix}`, artist: 'Lyrics Artist' },
       )
-      createdGlobalSongIds.add(personalEntry.song_id)
+      createdSongIds.add(personalEntry.song_id)
 
       // A personal id sent with a band owner matches no row: nothing is written.
       await expect(updateLyrics({ bandId }, personalEntry.id, 'hijacked')).rejects.toThrow(
@@ -446,7 +446,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
         { userId },
         { title: `Personal Entry_${suffix}`, artist: 'Entry Artist' },
       )
-      createdGlobalSongIds.add(entry.song_id)
+      createdSongIds.add(entry.song_id)
 
       const found = await getPersonalEntryForSong(entry.song_id, userId)
 
@@ -470,12 +470,12 @@ describe.skipIf(skip)('songs service integration tests', () => {
         { userId },
         { title: `${label}_${suffix}`, artist: 'Links Artist', links: [ORIGINAL] },
       )
-      createdGlobalSongIds.add(entry.song_id)
+      createdSongIds.add(entry.song_id)
       return entry.song_id
     }
 
     const catalogLinks = async (songId: string): Promise<SongLink[]> => {
-      const res = await query('SELECT links FROM global_songs WHERE id = $1', [songId])
+      const res = await query('SELECT links FROM songs WHERE id = $1', [songId])
       return res.rows[0].links as SongLink[]
     }
 

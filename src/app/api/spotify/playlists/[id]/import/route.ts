@@ -4,7 +4,7 @@ import { logger } from '@/lib/logger'
 import { resolveSpotifyRouteAccess, resolveBandOwnership } from '@/lib/spotifyRouteAuth'
 import {
   fetchAllSpotifyTracks,
-  findOrCreateGlobalSong,
+  findOrCreateSong,
   ensureInRepertoire,
   buildPlaylistSongsInsert,
 } from '@/lib/spotifyPlaylistSync'
@@ -16,7 +16,7 @@ import type { Playlist } from '@/types/database'
 //
 // Flow:
 //  1. Fetch all Spotify tracks
-//  2. Find-or-create each in global_songs
+//  2. Find-or-create each in songs
 //  3. Find-or-create each in repertoire
 //  4. Create a local playlist with spotify_playlist_id set
 //  5. Add all songs to playlist_songs
@@ -82,7 +82,7 @@ export async function POST(
     const owner = bandId ? { bandId } : { userId: userId }
 
     for (const track of tracks) {
-      const songId = await findOrCreateGlobalSong(track)
+      const songId = await findOrCreateSong(track)
       await ensureInRepertoire(songId, owner)
       songIds.push(songId)
     }

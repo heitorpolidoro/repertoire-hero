@@ -1,11 +1,11 @@
 /**
- * RH-101 — `global_songs.updated_at` exists, starts at `created_at`, and moves
+ * RH-101 — `songs.updated_at` exists, starts at `created_at`, and moves
  * when a real writer runs.
  *
  * `catalogTimestampGuard.test.ts` proves the clause is present in every
  * statement's text. That is a claim about source, not about Postgres: it cannot
  * show that the column exists with the intended shape, that
- * `migrations/0011_add_global_songs_updated_at.sql` backfilled from
+ * `migrations/0011` (the migration that added the column) backfilled from
  * `created_at` rather than from the migration's clock, or that the clause
  * actually advances the stored value. Those three are what this file checks,
  * against a live database.
@@ -32,7 +32,7 @@ interface TimestampRow {
   advanced: boolean
 }
 
-describe.skipIf(!RUN_DB_TESTS)('global_songs.updated_at (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('songs.updated_at (real database)', () => {
   const suffix = Date.now()
   let userId: string
   const createdSongIds: string[] = []
@@ -40,7 +40,7 @@ describe.skipIf(!RUN_DB_TESTS)('global_songs.updated_at (real database)', () => 
   /** A fresh catalog row with no links, so a link add is an additive edit. */
   const makeSong = async (): Promise<string> => {
     const res = await query<{ id: string }>(
-      `INSERT INTO global_songs (title, artist, links)
+      `INSERT INTO songs (title, artist, links)
        VALUES ($1, $2, '[]'::jsonb) RETURNING id`,
       [`RH-101 Song ${suffix}-${createdSongIds.length}`, 'RH-101 Artist'],
     )
@@ -53,7 +53,7 @@ describe.skipIf(!RUN_DB_TESTS)('global_songs.updated_at (real database)', () => 
       `SELECT created_at, updated_at,
               updated_at = created_at AS same,
               updated_at > created_at AS advanced
-         FROM global_songs WHERE id = $1`,
+         FROM songs WHERE id = $1`,
       [songId],
     )
     return res.rows[0]
@@ -65,7 +65,7 @@ describe.skipIf(!RUN_DB_TESTS)('global_songs.updated_at (real database)', () => 
 
   afterAll(async () => {
     for (const songId of createdSongIds) {
-      await query('DELETE FROM global_songs WHERE id = $1', [songId])
+      await query('DELETE FROM songs WHERE id = $1', [songId])
     }
     if (userId) await deleteTestUser(userId)
   })
@@ -78,7 +78,7 @@ describe.skipIf(!RUN_DB_TESTS)('global_songs.updated_at (real database)', () => 
     }>(
       `SELECT data_type, is_nullable, column_default
          FROM information_schema.columns
-        WHERE table_name = 'global_songs' AND column_name = 'updated_at'`,
+        WHERE table_name = 'songs' AND column_name = 'updated_at'`,
     )
 
     expect(res.rows[0]).toMatchObject({

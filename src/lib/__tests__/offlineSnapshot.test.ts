@@ -135,6 +135,21 @@ describe('buildOfflineSnapshot', () => {
     expect(tab.fileUrl).toContain('blob.vercel-storage.com')
   })
 
+  // RH-121: `OFFLINE_SCHEMA_VERSION` deliberately did NOT move when the catalog
+  // lost its contributor column. The key was never a declared snapshot field
+  // and `isSongSnapshot` does not inspect the embedded song object, so an
+  // already-downloaded playlist stays valid — bumping the version would have
+  // invalidated every user's download for a change no screen can see. What has
+  // to hold instead is that the key is gone from what gets written, which is
+  // decided one layer up by `SONG_JSON` in `src/lib/songs.ts`. Matched by
+  // pattern rather than by name: the full identifier may not appear under
+  // `src/` at all (ER5), and a test that spelled it would defeat that grep.
+  it('serializes no contributor key anywhere in the payload', () => {
+    const serialized = JSON.stringify(buildOne())
+
+    expect(serialized).not.toMatch(/contributor/i)
+  })
+
   it('accepts a null bandId, which is what a personal playlist snapshot carries', () => {
     const snapshot = buildOfflineSnapshot({
       playlistId: 'pl-2',

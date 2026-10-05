@@ -1,7 +1,7 @@
 /**
  * RH-97 — the shared-catalog write rule, as a pure decision.
  *
- * `global_songs` is a wiki: a row is shared by everyone who has the song, so a
+ * `songs` is a wiki: a row is shared by everyone who has the song, so a
  * single repertoire owner may *fill a blank* but may not overwrite a value
  * somebody else's repertoire also shows. `updateSong` used to express that as
  * `SET artist = CASE WHEN artist IS NULL OR artist = '' THEN $2 ELSE artist END`
@@ -28,7 +28,7 @@
  * A refused column's route is `CorrectionModal` -> the `global_song_edits`
  * queue; see `docs/use-cases.md` § *Suggest a correction to the catalog*.
  */
-import type { GlobalSongEditPayload } from '@/lib/globalSongEditPayload'
+import type { SongEditPayload } from '@/lib/songEditPayload'
 import type {
   CatalogFieldValue,
   RefusableCatalogColumn,
@@ -36,7 +36,7 @@ import type {
   SongLink,
 } from '@/types/database'
 
-/** The mutable `global_songs` columns, in column order. */
+/** The mutable `songs` columns, in column order. */
 export const CATALOG_COLUMNS = [
   'title',
   'artist',
@@ -71,9 +71,9 @@ export type CatalogProposal = {
   links: SongLink[]
 }
 
-/** One column the `UPDATE global_songs` SET list may carry. */
+/** One column the `UPDATE songs` SET list may carry. */
 export interface CatalogFill {
-  /** A `global_songs` column name out of `CATALOG_COLUMNS` — safe to interpolate. */
+  /** A `songs` column name out of `CATALOG_COLUMNS` — safe to interpolate. */
   column: CatalogColumn
   /** The value as `pg` must receive it: `links` as a JSON string. */
   value: string | number | null
@@ -232,7 +232,7 @@ function usableLinks(links: SongLink[]): SongLink[] {
   return links.filter((l) => l.url.trim() !== '').map((l) => ({ label: l.label, url: l.url }))
 }
 
-/** The two columns `global_songs` declares NOT NULL, which a correction may never blank. */
+/** The two columns `songs` declares NOT NULL, which a correction may never blank. */
 const REQUIRED_COLUMNS: ReadonlySet<CatalogColumn> = new Set<CatalogColumn>(['title', 'artist'])
 
 function putIfChanged(
@@ -252,14 +252,14 @@ function putIfChanged(
 
 /**
  * The correction payload: only the fields whose draft value differs from the
- * catalog's own, normalized the way `parseGlobalSongEditPayload` expects them.
+ * catalog's own, normalized the way `parseSongEditPayload` expects them.
  *
- * Only-what-changed matters twice over. `parseGlobalSongEditPayload` rejects a
+ * Only-what-changed matters twice over. `parseSongEditPayload` rejects a
  * payload proposing no known column, so an untouched form must be refused
  * before it is sent; and a queue row naming one column is what RH-107's
  * one-row-per-field model will want, reached without implementing it.
  */
-export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): GlobalSongEditPayload {
+export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): SongEditPayload {
   const payload: Record<string, unknown> = {}
 
   putIfChanged(payload, 'title', base.title, draft.title)
@@ -274,7 +274,7 @@ export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): G
   const links = usableLinks(draft.links)
   if (!sameLinks(usableLinks(base.links), links)) payload.links = links
 
-  return payload as GlobalSongEditPayload
+  return payload as SongEditPayload
 }
 
 /**

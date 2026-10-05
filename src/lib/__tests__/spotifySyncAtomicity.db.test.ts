@@ -99,12 +99,12 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     }
 
     const songOne = await one(
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [`RH-36 Existing One ${suffix}`, 'RH-36 Artist'],
     )
     songOneId = songOne.id as string
     const songTwo = await one(
-      'INSERT INTO global_songs (title, artist) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [`RH-36 Existing Two ${suffix}`, 'RH-36 Artist'],
     )
     songTwoId = songTwo.id as string
@@ -156,9 +156,9 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
       if (user) await deleteTestUser(user)
     }
     for (const song of [songOneId, songTwoId]) {
-      if (song) await query('DELETE FROM global_songs WHERE id = $1', [song])
+      if (song) await query('DELETE FROM songs WHERE id = $1', [song])
     }
-    await query('DELETE FROM global_songs WHERE title = $1 AND artist = $2', [
+    await query('DELETE FROM songs WHERE title = $1 AND artist = $2', [
       TRACK_TITLE,
       TRACK_ARTIST,
     ])
@@ -199,7 +199,7 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ added: 1, removed: 0 })
 
-    const song = await one('SELECT id FROM global_songs WHERE title = $1 AND artist = $2', [
+    const song = await one('SELECT id FROM songs WHERE title = $1 AND artist = $2', [
       TRACK_TITLE,
       TRACK_ARTIST,
     ])

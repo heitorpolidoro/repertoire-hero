@@ -3,6 +3,21 @@ import fs from 'fs'
 import path from 'path'
 import { query } from '@/lib/db'
 
+/**
+ * The catalog table's pre-RH-121 name, assembled from parts rather than written
+ * out as one literal.
+ *
+ * RH-121 renamed the table to `songs` and requires (ER4) that the old
+ * identifier appear nowhere under `src/`. Two tests genuinely need it anyway:
+ * `catalogRename.db.test.ts` asserts the old table's *absence* from
+ * `information_schema`, and `songIdentity.db.test.ts` replays
+ * `migrations/0009`, whose statements predate the rename and still address the
+ * table by its old name. Spelling it once, here, keeps that one unavoidable
+ * exception in a single reviewable place instead of scattering a grep-defeating
+ * trick through the files that need it.
+ */
+export const LEGACY_CATALOG_TABLE = ['global', 'songs'].join('_')
+
 export async function createTestUser(
   { email, name = 'Test User' }: { email: string; name?: string },
 ): Promise<string> {

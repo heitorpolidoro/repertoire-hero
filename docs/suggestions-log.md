@@ -9269,3 +9269,52 @@ codebase's own prior art.
   and I did not benchmark it; if that number is meant to be load-bearing it has no test
   behind it.
 
+
+## [RH-121] Rename global_songs to songs and drop contributor_id — 2026-10-05 (code review)
+
+- `src/lib/__tests__/catalogRename.db.test.ts:112` — the leftover-name guard
+  `expect(names.filter((n) => n.includes(OLD_CATALOG_PREFIX))).toEqual([])` can
+  never fail. `OLD_CATALOG_PREFIX` (line 24) is built as
+  `LEGACY_CATALOG_TABLE.slice(0, -1) + '_'`, i.e. `global_song_`, which does not
+  occur in any of the names it is meant to catch — I checked each:
+  `global_songs_pkey`, `idx_global_songs_title`, `idx_global_songs_artist` and
+  `uq_global_songs_artist_title` all contain `global_songs` followed by `_` or
+  nothing, never `global_song_`. The only thing the prefix does match is
+  `global_song_edits_*`, which is never on table `songs`. Non-blocking because
+  the positive assertions immediately above it (`toContain('idx_songs_title')`
+  etc.) would fail if any `ALTER INDEX ... IF EXISTS` had silently no-opped, so
+  ER1/ER2 coverage is intact either way. `n.includes(LEGACY_CATALOG_TABLE)` is
+  the one-word fix.
+- `src/lib/__tests__/catalogRename.db.test.ts:5` — the header names the migration
+  as `migrations/0013_rename_songs_to_songs.sql`; the file is
+  `0013_rename_global_songs_to_songs.sql`. A rename sweep caught a filename
+  inside prose.
+- `src/lib/__tests__/songIdentity.db.test.ts:405` — after the substitution,
+  `expect(byName.has('uq_songs_title_album')).toBe(false)` asserts the absence of
+  a name that has never existed in any database, so the "the album index is gone"
+  half of that test's title is no longer being checked. The meaningful statement
+  is that no index on `songs` folds `(title, album)` — e.g.
+  `expect([...byName.keys()].some((n) => n.includes('title_album'))).toBe(false)`
+  against `LEGACY_CATALOG_TABLE`-derived names, or simply assert the index set
+  equals the four known names. This is the one place where the historical-replay
+  substitution did cost a little honesty; everywhere else it is contained.
+- `src/lib/__tests__/test-helpers.ts:19` — `LEGACY_CATALOG_TABLE = ['global',
+  'songs'].join('_')` exists to keep ER4's grep clean while two tests still need
+  the old name. The docstring justifies it well and one central exception is the
+  right shape, but it is worth remembering that ER4's grep is now satisfied by
+  construction rather than by accident: if a future part of the split needs the
+  old name again, it should import this constant rather than invent a second
+  trick.
+
+
+## [RH-121] Rename global_songs to songs and drop contributor_id — 2026-10-05 (QA)
+
+- Non-blocking, and outside this task's scope by its own design note: `global_song_edits` and its
+  constraints (`global_song_edits_pkey`, `global_song_edits_song_id_fkey`, …) are now the only
+  `global_`-prefixed identifiers left in the schema. The migration's header explains why they stay
+  (a later part replaces the table wholesale with `catalog_suggestions`). Worth making sure that
+  follow-up part actually lands, or the prefix this task set out to remove survives in the one
+  place a reader of `pg_indexes` will still see it.
+- `knip` emitted two configuration hints (`esbuild` and `@serwist/cli` can be removed from
+  `knip.json`'s `ignoreDependencies`). Pre-existing, unrelated to RH-121, and does not affect the
+  exit code.

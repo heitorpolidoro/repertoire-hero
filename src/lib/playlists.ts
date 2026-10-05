@@ -20,7 +20,7 @@ export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
                  'song', json_build_object('duration_seconds', s.duration_seconds)
                ))
                 FROM playlist_songs ps
-                JOIN global_songs s ON ps.song_id = s.id
+                JOIN songs s ON ps.song_id = s.id
                 WHERE ps.playlist_id = p.id
                ), '[]'::json) as songs,
              (SELECT json_build_object('id', b.id, 'name', b.name)
@@ -282,7 +282,6 @@ export async function getPlaylistWithSongs(id: string, userId: string): Promise<
                'position', ps.position,
                'song', json_build_object(
                  'id', s.id,
-                 'contributor_id', s.contributor_id,
                  'title', s.title,
                  'artist', s.artist,
                  'album', s.album,
@@ -294,7 +293,7 @@ export async function getPlaylistWithSongs(id: string, userId: string): Promise<
                )
              ) ORDER BY ps.position ASC)
               FROM playlist_songs ps
-              JOIN global_songs s ON ps.song_id = s.id
+              JOIN songs s ON ps.song_id = s.id
               WHERE ps.playlist_id = p.id
              ), '[]'::json) as songs
     FROM playlists p
@@ -344,7 +343,7 @@ export async function getPlaylistDetailsWithEntries(
   const sql = `
     SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist
     FROM playlist_songs ps
-    JOIN global_songs s ON s.id = ps.song_id
+    JOIN songs s ON s.id = ps.song_id
     JOIN repertoire r ON r.song_id = ps.song_id
       AND (
         ($1::uuid IS NOT NULL AND r.band_id = $1::uuid)
