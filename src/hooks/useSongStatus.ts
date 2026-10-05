@@ -24,8 +24,10 @@ export interface UseSongStatusOptions {
 }
 
 /**
- * Fast View's status controller: the dropdown's open state, the in-flight flag
- * and the write itself, which reports through the page's one Toast (RH-52).
+ * Fast View's status controller: the in-flight flag and the write itself, which
+ * reports through the page's one Toast (RH-52). There is no open state to keep
+ * since RH-102 — the four notes are always on screen, so a status is one tap
+ * rather than a tap to open and a tap to pick.
  */
 export function useSongStatus({
   entry,
@@ -33,11 +35,7 @@ export function useSongStatus({
   onStatusSaved,
   notify,
 }: UseSongStatusOptions): SongStatusController {
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [updating, setUpdating] = useState(false)
-
-  const toggleDropdown = useCallback(() => setIsDropdownOpen((prev) => !prev), [])
-  const closeDropdown = useCallback(() => setIsDropdownOpen(false), [])
 
   const change = useCallback(
     async (next: SongStatus) => {
@@ -46,11 +44,10 @@ export function useSongStatus({
         setUpdating(true)
         await actions.updateStatus(entry.id, next, entry.band_id)
         onStatusSaved(next)
-        setIsDropdownOpen(false)
         notify(statusUpdatedMessage(next), 'success')
       } catch {
-        // The reason never reaches the user beyond this Toast; the dropdown
-        // stays open, so a retry is one more tap.
+        // The reason never reaches the user beyond this Toast; the notes stay
+        // on screen at the unchanged status, so a retry is one more tap.
         notify('Failed to update status', 'error')
       } finally {
         setUpdating(false)
@@ -62,9 +59,6 @@ export function useSongStatus({
   return {
     status: entry?.status ?? 'unknown',
     updating,
-    isDropdownOpen,
-    toggleDropdown,
-    closeDropdown,
     change,
   }
 }

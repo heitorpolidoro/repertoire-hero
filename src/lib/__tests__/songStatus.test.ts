@@ -1,25 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { STATUS_OPTIONS, statusUpdatedMessage } from '@/lib/songStatus'
-import { STATUS_CONFIG } from '@/lib/statusConfig'
+import * as songStatus from '@/lib/songStatus'
+import { statusUpdatedMessage } from '@/lib/songStatus'
 import type { SongStatus } from '@/types/database'
 
 describe('songStatus', () => {
-  it('STATUS_OPTIONS lists the five statuses in mastery order', () => {
-    expect(STATUS_OPTIONS.map(o => o.status)).toEqual([
-      'unknown',
-      'learning',
-      'practicing',
-      'polishing',
-      'mastered',
-    ])
-  })
-
-  it('STATUS_OPTIONS carries the label and the badge colour of each status', () => {
-    for (const option of STATUS_OPTIONS) {
-      expect(option.label).toBe(STATUS_CONFIG[option.status].label)
-      expect(option.bgColor).toBe(STATUS_CONFIG[option.status].bgColor)
-    }
-    expect(STATUS_OPTIONS[4]).toEqual({ status: 'mastered', label: 'Mastered', bgColor: 'bg-green-100' })
+  // RH-102: `STATUS_OPTIONS` and `SongStatusOption` existed only so Fast View's
+  // status dropdown could map a `SongStatus`-typed array. The dropdown is gone,
+  // replaced by the four-note control, and so are they.
+  it('exports no dropdown option list any more', () => {
+    expect('STATUS_OPTIONS' in songStatus).toBe(false)
   })
 
   it('statusUpdatedMessage names the label of the new status', () => {

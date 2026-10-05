@@ -10,6 +10,7 @@ vi.mock('@/store/repertoireStore', () => ({
   useRepertoireStore: () => ({ loadSongs }),
 }))
 
+import { ALL_STATUSES, STATUS_CONFIG } from '@/lib/statusConfig'
 import SongForm, { type SongFormActions } from '../SongForm'
 import type { Repertoire, RefusedCatalogField } from '@/types/database'
 
@@ -330,5 +331,40 @@ describe('a refused save is reported, not swallowed (ER9)', () => {
       links: REFUSED[1].proposed,
       reason: null,
     })
+  })
+})
+
+/**
+ * RH-102 ER11 — the form's status picker keeps all five values.
+ *
+ * `unknown` left `STATUS_ORDER` because it is zero notes filled rather than a
+ * stage, but a row can hold it, so the picker that authors the value has to
+ * offer it. It enumerates `ALL_STATUSES` and keeps `STATUS_CONFIG`'s per-status
+ * colours; the three greys are the note control's rule, not this one's.
+ */
+describe('SongForm status picker (RH-102 ER11)', () => {
+  it('offers all five statuses, Unknown included, each in its own colour', () => {
+    setup()
+
+    const radios = screen.getAllByRole('radio') as HTMLInputElement[]
+    expect(radios.map((radio) => radio.value)).toEqual(ALL_STATUSES)
+
+    for (const status of ALL_STATUSES) {
+      const cfg = STATUS_CONFIG[status]
+      const chip = screen.getByText(cfg.label)
+      expect(chip.className).toContain(cfg.bgColor)
+      expect(chip.className).toContain(cfg.textColor)
+    }
+  })
+
+  it('writes the status the musician picked, Unknown included', () => {
+    setup()
+
+    const unknown = screen
+      .getAllByRole('radio')
+      .find((radio) => (radio as HTMLInputElement).value === 'unknown') as HTMLInputElement
+    fireEvent.click(unknown)
+
+    expect(unknown.checked).toBe(true)
   })
 })

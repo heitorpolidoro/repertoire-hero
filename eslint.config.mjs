@@ -74,8 +74,12 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/components/layout/AppLayout.tsx"], rules: { complexity: ["error", 21] } },
   // RH-96: the status badge moved into `SongStatusBadge.tsx` and the band-role
   // read into `useBandRole.ts`, so the row's worst complexity fell from 18 to
-  // 17 and the component function from 530 lines to 526.
-  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 526], "max-lines": ["error", 579] } },
+  // 17 and the component function from 530 lines to 526. RH-102 deleted
+  // `SongStatusBadge.tsx` outright — the row renders the shared `StatusNotes`
+  // control instead — taking the component function 526 to 525 and the file
+  // 579 to 578. `complexity` is unchanged at 17: `readOnly={!canEditStatus}`
+  // replaces the `editable` prop one for one, so the gate costs no branch.
+  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 525], "max-lines": ["error", 578] } },
   // RH-97: the link rows moved into `SongLinksEditor.tsx`, one populated shared
   // field into `SharedCatalogField.tsx` and the refusal notice into
   // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog

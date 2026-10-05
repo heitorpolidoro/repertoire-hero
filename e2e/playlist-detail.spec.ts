@@ -6,7 +6,8 @@
  * `src/components/playlists/` and `src/hooks/`. A behaviour-preserving move with
  * no test is a rewrite, so this file drives the page through the ten behaviours
  * those five parts touch: opening a playlist, adding a catalog song through the
- * picker, removing one, cycling a mastery status, adding and removing a song
+ * picker, removing one, setting and dropping a mastery status, adding and
+ * removing a song
  * tag, adding a playlist tag, renaming inline, and both filters.
  *
  * Nothing here reaches for a `data-testid`: every locator is an accessible name
@@ -179,24 +180,40 @@ test('adds two catalog songs to the playlist through the picker', async ({ page 
   await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
 })
 
-test('cycles the mastery status of a playlist song', async ({ page }) => {
+test('sets and drops the mastery status of a playlist song', async ({ page }) => {
   await reopenPlaylist(page)
 
-  const statusButton = (label: string) =>
+  // RH-102: the pill badge is four notes, each named after what tapping it does.
+  // A status moves in either direction now, which the cycling badge could not
+  // express — so this spec proves both halves across a reload.
+  const note = (label: string) =>
     songRow(page, songOneTitle).getByRole('button', { name: label, exact: true })
+  const notes = () =>
+    songRow(page, songOneTitle).getByRole('group', { name: 'Mastery status' }).getByRole('button')
 
-  await expect(statusButton('Status: Unknown. Click to advance.')).toBeVisible({ timeout: 15_000 })
+  await expect(notes()).toHaveCount(4, { timeout: 15_000 })
+  await expect(note('Set status to Polishing')).toBeVisible()
 
-  // `handleStatusCycle` writes the optimistic state *before* awaiting
+  // `changeStatus` writes the optimistic state *before* awaiting
   // `updateSongStatus`, so the flip below proves nothing about persistence and a
   // reload fired straight after it would race the in-flight Server Action.
   const statusWrite = serverActionResponse(page)
-  await statusButton('Status: Unknown. Click to advance.').click()
-  await expect(statusButton('Status: Learning. Click to advance.')).toBeVisible()
+  await note('Set status to Polishing').click()
+  await expect(note('Drop status to Practicing')).toBeVisible()
   await statusWrite
 
   await page.reload()
-  await expect(statusButton('Status: Learning. Click to advance.')).toBeVisible({ timeout: 15_000 })
+  await expect(note('Drop status to Practicing')).toBeVisible({ timeout: 15_000 })
+
+  // Tapping the note that is already current drops one stage — the direction the
+  // old cycling badge could only reach by wrapping through `unknown`.
+  const dropWrite = serverActionResponse(page)
+  await note('Drop status to Practicing').click()
+  await expect(note('Drop status to Learning')).toBeVisible()
+  await dropWrite
+
+  await page.reload()
+  await expect(note('Drop status to Learning')).toBeVisible({ timeout: 15_000 })
 })
 
 test('adds a tag to a playlist song', async ({ page }) => {

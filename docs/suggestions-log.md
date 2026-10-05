@@ -9159,3 +9159,51 @@ None.
 - The migration header states that `docker/init-migrations.sh` and `scripts/migrate.mjs` "may both apply this file". Both in fact record each filename in a ledger and skip it, so double application only happens by hand. The idempotence is genuinely needed and correctly implemented (confirmed above by applying the file twice); the rationale sentence just slightly overstates the automated path. Non-blocking wording nit.
 - `src/lib/__tests__/catalogTimestampGuard.test.ts`'s `listProductionSources` skips any dirent literally named `__tests__`, which is equivalent to the "no `__tests__` path segment" rule today. A file named e.g. `src/lib/foo.test.ts` sitting outside a `__tests__` directory would be scanned; no such file exists, and scanning it would be harmless (it would have to carry the clause). Noted only for completeness.
 
+
+## [RH-102] Replace the cycling status badge with the four-note control — 2026-10-05 (code review)
+
+- `src/components/playlists/PlaylistSummary.tsx:27` — `barColor()` casts with
+  `status as Exclude<SongStatus, "unknown">` to index a four-key record. The cast is
+  safe only because the single caller iterates `STATUS_ORDER`; if `STATUS_ORDER` ever
+  regains a fifth member the function returns `undefined` silently instead of failing
+  type-check. Typing `STATUS_ORDER` in `statusConfig.ts` as
+  `Exclude<SongStatus, 'unknown'>[]` (and `ALL_STATUSES` as `SongStatus[]`, which it
+  already is) would delete the cast and make the four-stage guarantee a type, not a
+  comment. No behavioural effect today.
+- `src/components/fastview/SongIdentityHeader.tsx:36` — `status.change(next).catch(() => undefined)`
+  swallows a rejection that cannot happen: `useSongStatus.change` already try/catches
+  and notifies via Toast, and always resolves. The `.catch` is harmless but it is dead
+  defence, and if `change` ever starts rejecting meaningfully this call site hides it.
+  `void status.change(next)` would express the same intent without a silent sink.
+- `src/components/playlists/PlaylistSongRow.tsx:48` — stray blank line left between the
+  destructured props and the `return`. Cosmetic; lint does not flag it.
+- Non-admin band members now get four `disabled` buttons with no explanation: the old
+  read-only pill carried `title="Band status is set by a band admin"`. The spec
+  explicitly says "the band read-only control gets no explanatory tooltip from this
+  task" and ER8 only asserts the names survive, so this is spec-compliant and I did not
+  treat it as a finding — but it is a small discoverability regression worth a follow-up
+  if operators ask why the notes are dead.
+- `docs/tasks/RH-103-mock.html` (ER14) is untracked, so the commit as staged will not
+  carry the mock the spec requires to exist. Out of scope for this review per the
+  dispatch, but flagging it so the staging step is deliberate.
+
+
+## [RH-102] Replace the cycling status badge with the four-note control — 2026-10-05 (QA)
+
+1. **(Local env, pre-existing, not this task's)** `.env.production.local` sets
+   `BETTER_AUTH_SECRET=""`, and Next gives `.env.production.local` precedence over `.env.local`
+   under `next start`, so the documented production-build e2e invocation
+   (`PLAYWRIGHT_WEB_SERVER="npx next start ..."`) dies in `global-setup` with
+   `BetterAuthError: You are using the default secret` before a single spec runs. Either drop
+   the empty key from `.env.production.local` or have `AGENTS.md` spell out the env the
+   production-build run needs. Nothing in RH-102 caused this and nothing in RH-102 can fix it;
+   it only cost one wasted run here.
+2. **`PlaylistSongRow` has a stray blank line** left where `const cfg = STATUS_CONFIG[...]`
+   was removed — `}: PlaylistSongRowProps) {` is followed by an empty line before `return`.
+   Cosmetic; `npm run lint` does not flag it.
+3. **`barColor()` casts rather than narrows.** `src/components/playlists/PlaylistSummary.tsx`
+   reaches its four-key record through `STATUS_BAR_COLORS[status as Exclude<SongStatus,"unknown">]`.
+   It is called only from `STATUS_ORDER.map`, so it is sound today, but the cast would return
+   `undefined` silently if a future caller passed `unknown`. Typing the parameter as
+   `Exclude<SongStatus, "unknown">` and letting `STATUS_ORDER` carry that element type would
+   make the compiler keep the guarantee instead of the call sites.

@@ -9,7 +9,7 @@ import type {
   SongUpdateResult,
   Repertoire,
 } from "@/types/database";
-import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
+import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
 import {
   catalogDraftFromRefusals,
   catalogDraftFromSong,
@@ -451,7 +451,7 @@ export default function SongForm({
           <legend className="text-sm font-medium text-gray-700">Status</legend>
 
           <div className="flex flex-wrap gap-2" role="radiogroup">
-            {STATUS_ORDER.map((s) => {
+            {ALL_STATUSES.map((s) => {
               const cfg = STATUS_CONFIG[s];
               const checked = form.status === s;
               return (

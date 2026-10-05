@@ -11,8 +11,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   collectPlaylistTags,
-  cycleSongStatus,
   filterPlaylistSongs,
+  setSongStatus,
   sortPlaylistSongs,
   summarisePlaylistMastery,
   withRepertoireEntry,
@@ -209,20 +209,34 @@ describe('summarisePlaylistMastery', () => {
   })
 })
 
-describe('cycleSongStatus', () => {
-  it('advances the song status one step and returns the original entry alongside the updated one', () => {
+describe('setSongStatus', () => {
+  // RH-102: the note control names the status it wants, in either direction, so
+  // this helper no longer decides one — it only pairs the asked-for status with
+  // the entry as it stands, which is what `usePlaylistDetail` rolls back to.
+  it('pairs the asked-for status with the original entry, upwards', () => {
     const original = entry('song-1', 'learning', ['encore'])
-    const cycle = cycleSongStatus(repertoireOf(original), 'song-1')
+    const change = setSongStatus(repertoireOf(original), 'song-1', 'mastered')
 
-    expect(cycle).not.toBeNull()
-    expect(cycle?.status).toBe('practicing')
-    expect(cycle?.entry).toBe(original)
-    expect(cycle?.entry.status).toBe('learning')
-    expect(cycle?.updated).toEqual({ ...original, status: 'practicing' })
+    expect(change).not.toBeNull()
+    expect(change?.status).toBe('mastered')
+    expect(change?.entry).toBe(original)
+    expect(change?.entry.status).toBe('learning')
+    expect(change?.updated).toEqual({ ...original, status: 'mastered' })
+  })
+
+  it('takes a status downwards just as readily, and all the way to unknown', () => {
+    const original = entry('song-1', 'polishing')
+    const repertoire = repertoireOf(original)
+
+    expect(setSongStatus(repertoire, 'song-1', 'practicing')?.status).toBe('practicing')
+    expect(setSongStatus(repertoire, 'song-1', 'unknown')?.updated).toEqual({
+      ...original,
+      status: 'unknown',
+    })
   })
 
   it('returns null when the song has no repertoire entry', () => {
-    expect(cycleSongStatus(new Map(), 'song-1')).toBeNull()
+    expect(setSongStatus(new Map(), 'song-1', 'learning')).toBeNull()
   })
 })
 

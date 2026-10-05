@@ -5,7 +5,7 @@
  * `/playlists/[id]` is a Server Component now, so there is no load to test: the
  * playlist, its songs and the owner's repertoire arrive as props. What only a
  * hook test can reach is the window between an optimistic edit and the Server
- * Action answering it — the revert asymmetry (a rejected status cycle goes
+ * Action answering it — the revert asymmetry (a rejected status write goes
  * back, a rejected tag write does not) and the owner every write carries.
  *
  * The actions are `vi.fn()`s and `global.fetch` is stubbed, so nothing here
@@ -190,7 +190,7 @@ describe('usePlaylistDetail (RH-71)', () => {
     expect(onRefresh).not.toHaveBeenCalled()
   })
 
-  it('cycles a mastery status optimistically and reverts it when the write rejects', async () => {
+  it('writes a mastery status optimistically and reverts it when the write rejects', async () => {
     let rejectWrite: (err: Error) => void = () => undefined
     const actions = makeActions({
       updateSongStatus: vi.fn(
@@ -204,11 +204,11 @@ describe('usePlaylistDetail (RH-71)', () => {
 
     let pending: Promise<void> = Promise.resolve()
     act(() => {
-      pending = result.current.cycleStatus('s1')
+      pending = result.current.changeStatus('s1', 'polishing')
     })
-    // The optimistic window: the badge has already advanced while the Server
+    // The optimistic window: the notes have already filled while the Server
     // Action is still in flight, which is what the e2e net observes.
-    expect(result.current.repertoireMap.get('s1')?.status).toBe('learning')
+    expect(result.current.repertoireMap.get('s1')?.status).toBe('polishing')
 
     await act(async () => {
       rejectWrite(new Error('Failed to update status'))
@@ -219,6 +219,17 @@ describe('usePlaylistDetail (RH-71)', () => {
     expect(result.current.error).toBe('Failed to update status')
   })
 
+  it('takes a status down, and all the way to unknown, on the status the tap names', async () => {
+    const { result, actions } = setup({ repertoire: [entry('s1', { status: 'polishing' })] })
+
+    await act(async () => {
+      await result.current.changeStatus('s1', 'unknown')
+    })
+
+    expect(actions.updateSongStatus).toHaveBeenCalledWith('rep-s1', 'unknown', null)
+    expect(result.current.repertoireMap.get('s1')?.status).toBe('unknown')
+  })
+
   it('carries the playlist band id into the status and the tag writes', async () => {
     const { result, actions } = setup({
       playlist: playlist({ user_id: null, band_id: 'band-1' }),
@@ -226,7 +237,7 @@ describe('usePlaylistDetail (RH-71)', () => {
     })
 
     await act(async () => {
-      await result.current.cycleStatus('s1')
+      await result.current.changeStatus('s1', 'learning')
     })
     await act(async () => {
       await result.current.songTagEditor.removeTag('s1', 'solo')
@@ -240,7 +251,7 @@ describe('usePlaylistDetail (RH-71)', () => {
     const { result, actions } = setup({ repertoire: [entry('s1', { tags: ['solo'] })] })
 
     await act(async () => {
-      await result.current.cycleStatus('s1')
+      await result.current.changeStatus('s1', 'learning')
       await result.current.songTagEditor.removeTag('s1', 'solo')
     })
 

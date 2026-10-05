@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { SongIdentityHeader } from '../SongIdentityHeader'
-import { StatusDropdown } from '../StatusDropdown'
 import type { SongIdentity } from '@/lib/songEntry'
 import type { SongStatusController } from '@/lib/songStatus'
 
@@ -15,9 +14,6 @@ function makeStatus(overrides: Partial<SongStatusController> = {}): SongStatusCo
   return {
     status: 'learning',
     updating: false,
-    isDropdownOpen: false,
-    toggleDropdown: vi.fn(),
-    closeDropdown: vi.fn(),
     change: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -47,64 +43,47 @@ describe('SongIdentityHeader', () => {
     expect(screen.queryByText('Key:')).toBeNull()
   })
 
-  it('StatusDropdown shows the current status label on the trigger', () => {
-    render(<StatusDropdown controller={makeStatus({ status: 'polishing' })} />)
+  // RH-102 — the dropdown is gone; the header renders the four-note control at
+  // the Fast View size, and the write still belongs to the controller.
+  it('renders the four-note control at the Fast View size with the current stage', () => {
+    render(<SongIdentityHeader identity={IDENTITY} status={makeStatus({ status: 'polishing' })} />)
 
-    expect(screen.getAllByRole('button')[0].textContent).toContain('Polishing')
+    const group = screen.getByRole('group', { name: 'Mastery status' })
+    expect(screen.getAllByRole('button')).toHaveLength(4)
+    expect(group.textContent).toContain('Polishing')
+    expect(group.querySelector('svg')?.getAttribute('height')).toBe('32')
   })
 
-  it('StatusDropdown reports the trigger press', () => {
-    const controller = makeStatus()
-    render(<StatusDropdown controller={controller} />)
+  it('asks the controller for the status the tapped note names', () => {
+    const controller = makeStatus({ status: 'learning' })
+    render(<SongIdentityHeader identity={IDENTITY} status={controller} />)
 
-    fireEvent.click(screen.getAllByRole('button')[0])
-
-    expect(controller.toggleDropdown).toHaveBeenCalledTimes(1)
-  })
-
-  it('StatusDropdown spins on the trigger and locks the options while a change saves', () => {
-    render(<StatusDropdown controller={makeStatus({ isDropdownOpen: true, updating: true })} />)
-
-    const [trigger, ...options] = screen.getAllByRole('button') as HTMLButtonElement[]
-    expect(trigger.querySelector('svg.animate-spin')).not.toBeNull()
-    expect(options).toHaveLength(5)
-    expect(options.every((option) => option.disabled)).toBe(true)
-  })
-
-  it('StatusDropdown lists the five statuses in mastery order while open', () => {
-    render(<StatusDropdown controller={makeStatus({ isDropdownOpen: true })} />)
-
-    const labels = screen.getAllByRole('listitem').map((li) => li.textContent)
-
-    expect(labels).toHaveLength(5)
-    expect(labels[0]).toContain('Unknown')
-    expect(labels[1]).toContain('Learning')
-    expect(labels[2]).toContain('Practicing')
-    expect(labels[3]).toContain('Polishing')
-    expect(labels[4]).toContain('Mastered')
-  })
-
-  it('StatusDropdown marks the current status as selected', () => {
-    render(<StatusDropdown controller={makeStatus({ status: 'practicing', isDropdownOpen: true })} />)
-
-    const rows = screen.getAllByRole('listitem')
-
-    expect(rows[2].textContent).toContain('✓')
-    expect(rows[0].textContent).not.toContain('✓')
-  })
-
-  it('StatusDropdown reports the status the musician picked', () => {
-    const controller = makeStatus({ isDropdownOpen: true })
-    render(<StatusDropdown controller={controller} />)
-
-    fireEvent.click(screen.getByText('Mastered'))
+    fireEvent.click(screen.getByLabelText('Set status to Mastered'))
 
     expect(controller.change).toHaveBeenCalledWith('mastered')
   })
 
-  it('StatusDropdown disables the trigger while a status write is in flight', () => {
-    render(<StatusDropdown controller={makeStatus({ updating: true })} />)
+  it('names each note after its outcome, so a drop and a clear are both reachable', () => {
+    render(<SongIdentityHeader identity={IDENTITY} status={makeStatus({ status: 'learning' })} />)
 
-    expect((screen.getAllByRole('button')[0] as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getAllByRole('button').map((note) => note.getAttribute('aria-label'))).toEqual([
+      'Clear status',
+      'Set status to Practicing',
+      'Set status to Polishing',
+      'Set status to Mastered',
+    ])
+  })
+
+  it('locks the four notes while a status write is in flight, keeping their names', () => {
+    const controller = makeStatus({ updating: true })
+    render(<SongIdentityHeader identity={IDENTITY} status={controller} />)
+
+    const notes = screen.getAllByRole('button') as HTMLButtonElement[]
+    expect(notes).toHaveLength(4)
+    expect(notes.every((note) => note.disabled)).toBe(true)
+    expect(notes.every((note) => note.getAttribute('aria-label'))).toBeTruthy()
+
+    for (const note of notes) fireEvent.click(note)
+    expect(controller.change).not.toHaveBeenCalled()
   })
 })

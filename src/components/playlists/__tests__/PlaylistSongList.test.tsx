@@ -11,7 +11,8 @@
  * list in the running app, so they are covered through it here too. Between
  * them these tests pin the locators `e2e/playlist-detail.spec.ts` uses on this
  * slice: the `Songs in this playlist` region, one `listitem` per song, the
- * `Status: <label>. Click to advance.` button, `Remove <title> from playlist`,
+ * `Mastery status` group and its four outcome-named note buttons (RH-102),
+ * `Remove <title> from playlist`,
  * a button named exactly `Add tag`, the `new tag` placeholder rendered for one
  * row at a time, `Remove tag <tag>` per chip, `No songs yet` and
  * `No songs matching "<query>".`.
@@ -87,7 +88,7 @@ function props(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSongList
     activeTagFilter: null,
     songFilterQuery: '',
     tagEditor: tagEditor(),
-    onStatusCycle: vi.fn().mockResolvedValue(undefined),
+    onStatusChange: vi.fn().mockResolvedValue(undefined),
     onRemoveSong: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -186,23 +187,37 @@ describe('PlaylistSongList', () => {
     expect(within(second).queryByText(/^\d+:\d\d$/)).toBeNull()
   })
 
-  it('renders the status as a button that calls onStatusCycle in personal mode', () => {
+  // RH-102: the pill badge is four notes and the stage name. A tap names the
+  // status it wants, in either direction, instead of advancing one step.
+  it('renders the four-note control and reports the tapped status in personal mode', () => {
     const listProps = props({
       repertoireMap: new Map([['song-1', entry('song-1', 'unknown')]]),
     })
     render(<PlaylistSongList {...listProps} />)
 
     const row = within(songList()).getByRole('listitem')
-    const status = within(row).getByRole('button', {
-      name: 'Status: Unknown. Click to advance.',
-      exact: true,
-    })
+    const group = within(row).getByRole('group', { name: 'Mastery status' })
+    expect(within(group).getAllByRole('button')).toHaveLength(4)
+    expect(group.textContent).toContain('Unknown')
+    expect(within(row).queryByText('Click to advance')).toBeNull()
 
-    fireEvent.click(status)
-    expect(listProps.onStatusCycle).toHaveBeenCalledWith('song-1')
+    fireEvent.click(within(row).getByLabelText('Set status to Polishing'))
+    expect(listProps.onStatusChange).toHaveBeenCalledWith('song-1', 'polishing')
   })
 
-  it('renders the status as a read-only badge with no button in band mode', () => {
+  it('drops a status through the current note, which the old badge could not', () => {
+    const listProps = props({
+      repertoireMap: new Map([['song-1', entry('song-1', 'polishing')]]),
+    })
+    render(<PlaylistSongList {...listProps} />)
+
+    const row = within(songList()).getByRole('listitem')
+    fireEvent.click(within(row).getByLabelText('Drop status to Practicing'))
+
+    expect(listProps.onStatusChange).toHaveBeenCalledWith('song-1', 'practicing')
+  })
+
+  it('keeps the four notes disabled in band mode, with their names intact', () => {
     const listProps = props({
       repertoireMap: new Map([['song-1', entry('song-1', 'unknown')]]),
       bandId: 'band-9',
@@ -210,10 +225,17 @@ describe('PlaylistSongList', () => {
     render(<PlaylistSongList {...listProps} />)
 
     const row = within(songList()).getByRole('listitem')
-    expect(
-      within(row).queryByRole('button', { name: /Click to advance/ }),
-    ).toBeNull()
-    expect(within(row).getByText('Unknown')).toBeDefined()
+    const group = within(row).getByRole('group', { name: 'Mastery status' })
+    const notes = within(group).getAllByRole('button') as HTMLButtonElement[]
+
+    expect(notes).toHaveLength(4)
+    expect(notes.every((note) => note.disabled)).toBe(true)
+    expect(notes[0].getAttribute('aria-label')).toBe('Set status to Learning')
+    expect(group.textContent).toContain('Unknown')
+
+    for (const note of notes) fireEvent.click(note)
+    expect(listProps.onStatusChange).not.toHaveBeenCalled()
+    expect(within(row).queryByTitle('Band status is set by a band admin')).toBeNull()
   })
 
   it('calls onRemoveSong with the song id when the remove button is clicked', () => {

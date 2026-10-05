@@ -45,19 +45,12 @@ describe('useSongStatus', () => {
     expect(setup({ entry: null }).result.current.status).toBe('unknown')
   })
 
-  it('toggles the status dropdown open and closed', () => {
+  // RH-102: the four notes are always on screen, so the controller has no open
+  // state left to keep — it is the status, the in-flight flag and the write.
+  it('exposes no dropdown open state', () => {
     const { result } = setup()
-    expect(result.current.isDropdownOpen).toBe(false)
 
-    act(() => result.current.toggleDropdown())
-    expect(result.current.isDropdownOpen).toBe(true)
-
-    act(() => result.current.toggleDropdown())
-    expect(result.current.isDropdownOpen).toBe(false)
-
-    act(() => result.current.toggleDropdown())
-    act(() => result.current.closeDropdown())
-    expect(result.current.isDropdownOpen).toBe(false)
+    expect(Object.keys(result.current).sort()).toEqual(['change', 'status', 'updating'])
   })
 
   it('writes the new status against the entry id and its band id', async () => {
@@ -70,14 +63,12 @@ describe('useSongStatus', () => {
     expect(result.current.updating).toBe(false)
   })
 
-  it('reports the new status label in a success toast and closes the dropdown', async () => {
+  it('reports the new status label in a success toast', async () => {
     const { result, notify } = setup()
-    act(() => result.current.toggleDropdown())
 
     await act(async () => { await result.current.change('mastered') })
 
     expect(notify).toHaveBeenCalledWith('Status updated to Mastered', 'success')
-    expect(result.current.isDropdownOpen).toBe(false)
   })
 
   it('reports a status write failure with the Failed to update status toast', async () => {

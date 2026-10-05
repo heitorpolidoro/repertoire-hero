@@ -4,20 +4,21 @@ import Link from "next/link";
 import { PlaylistSongIdentity } from "@/components/playlists/PlaylistSongIdentity";
 import { TagEditRow } from "@/components/playlists/TagEditRow";
 import type { TagEditorController } from "@/hooks/useTagEditor";
+import { StatusNotes } from "@/components/ui/StatusNotes";
 import { formatPlaylistDuration } from "@/lib/playlistList";
-import { STATUS_CONFIG } from "@/lib/statusConfig";
-import type { PlaylistSong, Repertoire } from "@/types/database";
+import type { PlaylistSong, Repertoire, SongStatus } from "@/types/database";
 
 /**
  * What the row can ask the page to do. The page still owns `handleRemoveSong`
- * and `handleStatusCycle`, so the row reaches them by injection (F21) and keeps
+ * and the status write, so the row reaches them by injection (F21) and keeps
  * the `.catch(console.error)` at each call site — a failure surfaces through
  * the page's error banner, never as an unhandled rejection. RH-69 replaced the
  * seven tag props with the one controller below, which the page shares between
  * every row and the playlist's own tag bar.
  */
 export interface PlaylistSongHandlers {
-  onStatusCycle: (songId: string) => Promise<void>;
+  /** RH-102: the tap names the status it wants, up or down. */
+  onStatusChange: (songId: string, status: SongStatus) => Promise<void>;
   onRemoveSong: (songId: string) => Promise<void>;
   tagEditor: TagEditorController;
 }
@@ -42,10 +43,9 @@ export function PlaylistSongRow({
   playlistId,
   bandId,
   tagEditor,
-  onStatusCycle,
+  onStatusChange,
   onRemoveSong,
 }: PlaylistSongRowProps) {
-  const cfg = STATUS_CONFIG[entry?.status ?? "unknown"];
 
   return (
     <li className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 hover:shadow transition-all group">
@@ -65,27 +65,18 @@ export function PlaylistSongRow({
             {formatPlaylistDuration(ps.song.duration_seconds)}
           </span>
         )}
-        {/* Status badge — read-only on a band playlist, cycles on a personal one.
-            Making a band row editable here is RH-71's named follow-up. */}
-        {bandId ? (
-          <span
-            title="Band status is set by a band admin"
-            className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current opacity-75 cursor-default ${cfg.bgColor} ${cfg.textColor}`}
-          >
-            {cfg.label}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              onStatusCycle(ps.song_id).catch(console.error);
-            }}
-            aria-label={`Status: ${cfg.label}. Click to advance.`}
-            className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.bgColor} ${cfg.textColor}`}
-          >
-            {cfg.label}
-          </button>
-        )}
+        {/* RH-102: the four notes and the stage name, replacing the pill badge.
+            The predicate is the one this call site already had — read-only on a
+            band playlist, writable on a personal one. Making a band row
+            writable here stays RH-71's named follow-up; this task changes what
+            the control is, not who may write it. */}
+        <StatusNotes
+          status={entry?.status ?? "unknown"}
+          readOnly={Boolean(bandId)}
+          onChange={(next) => {
+            onStatusChange(ps.song_id, next).catch(console.error);
+          }}
+        />
         {/* Remove */}
         <button
           type="button"

@@ -3,13 +3,13 @@
  *
  * The playlist detail page used to take all of these inline: the tag set the
  * filter bar renders, the tag + text filter itself, the position sort, the
- * mastery aggregation the summary bar draws, and the optimistic status cycle
+ * mastery aggregation the summary bar draws, and the optimistic status write
  * with its two `new Map(prev)` clones. They are decisions about data, not about
  * rendering, so they live here — no React, no fetch, no `pg` — and the page and
  * the components under `src/components/playlists/` only render what they return.
  */
 
-import { STATUS_ORDER, nextStatus } from '@/lib/statusConfig'
+import { ALL_STATUSES } from '@/lib/statusConfig'
 import type { PlaylistSong, Repertoire, SongStatus } from '@/types/database'
 
 /** What each mastery stage is worth when the playlist level is scored. */
@@ -80,10 +80,12 @@ export interface PlaylistMasterySummary {
 
 /** The status label nearest to a 0-100 score. */
 function nearestScoreStatus(score: number): SongStatus {
-  return STATUS_ORDER[
+  // All five values, `unknown` first: score 0 reads `Unknown` and 100 reads
+  // `Mastered`, exactly as before `unknown` left `STATUS_ORDER` (RH-102).
+  return ALL_STATUSES[
     Math.min(
-      Math.floor((score / 100) * (STATUS_ORDER.length - 1) + 0.5),
-      STATUS_ORDER.length - 1,
+      Math.floor((score / 100) * (ALL_STATUSES.length - 1) + 0.5),
+      ALL_STATUSES.length - 1,
     )
   ]
 }
@@ -114,7 +116,7 @@ export function summarisePlaylistMastery(
   if (total === 0) {
     return { counts, totalSeconds, total, score: 0, scoreStatus: 'unknown' }
   }
-  const earned = STATUS_ORDER.reduce(
+  const earned = ALL_STATUSES.reduce(
     (sum, status) => sum + STATUS_SCORES[status] * counts[status],
     0,
   )
@@ -123,24 +125,29 @@ export function summarisePlaylistMastery(
 }
 
 /**
- * One step of the mastery cycle. `entry` is the entry as it stands now, so the
- * caller can put it back verbatim when the write fails instead of recomputing
- * a status backwards.
+ * One status write. `entry` is the entry as it stands now, so the caller can put
+ * it back verbatim when the write fails instead of recomputing a status
+ * backwards — which, since RH-102 lets a tap move the status in either
+ * direction, is no longer something that could be computed at all.
  */
-export interface SongStatusCycle {
+export interface SongStatusChange {
   entry: Repertoire
   status: SongStatus
   updated: Repertoire
 }
 
-/** The next status of one playlist song, or `null` when it has no entry to cycle. */
-export function cycleSongStatus(
+/**
+ * The asked-for status of one playlist song, or `null` when it has no entry to
+ * write. The note control names the status it wants, up or down, so this makes
+ * no decision about which status that is.
+ */
+export function setSongStatus(
   repertoire: ReadonlyMap<string, Repertoire>,
   songId: string,
-): SongStatusCycle | null {
+  status: SongStatus,
+): SongStatusChange | null {
   const entry = repertoire.get(songId)
   if (!entry) return null
-  const status = nextStatus(entry.status)
   return { entry, status, updated: { ...entry, status } }
 }
 

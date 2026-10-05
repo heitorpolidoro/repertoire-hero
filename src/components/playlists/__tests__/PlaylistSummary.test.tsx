@@ -106,7 +106,9 @@ describe('PlaylistSummary', () => {
     expect(screen.getByText('Learning · 25%')).toBeDefined()
   })
 
-  it('renders one distribution segment per status present under the Status distribution label', () => {
+  // RH-102: `unknown` is not a stage, so it draws no segment. The unassessed
+  // share of the playlist is the part of the grey track no segment covers.
+  it('renders one segment per stage present, and none for the unassessed share', () => {
     render(
       <PlaylistSummary
         songs={[playlistSong('song-1'), playlistSong('song-2'), playlistSong('song-3')]}
@@ -114,17 +116,33 @@ describe('PlaylistSummary', () => {
       />,
     )
 
-    // unknown (the entry-less song), learning and mastered — three of the five.
-    const segments = Array.from(distributionBar().children)
-    expect(segments).toHaveLength(3)
+    const segments = Array.from(distributionBar().children) as HTMLElement[]
+    expect(segments).toHaveLength(2)
     expect(segments.map((segment) => segment.getAttribute('title'))).toEqual([
-      'Unknown: 1',
       'Learning: 1',
       'Mastered: 1',
     ])
   })
 
-  it('renders one legend entry per status present and none for a status with no song', () => {
+  it('leaves three quarters of the grey track uncovered for 1 mastered of 4 songs', () => {
+    render(
+      <PlaylistSummary
+        songs={[1, 2, 3, 4].map((n) => playlistSong(`song-${n}`))}
+        repertoireMap={repertoireOf({ 'song-1': 'mastered' })}
+      />,
+    )
+
+    const track = distributionBar()
+    const segments = Array.from(track.children) as HTMLElement[]
+    expect(segments).toHaveLength(1)
+    expect(segments[0].style.width).toBe('25%')
+    expect(segments[0].getAttribute('title')).toBe('Mastered: 1')
+    // The remaining 75% is the track itself, which is grey and carries no
+    // per-status colour of its own.
+    expect(track.className).toContain('bg-gray-200')
+  })
+
+  it('renders one legend entry per stage present and none for a stage with no song', () => {
     render(
       <PlaylistSummary
         songs={[playlistSong('song-1'), playlistSong('song-2')]}
@@ -135,5 +153,24 @@ describe('PlaylistSummary', () => {
     expect(screen.getByText('Polishing (2)')).toBeDefined()
     expect(screen.queryByText(/^Learning \(/)).toBeNull()
     expect(screen.queryByText(/^Unknown \(/)).toBeNull()
+    expect(screen.queryByText(/unassessed/)).toBeNull()
+  })
+
+  it('ends the legend with a swatch-less unassessed entry when any song has no stage', () => {
+    render(
+      <PlaylistSummary
+        songs={[1, 2, 3, 4].map((n) => playlistSong(`song-${n}`))}
+        repertoireMap={repertoireOf({ 'song-1': 'mastered' })}
+      />,
+    )
+
+    const entries = Array.from(
+      screen.getByLabelText('Status distribution legend').children,
+    ) as HTMLElement[]
+    expect(entries.map((entry) => entry.textContent)).toEqual(['Mastered (1)', '3 unassessed'])
+
+    const unassessed = entries[entries.length - 1]
+    expect(unassessed.querySelector('[aria-hidden="true"]')).toBeNull()
+    expect(unassessed.innerHTML).toBe('3 unassessed')
   })
 })

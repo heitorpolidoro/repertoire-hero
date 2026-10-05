@@ -4,7 +4,7 @@ import { useSpotifySync, type SpotifySyncController } from '@/hooks/useSpotifySy
 import { useTagEditor, type TagEditorController } from '@/hooks/useTagEditor'
 import {
   collectPlaylistTags,
-  cycleSongStatus,
+  setSongStatus,
   filterPlaylistSongs,
 } from '@/lib/playlistDetail'
 import {
@@ -79,7 +79,7 @@ export interface PlaylistDetailController {
   playlistTagEditor: TagEditorController
   songTagEditor: TagEditorController
   removeSong: (songId: string) => Promise<void>
-  cycleStatus: (songId: string) => Promise<void>
+  changeStatus: (songId: string, status: SongStatus) => Promise<void>
   rename: () => Promise<void>
   remove: () => Promise<void>
 }
@@ -171,17 +171,19 @@ export function usePlaylistDetail({
     }
   }
 
-  const cycleStatus = async (songId: string) => {
-    const cycle = cycleSongStatus(repertoireMap, songId)
-    if (!cycle) return
-    record({ type: 'repertoire-entry', songId, entry: cycle.updated })
+  const changeStatus = async (songId: string, status: SongStatus) => {
+    const change = setSongStatus(repertoireMap, songId, status)
+    if (!change) return
+    record({ type: 'repertoire-entry', songId, entry: change.updated })
     try {
-      await actions.updateSongStatus(cycle.entry.id, cycle.status, bandId)
+      await actions.updateSongStatus(change.entry.id, change.status, bandId)
       onRefresh()
     } catch (err) {
       // Back to the entry captured before the write, not a status recomputed
-      // backwards — the one asymmetry the two tag editors below do not share.
-      record({ type: 'repertoire-entry', songId, entry: cycle.entry })
+      // backwards — the one asymmetry the two tag editors below do not share,
+      // and since RH-102 a tap can move the status either way, so there is no
+      // backwards status to compute at all.
+      record({ type: 'repertoire-entry', songId, entry: change.entry })
       setError(err instanceof Error ? err.message : 'Failed to update status')
     }
   }
@@ -262,7 +264,7 @@ export function usePlaylistDetail({
     playlistTagEditor,
     songTagEditor,
     removeSong,
-    cycleStatus,
+    changeStatus,
     rename,
     remove,
   }

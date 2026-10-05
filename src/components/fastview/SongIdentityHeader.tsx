@@ -1,22 +1,25 @@
 'use client'
 
 import type { SongIdentity } from '@/lib/songEntry'
+import { StatusNotes } from '@/components/ui/StatusNotes'
 import type { SongStatusController } from '@/lib/songStatus'
-import { StatusDropdown } from './StatusDropdown'
 
 export interface SongIdentityHeaderProps {
   identity: SongIdentity
   status: SongStatusController
-  /** Forwarded to `StatusDropdown`: the page's offline signal (RH-80). */
+  /** Forwarded to `StatusNotes`: the page's offline signal (RH-80). */
   readOnly?: boolean
 }
 
 /**
  * The "Song details" section: the title, the optional artist line, the optional
- * key line and the mastery-status dropdown.
+ * key line and the four-note mastery control.
  *
  * Presentational only — the three fields come from `songIdentity()` and the
- * status write belongs to `useSongStatus` (RH-52).
+ * status write belongs to `useSongStatus` (RH-52). The notes render at the Fast
+ * View size, the comfortable standing-up target, with `busy` bound to the
+ * in-flight write so a tap visibly landed while the Server Action runs
+ * (RH-102).
  */
 export function SongIdentityHeader({ identity, status, readOnly = false }: SongIdentityHeaderProps) {
   return (
@@ -28,7 +31,17 @@ export function SongIdentityHeader({ identity, status, readOnly = false }: SongI
             <p className="mt-1 text-lg text-gray-500">{identity.artist}</p>
           )}
         </div>
-        <StatusDropdown controller={status} readOnly={readOnly} />
+        <div className="shrink-0 mt-1">
+          <StatusNotes
+            status={status.status}
+            onChange={(next) => {
+              status.change(next).catch(() => undefined)
+            }}
+            size="stage"
+            readOnly={readOnly}
+            busy={status.updating}
+          />
+        </div>
       </div>
 
       {identity.key && (

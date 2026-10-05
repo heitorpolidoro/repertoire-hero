@@ -13,10 +13,11 @@
  * appears nowhere.
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
+import { ALL_STATUSES, STATUS_CONFIG } from '@/lib/statusConfig'
 import RepertoireDashboard, {
   type RepertoireDashboardActions,
 } from '../RepertoireDashboard'
@@ -91,15 +92,17 @@ describe('RepertoireDashboard first render (RH-77 hydration guard)', () => {
 })
 
 /**
- * RH-96 — the three states of the dashboard's status badge.
+ * RH-96's gating under RH-102's control.
  *
- * A band's status is no longer computed from its members, so in band context
- * the badge is the same cycling button personal context has — for a band
- * admin. For a plain member it stays the read-only `<span>`, now captioned with
- * the real reason. The role comes from `actions.getBandRole`, so until it
- * resolves the gate fails closed exactly as the server's does.
+ * A band's status is no longer computed from its members, so in band context a
+ * band admin writes it and every other member may not. RH-102 changes what the
+ * control *is* — four notes and the stage name, replacing the cycling pill —
+ * without touching who may write: an admin gets the notes enabled, anyone else
+ * gets the same four notes `disabled`. The role comes from
+ * `actions.getBandRole`, so until it resolves the gate fails closed exactly as
+ * the server's does.
  */
-describe('RepertoireDashboard status badge (RH-96)', () => {
+describe('RepertoireDashboard status notes (RH-96 gating, RH-102 control)', () => {
   const SONG = {
     id: 'rep-1',
     user_id: null,
@@ -115,8 +118,13 @@ describe('RepertoireDashboard status badge (RH-96)', () => {
     song: { id: 'song-1', title: 'Teclado Azul', artist: 'Someone', album: null },
   }
 
-  const READ_ONLY_CAPTION = 'Band status is set by a band admin'
-  const ADVANCE_LABEL = 'Status: Learning. Click to advance.'
+  // RH-102 replaced RH-96's `Status: <label>. Click to advance.` button and its
+  // read-only pill with the four notes. The admin predicate is unchanged: an
+  // admin writes the band row, every other member sees the same four notes
+  // disabled. Neither the old caption nor the old label is left anywhere.
+  const GONE_CAPTION = 'Band status is computed from all members'
+  const GONE_ADMIN_CAPTION = 'Band status is set by a band admin'
+  const GONE_ADVANCE_LABEL = 'Status: Learning. Click to advance.'
 
   const actionsWithRole = (
     role: 'admin' | 'member' | null,
@@ -135,6 +143,12 @@ describe('RepertoireDashboard status badge (RH-96)', () => {
     })
   }
 
+  /** The four notes of the one repertoire row, in order. */
+  const rowNotes = () =>
+    within(screen.getByRole('group', { name: 'Mastery status' })).getAllByRole(
+      'button',
+    ) as HTMLButtonElement[]
+
   beforeEach(() => {
     getRepertoireAction.mockReset()
     updateSongStatusAction.mockReset()
@@ -144,44 +158,114 @@ describe('RepertoireDashboard status badge (RH-96)', () => {
     useBandContextStore.getState().setBandContext('band-1', 'Banda Um', '#123456')
   })
 
-  it('gives a band admin the cycling button, and it advances the band row', async () => {
+  it('shows the note control on the row instead of a pill badge, and no stale caption', async () => {
     await renderDashboard(actionsWithRole('admin'))
 
-    const button = await screen.findByLabelText(ADVANCE_LABEL)
-    expect(screen.queryByTitle(READ_ONLY_CAPTION)).toBeNull()
-
-    await act(async () => {
-      fireEvent.click(button)
-    })
-
-    expect(updateSongStatusAction).toHaveBeenCalledExactlyOnceWith('rep-1', 'practicing', 'band-1')
+    await waitFor(() => expect(rowNotes()).toHaveLength(4))
+    expect(rowNotes().map((note) => note.getAttribute('aria-label'))).toEqual([
+      'Clear status',
+      'Set status to Practicing',
+      'Set status to Polishing',
+      'Set status to Mastered',
+    ])
+    expect(screen.queryByText(GONE_CAPTION)).toBeNull()
+    expect(screen.queryByTitle(GONE_CAPTION)).toBeNull()
+    expect(screen.queryByTitle(GONE_ADMIN_CAPTION)).toBeNull()
+    expect(screen.queryByLabelText(GONE_ADVANCE_LABEL)).toBeNull()
   })
 
-  it('gives a non-admin member a read-only badge and no button', async () => {
+  it('lets a band admin tap a note, and writes the band row', async () => {
+    await renderDashboard(actionsWithRole('admin'))
+
+    await waitFor(() => expect(rowNotes().every((note) => !note.disabled)).toBe(true))
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Set status to Polishing'))
+    })
+
+    expect(updateSongStatusAction).toHaveBeenCalledExactlyOnceWith('rep-1', 'polishing', 'band-1')
+  })
+
+  it('also lets a band admin drop the row a stage, which the old button could not', async () => {
+    await renderDashboard(actionsWithRole('admin'))
+
+    await waitFor(() => expect(rowNotes().every((note) => !note.disabled)).toBe(true))
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Clear status'))
+    })
+
+    expect(updateSongStatusAction).toHaveBeenCalledExactlyOnceWith('rep-1', 'unknown', 'band-1')
+  })
+
+  it('gives a non-admin member the same four notes, all disabled', async () => {
     await renderDashboard(actionsWithRole('member'))
 
     await waitFor(() => {
-      expect(screen.getByTitle(READ_ONLY_CAPTION)).toBeTruthy()
+      expect(rowNotes().every((note) => note.disabled)).toBe(true)
     })
-    expect(screen.queryByLabelText(ADVANCE_LABEL)).toBeNull()
+    expect(rowNotes()).toHaveLength(4)
+    expect(rowNotes().map((note) => note.getAttribute('aria-label'))).toEqual([
+      'Clear status',
+      'Set status to Practicing',
+      'Set status to Polishing',
+      'Set status to Mastered',
+    ])
+
+    for (const note of rowNotes()) fireEvent.click(note)
     expect(updateSongStatusAction).not.toHaveBeenCalled()
   })
 
   it('fails closed while the role is unknown and when the read refuses', async () => {
     await renderDashboard(actionsWithRole(null))
 
-    expect(screen.getByTitle(READ_ONLY_CAPTION)).toBeTruthy()
-    expect(screen.queryByLabelText(ADVANCE_LABEL)).toBeNull()
+    expect(rowNotes()).toHaveLength(4)
+    expect(rowNotes().every((note) => note.disabled)).toBe(true)
   })
 
-  it('leaves personal context with its button and asks for no role', async () => {
+  it('leaves personal context writable and asks for no role', async () => {
     useBandContextStore.getState().setUserContext()
     const actions = actionsWithRole('admin')
 
     await renderDashboard(actions)
 
-    expect(await screen.findByLabelText(ADVANCE_LABEL)).toBeTruthy()
-    expect(screen.queryByTitle(READ_ONLY_CAPTION)).toBeNull()
+    await waitFor(() => expect(rowNotes().every((note) => !note.disabled)).toBe(true))
     expect(actions.getBandRole).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * RH-102 ER11 — the status *filter* is not the status *control*.
+ *
+ * `unknown` left `STATUS_ORDER` because it is zero notes filled, not a stage.
+ * The filter is the other kind of list: it has to offer every value a row can
+ * hold, so it enumerates `ALL_STATUSES` and keeps all five — with
+ * `STATUS_CONFIG`'s per-status colours, which only the note control drops.
+ */
+describe('RepertoireDashboard status filter (RH-102 ER11)', () => {
+  beforeEach(() => {
+    getRepertoireAction.mockReset()
+    getRepertoireAction.mockResolvedValue([])
+    useRepertoireStore.setState({ songs: [], searchQuery: '', selectedStatus: null })
+    useBandContextStore.getState().setUserContext()
+  })
+
+  it('still offers All plus the five statuses, Unknown included, in their colours', async () => {
+    await act(async () => {
+      render(<RepertoireDashboard actions={NOOP_ACTIONS} />)
+    })
+
+    for (const label of ['All', 'Unknown', 'Learning', 'Practicing', 'Polishing', 'Mastered']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy()
+    }
+
+    // Each chip wears its own `STATUS_CONFIG` colour once selected — the
+    // behaviour this task leaves alone, unlike the note control's three greys.
+    for (const status of ALL_STATUSES) {
+      const cfg = STATUS_CONFIG[status]
+      const chip = screen.getByRole('button', { name: cfg.label })
+      fireEvent.click(chip)
+      expect(screen.getByRole('button', { name: cfg.label }).className).toContain(cfg.bgColor)
+    }
   })
 })

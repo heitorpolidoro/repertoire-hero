@@ -45,7 +45,6 @@ vi.mock('react-pdf', () => ({
 }))
 vi.mock('@/lib/pdfWorker', () => ({}))
 
-import { StatusDropdown } from '../StatusDropdown'
 import { SongIdentityHeader } from '../SongIdentityHeader'
 import { LyricsSection } from '../LyricsSection'
 import { LyricsEditorPanel } from '../LyricsEditorPanel'
@@ -92,9 +91,6 @@ function makeStatus(overrides: Partial<SongStatusController> = {}): SongStatusCo
   return {
     status: 'learning',
     updating: false,
-    isDropdownOpen: false,
-    toggleDropdown: vi.fn(),
-    closeDropdown: vi.fn(),
     change: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -212,22 +208,26 @@ function makeTabLibrary(overrides: Partial<TabLibraryController> = {}): TabLibra
 }
 
 describe('read-only offline controls (RH-80 ER4)', () => {
-  it('leaves the status trigger enabled by default', () => {
-    render(<StatusDropdown controller={makeStatus()} />)
+  // RH-102: the status control is four notes, not a dropdown trigger, so the
+  // offline signal now has four buttons to disable rather than one.
+  it('leaves the four status notes enabled by default', () => {
+    render(<SongIdentityHeader identity={IDENTITY} status={makeStatus()} />)
 
-    expect(screen.getByRole('button').hasAttribute('disabled')).toBe(false)
+    const notes = screen.getAllByRole('button')
+    expect(notes).toHaveLength(4)
+    expect(notes.some((note) => note.hasAttribute('disabled'))).toBe(false)
   })
 
-  it('disables the status trigger when read-only', () => {
-    render(<StatusDropdown controller={makeStatus()} readOnly />)
+  it('forwards read-only through SongIdentityHeader to all four status notes', () => {
+    const controller = makeStatus()
+    render(<SongIdentityHeader identity={IDENTITY} status={controller} readOnly />)
 
-    expect(screen.getByRole('button').hasAttribute('disabled')).toBe(true)
-  })
+    const notes = screen.getAllByRole('button')
+    expect(notes).toHaveLength(4)
+    expect(notes.every((note) => note.hasAttribute('disabled'))).toBe(true)
 
-  it('forwards read-only through SongIdentityHeader to the status trigger', () => {
-    render(<SongIdentityHeader identity={IDENTITY} status={makeStatus()} readOnly />)
-
-    expect(screen.getByRole('button').hasAttribute('disabled')).toBe(true)
+    for (const note of notes) fireEvent.click(note)
+    expect(controller.change).not.toHaveBeenCalled()
   })
 
   it('leaves the lyrics Edit button enabled by default', () => {

@@ -8,11 +8,11 @@ import { useRepertoireStore } from "@/store/repertoireStore";
 import { useBandContextStore, type BandContext } from "@/store/bandContextStore";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useBandRole, type BandRole } from "@/hooks/useBandRole";
-import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
+import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
 import SongResultItem from "@/components/songs/SongResultItem";
-import SongStatusBadge from "@/components/songs/SongStatusBadge";
+import { StatusNotes } from "@/components/ui/StatusNotes";
 
 /**
  * RH-77 — the signed-in half of `/`, moved verbatim out of `src/app/page.tsx`
@@ -40,7 +40,7 @@ type ModalState = { open: false } | { open: true; song?: Repertoire };
 
 const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
   { value: null, label: "All" },
-  ...STATUS_ORDER.map((s) => ({
+  ...ALL_STATUSES.map((s) => ({
     value: s as SongStatus,
     label: STATUS_CONFIG[s].label,
   })),
@@ -397,12 +397,11 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
                     </div>
                   </Link>
 
-                  <SongStatusBadge
+                  {/* RH-102: four notes; RH-96's gate decides who may tap. */}
+                  <StatusNotes
                     status={song.status}
-                    editable={canEditStatus}
-                    onAdvance={(next) => {
-                      updateStatus(song.id, next);
-                    }}
+                    readOnly={!canEditStatus}
+                    onChange={(next) => updateStatus(song.id, next)}
                   />
 
                   {/* Edit button */}

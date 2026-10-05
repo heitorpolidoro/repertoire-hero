@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-102 — Four-note status control</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .slot { display: inline-block; }
+</style>
+</head>
+<body class="bg-gray-100 text-gray-900">
+<div class="mx-auto max-w-5xl px-4 py-8 space-y-10">
+
+  <header>
+    <h1 class="text-2xl font-bold">RH-102 — Replace the cycling status badge with the four-note control</h1>
+    <p class="mt-2 text-sm text-gray-600">
+      Four quarter notes with the stage name beside them. Tapping a note sets that stage in either
+      direction; tapping the note that is already current drops one stage — from the first note, that
+      clears the status back to unassessed. Zero notes filled is <code>unknown</code>. The control is
+      monochrome — a filled note is the plain foreground grey, an unfilled note a muted grey
+      outline; no stage colour appears anywhere in it. Every enabled control on this page is
+      live: tap the notes.
+    </p>
+  </header>
+
+  <!-- 1. All five states, both sizes -->
+  <section class="rounded-xl bg-white p-5 shadow-sm">
+    <h2 class="text-lg font-semibold">1. All five states, at both sizes</h2>
+    <p class="mt-1 text-sm text-gray-500">Row size (~17px) is the dashboard and playlist row. Stage size (~32px) is the Fast View.</p>
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-xs uppercase tracking-wide text-gray-400">
+          <tr>
+            <th class="py-2 text-left font-medium">Status</th>
+            <th class="py-2 text-left font-medium">Filled</th>
+            <th class="py-2 text-left font-medium">Row size (dashboard / playlist)</th>
+            <th class="py-2 text-left font-medium">Stage size (Fast View)</th>
+            <th class="py-2 text-left font-medium">Row size, <code>readOnly</code> (band)</th>
+            <th class="py-2 text-left font-medium">Row size, <code>busy</code> (write in flight)</th>
+          </tr>
+        </thead>
+        <tbody id="state-table" class="divide-y divide-gray-100"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 2. Dashboard rows -->
+  <section class="rounded-xl bg-white p-5 shadow-sm">
+    <h2 class="text-lg font-semibold">2. Dashboard rows — the notes share their width with cover, title and artist</h2>
+    <p class="mt-1 text-sm text-gray-500">
+      The stage name sits in a fixed-width slot, so the notes stay in the same column from
+      &ldquo;Learning&rdquo; to &ldquo;Practicing&rdquo;. Compare the vertical alignment of the noteheads down the list.
+    </p>
+    <ul id="dashboard-rows" class="mt-4 flex flex-col gap-2"></ul>
+  </section>
+
+  <!-- 3. Fast View -->
+  <section class="rounded-xl bg-white p-5 shadow-sm">
+    <h2 class="text-lg font-semibold">3. Fast View — status has a section of its own</h2>
+    <p class="mt-1 text-sm text-gray-500">Read standing up, with an instrument, often in bad light: the same four notes get a comfortable target.</p>
+    <div class="mt-4 rounded-xl border border-gray-200 bg-white p-4 max-w-md">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h3 class="truncate text-xl font-bold">Wish You Were Here</h3>
+          <p class="truncate text-sm text-gray-500">Pink Floyd &middot; Wish You Were Here</p>
+        </div>
+        <span class="shrink-0 rounded-lg bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">Key G</span>
+      </div>
+      <div class="mt-4 border-t border-gray-100 pt-4">
+        <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Status</p>
+        <div class="mt-2" id="fastview-control"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Playlist summary bar -->
+  <section class="rounded-xl bg-white p-5 shadow-sm">
+    <h2 class="text-lg font-semibold">4. Playlist progress bar — <code>unknown</code> is the unfilled remainder</h2>
+    <p class="mt-1 text-sm text-gray-500">
+      Four songs: one mastered, three unassessed. The four stages are coloured segments; the unassessed
+      share is the part of the grey track no segment covers, and the legend ends with a swatch-less count.
+    </p>
+    <div class="mt-4 max-w-md rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+      <div class="mb-2 flex items-center justify-between">
+        <span class="text-xs font-medium text-gray-500">Playlist level <span class="ml-2 font-normal text-gray-400">17 min</span></span>
+        <span class="rounded-full border border-current bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">Learning &middot; 25%</span>
+      </div>
+      <div class="flex h-2 gap-px overflow-hidden rounded-full bg-gray-200" aria-label="Status distribution">
+        <div style="width:25%;background-color:#86efac"></div>
+      </div>
+      <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+        <span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full" style="background-color:#86efac"></span>Mastered (1)</span>
+        <span class="text-gray-400">3 unassessed</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. The open question -->
+  <section class="rounded-xl border-2 border-amber-300 bg-amber-50 p-5">
+    <h2 class="text-lg font-semibold">5. Open question (not blocking) — does an unfilled note read on stage?</h2>
+    <p class="mt-1 text-sm text-amber-900">
+      The outlined notehead is thin. Two filled versus three is less obvious under stage light than on a
+      desk. Below, the same pair at both sizes against a dark background, which is the closest a screen
+      gets to the real condition. The use case already records that a mockup cannot settle this; the spec
+      ships the control as specified and leaves this to real stage use.
+    </p>
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      <div class="rounded-lg bg-gray-900 p-4 text-white">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Row size on dark</p>
+        <div class="mt-3 space-y-2" id="dark-row"></div>
+      </div>
+      <div class="rounded-lg bg-gray-900 p-4 text-white">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Stage size on dark</p>
+        <div class="mt-3 space-y-3" id="dark-stage"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const ORDER = ['learning', 'practicing', 'polishing', 'mastered'];
+const ALL = ['unknown', ...ORDER];
+const CONFIG = {
+  unknown:    { label: 'Unknown' },
+  learning:   { label: 'Learning' },
+  practicing: { label: 'Practicing' },
+  polishing:  { label: 'Polishing' },
+  mastered:   { label: 'Mastered' },
+};
+
+/**
+ * The control is monochrome: the approved design uses no stage colour at all.
+ * Filled = primary foreground (text-gray-900), unfilled = muted (text-gray-400),
+ * stage name = secondary (text-gray-700), muted when unassessed.
+ */
+const INK = {
+  light: { filled: '#111827', unfilled: '#9ca3af' },   // gray-900 / gray-400
+  dark:  { filled: '#f9fafb', unfilled: '#6b7280' },   // gray-50  / gray-500
+};
+
+const filled = (status) => ORDER.indexOf(status) + 1;          // unknown -> 0
+const statusAtNote = (i) => ORDER[i];
+function statusForTap(current, i) {
+  if (statusAtNote(i) !== current) return statusAtNote(i);     // set directly, either direction
+  return i === 0 ? 'unknown' : ORDER[i - 1];                   // tap the current note -> drop one
+}
+function tapLabel(current, i) {
+  const next = statusForTap(current, i);
+  if (next === 'unknown') return 'Clear status';
+  if (statusAtNote(i) === current) return 'Drop status to ' + CONFIG[next].label;
+  return 'Set status to ' + CONFIG[next].label;
+}
+
+/** A quarter note: filled or outlined notehead plus a stem. */
+function noteSvg(px, isFilled, color) {
+  const stroke = isFilled ? 'none' : color;
+  const fill = isFilled ? color : 'none';
+  return `<svg width="${px}" height="${px}" viewBox="0 0 24 24" aria-hidden="true" class="shrink-0">
+    <ellipse cx="9.5" cy="17" rx="6.5" ry="4.6" transform="rotate(-20 9.5 17)"
+             fill="${fill}" stroke="${stroke}" stroke-width="1.8"/>
+    <path d="M15.6 14.4V3.2" stroke="${isFilled ? color : color}" stroke-width="${isFilled ? 2.2 : 1.8}"
+          stroke-linecap="round" fill="none"/>
+  </svg>`;
+}
+
+/**
+ * The control. `size` is 'row' (~17px) or 'stage' (~32px).
+ * `readOnly` renders the same notes unpressable.
+ * `onDark` only swaps the unfilled colour for the open-question panel.
+ */
+function renderControl(host, status, opts = {}) {
+  const size = opts.size === 'stage' ? 32 : 17;
+  const slotW = opts.size === 'stage' ? 'w-28' : 'w-20';
+  const textSize = opts.size === 'stage' ? 'text-base' : 'text-xs';
+  const gap = opts.size === 'stage' ? 'gap-1.5' : 'gap-0.5';
+  const ink = opts.onDark ? INK.dark : INK.light;
+  const n = filled(status);
+  // readOnly is a permission, busy is a write in flight: separate causes, same rendering.
+  const off = Boolean(opts.readOnly || opts.busy);
+
+  const notes = ORDER.map((_, i) => {
+    const isFilled = i < n;
+    const glyph = noteSvg(size, isFilled, isFilled ? ink.filled : ink.unfilled);
+    // Always a <button>, in every state: a disabled button keeps its accessible name.
+    const press = off
+      ? 'opacity-60 cursor-default'
+      : 'transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-gray-500';
+    return `<button type="button" data-note="${i}" aria-pressed="${isFilled}"${off ? ' disabled' : ''}
+      aria-label="${tapLabel(status, i)}" title="${tapLabel(status, i)}"
+      class="inline-flex rounded ${press}">
+      ${glyph}</button>`;
+  }).join('');
+
+  const nameColor = opts.onDark
+    ? (status === 'unknown' ? 'text-gray-500' : 'text-gray-200')
+    : (status === 'unknown' ? 'text-gray-400' : 'text-gray-700');
+  host.innerHTML = `
+    <span role="group" aria-label="Mastery status" class="inline-flex items-center ${gap}">
+      ${notes}
+      <span class="slot ${slotW} ${textSize} ${nameColor} font-medium truncate pl-1">${CONFIG[status].label}</span>
+    </span>`;
+
+  if (off) return;
+  host.querySelectorAll('button[data-note]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      renderControl(host, statusForTap(status, Number(btn.dataset.note)), opts);
+    });
+  });
+}
+
+function controlNode(status, opts) {
+  const span = document.createElement('span');
+  renderControl(span, status, opts);
+  return span;
+}
+
+// 1. The state table
+const tbody = document.getElementById('state-table');
+ALL.forEach((status) => {
+  const tr = document.createElement('tr');
+  ['', '', '', '', '', ''].forEach(() => tr.appendChild(document.createElement('td')));
+  const [c0, c1, c2, c3, c4, c5] = tr.children;
+  [c0, c1, c2, c3, c4, c5].forEach((td) => td.className = 'py-3 pr-4 align-middle');
+  c0.innerHTML = `<code class="text-xs">${status}</code>`;
+  c1.textContent = filled(status) + ' / 4';
+  c1.className += ' text-gray-500 tabular-nums';
+  c2.appendChild(controlNode(status, { size: 'row' }));
+  c3.appendChild(controlNode(status, { size: 'stage' }));
+  c4.appendChild(controlNode(status, { size: 'row', readOnly: true }));
+  c5.appendChild(controlNode(status, { size: 'row', busy: true }));
+  tbody.appendChild(tr);
+});
+
+// 2. Dashboard rows
+const SONGS = [
+  { title: 'Wish You Were Here', artist: 'Pink Floyd', status: 'mastered', hex: '#cbd5e1' },
+  { title: 'Black Hole Sun', artist: 'Soundgarden', status: 'practicing', hex: '#e2e8f0' },
+  { title: 'Teen Spirit', artist: 'Nirvana', status: 'learning', hex: '#d6d3d1' },
+  { title: 'Paranoid Android', artist: 'Radiohead', status: 'unknown', hex: '#e7e5e4' },
+  { title: 'Hotel California', artist: 'Eagles', status: 'polishing', hex: '#d1d5db' },
+];
+const list = document.getElementById('dashboard-rows');
+SONGS.forEach((song) => {
+  const li = document.createElement('li');
+  li.className = 'flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200';
+  li.innerHTML = `
+    <div class="h-10 w-10 shrink-0 rounded" style="background-color:${song.hex}" aria-hidden="true"></div>
+    <div class="min-w-0 flex-1">
+      <span class="block truncate text-sm font-semibold text-gray-900">${song.title}</span>
+      <p class="truncate text-xs text-gray-500">${song.artist}</p>
+    </div>`;
+  const slot = document.createElement('div');
+  slot.className = 'shrink-0';
+  renderControl(slot, song.status, { size: 'row' });
+  li.appendChild(slot);
+  li.insertAdjacentHTML('beforeend',
+    '<button type="button" class="shrink-0 text-emerald-600" aria-label="Edit">&#9998;</button>');
+  list.appendChild(li);
+});
+
+// 3. Fast View
+renderControl(document.getElementById('fastview-control'), 'polishing', { size: 'stage' });
+
+// 5. The open question — two filled versus three, on dark
+[['practicing', '2 filled'], ['polishing', '3 filled']].forEach(([status, caption]) => {
+  const row = document.getElementById('dark-row');
+  const stage = document.getElementById('dark-stage');
+  [[row, 'row'], [stage, 'stage']].forEach(([host, size]) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'flex items-center gap-3';
+    const node = controlNode(status, { size, onDark: true });
+    wrap.appendChild(node);
+    wrap.insertAdjacentHTML('beforeend', `<span class="text-xs text-gray-500">${caption}</span>`);
+    host.appendChild(wrap);
+  });
+});
+</script>
+</body>
+</html>

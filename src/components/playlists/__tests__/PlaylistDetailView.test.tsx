@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
@@ -239,7 +239,7 @@ describe('PlaylistDetailView (RH-71)', () => {
     onLine.mockRestore()
   })
 
-  it('renders the read-only band badge instead of the status button for a band playlist', () => {
+  it('keeps the note control read-only on a band playlist and writable on a personal one', () => {
     setup({
       playlist: playlist({ user_id: null, band_id: 'band-1' }),
       repertoire: [
@@ -248,15 +248,20 @@ describe('PlaylistDetailView (RH-71)', () => {
       ],
     })
 
-    expect(screen.getAllByTitle('Band status is set by a band admin')).toHaveLength(2)
-    expect(
-      screen.queryByRole('button', { name: 'Status: Unknown. Click to advance.' }),
-    ).toBeNull()
+    const bandNotes = screen
+      .getAllByRole('group', { name: 'Mastery status' })
+      .flatMap((group) => within(group).getAllByRole('button')) as HTMLButtonElement[]
+    expect(bandNotes).toHaveLength(8)
+    expect(bandNotes.every((note) => note.disabled)).toBe(true)
+    expect(screen.queryByTitle('Band status is set by a band admin')).toBeNull()
+    expect(screen.queryByText(/Click to advance/)).toBeNull()
 
     cleanup()
     setup()
-    expect(
-      screen.getAllByRole('button', { name: 'Status: Unknown. Click to advance.' }),
-    ).toHaveLength(2)
+    const personalNotes = screen
+      .getAllByRole('group', { name: 'Mastery status' })
+      .flatMap((group) => within(group).getAllByRole('button')) as HTMLButtonElement[]
+    expect(personalNotes).toHaveLength(8)
+    expect(personalNotes.some((note) => note.disabled)).toBe(false)
   })
 })

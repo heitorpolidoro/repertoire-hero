@@ -11,15 +11,21 @@ export const STATUS_CONFIG: Record<
   mastered:   { label: 'Mastered',   color: 'green',  bgColor: 'bg-green-100',  textColor: 'text-green-700' },
 }
 
+/**
+ * The four real mastery stages, in order (RH-102).
+ *
+ * `unknown` is deliberately outside it: it is the absence of a stage, which the
+ * note control draws as zero filled notes and `PlaylistSummary` draws as the
+ * part of the track no segment covers. Anything that has to offer the user all
+ * five values — the dashboard filter, the `SongForm` picker, the score label
+ * mapping — enumerates `ALL_STATUSES` instead.
+ */
 export const STATUS_ORDER: SongStatus[] = [
-  'unknown',
   'learning',
   'practicing',
   'polishing',
   'mastered',
 ]
 
-export function nextStatus(current: SongStatus): SongStatus {
-  const idx = STATUS_ORDER.indexOf(current)
-  return STATUS_ORDER[(idx + 1) % STATUS_ORDER.length]
-}
+/** Every status value, `unknown` first — the five-value enumeration. */
+export const ALL_STATUSES: SongStatus[] = ['unknown', ...STATUS_ORDER]

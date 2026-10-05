@@ -166,7 +166,7 @@ export function PlaylistDetailView({
         activeTagFilter={detail.activeTagFilter}
         songFilterQuery={detail.songFilterQuery}
         tagEditor={detail.songTagEditor}
-        onStatusCycle={detail.cycleStatus}
+        onStatusChange={detail.changeStatus}
         onRemoveSong={detail.removeSong}
       />
 
