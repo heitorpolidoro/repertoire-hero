@@ -9120,3 +9120,42 @@ None.
 
 ## [RH-100] Delete the unbuilt /songs/search route — 2026-10-05 (QA)
 None.
+
+## [RH-101] Add updated_at to the catalog tables — 2026-10-05 (code review)
+
+- `src/lib/__tests__/catalogTimestampGuard.test.ts:80` relies on the shared
+  `stripComments` (`src/lib/__tests__/test-helpers.ts:44-48`), which also blanks
+  `//` sequences inside string literals. Today no scanned line carries both a
+  URL literal and a catalog write, so the guard is correct — but a future writer
+  written on a line that also holds e.g. `'https://…'` would have its text
+  truncated at the `//`, which could drop the `WHERE` or the clause and produce
+  a spurious violation. Pre-existing helper shared with `errorHandlingStyle` and
+  `noBrowserDialogs`; worth a note, not a change in this task.
+- `migrations/0011_add_global_songs_updated_at.sql:44-60`: the two
+  `information_schema.columns` probes filter on `table_name` only. On a database
+  whose `search_path` exposes a second schema with a `global_songs` table the
+  `EXISTS` could be satisfied by the wrong row. Adding
+  `AND table_schema = 'public'` (or `table_schema = current_schema()`) makes the
+  guard exact. No other migration in the repo uses `information_schema`, so
+  there is no established idiom to follow here.
+- `src/lib/__tests__/catalogTimestampGuard.test.ts:181-190` builds a list of
+  `"<path> (<n>)"` strings and then recovers the integers with
+  `/\((\d+)\)$/` to sum them. Summing the counts directly and formatting the
+  message from the same pairs would be simpler and removes a parse that can
+  silently yield `0` via its `?? 0` fallback.
+- Spec §3 requires a comment at the `updateSong` statement recording the
+  "accepted imprecision" of bumping `updated_at` on a value-level no-op. No such
+  comment was added. This is a correct deviation rather than a gap: the spec's
+  premise is stale. The statement is no longer the seven-way
+  `CASE WHEN … IS empty` form it describes — since RH-97 it is gated by
+  `if (fill.length > 0)` with `fill` coming from `splitCatalogUpdate`
+  (`src/lib/songs.ts:274-280`), so it only runs when a genuinely empty column is
+  being filled and is never a no-op. Documenting an imprecision that does not
+  exist would mislead. Flagging it so QA does not score ER-adjacent spec text as
+  unmet.
+
+
+## [RH-101] Add updated_at to the catalog tables — 2026-10-05 (QA)
+- The migration header states that `docker/init-migrations.sh` and `scripts/migrate.mjs` "may both apply this file". Both in fact record each filename in a ledger and skip it, so double application only happens by hand. The idempotence is genuinely needed and correctly implemented (confirmed above by applying the file twice); the rationale sentence just slightly overstates the automated path. Non-blocking wording nit.
+- `src/lib/__tests__/catalogTimestampGuard.test.ts`'s `listProductionSources` skips any dirent literally named `__tests__`, which is equivalent to the "no `__tests__` path segment" rule today. A file named e.g. `src/lib/foo.test.ts` sitting outside a `__tests__` directory would be scanned; no such file exists, and scanning it would be harmless (it would have to carry the clause). Noted only for completeness.
+

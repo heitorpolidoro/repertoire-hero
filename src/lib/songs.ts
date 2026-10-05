@@ -275,7 +275,7 @@ export async function updateSong(
         // Column names come from `CATALOG_COLUMNS`, never from the caller.
         const setList = fill.map((f, i) => `${f.column} = $${i + 1}${f.cast}`).join(', ')
         await client.query<never>(
-          `UPDATE global_songs SET ${setList} WHERE id = $${fill.length + 1}`,
+          `UPDATE global_songs SET ${setList}, updated_at = now() WHERE id = $${fill.length + 1}`,
           [...fill.map((f) => f.value), entry.song_id],
         )
       }
@@ -430,7 +430,7 @@ export async function applySongLinkUpdate(
   }
 
   try {
-    await query<never>('UPDATE global_songs SET links = $1 WHERE id = $2', [
+    await query<never>('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2', [
       JSON.stringify(processedLinks),
       songId,
     ])

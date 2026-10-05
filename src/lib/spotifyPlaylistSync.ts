@@ -103,7 +103,7 @@ export async function findOrCreateGlobalSong(track: SpotifyRawTrack): Promise<st
   })
 
   if (!song.created && !song.links.some((l) => l.url === track.spotifyUrl)) {
-    await query<never>('UPDATE global_songs SET links = $1 WHERE id = $2', [
+    await query<never>('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2', [
       JSON.stringify([...song.links, spotifyLink]),
       song.id,
     ])

@@ -131,7 +131,7 @@ describe('findOrCreateGlobalSong', () => {
     expect(songId).toBe('song-1')
     expect(mockedQuery).toHaveBeenCalledTimes(2)
     const [updateSql, updateValues] = mockedQuery.mock.calls[1]
-    expect(updateSql).toBe('UPDATE global_songs SET links = $1 WHERE id = $2')
+    expect(updateSql).toBe('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2')
     expect(JSON.parse(updateValues[0] as string)).toEqual([
       { label: 'Chords', url: 'http://chords' },
       { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },

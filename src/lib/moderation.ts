@@ -136,9 +136,12 @@ export async function reviewGlobalSongEdit(
       // The validator guarantees at least one proposed column, so the SET list
       // is never empty.
       values.push(edit.song_id)
+      // `updated_at` belongs to the template, never to `setClauses`: that array
+      // is the narrowed set of columns a submitted edit may propose, and the
+      // timestamp is not one of them (RH-101).
       const updateSongSql = `UPDATE global_songs SET ${setClauses.join(
         ', '
-      )} WHERE id = $${values.length}`
+      )}, updated_at = now() WHERE id = $${values.length}`
       await client.query<never>(updateSongSql, values)
 
       const updateEditSql = `

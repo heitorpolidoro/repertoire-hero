@@ -194,7 +194,7 @@ async function runDeduplication() {
 
       if (needsUpdate || linksChanged) {
         await pool.query(
-          'UPDATE global_songs SET title = $1, album = $2, links = $3 WHERE id = $4',
+          'UPDATE global_songs SET title = $1, album = $2, links = $3, updated_at = now() WHERE id = $4',
           [finalTitle, finalAlbum, JSON.stringify(linksChanged ? updatedLinks : currentLinks), song.id]
         );
       }
@@ -224,7 +224,7 @@ async function runDeduplication() {
       console.log(`Deduplicating group: "${group.cleanTitle}" by ${group.artist} (${group.songs.length} entries)`);
 
       if (primary.title !== group.cleanTitle) {
-        await pool.query('UPDATE global_songs SET title = $1 WHERE id = $2', [group.cleanTitle, primary.id]);
+        await pool.query('UPDATE global_songs SET title = $1, updated_at = now() WHERE id = $2', [group.cleanTitle, primary.id]);
       }
 
       for (const sec of secondaries) {
@@ -237,7 +237,7 @@ async function runDeduplication() {
             mergedLinks.push(l);
           }
         }
-        await pool.query('UPDATE global_songs SET links = $1 WHERE id = $2', [JSON.stringify(mergedLinks), primary.id]);
+        await pool.query('UPDATE global_songs SET links = $1, updated_at = now() WHERE id = $2', [JSON.stringify(mergedLinks), primary.id]);
 
         // 2. Update playlist_songs
         const { rows: secPs } = await pool.query('SELECT playlist_id FROM playlist_songs WHERE song_id = $1', [sec.id]);
