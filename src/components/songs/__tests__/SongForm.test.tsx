@@ -11,7 +11,7 @@ vi.mock('@/store/repertoireStore', () => ({
 }))
 
 import SongForm, { type SongFormActions } from '../SongForm'
-import type { Repertoire } from '@/types/database'
+import type { Repertoire, RefusedCatalogField } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -42,10 +42,25 @@ const ENTRY = {
   },
 } as unknown as Repertoire
 
+/**
+ * One song the catalog has filled in only halfway: `title`, `artist` and
+ * `duration_seconds` are populated, `album` and `cover_url` are not, and the
+ * link list is empty. ER6 reads both cases off this single entry.
+ */
+const HALF_FILLED = {
+  ...ENTRY,
+  song: {
+    ...ENTRY.song!,
+    album: null,
+    cover_url: null,
+    standard_key: null,
+  },
+} as unknown as Repertoire
+
 function makeActions(): { [K in keyof SongFormActions]: ReturnType<typeof vi.fn> } {
   return {
     createAndAddSong: vi.fn().mockResolvedValue(ENTRY),
-    updateSong: vi.fn().mockResolvedValue(undefined),
+    updateSong: vi.fn().mockResolvedValue({ refused: [] }),
     updateSongStatus: vi.fn().mockResolvedValue(undefined),
     updateSongTags: vi.fn().mockResolvedValue(undefined),
     submitGlobalSongEdit: vi.fn().mockResolvedValue({}),
@@ -139,14 +154,12 @@ describe('SongForm calls its injected actions (RH-47)', () => {
     const { actions } = setup(ENTRY)
 
     fireEvent.click(screen.getByRole('button', { name: /Correct Global Info/ }))
+    fireEvent.change(screen.getByLabelText('Artist'), { target: { value: 'Cold Play' } })
     fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
 
     await waitFor(() => expect(actions.submitGlobalSongEdit).toHaveBeenCalledTimes(1))
     expect(actions.submitGlobalSongEdit).toHaveBeenCalledWith('song-1', {
-      title: 'Yellow',
-      artist: 'Coldplay',
-      album: 'Parachutes',
-      standard_key: 'B',
+      artist: 'Cold Play',
       reason: null,
     })
     await waitFor(() =>
@@ -154,5 +167,168 @@ describe('SongForm calls its injected actions (RH-47)', () => {
         screen.getByText('Correction request submitted for admin review!'),
       ).toBeDefined(),
     )
+  })
+})
+
+/**
+ * RH-97 ER6 — the form is a truthful rendering of what the database will take.
+ * A populated shared column cannot be overwritten through `updateSong`, so it
+ * gets no input at all; an empty one can be filled by anyone, so it keeps one.
+ */
+describe('edit mode renders a populated shared field read-only (ER6)', () => {
+  it('offers no input for the fields the catalog has, and one for the fields it lacks', () => {
+    setup(HALF_FILLED)
+
+    for (const label of ['Title', 'Artist', 'Duration']) {
+      expect(screen.queryByLabelText(label)).toBeNull()
+      expect(
+        screen.getByRole('button', { name: `Suggest a correction to ${label}` }),
+      ).toBeDefined()
+    }
+
+    expect(screen.getByText('Yellow')).toBeDefined()
+    expect(screen.getByText('Coldplay')).toBeDefined()
+
+    for (const label of ['Album', 'Cover Image URL']) {
+      const input = screen.getByLabelText(label) as HTMLInputElement
+      expect(input.tagName).toBe('INPUT')
+      expect(input.disabled).toBe(false)
+      expect(input.readOnly).toBe(false)
+    }
+  })
+
+  it('keeps the links fieldset editable while the catalog has no links, and locks it once it has', () => {
+    const { unmount } = setup(HALF_FILLED)
+    expect(screen.getByRole('button', { name: '+ Add link' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Suggest a correction to Links' })).toBeNull()
+    unmount()
+
+    const withLinks = {
+      ...HALF_FILLED,
+      song: { ...HALF_FILLED.song!, links: [{ label: 'YouTube', url: 'https://youtu.be/rh97' }] },
+    } as unknown as Repertoire
+    setup(withLinks)
+
+    expect(screen.queryByRole('button', { name: '+ Add link' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Suggest a correction to Links' })).toBeDefined()
+  })
+
+  it('keeps the key input editable — it is the owner\'s own key — beside the catalog\'s', () => {
+    setup(ENTRY)
+
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('G')
+    expect(screen.getByText('B')).toBeDefined()
+    expect(
+      screen.getByRole('button', { name: 'Suggest a correction to the catalog key' }),
+    ).toBeDefined()
+  })
+
+  it('leaves create mode untouched: every shared field is editable', () => {
+    setup()
+
+    for (const label of ['Title', 'Artist', 'Album', 'Duration', 'Cover Image URL']) {
+      expect(screen.getByLabelText(label)).toBeDefined()
+    }
+    expect(screen.queryByRole('button', { name: /Suggest a correction/ })).toBeNull()
+  })
+})
+
+/** RH-97 ER7 — "Suggest a correction" is the route a read-only field offers. */
+describe('"Suggest a correction" opens the correction modal (ER7)', () => {
+  it('pre-fills it with the catalog values and sends only the field that changed', async () => {
+    const { actions } = setup(ENTRY)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest a correction to Title' }))
+
+    expect((screen.getByLabelText('Song Title') as HTMLInputElement).value).toBe('Yellow')
+    expect((screen.getByLabelText('Album') as HTMLInputElement).value).toBe('Parachutes')
+    expect((screen.getByLabelText('Standard Key') as HTMLInputElement).value).toBe('B')
+    expect((screen.getByLabelText('Duration') as HTMLInputElement).value).toBe('269')
+
+    fireEvent.change(screen.getByLabelText('Song Title'), {
+      target: { value: 'Yellow (Live)' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
+
+    await waitFor(() => expect(actions.submitGlobalSongEdit).toHaveBeenCalledTimes(1))
+    expect(actions.submitGlobalSongEdit).toHaveBeenCalledWith('song-1', {
+      title: 'Yellow (Live)',
+      reason: null,
+    })
+  })
+
+  it('blocks a submit that changes nothing, visibly, without calling the action', async () => {
+    const { actions } = setup(ENTRY)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest a correction to Artist' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Change at least one value to suggest a correction.'),
+      ).toBeDefined(),
+    )
+    expect(actions.submitGlobalSongEdit).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * RH-97 ER9 — the backstop. The read-only shape removes the refusal in the
+ * normal case, but the form is drawn from a snapshot: a value can become
+ * populated between open and save, and that save must not report plain success.
+ */
+describe('a refused save is reported, not swallowed (ER9)', () => {
+  const REFUSED: RefusedCatalogField[] = [
+    { column: 'artist', current: 'Michael Jackson', proposed: 'Micheal Jackson' },
+    {
+      column: 'links',
+      current: [{ label: 'YouTube', url: 'https://youtu.be/rh97' }],
+      proposed: [
+        { label: 'YouTube', url: 'https://youtu.be/rh97' },
+        { label: 'Chords', url: 'https://chords.test/rh97' },
+      ],
+    },
+  ]
+
+  const saveWithRefusal = async () => {
+    const actions = makeActions()
+    actions.updateSong.mockResolvedValue({ refused: REFUSED })
+    const rendered = setup(ENTRY, actions)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeDefined())
+    return rendered
+  }
+
+  it('names each refused column with its current and proposed value, and does not close', async () => {
+    const { onSuccess } = await saveWithRefusal()
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('Your own changes were saved')
+    expect(alert.textContent).toContain('Artist')
+    expect(alert.textContent).toContain('catalog has Michael Jackson, you entered Micheal Jackson')
+    expect(alert.textContent).toContain('Links')
+    expect(alert.textContent).toContain('catalog has 1 link, you entered 2 links')
+    expect(onSuccess).not.toHaveBeenCalled()
+  })
+
+  it('offers a control that opens the correction modal holding the refused values', async () => {
+    const { actions } = await saveWithRefusal()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest these as corrections' }))
+
+    expect((screen.getByLabelText('Artist') as HTMLInputElement).value).toBe('Micheal Jackson')
+    expect((screen.getByLabelText('URL for link 2') as HTMLInputElement).value).toBe(
+      'https://chords.test/rh97',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
+
+    await waitFor(() => expect(actions.submitGlobalSongEdit).toHaveBeenCalledTimes(1))
+    expect(actions.submitGlobalSongEdit).toHaveBeenCalledWith('song-1', {
+      artist: 'Micheal Jackson',
+      links: REFUSED[1].proposed,
+      reason: null,
+    })
   })
 })

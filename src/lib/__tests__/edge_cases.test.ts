@@ -37,6 +37,32 @@ let mockData: any = null
 let failRepertoireUpdate = false
 let playlistsReturnBandId = false
 
+/**
+ * The two `SELECT ... FROM global_songs` reads the mocked layer has to tell
+ * apart. `resolveOrCreateSongIdentity` looks a song up and must miss, so the
+ * insert path runs; `updateSong` reads the row it may fill `FOR UPDATE` and
+ * must hit, with every column empty so the fill/refuse split (RH-97) leaves
+ * the repertoire UPDATE as the only failure under test.
+ */
+const globalSongsSelect = (normalizedSql: string) => {
+  if (!normalizedSql.includes('for update')) return { rowCount: 0, rows: [] }
+  return {
+    rowCount: 1,
+    rows: [
+      {
+        id: 'song-id',
+        title: '',
+        artist: '',
+        album: null,
+        standard_key: null,
+        cover_url: null,
+        duration_seconds: null,
+        links: [],
+      },
+    ],
+  }
+}
+
 beforeEach(() => {
   mockCount = null
   mockSelectError = null
@@ -97,9 +123,11 @@ beforeEach(() => {
       return { rowCount: mockData ? 1 : 0, rows: mockData ? [mockData] : [] }
     }
 
-    // 6. global_songs lookup
+    // 6. global_songs lookup (see `globalSongsSelect` — the FOR UPDATE read
+    // RH-97 added is dispatched there, so this function's complexity, pinned
+    // by the F20 ratchet at its current worst, does not grow).
     if (normalizedSql.includes('from global_songs')) {
-      return { rowCount: 0, rows: [] }
+      return globalSongsSelect(normalizedSql)
     }
 
     // 7. insert into global_songs

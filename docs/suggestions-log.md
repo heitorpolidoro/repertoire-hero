@@ -8978,3 +8978,56 @@ full-suite coverage gate passes.
   decision, so nothing to change — but the band rows in any existing database still carry
   MIN-derived values that no longer have a stated provenance in the UI. Worth a line in
   release notes rather than in code.
+
+## [RH-97] Stop discarding song edits silently — 2026-10-05 (code review)
+
+- `src/components/songs/SongForm.tsx` — two non-null assertions (`catalog!.links` in
+  `submittedLinks()` and in the locked-links `<ul>`) exist only because `linksLocked` is a
+  separate boolean the compiler cannot tie back to `catalog`. Deriving the links instead
+  of the flag, e.g. `const lockedLinks = catalog && !isCatalogFieldEmpty(catalog, "links")
+  ? catalog.links : null`, narrows naturally and drops both `!`.
+- `src/components/songs/SongForm.tsx` — the locked links list uses `key={link.url}`; two
+  catalog links sharing a URL with different labels would collide. `idx` or
+  `` `${link.url}-${idx}` `` is safer for a read-only list.
+- `src/lib/catalogFields.ts:265` — `changedCatalogFields` builds a
+  `Record<string, unknown>` and returns `payload as GlobalSongEditPayload`. The assertion
+  is sound today and the server re-validates, but typing the accumulator as
+  `Partial<GlobalSongEditPayload>` (with `putIfChanged` generic over its keys) would keep
+  the compiler watching the column names instead of trusting the cast.
+- `src/lib/songs.ts` — the new guard throws `new Error('Song entry not found')` for a
+  missing `global_songs` row, which reads as the *repertoire* entry. "Catalog song not
+  found" would point at the right table. Note this is also a small behavior change from
+  the old code, where a missing catalog row made the UPDATE a 0-row no-op; throwing is the
+  better answer, it is just now observable.
+- `src/components/songs/SharedCatalogField.tsx` — the shared inputs lost the native
+  `required` attribute the old inline title input carried. The JS guard at
+  `src/components/songs/SongForm.tsx:279` (`"Title is required."`) still covers it, so no
+  validation is lost, but create mode no longer gets the browser's own prompt. A
+  `required?: boolean` passthrough would restore it if that UX matters.
+- `src/lib/catalogFields.ts` — `describeCatalogValue` has a `'nothing'` branch for an
+  empty value that refusals cannot reach by construction (a refused column is populated by
+  definition). Harmless, but it is a branch no test can exercise through the real path.
+
+## [RH-97] Stop discarding song edits silently — 2026-10-05 (QA)
+
+1. `SharedCatalogField` renders its `children` only on the editable branch, so a
+   populated `cover_url` shows the URL as text with no thumbnail, while an empty
+   one shows a live preview as you type. A musician checking whether the catalog's
+   cover art is the right one gets the less useful of the two views. Rendering the
+   preview in the read-only branch too (`src/components/songs/SharedCatalogField.tsx`)
+   would cost a few lines, though `SongForm.tsx` sits at its `complexity` ceiling
+   so the change belongs inside `SharedCatalogField`.
+2. `isAbsent` treats an empty array as "nothing proposed", so clearing every link
+   row and saving is a silent no-op rather than a refusal — correct per the
+   "an empty proposal is no proposal" rule stated in `catalogFields.ts`, and
+   deliberately so, but the song form gives no hint that emptying the links
+   fieldset will not take effect. A one-line note next to the fieldset (or
+   treating it the way the read-only branch already does) would close the last
+   gap between what the form appears to offer and what the catalog accepts.
+3. The `links` read-only list in `SongForm` keys rows on `link.url`; two rows
+   sharing a URL with different labels would collide. Not reachable through this
+   task's paths, and the catalog seed has no such row, but it is a latent
+   duplicate-key warning.
+
+None of the three is blocking: each is an improvement on behaviour the expected
+results do not ask for, and the specified behaviour is met in every case.

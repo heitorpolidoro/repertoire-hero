@@ -3,13 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   GlobalSong,
+  RefusedCatalogField,
   SongLink,
   SongStatus,
+  SongUpdateResult,
   Repertoire,
 } from "@/types/database";
 import { STATUS_CONFIG, STATUS_ORDER } from "@/lib/statusConfig";
+import {
+  catalogDraftFromRefusals,
+  catalogDraftFromSong,
+  isCatalogFieldEmpty,
+  parseDurationInput,
+  type CatalogColumn,
+  type CatalogDraft,
+} from "@/lib/catalogFields";
 import { useRepertoireStore } from "@/store/repertoireStore";
+import { CatalogRefusalNotice } from "./CatalogRefusalNotice";
 import { CorrectionModal, type CorrectionModalProps } from "./CorrectionModal";
+import { SharedCatalogField } from "./SharedCatalogField";
+import { SongLinksEditor, type EditableLink } from "./SongLinksEditor";
 
 type SongFormCreateInput = {
   title: string;
@@ -39,7 +52,7 @@ type SongFormEditInput = {
  */
 export interface SongFormActions {
   createAndAddSong: (data: SongFormCreateInput) => Promise<Repertoire>;
-  updateSong: (entry: Repertoire, data: SongFormEditInput) => Promise<void>;
+  updateSong: (entry: Repertoire, data: SongFormEditInput) => Promise<SongUpdateResult>;
   updateSongStatus: (repertoireId: string, status: SongStatus) => Promise<void>;
   updateSongTags: (repertoireId: string, tags: string[]) => Promise<void>;
   submitGlobalSongEdit: CorrectionModalProps["onSubmitCorrection"];
@@ -62,8 +75,14 @@ interface FormState {
   duration: string;
   status: SongStatus;
   tagsInput: string;
-  links: Array<SongLink & { id?: string }>;
+  links: EditableLink[];
 }
+
+/** What a "Suggest a correction" control opens the modal with. */
+type CorrectionRequest = {
+  focusField?: CatalogColumn;
+  prefill?: Partial<CatalogDraft>;
+};
 
 // Helper re-exported so the dialog can call parseTags without duplication
 export const parseTags = (raw: string): string[] => {
@@ -151,6 +170,61 @@ const buildInitialState = (song?: Repertoire): FormState => {
   return stateMap[key]();
 };
 
+/** The shared text columns the form renders through `SharedCatalogField`. */
+type SharedTextColumn = "title" | "artist" | "album" | "cover_url" | "duration_seconds";
+
+/**
+ * What the catalog holds for one shared text field, in `SharedCatalogField`'s
+ * three-state vocabulary: `null` when there is no catalog row yet, `""` when
+ * the row leaves the column blank (so it stays editable — filling a blank
+ * overwrites nobody), the value itself otherwise.
+ */
+const sharedText = (
+  catalog: GlobalSong | null,
+  column: SharedTextColumn,
+): string | null => {
+  if (!catalog) return null;
+  if (isCatalogFieldEmpty(catalog, column)) return "";
+  const draft = catalogDraftFromSong(catalog);
+  if (column === "duration_seconds") return draft.duration;
+  return draft[column];
+};
+
+/**
+ * The catalog row behind a repertoire entry, or `null` in create mode.
+ *
+ * Module scope, like the two payload builders below: `SongForm` sits exactly at
+ * its F20 `complexity` ceiling, and the ratchet may only shrink, so a decision
+ * that does not need the component's state is made outside it.
+ */
+const catalogOf = (song?: Repertoire): GlobalSong | null => song?.song ?? null;
+
+/** The links fieldset follows the catalog rule as a unit, like the `links` column itself. */
+const areLinksLocked = (catalog: GlobalSong | null): boolean =>
+  catalog !== null && !isCatalogFieldEmpty(catalog, "links");
+
+const editPayload = (form: FormState, links: SongLink[]): SongFormEditInput => ({
+  title: form.title.trim(),
+  artist: form.artist.trim(),
+  album: form.album.trim() || null,
+  key: form.key.trim() || null,
+  cover_url: form.cover_url.trim() || null,
+  duration_seconds: parseDurationInput(form.duration),
+  status: form.status,
+  tags: parseTags(form.tagsInput),
+  links,
+});
+
+const createPayload = (form: FormState, links: SongLink[]): SongFormCreateInput => ({
+  title: form.title.trim(),
+  artist: form.artist.trim(),
+  album: form.album.trim() || undefined,
+  standard_key: form.key.trim() || undefined,
+  cover_url: form.cover_url.trim() || undefined,
+  duration_seconds: parseDurationInput(form.duration) ?? undefined,
+  links,
+});
+
 export default function SongForm({
   song,
   onClose,
@@ -158,14 +232,18 @@ export default function SongForm({
   actions,
 }: SongFormProps) {
   const isEditMode = Boolean(song);
+  const catalog = catalogOf(song);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const { loadSongs } = useRepertoireStore();
 
   const [form, setForm] = useState<FormState>(() => buildInitialState(song));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [correction, setCorrection] = useState<CorrectionRequest | null>(null);
+  const [refused, setRefused] = useState<RefusedCatalogField[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const linksLocked = areLinksLocked(catalog);
 
   // Open dialog on mount, close on backdrop click
   useEffect(() => {
@@ -182,38 +260,16 @@ export default function SongForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const addLink = () => {
-    setField("links", [
-      ...form.links,
-      { label: "", url: "", id: crypto.randomUUID() },
-    ]);
-  };
-
-  const updateLink = (index: number, field: keyof SongLink, value: string) => {
-    const updated = form.links.map((link, i) =>
-      i === index ? { ...link, [field]: value } : link,
-    );
-    setField("links", updated);
-  };
-
-  const removeLink = (index: number) => {
-    setField(
-      "links",
-      form.links.filter((_, i) => i !== index),
-    );
-  };
-
   // ---- submit ----
 
-  // Accepts "3:45" or "225" → seconds
-  const parseDuration = (raw: string): number | null => {
-    if (raw.includes(":")) {
-      const [min, sec] = raw.split(":").map(Number);
-      if (isNaN(min) || isNaN(sec)) return null;
-      return min * 60 + sec;
-    }
-    const n = Number(raw);
-    return isNaN(n) ? null : n;
+  /** The links to propose: the catalog's own when they are locked, so an untouched save proposes nothing. */
+  const submittedLinks = (): SongLink[] => {
+    if (linksLocked) return catalog!.links;
+    const links = form.links
+      .map(({ label, url }) => ({ label, url }))
+      .filter((l) => l.url.trim());
+    if (!form.youtube_url.trim()) return links;
+    return [{ label: "YouTube", url: form.youtube_url.trim() }, ...links];
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -228,40 +284,19 @@ export default function SongForm({
     setSubmitting(true);
 
     try {
-      const tags = parseTags(form.tagsInput);
-      let links = form.links
-        .map(({ label, url }) => ({ label, url }))
-        .filter((l) => l.url.trim());
-      if (form.youtube_url.trim()) {
-        links = [{ label: "YouTube", url: form.youtube_url.trim() }, ...links];
-      }
-
-      const durSeconds = form.duration.trim()
-        ? parseDuration(form.duration.trim())
-        : null;
+      const links = submittedLinks();
 
       if (isEditMode && song) {
-        await actions.updateSong(song, {
-          title: form.title.trim(),
-          artist: form.artist.trim(),
-          album: form.album.trim() || null,
-          key: form.key.trim() || null,
-          cover_url: form.cover_url.trim() || null,
-          duration_seconds: durSeconds,
-          status: form.status,
-          tags,
-          links,
-        });
+        const result = await actions.updateSong(song, editPayload(form, links));
+        await loadSongs();
+        // A refused shared column is not a plain success: stay open and say so.
+        if (result?.refused?.length) {
+          setRefused(result.refused);
+          return;
+        }
       } else {
-        const entry = await actions.createAndAddSong({
-          title: form.title.trim(),
-          artist: form.artist.trim(),
-          album: form.album.trim() || undefined,
-          standard_key: form.key.trim() || undefined,
-          cover_url: form.cover_url.trim() || undefined,
-          duration_seconds: durSeconds ?? undefined,
-          links,
-        });
+        const tags = parseTags(form.tagsInput);
+        const entry = await actions.createAndAddSong(createPayload(form, links));
         // Apply status and tags after creation
         await Promise.all([
           form.status !== "unknown"
@@ -271,9 +306,9 @@ export default function SongForm({
             ? actions.updateSongTags(entry.id, tags)
             : Promise.resolve(),
         ]);
+        await loadSongs();
       }
 
-      await loadSongs();
       onSuccess();
     } catch (err) {
       setError(
@@ -310,131 +345,98 @@ export default function SongForm({
         onSubmit={handleSubmit}
         className="overflow-y-auto px-6 py-5 flex flex-col gap-5 max-h-[80vh]"
       >
-        {/* Title */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-title"
-            className="text-sm font-medium text-gray-700"
-          >
-            Title{" "}
-            <span aria-hidden="true" className="text-red-500">
-              *
-            </span>
-          </label>
-          <input
-            id="sf-title"
-            type="text"
-            required
-            value={form.title}
-            onChange={(e) => setField("title", e.target.value)}
-            placeholder="Song name"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
+        <CatalogRefusalNotice
+          refused={refused}
+          onSuggest={() => setCorrection({ prefill: catalogDraftFromRefusals(refused) })}
+        />
 
-        {/* Artist */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-artist"
-            className="text-sm font-medium text-gray-700"
-          >
-            Artist
-          </label>
-          <input
-            id="sf-artist"
-            type="text"
-            value={form.artist}
-            onChange={(e) => setField("artist", e.target.value)}
-            placeholder="Artist name"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
+        <SharedCatalogField
+          id="sf-title"
+          label="Title"
+          catalogValue={sharedText(catalog, "title")}
+          value={form.title}
+          onChange={(v) => setField("title", v)}
+          onSuggest={() => setCorrection({ focusField: "title" })}
+          placeholder="Song name"
+        />
 
-        {/* Album */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-album"
-            className="text-sm font-medium text-gray-700"
-          >
-            Album
-          </label>
-          <input
-            id="sf-album"
-            type="text"
-            value={form.album}
-            onChange={(e) => setField("album", e.target.value)}
-            placeholder="Album name"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
+        <SharedCatalogField
+          id="sf-artist"
+          label="Artist"
+          catalogValue={sharedText(catalog, "artist")}
+          value={form.artist}
+          onChange={(v) => setField("artist", v)}
+          onSuggest={() => setCorrection({ focusField: "artist" })}
+          placeholder="Artist name"
+        />
 
-        {/* Key */}
+        <SharedCatalogField
+          id="sf-album"
+          label="Album"
+          catalogValue={sharedText(catalog, "album")}
+          value={form.album}
+          onChange={(v) => setField("album", v)}
+          onSuggest={() => setCorrection({ focusField: "album" })}
+          placeholder="Album name"
+        />
+
+        {/* Key — personal, so always editable; the catalog's key sits beside it. */}
         <div className="flex flex-col gap-1">
           <label htmlFor="sf-key" className="text-sm font-medium text-gray-700">
             Key
           </label>
-          <input
-            id="sf-key"
-            type="text"
-            value={form.key}
-            onChange={(e) => setField("key", e.target.value)}
-            placeholder="ex: Am, G, C#"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-32"
-          />
+          <div className="flex items-center gap-3">
+            <input
+              id="sf-key"
+              type="text"
+              value={form.key}
+              onChange={(e) => setField("key", e.target.value)}
+              placeholder="ex: Am, G, C#"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-32"
+            />
+            <span className="text-xs text-gray-500">your key</span>
+          </div>
+          {catalog?.standard_key && (
+            <div className="flex items-center justify-between gap-3 mt-1">
+              <p className="text-xs text-gray-600">
+                Catalog key:{" "}
+                <span className="font-medium text-gray-900">
+                  {catalog.standard_key}
+                </span>
+              </p>
+              <button
+                type="button"
+                onClick={() => setCorrection({ focusField: "standard_key" })}
+                aria-label="Suggest a correction to the catalog key"
+                className="text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg transition-colors"
+              >
+                Suggest a correction
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Duration */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-duration"
-            className="text-sm font-medium text-gray-700"
-          >
-            Duration
-          </label>
-          <input
-            id="sf-duration"
-            type="text"
-            value={form.duration}
-            onChange={(e) => setField("duration", e.target.value)}
-            placeholder="ex: 3:45 ou 225"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-32"
-          />
-        </div>
+        <SharedCatalogField
+          id="sf-duration"
+          label="Duration"
+          catalogValue={sharedText(catalog, "duration_seconds")}
+          value={form.duration}
+          onChange={(v) => setField("duration", v)}
+          onSuggest={() => setCorrection({ focusField: "duration_seconds" })}
+          placeholder="ex: 3:45 ou 225"
+          inputClassName="w-32"
+        />
 
-        {/* YouTube Link */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-youtube"
-            className="text-sm font-medium text-gray-700"
-          >
-            YouTube Link
-          </label>
-          <input
-            id="sf-youtube"
-            type="url"
-            value={form.youtube_url}
-            onChange={(e) => setField("youtube_url", e.target.value)}
-            placeholder="https://youtube.com/watch?v=..."
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
-
-        {/* Cover Image URL */}
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-cover-url"
-            className="text-sm font-medium text-gray-700"
-          >
-            Cover Image URL
-          </label>
-          <input
-            id="sf-cover-url"
-            type="url"
-            value={form.cover_url}
-            onChange={(e) => setField("cover_url", e.target.value)}
-            placeholder="https://..."
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+        <SharedCatalogField
+          id="sf-cover-url"
+          label="Cover Image URL"
+          catalogValue={sharedText(catalog, "cover_url")}
+          value={form.cover_url}
+          onChange={(v) => setField("cover_url", v)}
+          onSuggest={() => setCorrection({ focusField: "cover_url" })}
+          type="url"
+          placeholder="https://..."
+        >
           {form.cover_url.trim() && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -443,9 +445,8 @@ export default function SongForm({
               className="mt-1 h-16 w-16 rounded object-cover"
             />
           )}
-        </div>
+        </SharedCatalogField>
 
-        {/* Status */}
         <fieldset className="flex flex-col gap-2">
           <legend className="text-sm font-medium text-gray-700">Status</legend>
 
@@ -476,14 +477,8 @@ export default function SongForm({
           </div>
         </fieldset>
 
-        {/* Tags */}
         <div className="flex flex-col gap-1">
-          <label
-            htmlFor="sf-tags"
-            className="text-sm font-medium text-gray-700"
-          >
-            Tags
-          </label>
+          <label htmlFor="sf-tags" className="text-sm font-medium text-gray-700">Tags</label>
           <input
             id="sf-tags"
             type="text"
@@ -493,10 +488,7 @@ export default function SongForm({
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           {form.tagsInput && (
-            <ul
-              className="flex flex-wrap gap-1.5 mt-1"
-              aria-label="Tag preview"
-            >
+            <ul className="flex flex-wrap gap-1.5 mt-1" aria-label="Tag preview">
               {parseTags(form.tagsInput).map((tag) => (
                 <li
                   key={tag}
@@ -509,63 +501,59 @@ export default function SongForm({
           )}
         </div>
 
-        {/* Links */}
-        <fieldset className="flex flex-col gap-3">
-          <legend className="text-sm font-medium text-gray-700">Links</legend>
-          {form.links.map((link, idx) => (
-            <div key={link.id || idx} className="flex gap-2 items-start">
-              <div className="flex flex-col gap-1 flex-1">
-                <input
-                  type="text"
-                  value={link.label}
-                  onChange={(e) => updateLink(idx, "label", e.target.value)}
-                  placeholder="Label (e.g. YouTube, Chords)"
-                  aria-label={`Label for link ${idx + 1}`}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <input
-                  type="url"
-                  value={link.url}
-                  onChange={(e) => updateLink(idx, "url", e.target.value)}
-                  placeholder="https://"
-                  aria-label={`URL for link ${idx + 1}`}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => removeLink(idx)}
-                aria-label={`Remove link ${idx + 1}`}
-                className="mt-1 text-gray-400 hover:text-red-500 transition-colors text-lg leading-none shrink-0"
-              >
-                &times;
-              </button>
+        {/* Links — the catalog's own when it has any, editable while it has none. */}
+        {linksLocked ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-gray-700">Links</span>
+            <ul className="flex flex-col gap-1" aria-label="Catalog links">
+              {catalog!.links.map((link) => (
+                <li key={link.url} className="text-sm text-gray-900 break-all">
+                  {link.label || link.url}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => setCorrection({ focusField: "links" })}
+              aria-label="Suggest a correction to Links"
+              className="self-start mt-1 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg transition-colors"
+            >
+              Suggest a correction
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* YouTube Link */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="sf-youtube" className="text-sm font-medium text-gray-700">YouTube Link</label>
+              <input
+                id="sf-youtube"
+                type="url"
+                value={form.youtube_url}
+                onChange={(e) => setField("youtube_url", e.target.value)}
+                placeholder="https://youtube.com/watch?v=..."
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
             </div>
-          ))}
-          <button
-            type="button"
-            onClick={addLink}
-            className="self-start text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors"
-          >
-            + Add link
-          </button>
-        </fieldset>
+            <SongLinksEditor
+              links={form.links}
+              onChange={(links) => setField("links", links)}
+            />
+          </>
+        )}
 
         {error && (
-          <p
-            role="alert"
-            className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2"
-          >
+          <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
             {error}
           </p>
         )}
 
         {/* Footer buttons */}
         <div className="flex justify-between items-center gap-3 pt-2 border-t border-gray-100">
-          {isEditMode && song?.song && (
+          {isEditMode && catalog && (
             <button
               type="button"
-              onClick={() => setShowCorrectionModal(true)}
+              onClick={() => setCorrection({})}
               className="text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
             >
               ✏️ Correct Global Info
@@ -590,11 +578,13 @@ export default function SongForm({
         </div>
       </form>
 
-      {showCorrectionModal && song?.song && (
+      {correction && catalog && (
         <CorrectionModal
-          song={song.song}
+          song={catalog}
+          prefill={correction.prefill}
+          focusField={correction.focusField}
           onSubmitCorrection={actions.submitGlobalSongEdit}
-          onClose={() => setShowCorrectionModal(false)}
+          onClose={() => setCorrection(null)}
           onSuccess={() => {
             setToastMessage("Correction request submitted for admin review!");
             setTimeout(() => setToastMessage(null), 4000);

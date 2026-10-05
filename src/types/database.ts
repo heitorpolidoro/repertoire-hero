@@ -22,6 +22,39 @@ export interface GlobalSong {
   created_at: string;
 }
 
+/**
+ * The shared `global_songs` columns a direct song edit can be refused on
+ * (RH-97). `standard_key` is deliberately absent: the song form's key input
+ * writes `repertoire.personal_key`, which always succeeds, so reporting a
+ * refused catalog key would be a false alarm.
+ */
+export type RefusableCatalogColumn =
+  | "title"
+  | "artist"
+  | "album"
+  | "cover_url"
+  | "duration_seconds"
+  | "links";
+
+/** Whatever one shared catalog column can hold. */
+export type CatalogFieldValue = string | number | SongLink[] | null;
+
+/**
+ * One shared catalog column a save did not write, because the catalog already
+ * holds a different value. Public vocabulary: it crosses a Server Action
+ * boundary from `updateSong` into the song form.
+ */
+export interface RefusedCatalogField {
+  column: RefusableCatalogColumn;
+  current: CatalogFieldValue;
+  proposed: CatalogFieldValue;
+}
+
+/** What `updateSong` reports: the owner-local write always landed; these shared columns did not. */
+export interface SongUpdateResult {
+  refused: RefusedCatalogField[];
+}
+
 export interface Repertoire {
   id: string;
   user_id: string | null;

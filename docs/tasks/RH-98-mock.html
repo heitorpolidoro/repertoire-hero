@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-97 — Stop discarding song edits silently</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+<div class="max-w-6xl mx-auto p-6 flex flex-col gap-10">
+
+  <header class="flex flex-col gap-2">
+    <h1 class="text-2xl font-bold">RH-97 — Stop discarding song edits silently</h1>
+    <p class="text-sm text-gray-600 max-w-3xl">
+      The edit form today lets a musician retype any catalog value, reports success, and
+      the database quietly keeps the old one. Below: the shape the spec proposes, the one
+      open question, and the notice that fires when a refusal slips through anyway.
+    </p>
+  </header>
+
+  <!-- ===================== OPEN QUESTION ===================== -->
+  <section class="flex flex-col gap-4">
+    <div class="flex flex-col gap-1">
+      <h2 class="text-lg font-bold">Read-only shared fields</h2>
+      <p class="text-sm text-gray-700 max-w-3xl">
+        <strong>The question:</strong> a song's title, artist, album and cover belong to
+        the shared catalog — everyone who has that song sees the same values. Once one of
+        them has a value, you can no longer type over it here; you suggest a correction
+        instead. Which way should those fields look while you cannot type in them?
+        <strong>A</strong> shows the value as plain text, like a fact being stated.
+        <strong>B</strong> keeps the input box, greyed out. The spec currently picks
+        <strong>A</strong>, because a greyed box reads like something that is broken or
+        still loading, while plain text reads like information. Reply with one letter.
+      </p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-5">
+
+      <!-- OPTION A -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-5 py-3 bg-emerald-600 text-white flex items-center justify-between">
+          <span class="font-bold text-sm">A — value as plain text</span>
+          <span class="text-[11px] bg-white/20 px-2 py-0.5 rounded-full">spec's current pick</span>
+        </div>
+        <div class="p-5 flex flex-col gap-4">
+
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-medium text-gray-700">Title</span>
+            <div class="flex items-start justify-between gap-3">
+              <p class="text-sm text-gray-900 font-medium pt-0.5">Smooth Criminal</p>
+              <button class="suggest shrink-0 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg">Suggest a correction</button>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-medium text-gray-700">Artist</span>
+            <div class="flex items-start justify-between gap-3">
+              <p class="text-sm text-gray-900 font-medium pt-0.5">Michael Jackson</p>
+              <button class="suggest shrink-0 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg">Suggest a correction</button>
+            </div>
+          </div>
+
+          <!-- empty-in-catalog field stays editable, identical in both options -->
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium text-gray-700">Album</label>
+            <input type="text" placeholder="Album name"
+              class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <p class="text-[11px] text-gray-500">The catalog has no album for this song yet — filling it in adds it for everyone.</p>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium text-gray-700">Key</label>
+            <div class="flex items-center gap-3">
+              <input type="text" value="Am" class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <span class="text-xs text-gray-500">your key</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 mt-1">
+              <p class="text-xs text-gray-600">Catalog key: <span class="font-medium text-gray-900">G</span></p>
+              <button class="suggest text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg">Suggest a correction</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- OPTION B -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-5 py-3 bg-slate-700 text-white">
+          <span class="font-bold text-sm">B — input box, greyed out</span>
+        </div>
+        <div class="p-5 flex flex-col gap-4">
+
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium text-gray-700">Title</label>
+            <div class="flex items-start gap-3">
+              <input type="text" value="Smooth Criminal" disabled
+                class="flex-1 rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
+              <button class="suggest shrink-0 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1.5 rounded-lg">Suggest</button>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium text-gray-700">Artist</label>
+            <div class="flex items-start gap-3">
+              <input type="text" value="Michael Jackson" disabled
+                class="flex-1 rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
+              <button class="suggest shrink-0 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1.5 rounded-lg">Suggest</button>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium text-gray-700">Album</label>
+            <input type="text" placeholder="Album name"
+              class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <p class="text-[11px] text-gray-500">The catalog has no album for this song yet — filling it in adds it for everyone.</p>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-sm font-medium text-gray-700">Key</label>
+            <div class="flex items-center gap-3">
+              <input type="text" value="Am" class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <span class="text-xs text-gray-500">your key</span>
+            </div>
+            <div class="flex items-start gap-3 mt-1">
+              <input type="text" value="G" disabled
+                class="w-24 rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
+              <span class="text-xs text-gray-500 pt-2">catalog key</span>
+              <button class="suggest ml-auto text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1.5 rounded-lg">Suggest</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500">Both options behave identically — click any "Suggest" button to open the correction form.</p>
+  </section>
+
+  <!-- ===================== BACKSTOP NOTICE ===================== -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-lg font-bold">When a refusal slips through anyway</h2>
+    <p class="text-sm text-gray-700 max-w-3xl">
+      The form is drawn from what the catalog held when it opened. If someone else fills a
+      value in the meantime, the save can still be refused — and this is what replaces
+      today's false "Saved".
+    </p>
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 max-w-2xl flex flex-col gap-4">
+      <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-4 flex flex-col gap-3">
+        <p class="text-sm font-semibold text-amber-900">Your status and tags were saved. Two catalog values were not.</p>
+        <ul class="flex flex-col gap-2 text-sm">
+          <li class="flex flex-col">
+            <span class="font-medium text-amber-900">Artist</span>
+            <span class="text-amber-800">catalog has <span class="font-mono text-xs bg-white/70 px-1 rounded">Michael Jackson</span>, you entered <span class="font-mono text-xs bg-white/70 px-1 rounded">Micheal Jackson</span></span>
+          </li>
+          <li class="flex flex-col">
+            <span class="font-medium text-amber-900">Links</span>
+            <span class="text-amber-800">catalog has 1 link, you entered 2</span>
+          </li>
+        </ul>
+        <button class="suggest self-start px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700">Suggest these as corrections</button>
+      </div>
+      <p class="text-xs text-gray-500">The button opens the correction form already holding the values that were refused — nothing has to be retyped.</p>
+    </div>
+  </section>
+
+  <!-- ===================== CORRECTION MODAL ===================== -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-lg font-bold">The correction form, grown to every shared field</h2>
+    <p class="text-sm text-gray-700 max-w-3xl">
+      It handles title, artist, album and key today. Cover, duration and links are added,
+      so every value shown read-only has somewhere to go. Only the fields you change are
+      submitted.
+    </p>
+    <button id="open-modal" class="self-start px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">Open the correction form</button>
+  </section>
+
+</div>
+
+<!-- modal -->
+<div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div class="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-4">
+    <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+      <h2 class="text-lg font-bold flex items-center gap-2">Suggest a catalog correction</h2>
+      <button id="close-modal" class="text-gray-400 hover:text-gray-600 text-xl leading-none" aria-label="Close">&times;</button>
+    </div>
+
+    <p class="text-xs bg-amber-50 border border-amber-200/60 text-amber-800 p-3 rounded-xl leading-relaxed">
+      Your correction goes to the moderation queue. Once an admin approves it, the value
+      changes for everyone who has this song.
+    </p>
+
+    <form class="flex flex-col gap-4" onsubmit="return false">
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-gray-700">Song title</label>
+        <input id="f-title" data-orig="Smooth Criminal" value="Smooth Criminal" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-gray-700">Artist</label>
+        <input id="f-artist" data-orig="Michael Jackson" value="Michael Jackson" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-gray-700">Album</label>
+          <input id="f-album" data-orig="Bad" value="Bad" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-gray-700">Catalog key</label>
+          <input id="f-standard_key" data-orig="G" value="G" placeholder="e.g. Am, G#" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-gray-700">Duration <span class="font-normal text-gray-400">new</span></label>
+          <input id="f-duration_seconds" data-orig="4:17" value="4:17" placeholder="3:45 or 225" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-semibold text-gray-700">Cover image URL <span class="font-normal text-gray-400">new</span></label>
+          <input id="f-cover_url" data-orig="https://cdn.example/bad.jpg" value="https://cdn.example/bad.jpg" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </div>
+      </div>
+
+      <fieldset class="flex flex-col gap-2 border border-gray-200 rounded-xl p-3">
+        <legend class="text-xs font-semibold text-gray-700 px-1">Links <span class="font-normal text-gray-400">new</span></legend>
+        <div id="links" class="flex flex-col gap-2"></div>
+        <button type="button" id="add-link" class="self-start text-xs font-medium text-emerald-600 hover:text-emerald-800">+ Add link</button>
+      </fieldset>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-gray-700">Reason / notes for the admin (optional)</label>
+        <input id="f-reason" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" placeholder="e.g. corrected a typo in the artist name" />
+      </div>
+
+      <div id="payload-box" class="rounded-xl bg-slate-900 text-slate-100 p-3 text-xs font-mono overflow-x-auto">
+        <p class="text-slate-400 mb-1">what will be submitted — changed fields only:</p>
+        <pre id="payload" class="whitespace-pre-wrap"></pre>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
+        <button type="button" id="close-modal-2" class="px-4 py-2 text-xs font-medium text-gray-600 hover:text-gray-800">Cancel</button>
+        <button type="button" id="submit-btn" disabled class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed">Submit for moderation</button>
+      </div>
+      <p id="nothing-changed" class="text-xs text-gray-500 text-right">Change at least one value to submit.</p>
+    </form>
+  </div>
+</div>
+
+<script>
+  const modal = document.getElementById('modal');
+  const openModal = () => { modal.classList.remove('hidden'); recompute(); };
+  const closeModal = () => modal.classList.add('hidden');
+
+  document.getElementById('open-modal').addEventListener('click', openModal);
+  document.getElementById('close-modal').addEventListener('click', closeModal);
+  document.getElementById('close-modal-2').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  document.querySelectorAll('.suggest').forEach((b) => b.addEventListener('click', openModal));
+
+  // links editor — the component shared with the song form
+  const ORIGINAL_LINKS = [{ label: 'YouTube', url: 'https://youtube.com/watch?v=h_D3VFfhvs4' }];
+  let links = ORIGINAL_LINKS.map((l) => ({ ...l }));
+  const linksBox = document.getElementById('links');
+
+  function renderLinks() {
+    linksBox.innerHTML = '';
+    links.forEach((link, i) => {
+      const row = document.createElement('div');
+      row.className = 'flex gap-2 items-start';
+      row.innerHTML = `
+        <div class="flex flex-col gap-1 flex-1">
+          <input value="${link.label}" placeholder="Label (e.g. YouTube, Chords)" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs" data-i="${i}" data-k="label" />
+          <input value="${link.url}" placeholder="https://" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs" data-i="${i}" data-k="url" />
+        </div>
+        <button type="button" class="rm mt-1 text-gray-400 hover:text-red-500 text-lg leading-none" data-i="${i}" aria-label="Remove link ${i + 1}">&times;</button>`;
+      linksBox.appendChild(row);
+    });
+    linksBox.querySelectorAll('input').forEach((inp) =>
+      inp.addEventListener('input', (e) => {
+        links[+e.target.dataset.i][e.target.dataset.k] = e.target.value;
+        recompute();
+      })
+    );
+    linksBox.querySelectorAll('.rm').forEach((btn) =>
+      btn.addEventListener('click', (e) => {
+        links.splice(+e.currentTarget.dataset.i, 1);
+        renderLinks();
+        recompute();
+      })
+    );
+  }
+
+  document.getElementById('add-link').addEventListener('click', () => {
+    links.push({ label: '', url: '' });
+    renderLinks();
+    recompute();
+  });
+
+  const SIMPLE = ['title', 'artist', 'album', 'standard_key', 'cover_url', 'duration_seconds'];
+
+  function toSeconds(raw) {
+    if (!raw.trim()) return null;
+    if (raw.includes(':')) {
+      const [m, s] = raw.split(':').map(Number);
+      return isNaN(m) || isNaN(s) ? null : m * 60 + s;
+    }
+    const n = Number(raw);
+    return isNaN(n) ? null : n;
+  }
+
+  function recompute() {
+    const payload = {};
+    SIMPLE.forEach((k) => {
+      const el = document.getElementById('f-' + k);
+      if (el.value.trim() !== el.dataset.orig.trim()) {
+        payload[k] = k === 'duration_seconds' ? toSeconds(el.value) : (el.value.trim() || null);
+      }
+    });
+    const current = links.filter((l) => l.url.trim());
+    if (JSON.stringify(current) !== JSON.stringify(ORIGINAL_LINKS)) payload.links = current;
+
+    const changed = Object.keys(payload).length > 0;
+    const reason = document.getElementById('f-reason').value.trim();
+    if (changed && reason) payload.reason = reason;
+
+    document.getElementById('payload').textContent = changed
+      ? JSON.stringify(payload, null, 2)
+      : '{}   // nothing changed — submit stays disabled';
+    document.getElementById('submit-btn').disabled = !changed;
+    document.getElementById('nothing-changed').classList.toggle('hidden', changed);
+  }
+
+  SIMPLE.forEach((k) => document.getElementById('f-' + k).addEventListener('input', recompute));
+  document.getElementById('f-reason').addEventListener('input', recompute);
+  document.getElementById('submit-btn').addEventListener('click', () => {
+    alert('Mock only — this is the payload that would reach submitGlobalSongEdit.');
+  });
+
+  renderLinks();
+  recompute();
+  if (window.lucide) lucide.createIcons();
+</script>
+</body>
+</html>

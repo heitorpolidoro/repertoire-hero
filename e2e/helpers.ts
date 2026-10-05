@@ -140,20 +140,31 @@ export async function openEditDialog(page: Page, title: string) {
 }
 
 /**
- * Edit a song — opens the edit dialog, clears and re-fills the given fields,
- * then saves.
+ * Fills one shared field of the open song form, if the form offers an input for
+ * it at all.
+ *
+ * RH-97: a shared catalog field the catalog has already filled renders
+ * read-only, because `updateSong` would refuse the overwrite anyway — the route
+ * for it is "Suggest a correction", not this helper. So an absent input is the
+ * form working as designed, not a broken selector.
+ */
+async function fillIfEditable(page: Page, selector: string, value?: string) {
+  if (value === undefined) return
+  const input = page.locator(selector)
+  if ((await input.count()) === 0) return
+  await input.clear()
+  await input.fill(value)
+}
+
+/**
+ * Edit a song — opens the edit dialog, re-fills the given fields that are still
+ * editable, then saves.
  */
 export async function editSong(page: Page, title: string, data: Partial<SongData>) {
   await openEditDialog(page, title)
 
-  if (data.title !== undefined) {
-    await page.locator('#sf-title').clear()
-    await page.locator('#sf-title').fill(data.title)
-  }
-  if (data.artist !== undefined) {
-    await page.locator('#sf-artist').clear()
-    await page.locator('#sf-artist').fill(data.artist)
-  }
+  await fillIfEditable(page, '#sf-title', data.title)
+  await fillIfEditable(page, '#sf-artist', data.artist)
 
   await page.locator('dialog[open]').getByRole('button', { name: /^(save|add)$/i, exact: true }).click()
   await expectDialogToClose(page)

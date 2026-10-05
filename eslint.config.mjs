@@ -76,7 +76,12 @@ const eslintConfig = defineConfig([
   // read into `useBandRole.ts`, so the row's worst complexity fell from 18 to
   // 17 and the component function from 530 lines to 526.
   { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 526], "max-lines": ["error", 579] } },
-  { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 459], "max-lines": ["error", 612] } },
+  // RH-97: the link rows moved into `SongLinksEditor.tsx`, one populated shared
+  // field into `SharedCatalogField.tsx` and the refusal notice into
+  // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog
+  // lookups moved to module scope — complexity 17 to 16, the component function
+  // 459 lines to 375 and the file 612 to 602.
+  { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 16], "max-lines-per-function": ["error", 375], "max-lines": ["error", 602] } },
   { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 757], "max-lines": ["error", 819] } },
   { name: "complexity-budget/override", files: ["src/hooks/useTabLibrary.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
@@ -86,8 +91,10 @@ const eslintConfig = defineConfig([
   // callback, so the file's worst complexity fell from 21 to 8 — under the base
   // budget of 15, which is why the `complexity` entry is gone rather than
   // lowered — and its length from 505 to 483. RH-96 dropped the RH-83 status
-  // seed from `addSongToRepertoire`, taking it from 483 to 473.
-  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 473] } },
+  // seed from `addSongToRepertoire`, taking it from 483 to 473. RH-97 replaced
+  // `updateSong`'s seven-column `CASE WHEN` with the fill/refuse split in
+  // `src/lib/catalogFields.ts`: 473 to 471.
+  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 471] } },
   { name: "complexity-budget/override", files: ["src/lib/tabs.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },

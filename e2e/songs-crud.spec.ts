@@ -10,7 +10,15 @@
 
 import { test, expect } from '@playwright/test'
 import { AUTH_STATE_PATH } from './global-setup'
-import { addSong, editSong, deleteSong, goHome, songCard, uniqueSongTitle } from './helpers'
+import {
+  addSong,
+  editSong,
+  deleteSong,
+  goHome,
+  openEditDialog,
+  songCard,
+  uniqueSongTitle,
+} from './helpers'
 
 // ---------------------------------------------------------------------------
 // Song titles are built with `uniqueSongTitle` inside each test body, never as
@@ -48,13 +56,13 @@ test('add a new song and verify it appears in the list', async ({ page }) => {
 /**
  * `global_songs` is a shared catalog, so `updateSong` (src/lib/songs.ts) writes
  * it fill-if-empty: a field that already carries a value is left alone, and only
- * an empty one is filled in. Correcting an already-set field is a different
- * mechanism entirely — `Correct Global Info` -> the admin moderation queue
- * (RH-15) — so the rule worth guarding here is exactly the one the code
- * implements: the typed artist lands because the field was empty, the typed
- * title is discarded because the title was not.
+ * an empty one is filled in. RH-97 made the form say so instead of accepting an
+ * edit it knew would be dropped — a populated shared field renders read-only
+ * with a "Suggest a correction" control (-> the RH-15 moderation queue), and
+ * only an empty one keeps an input. Both halves are asserted here, on one song:
+ * the title the catalog holds cannot be retyped, the artist it lacks can.
  */
-test('editing a song fills the empty catalog fields and leaves the shared title unchanged', async ({
+test('editing a song fills the empty catalog fields and offers a correction for the ones it holds', async ({
   page,
 }) => {
   const originalTitle = uniqueSongTitle('E2E Song Before Edit')
@@ -64,6 +72,17 @@ test('editing a song fills the empty catalog fields and leaves the shared title 
   // one the edit is allowed to fill.
   await addSong(page, { title: originalTitle })
   await expect(songCard(page, originalTitle)).toBeVisible()
+
+  // The catalog has the title, so the form offers no input for it at all.
+  await openEditDialog(page, originalTitle)
+  const dialog = page.locator('dialog[open]')
+  await expect(dialog.locator('#sf-title')).toHaveCount(0)
+  await expect(
+    dialog.getByRole('button', { name: 'Suggest a correction to Title' }),
+  ).toBeVisible()
+  await expect(dialog.locator('#sf-artist')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
 
   await editSong(page, originalTitle, {
     title: typedTitle,

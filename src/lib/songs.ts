@@ -3,8 +3,9 @@ import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitGlobalSongEdit } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
+import { splitCatalogUpdate } from '@/lib/catalogFields'
 import type { RepertoireAccessRow } from '@/lib/dbRows'
-import type { GlobalSong, Repertoire, SongLink, SongStatus } from '@/types/database'
+import type { GlobalSong, Repertoire, SongLink, SongStatus, SongUpdateResult } from '@/types/database'
 
 export type RepertoireOwner = { userId: string } | { bandId: string }
 
@@ -233,58 +234,55 @@ export async function updateSong(
   owner: RepertoireOwner,
   entry: Repertoire,
   data: SongUpdateInput
-): Promise<void> {
+): Promise<SongUpdateResult> {
   const isBand = 'bandId' in owner
   const ownerId = isBand ? owner.bandId : owner.userId
 
+  const repSql = `
+    UPDATE repertoire SET status = $1, tags = $2, personal_key = $3
+    WHERE id = $4 AND ${isBand ? 'band_id = $5' : 'user_id = $5'}
+  `
+
   try {
-    // global_songs is a shared catalog: fields that already have a value
-    // are left untouched so an edit from one repertoire owner can't
-    // clobber good data for everyone else who has the same song. Only
-    // fields that are currently empty get filled in. Correcting an
-    // already-set field (e.g. a typo) is a separate mechanism, not yet
-    // built.
-    const songSql = `
-      UPDATE global_songs
-      SET title = CASE WHEN title IS NULL OR title = '' THEN $1 ELSE title END,
-          artist = CASE WHEN artist IS NULL OR artist = '' THEN $2 ELSE artist END,
-          album = CASE WHEN album IS NULL OR album = '' THEN $3 ELSE album END,
-          standard_key = CASE WHEN standard_key IS NULL OR standard_key = '' THEN $4 ELSE standard_key END,
-          cover_url = CASE WHEN cover_url IS NULL OR cover_url = '' THEN $5 ELSE cover_url END,
-          duration_seconds = CASE WHEN duration_seconds IS NULL THEN $6 ELSE duration_seconds END,
-          links = CASE WHEN links IS NULL OR links = '[]'::jsonb THEN $7::jsonb ELSE links END
-      WHERE id = $8
-    `
-
-    const repSql = `
-      UPDATE repertoire
-      SET status = $1,
-          tags = $2,
-          personal_key = $3
-      WHERE id = $4 AND ${isBand ? 'band_id = $5' : 'user_id = $5'}
-    `
-
-    // Both updates or neither: a shared catalog row filled in from an edit the
+    // Both writes or neither: a shared catalog row filled in from an edit the
     // owner's own repertoire row never received is worse than no edit at all.
-    await withTransaction(async (client) => {
-      await client.query<never>(songSql, [
-        data.title,
-        data.artist,
-        data.album ?? null,
-        data.key,
-        data.cover_url ?? null,
-        data.duration_seconds ?? null,
-        JSON.stringify(data.links),
-        entry.song_id,
-      ])
+    return await withTransaction(async (client) => {
+      // `FOR UPDATE`, because the fill-or-refuse split below is a
+      // read-modify-write on a row every owner of this song shares: a
+      // concurrent save must queue behind it rather than read the same blank.
+      const songRes = await client.query<GlobalSong>(
+        'SELECT * FROM global_songs WHERE id = $1 FOR UPDATE',
+        [entry.song_id],
+      )
+      if (songRes.rowCount === 0) throw new Error('Song entry not found')
 
-      await client.query<never>(repSql, [
-        data.status,
-        data.tags,
-        data.key,
-        entry.id,
-        ownerId,
-      ])
+      // Shared catalog: this edit may only fill columns that are currently
+      // empty (see `splitCatalogUpdate`). The rest come back as `refused`
+      // instead of being silently dropped, and their route is
+      // `CorrectionModal` — docs/use-cases.md § "Suggest a correction to the
+      // catalog".
+      const { fill, refused } = splitCatalogUpdate(songRes.rows[0], {
+        title: data.title,
+        artist: data.artist,
+        album: data.album ?? null,
+        standard_key: data.key,
+        cover_url: data.cover_url ?? null,
+        duration_seconds: data.duration_seconds ?? null,
+        links: data.links,
+      })
+
+      if (fill.length > 0) {
+        // Column names come from `CATALOG_COLUMNS`, never from the caller.
+        const setList = fill.map((f, i) => `${f.column} = $${i + 1}${f.cast}`).join(', ')
+        await client.query<never>(
+          `UPDATE global_songs SET ${setList} WHERE id = $${fill.length + 1}`,
+          [...fill.map((f) => f.value), entry.song_id],
+        )
+      }
+
+      await client.query<never>(repSql, [data.status, data.tags, data.key, entry.id, ownerId])
+
+      return { refused }
     })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
