@@ -9111,3 +9111,12 @@ results do not ask for, and the specified behaviour is met in every case.
   - the comment inside `submit` ends "Mirrors `confirmDelete` below (RH-99 ER6)".
   `confirmDelete` inspects `result.pending` only — it never reads `success`, which is precisely the RH-130 remainder. Both sentences should be reworded the way `offlineFirst.ts` and the two docs now are (e.g. "`submit` inspects `success`; `confirmDelete` still branches on `pending` alone — RH-130"). Non-blocking: no ER covers these two comments and the behaviour under test is correct, but leaving them makes the code contradict the three passages ER9 required to be truthful, and a future reader of RH-130 will hit the contradiction first.
 - The production-build e2e run logs three SSR `ReferenceError: DOMMatrix is not defined` digests from the eagerly-imported `react-pdf` chunk. Pre-existing (unrelated to this change) and harmless to the assertions, but it is noise in the one run that exercises the offline acceptance path.
+
+## [RH-100] Delete the unbuilt /songs/search route — 2026-10-05 (code review)
+None.
+
+---
+
+
+## [RH-100] Delete the unbuilt /songs/search route — 2026-10-05 (QA)
+None.

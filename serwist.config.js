@@ -18,8 +18,8 @@ import { generateGlobPatterns, serwist } from '@serwist/next/config'
  * `precachePrerendered` defaults to `true`, which appends
  * `<distDir>/server/{app,pages}/**\/*.html` and sweeps every prerendered
  * document into the precache — `/login`, `/signup`, `/forgot-password`,
- * `/reset-password`, `/profile`, `/settings` and `/songs/search` among them,
- * seven of which are in the `src/proxy.ts` matcher.
+ * `/reset-password`, `/profile` and `/settings` among them, six of which are
+ * in the `src/proxy.ts` matcher.
  *
  * That is fatal: `Serwist` registers its `PrecacheRoute` before the
  * runtime-caching routes and matches in registration order, so those URLs would

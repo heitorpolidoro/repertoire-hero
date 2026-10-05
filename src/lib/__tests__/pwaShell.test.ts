@@ -93,7 +93,6 @@ const FORBIDDEN_URLS = [
   '/reset-password',
   '/profile',
   '/settings',
-  '/songs/search',
 ]
 
 describe('PWA shell — the bundler rule (ER2, ER3)', () => {
@@ -177,7 +176,7 @@ describe('PWA shell — the emitted worker (ER4, ER5)', () => {
     // Without this the allow-list assertion below could pass vacuously.
     const patterns = proxyMatcherPatterns()
 
-    for (const route of ['/login', '/profile', '/songs/search', '/playlists/abc']) {
+    for (const route of ['/login', '/profile', '/songs/abc/fast-view', '/playlists/abc']) {
       expect(patterns.some((p) => p.test(route)), `${route} is matched`).toBe(true)
     }
     for (const safe of ['/offline', '/_next/static/chunk.js', '/icons/icon-192.png']) {

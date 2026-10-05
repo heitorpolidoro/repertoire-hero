@@ -75,11 +75,11 @@ describe('proxy — session resolution', () => {
   })
 
   it('preserves the original query string when it redirects to /login', () => {
-    const response = middleware(request('http://localhost/songs/search?q=hey&tag=rock'))
+    const response = middleware(request('http://localhost/songs/abc/fast-view?q=hey&tag=rock'))
 
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe(
-      'http://localhost/login?q=hey&tag=rock&redirect=%2Fsongs%2Fsearch',
+      'http://localhost/login?q=hey&tag=rock&redirect=%2Fsongs%2Fabc%2Ffast-view',
     )
   })
 
@@ -134,7 +134,6 @@ describe('proxy — matcher allow-list', () => {
       '/bands/abc',
       '/playlists',
       '/playlists/abc',
-      '/songs/search',
       '/songs/abc/fast-view',
       '/admin/moderation',
     ]) {
