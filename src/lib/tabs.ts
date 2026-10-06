@@ -52,18 +52,43 @@ async function runTabQuery<T extends QueryResultRow = DbRow>(
   }
 }
 
-export async function createTab(
-  userId: string,
-  songId: string,
-  title: string,
-  fileUrl: string,
-): Promise<SongFile> {
+/**
+ * The argument shape of {@link createTab} (RH-127).
+ *
+ * An object rather than five positional parameters, and not because five reads
+ * badly: `src/lib/tabs.ts` sits at the global `max-params: 4` ceiling, and the
+ * `max-params: 5` override it used to carry was deleted by RH-123 when every
+ * function here lost its `repertoireId`. That list is a ratchet that may only
+ * shrink, so a fifth parameter has no legal remedy. The object form takes the
+ * function to *one* parameter instead, which leaves headroom rather than
+ * consuming the last slot.
+ *
+ * It lives beside its one function, not in `src/types/database.ts` (it is not
+ * app vocabulary) and not in `dbRows.ts` (it is not a SQL projection) — the
+ * `<Subject>Payload` convention AGENTS.md already names for a
+ * parsed-and-narrowed input shape, as in `SongEditPayload`.
+ *
+ * `contentType` is what the ingest actually produced, never the client's
+ * claim — see `src/lib/fileIngest.ts`.
+ */
+export interface CreateSongFilePayload {
+  userId: string
+  songId: string
+  title: string
+  fileUrl: string
+  contentType: string
+}
+
+export async function createTab(payload: CreateSongFilePayload): Promise<SongFile> {
+  const { userId, songId, title, fileUrl, contentType } = payload
+
   const res = await runTabQuery<SongFile>(
     'create file',
-    `INSERT INTO song_files (user_id, song_id, title, file_url)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, user_id, song_id, title, file_url, created_at::text as created_at`,
-    [userId, songId, title, fileUrl],
+    `INSERT INTO song_files (user_id, song_id, title, file_url, content_type)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, user_id, song_id, title, file_url, content_type,
+               created_at::text as created_at`,
+    [userId, songId, title, fileUrl, contentType],
     { userId, songId },
   )
 
@@ -144,7 +169,8 @@ export async function saveTabAnnotations(
 export async function listTabs(userId: string, songId: string): Promise<SongFile[]> {
   const res = await runTabQuery<SongFile>(
     'list files',
-    `SELECT id, user_id, song_id, title, file_url, created_at::text as created_at
+    `SELECT id, user_id, song_id, title, file_url, content_type,
+            created_at::text as created_at
      FROM song_files
      WHERE user_id = $1 AND song_id = $2
      ORDER BY created_at DESC`,

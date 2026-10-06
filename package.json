@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.144-202610060926",
+  "version": "0.1.145-202610061652",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -39,6 +39,7 @@
     "react-pdf": "^10.5.0",
     "resend": "^6.18.1",
     "serwist": "^9.5.12",
+    "sharp": "0.35.4",
     "webpack": "^5.106.2",
     "zustand": "^5.0.13"
   },

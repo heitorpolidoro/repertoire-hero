@@ -1,6 +1,12 @@
 'use server'
 
 import { getRequiredUserId } from '@/lib/auth-session'
+import {
+  prepareUploadBytes,
+  sniffUploadContentType,
+  storedFileName,
+  UNSUPPORTED_UPLOAD_MESSAGE,
+} from '@/lib/fileIngest'
 import { logger } from '@/lib/logger'
 import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/ownerSongs'
 import {
@@ -71,35 +77,55 @@ export async function uploadTabAction(formData: FormData): Promise<UploadTabResu
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
 
-    // Validate file: file.type is unreliable for files picked via Android's
-    // Storage Access Framework (e.g. the Google Drive app), which can hand
-    // Chrome an empty or generic MIME type for a genuine PDF. Sniff the PDF
-    // magic bytes instead of trusting file.type alone.
-    const isPdf = file.type === 'application/pdf' || buffer.subarray(0, 5).toString('latin1') === '%PDF-'
-    if (!isPdf) {
-      return { error: 'Only PDF files are allowed' }
+    // What the file *is*, decided by its leading magic bytes and never by
+    // `file.type` (RH-127). The old `file.type === 'application/pdf' || <sniff>`
+    // disjunction trusted the client as an alternative to the bytes; sniffing
+    // alone still accepts the Android Storage Access Framework case the old
+    // comment protected (a genuine PDF reported as `application/octet-stream`),
+    // because the sniff is what decides — and it now refuses a
+    // `application/pdf`-claiming impostor, which is a deliberate tightening.
+    //
+    // This runs before the authorization step because it is pure validation on
+    // bytes already in memory: a refusal here costs nothing and writes nothing.
+    const sniffed = sniffUploadContentType(buffer)
+    if (!sniffed) {
+      return { error: UNSUPPORTED_UPLOAD_MESSAGE }
     }
 
-    // Before any byte is stored: a failure here refuses the upload with
+    // Before any byte work or blob call: a failure here refuses the upload with
     // nothing written, where a failure after it would leave an object behind.
     const entry = await ensureOwnEntry(userId, songId)
+
+    // Decode, bake the rotation, strip the metadata, bound the size, re-encode.
+    // PDFs come back byte-identical. Both image bounds hold unconditionally for
+    // whatever this returns, and an image that cannot be brought under them
+    // throws rather than being stored.
+    const prepared = await prepareUploadBytes(buffer, sniffed)
 
     // Upload to Vercel Blob Storage, under a path keyed by the owner and the
     // song rather than by a repertoire row. Existing objects are *not* moved:
     // the row carries an absolute `file_url`, so old and new paths coexist with
     // no migration of bytes.
     // We use the original file name (sanitized) so that the download/view link
-    // retains a legible name. Vercel Blob automatically appends a random unique
-    // suffix to prevent collisions.
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
-    const filePath = `song-files/${userId}/${songId}/${cleanFileName}`
+    // retains a legible name, with its extension replaced by the one matching
+    // what was actually produced. Vercel Blob automatically appends a random
+    // unique suffix to prevent collisions.
+    const filePath = `song-files/${userId}/${songId}/${storedFileName(file.name, prepared.contentType)}`
 
-    const blob = await put(filePath, buffer, {
+    // `contentType` is derived, never assumed: it is whatever the ingest's
+    // chosen encoder produced, which is also what goes on the row.
+    const blob = await put(filePath, prepared.bytes, {
       access: 'public',
-      contentType: 'application/pdf',
+      contentType: prepared.contentType,
     })
 
-    const tab = await createTab(userId, songId, title, blob.url)
+    const tab = await createTab({
+      userId,
+      songId,
+      title,
+      fileUrl: blob.url,
+      contentType: prepared.contentType,
+    })
 
     revalidatePath('/')
     return { data: tab, entry }

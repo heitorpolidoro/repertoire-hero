@@ -36,6 +36,22 @@ const FILE_ID = 'file-1'
 const SONG_ID = 'song-1'
 const TITLE = 'Verse chart'
 const FILE_URL = 'https://blob.example/song-files/chart.pdf'
+const CONTENT_TYPE = 'image/jpeg'
+
+/**
+ * RH-127: `createTab` takes one `CreateSongFilePayload` object rather than a
+ * fifth positional parameter. `src/lib/tabs.ts` sits at the global
+ * `max-params: 4` ceiling and its old `max-params: 5` override was deleted by
+ * RH-123 — the ratchet may only shrink, so a fifth parameter had no legal
+ * remedy. The object form drops the function to one parameter instead.
+ */
+const PAYLOAD = {
+  userId: USER_ID,
+  songId: SONG_ID,
+  title: TITLE,
+  fileUrl: FILE_URL,
+  contentType: CONTENT_TYPE,
+}
 
 const strokes: Stroke[] = [
   { id: 'stroke-1', color: '#ef4444', width: 0.01, points: [[0.1, 0.1], [0.2, 0.2]] },
@@ -63,7 +79,7 @@ const FUNCTIONS: Array<{
 }> = [
   {
     label: 'createTab',
-    run: () => createTab(USER_ID, SONG_ID, TITLE, FILE_URL),
+    run: () => createTab(PAYLOAD),
     failure: 'Failed to create file: connection lost',
     userIdIndex: 0,
     scoped: false,
@@ -147,16 +163,29 @@ describe('createTab', () => {
       song_id: SONG_ID,
       title: TITLE,
       file_url: FILE_URL,
+      content_type: CONTENT_TYPE,
       created_at: '2026-09-07T09:00:00Z',
     }
     resolveOnce([inserted])
 
-    await expect(createTab(USER_ID, SONG_ID, TITLE, FILE_URL)).resolves.toEqual(inserted)
+    await expect(createTab(PAYLOAD)).resolves.toEqual(inserted)
 
     const [sql, params] = statement()
     expect(sql).toContain('INSERT INTO song_files')
     expect(sql).toContain('created_at::text as created_at')
-    expect(params).toEqual([USER_ID, SONG_ID, TITLE, FILE_URL])
+    expect(params).toEqual([USER_ID, SONG_ID, TITLE, FILE_URL, CONTENT_TYPE])
+  })
+
+  // ER10: the stored file's content type is written on insert and returned, so
+  // nothing has to guess it back from the blob URL's extension.
+  it('writes and returns content_type', async () => {
+    resolveOnce([{ content_type: CONTENT_TYPE }])
+
+    await createTab(PAYLOAD)
+
+    const [sql] = statement()
+    expect(sql).toContain('content_type')
+    expect(sql).toMatch(/RETURNING[\s\S]*content_type/)
   })
 })
 
@@ -252,6 +281,8 @@ describe('listTabs', () => {
     const [sql, params] = statement()
     expect(sql).toContain('FROM song_files')
     expect(sql).toContain('ORDER BY created_at DESC')
+    // ER10: every SELECT list on `song_files` returns the stored content type.
+    expect(sql).toContain('content_type')
     expect(params).toEqual([USER_ID, SONG_ID])
   })
 })

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { TabUploadForm } from '../TabUploadForm'
 
 afterEach(cleanup)
@@ -58,6 +60,27 @@ describe('TabUploadForm', () => {
     expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true)
     const inputs = container.querySelectorAll('input')
     expect([...inputs].every((input) => (input as HTMLInputElement).disabled)).toBe(true)
+  })
+
+  /**
+   * ER11 (RH-127). RH-127 taught the *action* to ingest images; opening the
+   * picker to them is RH-128. Until that lands the picker must stay PDF-only,
+   * because an image chosen today would upload successfully and then have
+   * nothing in the stage able to render it. So this asserts both halves: the
+   * `accept` hint, and that the component's source mentions no image type or
+   * image extension anywhere — which is what catches someone widening the hint
+   * in a comment-sized edit.
+   */
+  it('keeps the picker PDF-only until RH-128 (ER11)', () => {
+    const { container } = renderForm()
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput.getAttribute('accept')).toBe('application/pdf')
+
+    const source = readFileSync(resolve(__dirname, '../TabUploadForm.tsx'), 'utf8').toLowerCase()
+    for (const needle of ['image/', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.avif', '.gif']) {
+      expect(source, `TabUploadForm.tsx must not mention ${needle}`).not.toContain(needle)
+    }
   })
 
   it('reports the chosen file to the controller', () => {

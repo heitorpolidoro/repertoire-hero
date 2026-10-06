@@ -261,6 +261,15 @@ export interface SongFile {
   song_id: string;
   title: string;
   file_url: string;
+  /**
+   * The content type of the stored bytes (RH-127), chosen by the ingest's
+   * encoder rather than by the client. Optional for the same reason
+   * `annotations` is: it is present on every row read through `src/lib/tabs.ts`,
+   * and absent only from offline snapshots and fixtures written before RH-127 —
+   * where `application/pdf` is the correct reading of an absent value, because
+   * the upload action accepted nothing else.
+   */
+  content_type?: string;
   created_at: string;
   annotations?: TabAnnotations; // only present when explicitly fetched via getTabAnnotationsAction
 }

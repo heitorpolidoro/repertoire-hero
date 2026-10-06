@@ -22,7 +22,13 @@ const nextConfig: NextConfig = {
   // "Cannot read properties of null (reading 'useRef')". Only Node-only packages with no React
   // entrypoint belong in this list. Guarded by
   // src/lib/__tests__/serverExternalPackages.test.ts.
-  serverExternalPackages: ["@better-auth/kysely-adapter", "kysely", "pg"],
+  //
+  // RH-127 added "sharp": it is a native module (prebuilt libvips binaries
+  // resolved per platform at require time), so bundling it would either break
+  // the resolution or inline a binary. It is Node-only and ships no ./react
+  // subpath, so the RH-32 hazard above does not apply to it. It is loaded only
+  // by src/lib/fileIngest.ts, from the Server Action runtime.
+  serverExternalPackages: ["@better-auth/kysely-adapter", "kysely", "pg", "sharp"],
   // Next.js 16 defaults to Turbopack. Our webpack config only suppresses
   // OpenTelemetry warnings (irrelevant in Turbopack). Declaring an empty
   // turbopack config silences the "webpack config without turbopack config" error.

@@ -39,6 +39,21 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }))
 
+/**
+ * RH-127: `@/lib/fileIngest` runs for real — `sharp` is installed and the
+ * fixtures below are real images, so what the action hands `put` is what the
+ * ingest actually produced rather than what a mock said it would. Only
+ * `prepareUploadBytes` is wrapped, so the one case no real image can reach
+ * (over the byte bound even at the 512px floor; see
+ * `src/lib/__tests__/fileIngest.test.ts`) can be forced here with
+ * `mockRejectedValueOnce` to assert the action's half of it: nothing uploaded,
+ * no row inserted.
+ */
+vi.mock('@/lib/fileIngest', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/fileIngest')>()
+  return { ...actual, prepareUploadBytes: vi.fn(actual.prepareUploadBytes) }
+})
+
 import {
   uploadTabAction,
   deleteTabAction,
@@ -59,6 +74,12 @@ import {
 } from '@/lib/tabs'
 import { put, del } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
+import sharp from 'sharp'
+import {
+  IMAGE_TOO_LARGE_MESSAGE,
+  UNSUPPORTED_UPLOAD_MESSAGE,
+  prepareUploadBytes,
+} from '@/lib/fileIngest'
 import type { Repertoire, Stroke } from '@/types/database'
 
 const USER_ID = 'user-1'
@@ -72,6 +93,21 @@ const sampleStrokes: Stroke[] = [
 ]
 
 const PDF_BYTES = Buffer.from('%PDF-1.4 minimal', 'latin1')
+
+// One libvips thread: the fixtures here are tiny, but the default pool is the
+// core count and these suites run beside the jsdom ones. See
+// `src/lib/__tests__/fileIngest.test.ts`.
+sharp.concurrency(1)
+
+/** A real, tiny image of each accepted family, so the ingest runs for real. */
+async function imageFixture(format: 'jpeg' | 'png' | 'webp'): Promise<Buffer> {
+  const pipeline = sharp({
+    create: { width: 120, height: 90, channels: 3, background: { r: 180, g: 40, b: 40 } },
+  })
+  if (format === 'png') return pipeline.png().toBuffer()
+  if (format === 'webp') return pipeline.webp().toBuffer()
+  return pipeline.jpeg().toBuffer()
+}
 
 /** The row the ensure creates when the uploader held none for this song. */
 const OWN_ENTRY = { id: 'repertoire-9', user_id: USER_ID, song_id: SONG_ID, status: 'unknown' } as unknown as Repertoire
@@ -132,7 +168,13 @@ describe('uploadTabAction', () => {
 
     await expect(uploadTabAction(uploadForm())).resolves.toEqual({ data: row, entry: undefined })
 
-    expect(createTab).toHaveBeenCalledWith(USER_ID, SONG_ID, 'Verse chart', BLOB_URL)
+    expect(createTab).toHaveBeenCalledWith({
+      userId: USER_ID,
+      songId: SONG_ID,
+      title: 'Verse chart',
+      fileUrl: BLOB_URL,
+      contentType: 'application/pdf',
+    })
     expect(revalidatePath).toHaveBeenCalledWith('/')
   })
 
@@ -213,16 +255,66 @@ describe('uploadTabAction', () => {
     expect(createTab).toHaveBeenCalled()
   })
 
-  it('refuses a file that is neither declared nor shaped like a PDF', async () => {
+  // ER2: the four accepted signatures, and the two rejections — one of which is
+  // an impostor whose `file.type` says `application/pdf`. The old disjunction
+  // accepted that one on the client's word alone.
+  it.each([
+    ['a buffer matching no signature', 'application/octet-stream', 'GIF89a nope'],
+    ['an impostor claiming to be a PDF', 'application/pdf', 'this is not a PDF at all'],
+  ])('refuses %s with no upload and no row insert', async (_label, type, text) => {
     await expect(
-      uploadTabAction(
-        uploadForm(fakeFile({ type: 'image/png', bytes: Buffer.from('\x89PNG\r\n', 'latin1') })),
-      ),
-    ).resolves.toEqual({ error: 'Only PDF files are allowed' })
+      uploadTabAction(uploadForm(fakeFile({ type, bytes: Buffer.from(text, 'latin1') }))),
+    ).resolves.toEqual({ error: UNSUPPORTED_UPLOAD_MESSAGE })
 
     expect(put).not.toHaveBeenCalled()
     expect(createTab).not.toHaveBeenCalled()
   })
+
+  it('stores a PDF byte-identical to the input (ER9)', async () => {
+    vi.mocked(createTab).mockResolvedValue({} as never)
+
+    await uploadTabAction(uploadForm())
+
+    const stored = vi.mocked(put).mock.calls[0][1] as Buffer
+    expect(Buffer.isBuffer(stored)).toBe(true)
+    expect(stored.equals(PDF_BYTES)).toBe(true)
+  })
+
+  // ER8: the content type handed to `put`, the stored path's extension and the
+  // content type written on the row are all the *produced* one, read back off
+  // the bytes `put` received rather than asserted from the input's family.
+  it.each([
+    ['image/jpeg', 'jpg', 'jpeg'],
+    ['image/png', 'png', 'png'],
+    ['image/webp', 'webp', 'webp'],
+  ] as const)(
+    'ingests a %s upload and stores it as .%s',
+    async (contentType, extension, format) => {
+      vi.mocked(createTab).mockResolvedValue({} as never)
+      const bytes = await imageFixture(format)
+
+      await uploadTabAction(uploadForm(fakeFile({ name: 'stand photo.heic', type: 'image/heic', bytes })))
+
+      const [path, stored, options] = vi.mocked(put).mock.calls[0] as [string, Buffer, { contentType: string }]
+      expect(options.contentType).toBe(contentType)
+      expect(path).toBe(`song-files/${USER_ID}/${SONG_ID}/stand_photo.${extension}`)
+      expect((await sharp(stored).metadata()).format).toBe(format)
+      expect(vi.mocked(createTab).mock.calls[0][0].contentType).toBe(contentType)
+    },
+    30_000,
+  )
+
+  // ER7, the action's half: an image the ingest refuses stores nothing at all.
+  it('refuses an image that cannot be brought under the byte bound', async () => {
+    vi.mocked(prepareUploadBytes).mockRejectedValueOnce(new Error(IMAGE_TOO_LARGE_MESSAGE))
+
+    await expect(
+      uploadTabAction(uploadForm(fakeFile({ bytes: await imageFixture('jpeg') }))),
+    ).resolves.toEqual({ error: IMAGE_TOO_LARGE_MESSAGE })
+
+    expect(put).not.toHaveBeenCalled()
+    expect(createTab).not.toHaveBeenCalled()
+  }, 30_000)
 
   it('turns a rejected lib call into the upload envelope', async () => {
     vi.mocked(createTab).mockRejectedValue(new Error('Failed to create file: connection lost'))
