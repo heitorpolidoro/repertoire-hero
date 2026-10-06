@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm test:*)",
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(git rev-parse:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(rm -rf:*)",
+      "Bash(git add -A:*)",
+      "Bash(git add --all:*)",
+      "Bash(git add .:*)",
+      "Bash(git add -u:*)",
+      "Bash(git add --update:*)",
+      "Bash(git add -*)",
+      "Bash(git commit --amend:*)",
+      "Bash(git commit -a:*)",
+      "Bash(git commit --all:*)",
+      "Bash(git commit -am:*)",
+      "Bash(git commit -a -m:*)"
+    ]
+  }
+}
