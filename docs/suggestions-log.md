@@ -9544,3 +9544,200 @@ codebase's own prior art.
 4. **`playlists.test.ts` is DB-backed but not named `*.db.test.ts`.** It holds the ER19
    and ER20 assertions and is gated the same way, but the naming convention makes it
    easy to miss when someone greps for the DB-gated suites.
+
+
+## [RH-125 session] Environment + pipeline findings — 2026-10-06 (orchestration)
+
+Observations from re-reading the tree before dispatching RH-125 and RH-127. None of these
+are defects in a shipped diff; they are drift and gate conditions worth recording.
+
+1. **The `Dependency audit (npm audit)` CI job is red on `master`, independent of any task.**
+   `npm run audit` (`npm audit --audit-level=high`) exits **1** with 10 advisories: 1
+   critical, 7 high, 2 moderate. The critical is `GHSA-vcvr-r3jv-pc5j`, remote code
+   execution in `next/og`'s `ImageResponse`, against the pinned `next@16.3.4`. **It is not
+   reachable in this app** — a repo-wide grep finds no `next/og` and no `ImageResponse`
+   under `src/` — but the gate does not care about reachability, so the job fails regardless.
+   npm reports the fix as `next@16.3.8`, a patch inside 16.3.x that is nonetheless "outside
+   the stated dependency range" only because `package.json` pins the version exactly. A
+   `16.3.4 → 16.3.8` bump plus `npm audit fix` for the `source-map-js` high looks like a
+   small, self-contained task. It deserves its own board entry, as RH-129 has for the lint
+   baseline.
+
+2. **The ratchet comment's arithmetic is stale.** `eslint.config.mjs:73` ends "17 entries to
+   15", but the block actually holds **14** `complexity-budget/override` entries today
+   (`MAX_OVERRIDES` is 17 in `complexityBudget.test.ts:54`). The guard counts the entries
+   rather than the comment, so nothing is broken — but a reader budgeting headroom from the
+   prose gets the wrong number. Worth correcting the comment the next time that block is
+   touched.
+
+3. **RH-127's spec had drifted into a hard contradiction, now corrected in place.** It was
+   approved before RH-123 landed and still named `repertoire_tabs`, the `RepertoireTab`
+   type, `assertRepertoireAccess` and migration prefix `0009`. The blocker was its claim
+   that "`createTab` reaches five parameters, which the file's existing pinned
+   `max-params: 5` override already permits": RH-123 **deleted** that override, `createTab`
+   now sits at exactly 4 parameters — the global ceiling — and the ratchet may only shrink,
+   so a fifth positional parameter would have failed `complexityBudget.test.ts` with no
+   legal remedy. `docs/tasks/RH-128-spec.md` now carries a "Drift corrections" section and a
+   new ER13 requiring a single `CreateSongFilePayload` object instead. **The general lesson
+   stands and is worth a process note:** a spec that names a parameter count, a migration
+   number, an override ceiling or a table name is asserting something about a tree it was
+   not written against, and every one of those four classes had drifted here.
+
+4. **`.meridian/` is gitignored (`.gitignore:55`), so the board does not travel with a
+   clone.** A cloud or fresh-checkout session therefore has no board to read or write and no
+   Meridian server to reach. If running the pipeline off-machine is to become normal,
+   the board needs either a tracked export or a reachable server; otherwise task state has
+   to be replayed by hand afterwards, which is what this session had to do.
+
+5. **No Docker in the cloud container, but Postgres did not actually need it.** A native
+   PostgreSQL 16.15 cluster was already installed and merely stopped. Starting it, moving it
+   to port 54322 and pointing `.env.local` at it ran the whole DB-gated suite, including the
+   `*.db.test.ts` files, with coverage at 97.09/88.83/96.50/97.63 against the 80/65/78/80
+   thresholds. Worth recording in the contributor docs as the no-Docker fallback: the
+   `docker-compose.yml` path is a convenience, not a requirement.
+
+
+## [RH-125] Point playlist_songs at song_versions — 2026-10-06 (QA)
+
+1. **ER3's migration test proves less than it looks like it proves.** The replay runs in a
+   throwaway schema whose `playlist_songs` comes from `legacyPlaylistSongsDdl()`
+   (`src/lib/__tests__/test-helpers.ts:376`), and that helper *itself* declares
+   `uq_playlist_song_position … DEFERRABLE INITIALLY IMMEDIATE`. So
+   `expect(positionUniqueBefore).toMatchObject({ condeferrable: true })` would stay green
+   even if RH-103's migration were reverted — it is asserting the helper, not production
+   DDL. QA closed the gap by querying `pg_constraint` on the actually-migrated database
+   (`t, f`, unchanged). Worth a comment at the helper so a future reader does not mistake
+   the test for a check on the real schema.
+2. **ER2's repo fixture has slack, and the `release_date` tier is asserted nowhere.**
+   *(QA's original wording attributed the slack to insertion order; code review corrected
+   it, and the corrected version is what stands here.)* The `version()` helper defaults
+   `created_at` to `COALESCE($4, now())`, and `now()` is `transaction_timestamp()` —
+   **frozen** inside the scenario's single transaction. So the `album` and `single` takes
+   carry an *identical* `created_at`, and a mutation dropping **both** album-level tiers
+   falls through to `v.id ASC` on two random UUIDs, i.e. the test would catch that mutant
+   only about half the time. This does **not** make the test flaky today: the real
+   ordering's `album_type` tier decides deterministically, so the album take always wins.
+   It weakens the test's mutation-detection power, not its stability.
+   Separately and more seriously, **no fixture exercises the `release_date` tier at all** —
+   the only song with two albums differs by `album_type` too, the `created_at` pair shares
+   one album, and the album-less and null-date songs have a single version each. Deleting
+   `a.release_date ASC NULLS LAST` from the migration leaves every assertion in the file
+   passing. Fix: give the album take an explicitly later `created_at` **and** a later
+   `release_date` than the single so only the `album_type` tier can pick it, and add one
+   song with two `album_type = 'album'` versions on albums differing only by
+   `release_date`. QA independently closed the first half by replaying on production DDL
+   with the album take given `created_at = 2030` against the single's `2000` — still
+   chosen — but the in-repo test should stand on its own.
+3. **The ordering's final `v.id ASC` tiebreaker is asserted nowhere behaviourally** — only
+   as a substring of `representativeVersionOrder`. Not required by ER2, but it means the
+   "the pick is total, so two runs cannot disagree" claim rests on code reading rather than
+   on a test.
+4. **ER4's guard scans a 400-character window** after each `INSERT INTO playlist_songs`
+   (`playlistVersionGuards.test.ts:80`). An arbiter placed further from the INSERT would be
+   missed. Not reachable in today's code — both production inserts are short — but the
+   window is a silent bound.
+5. **Two replay suites still rebuild `playlist_songs` in `public`.**
+   `catalogVersionsMigration.db.test.ts` and `songIdentity.db.test.ts` call
+   `legacyPlaylistSongsDdl()` with no argument, taking `ACCESS EXCLUSIVE` on a table every
+   other worker reads. The deadlock is averted only by the shared `pg_advisory_xact_lock`
+   and by a **prose** rule that a replay must lock `playlist_songs` before `songs`, matching
+   production read order. Today's paths are consistent, but nothing enforces it: any future
+   transaction locking `songs` then `playlist_songs` reintroduces the cycle. Moving both
+   onto the throwaway-schema recipe RH-125 introduced would retire the rule entirely.
+6. **A `*.db.test.ts` that rebuilds a legacy shape in `public` must acquire its exclusive
+   table locks in the order the production reads do.** This is the generalisation of the
+   deadlock RH-125 introduced and fixed: the new suite held `songs` ACCESS EXCLUSIVE and
+   then asked for `playlist_songs`, while every ordinary playlist read locks the other way
+   round, so Postgres killed one party at random — surfacing as *unrelated* suites failing
+   with `deadlock detected` about one run in four. Two pre-existing suites
+   (`ownerSongsMigration.db.test.ts`, `songFilesMigration.db.test.ts`) had the same
+   inversion and were reordered. `LOCK TABLE songs, global_song_edits IN ACCESS EXCLUSIVE
+   MODE` was tried first and rejected: it serialised every `songs` reader behind each replay
+   and broke `transactionAtomicity.db.test.ts` instead. Recorded at the call site so nobody
+   retries it.
+7. **ER11 names a function that does not exist.** The spec says `cycleSongStatus`; the tree
+   has `setSongStatus` (`src/lib/playlistDetail.ts:149`, renamed by RH-102). The equivalent
+   behaviour *is* tested and the spec's preamble does tell the implementer to read names
+   from the tree, so this is a spec-text defect rather than a coverage gap.
+8. **`ownerSongsGuards`' COALESCE regex is dot-dependent.**
+   `/COALESCE\s*\([^)]*(\blyrics\b|\btuning\b|\.key\b|\.map\b)/i` — an unqualified
+   `COALESCE(key, standard_key)` slips past, because `key` and `map` are only matched when
+   dot-qualified. Pre-existing from RH-124, not introduced by RH-125.
+9. **`src/lib/ownerSongs.ts` sits at exactly 400/400 lines**, the global `max-lines` ceiling,
+   with no override. The next edit to it — even a comment — fails `complexityBudget.test.ts`.
+   RH-125 had to compress a 7-line docblock to 4 to land. The next task touching that module
+   should expect to extract something first.
+10. **The Landing Page Rule was not exercised, and the decision is now recorded as "no".**
+    AGENTS.md requires each spec to *decide* whether a shipped user-facing feature is a
+    selling point; `docs/tasks/RH-126-spec.md` makes no such decision, and "your setlist can
+    hold the studio take *and* the live take of the same song" is a plausible candidate.
+    Decided: **not a selling point yet.** A musician cannot deliberately exploit it until the
+    add flow lets them choose a version (RH-112, with RH-109 doing version-aware
+    addressing); today the picker hands over the representative version and two takes appear
+    only via Spotify sync. RH-112 is the task that should carry the landing copy. Recorded
+    here so the rule is answered rather than silently skipped.
+11. **`knip` emits two configuration hints** (`esbuild`, `@serwist/cli` removable from
+    `ignoreDependencies`). Pre-existing, exit 0.
+
+### [RH-125] Re-review of the fix rounds — 2026-10-06 (code review, APPROVE)
+
+Findings from the focused re-review of the deadlock/dedup/fixture deltas. Two were
+fixed in this task (recorded here for the record); four are follow-ups.
+
+12. **FIXED — the `v.created_at ASC` tier's mutation guard was a coin flip.** The tier-3
+    fixture put both versions on one album, so deleting `v.created_at ASC` from
+    `migrations/0017` fell through to `v.id ASC` on two `gen_random_uuid()` values.
+    Measured over 200 trials: **exactly 100/100**. The earlier round's claim that the
+    deletion "failed a distinct named test" was true only of the run it was observed on.
+    Both ids are now explicit, with `Later` deliberately carrying the lexicographically
+    *smaller* uuid so `v.id ASC` names the wrong version: 6/6 mutated runs now fail, and
+    the restored file passes 13/13. Related and still open: **`v.id ASC` itself is
+    isolated by no fixture** — deleting it leaves every assertion green. It is the
+    totality tiebreaker, so no single pick can assert it; it belongs in the file header
+    as prose rather than as a fixture.
+13. **FIXED — two ledger reads in the replay suites were unqualified.**
+    `songFilesMigration.db.test.ts` (`FROM abandoned_blobs`) and
+    `ownerSongsMigration.db.test.ts` (`FROM orphaned_repertoire_rows`) would have fallen
+    through to `public`'s copies if the migration's own `CREATE TABLE IF NOT EXISTS` were
+    ever removed — failing against an empty live table with a message pointing nowhere.
+    Both are now `${schema}.`-qualified, matching what
+    `playlistSongsVersionMigration.db.test.ts` already did.
+14. **The `dedupeVersionIds` call site is still unasserted**, and the failure it would
+    allow is user-facing. `buildPlaylistSongsInsert` carries no `ON CONFLICT` (pinned by
+    `playlistVersionGuards.test.ts`), so a Spotify playlist containing the same track
+    twice would abort the pull on `uq_playlist_song_version` and 500 the sync — and
+    Spotify playlists do allow duplicate tracks. Deleting the `dedupeVersionIds(...)` call
+    from `src/app/api/spotify/playlists/[id]/sync/route.ts` leaves `spotify.test.ts`,
+    `spotifySyncAtomicity.db.test.ts` and `spotifyPlaylistRouteAuthz.db.test.ts` all
+    passing. The scaffolding exists — all three already import the route's `POST`, and
+    `spotify.test.ts` already asserts `data.added` — so the fix is one case feeding two
+    identical tracks into the pull and asserting one row and `added: 1`. Left out here
+    only because `spotify.test.ts` carries a `max-lines: 678` override that may not be
+    raised, so it likely needs its own file.
+15. **`transactionAtomicity.db.test.ts` is load-flaky, pre-existing.** Under a
+    deliberately adversarial narrow run it failed **2 in 23**, twice with different
+    messages (`the second insert never blocked`; `expected null to be an instance of
+    Error`), and `pg_stat_database.deadlocks` did not move for either — so neither was a
+    deadlock. Root cause: the readiness poll
+    `SELECT count(*) FROM pg_locks WHERE pid = $1 AND NOT granted` is satisfied by *any*
+    ungranted lock on that backend, not specifically the wait on
+    `uq_playlist_song_position`. If the loop exits early, releasing the first transaction
+    lets the second see the committed row, compute `position 2` and succeed. Not a
+    regression — RH-125 only re-pointed the insert's column, and if anything *reduced* the
+    noise by taking the replay suites' `ACCESS EXCLUSIVE` off `public.playlist_songs`. Fix
+    for its own task: narrow the poll with `AND locktype IN ('transactionid','tuple')`, or
+    join `pg_locks`→`pg_class` and require the relation.
+16. **Nothing guards the invariant behind the per-index guards.** Four replay suites each
+    pin one index, but nothing asserts "every relation this file names resolves inside the
+    replay schema". If someone trimmed `legacyCatalogReplayDdl` — dropped `songs` because
+    a newer replay does not need it — `songIdentity`'s 0009 replay would silently retarget
+    `public.songs`, rewriting the live catalog under `ACCESS EXCLUSIVE` for its
+    transaction and reintroducing exactly the deadlock this work removed. One shared
+    helper asserting `to_regclass(name)` qualifies into the replay schema would close it.
+17. **`withTransaction` releases a client with a plain `client.release()` even when the
+    `ROLLBACK` itself threw** (`src/lib/db.ts`). Now that the replay suites are the only
+    code issuing `SET LOCAL search_path`, a connection returned to the pool still inside
+    that transaction would resolve later queries into a schema that no longer exists.
+    Loud rather than silent, and node-postgres discards an errored connection on release,
+    so it is theoretical — noted only because this work is what made `search_path` a live
+    concern here. `client.release(error)` would close it outright.
