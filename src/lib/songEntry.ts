@@ -33,7 +33,7 @@ export function songIdentity(entry: Repertoire | null): SongIdentity {
   return {
     title: entry?.song?.title ?? '(untitled)',
     artist: entry?.song?.artist ?? '',
-    key: entry?.personal_key ?? entry?.song?.standard_key ?? null,
+    key: entry?.key ?? entry?.song?.standard_key ?? null,
   }
 }
 

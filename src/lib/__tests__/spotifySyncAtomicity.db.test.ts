@@ -22,7 +22,7 @@ import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { getRequiredUserId } from '@/lib/auth-session'
-import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { OWNER_SONG_FROM, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const TRACK_TITLE = 'RH-36 Track'
@@ -206,13 +206,14 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     const syncedSongId = song.id as string
 
     const bandRows = await one(
-      'SELECT count(*)::int AS count FROM repertoire WHERE song_id = $1 AND band_id = $2',
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band}
+       WHERE v.song_id = $1 AND o.band_id = $2`,
       [syncedSongId, bandId],
     )
     expect(bandRows.count).toBe(1)
 
     const memberRows = await one(
-      'SELECT count(*)::int AS count FROM repertoire WHERE song_id = $1 AND user_id IS NOT NULL',
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user} WHERE v.song_id = $1`,
       [syncedSongId],
     )
     expect(memberRows.count).toBe(3)

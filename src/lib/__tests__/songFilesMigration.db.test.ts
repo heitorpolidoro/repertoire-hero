@@ -34,7 +34,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { withTransaction, type Queryable } from '@/lib/db'
-import { LEGACY_TABS_DDL, LEGACY_TABS_TABLE } from './test-helpers'
+import {
+  LEGACY_REPERTOIRE_DDL,
+  LEGACY_REPERTOIRE_TABLE,
+  LEGACY_TABS_DDL,
+  LEGACY_TABS_TABLE,
+  lockMigrationReplay,
+} from './test-helpers'
 import type { TabAnnotations } from '@/types/database'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -104,13 +110,18 @@ async function runMigrationScenario(): Promise<MigrationScenario> {
   let scenario: MigrationScenario | undefined
 
   await withTransaction(async (client) => {
+    // First statement, before any DDL: shared with the other replay suites.
+    await lockMigrationReplay(client)
+
     // Back to the pre-migration shape. `npm run db:migrate` has already run the
     // file against this database, so `song_files` and `abandoned_blobs` exist
     // and `repertoire_tabs` does not.
     await client.query('DROP TABLE IF EXISTS song_files')
     await client.query('DROP TABLE IF EXISTS abandoned_blobs')
-    // The legacy DDL of `migrations/0002`/`0005`, from the one place it is
-    // spelled (`test-helpers.ts`, `LEGACY_TABS_DDL`).
+    // RH-124 dropped the owner-row table the legacy tabs table's foreign key
+    // points at, so that has to come back first. Both DDLs come from the one
+    // place they are spelled (`test-helpers.ts`).
+    await client.query(LEGACY_REPERTOIRE_DDL)
     await client.query(LEGACY_TABS_DDL)
 
     const userId = randomUUID()
@@ -136,12 +147,12 @@ async function runMigrationScenario(): Promise<MigrationScenario> {
 
     const userEntryId = await insertId(
       client,
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'learning') RETURNING id",
+      `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id, status) VALUES ($1, $2, 'learning') RETURNING id`,
       [userId, songId],
     )
     const bandEntryId = await insertId(
       client,
-      "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') RETURNING id",
+      `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (band_id, song_id, status) VALUES ($1, $2, 'unknown') RETURNING id`,
       [bandId, songId],
     )
 

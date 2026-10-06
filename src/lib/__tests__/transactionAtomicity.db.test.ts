@@ -13,9 +13,9 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
-import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser, seedOwnerSong } from '@/lib/__tests__/test-helpers'
 import { query, withTransaction } from '@/lib/db'
-import { updateSong } from '@/lib/songs'
+import { getSongEntry, updateSong } from '@/lib/ownerSongs'
 import { reviewSongEdit } from '@/lib/moderation'
 import { addSongToPlaylist, removeSongFromPlaylist } from '@/lib/playlists'
 import type { Repertoire } from '@/types/database'
@@ -97,12 +97,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     )
     songId = song.id as string
 
-    const entry = await one(
-      `INSERT INTO repertoire (user_id, song_id, status, tags)
-       VALUES ($1, $2, 'unknown', '{}') RETURNING id`,
-      [userId, songId],
-    )
-    entryId = entry.id as string
+    entryId = await seedOwnerSong({ userId }, songId)
 
     const edit = await one(
       `INSERT INTO global_song_edits (song_id, requested_by, proposed_data, status)
@@ -144,10 +139,10 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     await query('DROP FUNCTION IF EXISTS rh36_raise() CASCADE')
   })
 
-  it('updateSong leaves songs untouched when the repertoire update fails', async () => {
-    await injectFailure('rh36_fail_repertoire', 'repertoire', 'UPDATE', `OLD.id = '${entryId}'`)
+  it('updateSong leaves songs untouched when the owner-row update fails', async () => {
+    await injectFailure('rh36_fail_owner_row', 'user_songs', 'UPDATE', `OLD.id = '${entryId}'`)
 
-    const entry = (await one('SELECT * FROM repertoire WHERE id = $1', [entryId])) as Repertoire
+    const entry = (await getSongEntry({ userId }, entryId)) as Repertoire
 
     await expect(
       updateSong({ userId }, entry, {
@@ -165,12 +160,10 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     expect(song.album).toBeNull()
     expect(song.standard_key).toBeNull()
 
-    const after = await one('SELECT status, tags, personal_key FROM repertoire WHERE id = $1', [
-      entryId,
-    ])
+    const after = await one('SELECT status, tags, key FROM user_songs WHERE id = $1', [entryId])
     expect(after.status).toBe('unknown')
     expect(after.tags).toEqual([])
-    expect(after.personal_key).toBeNull()
+    expect(after.key).toBeNull()
   })
 
   it('reviewSongEdit leaves songs untouched when marking the edit reviewed fails', async () => {

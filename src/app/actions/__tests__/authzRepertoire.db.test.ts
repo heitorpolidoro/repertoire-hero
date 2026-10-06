@@ -15,7 +15,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
-import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { OWNER_SONG_FROM, createTestUser, deleteTestUser, seedOwnerSong } from '@/lib/__tests__/test-helpers'
 import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import {
@@ -52,11 +52,20 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
   /** Every band repertoire row, in the shape ER8 compares before and after. */
   const bandRepertoire = async () => {
     const res = await query(
-      'SELECT id, song_id, status, tags, lyrics FROM repertoire WHERE band_id = $1 ORDER BY id',
+      `SELECT o.id, v.song_id, o.status, o.tags, o.lyrics FROM ${OWNER_SONG_FROM.band}
+       WHERE o.band_id = $1 ORDER BY o.id`,
       [bandId],
     )
     return res.rows
   }
+
+  /** How many `band_songs` rows the band holds for one catalog song. */
+  const bandRowsForSong = (songId: string) =>
+    countRows(
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band}
+       WHERE o.band_id = $1 AND v.song_id = $2`,
+      [bandId, songId],
+    )
 
   /** The catalog links of song S, as stored — text so the comparison is exact. */
   const catalogLinks = async (): Promise<string> => {
@@ -89,18 +98,10 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
     ])
 
     const bandSongId = await createSong(`RH-34 Band Song ${suffix}`)
-    const bandEntry = await query(
-      "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') RETURNING id",
-      [bandId, bandSongId],
-    )
-    bandEntryId = bandEntry.rows[0].id as string
+    bandEntryId = await seedOwnerSong({ bandId }, bandSongId)
 
     catalogSongId = await createSong(`RH-34 Catalog Song ${suffix}`, [ORIGINAL_LINK])
-    const personalEntry = await query(
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') RETURNING id",
-      [userAId, catalogSongId],
-    )
-    personalEntryId = personalEntry.rows[0].id as string
+    personalEntryId = await seedOwnerSong({ userId: userAId }, catalogSongId)
   })
 
   afterAll(async () => {
@@ -150,7 +151,9 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
     })
   })
 
-  describe('a member still gets the same behaviour as before', () => {
+  // User A created the band, so they are its admin — since RH-124 that is what
+  // these cases are about.
+  describe('a band admin still gets the same behaviour as before', () => {
     it('reads the band repertoire and one entry of it', async () => {
       asUser(userAId)
 
@@ -220,11 +223,19 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
   })
 
   /**
-   * RH-96 — a band's status is authored by a band admin. Only the two actions
-   * that write `repertoire.status` are gated; everything else a member could do
-   * to a band row before, they can still do.
+   * RH-124 ER18 — **every** write to a band's row requires band admin, not just
+   * the two RH-96 gated. `docs/use-cases.md`, *Writing a band's rows*, is
+   * unqualified: adding, removing, status, key, tuning, lyrics, map, tags. A
+   * member who is not an admin reads the band's repertoire and changes nothing
+   * in it, while their own rows are untouched by the gate.
+   *
+   * All seven mutating actions are covered in both directions. Three of them —
+   * `addSongAction`, `updateSongTagsAction`, `updateLyricsAction` — a member
+   * could perform before this task; that is the approved behaviour change.
    */
   describe('a band member who is not an admin', () => {
+    const intruderTitle = `RH-124 Member Created ${suffix}`
+
     it.each([
       ['updateSongStatusAction', () => updateSongStatusAction(bandEntryId, 'mastered', bandId)],
       [
@@ -239,6 +250,14 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
             links: [],
           }, bandId),
       ],
+      ['addSongAction', () => addSongAction(catalogSongId, bandId)],
+      ['removeSongAction', () => removeSongAction(bandEntryId, bandId)],
+      ['updateSongTagsAction', () => updateSongTagsAction(bandEntryId, ['member-tag'], bandId)],
+      ['updateLyricsAction', () => updateLyricsAction(bandEntryId, 'member lyrics', bandId)],
+      [
+        'createAndAddSongAction',
+        () => createAndAddSongAction({ title: intruderTitle, artist: 'RH-124 Nobody' }, bandId),
+      ],
     ])('is refused on %s and writes nothing', async (_label, run) => {
       const before = await bandRepertoire()
       asUser(userBId)
@@ -248,37 +267,90 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect(await bandRepertoire()).toEqual(before)
     })
 
-    it('still reads, tags and writes lyrics on a band row', async () => {
+    /**
+     * `createAndAddSongAction` is the one that creates the catalog row *and*
+     * the band's hold on it, so "nothing written" has a second half: no
+     * `band_songs` row for the song it would have created. The catalog row
+     * itself may or may not exist — the gate runs before `createAndAddSong`, so
+     * it does not — but the assertion is about the band's repertoire.
+     */
+    it('leaves no band_songs row for the song createAndAddSongAction would have created', async () => {
+      asUser(userBId)
+
+      await expect(
+        createAndAddSongAction({ title: intruderTitle, artist: 'RH-124 Nobody' }, bandId),
+      ).rejects.toThrow('Access denied: band admin required')
+
+      const catalog = await query<{ id: string }>(
+        'SELECT id FROM songs WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1))',
+        [intruderTitle],
+      )
+      expect(catalog.rows).toHaveLength(0)
+    })
+
+    it('still reads the band repertoire and one entry of it', async () => {
       asUser(userBId)
 
       expect((await getRepertoireAction(bandId)).map((r) => r.id)).toContain(bandEntryId)
-      await updateSongTagsAction(bandEntryId, ['member-tag'], bandId)
-      await updateLyricsAction(bandEntryId, 'member lyrics', bandId)
-
-      const row = (await bandRepertoire()).find((r) => r.id === bandEntryId)
-      expect(row).toMatchObject({ tags: ['member-tag'], lyrics: 'member lyrics' })
+      expect((await getSongEntryAction(bandEntryId, bandId))!.id).toBe(bandEntryId)
     })
 
-    it('still sets their own personal status', async () => {
+    it('still sets their own personal status, and their own key and tags', async () => {
       asUser(userBId)
       const personal = await addSongAction(catalogSongId)
       try {
         await updateSongStatusAction(personal.id, 'polishing')
+        await updateSongTagsAction(personal.id, ['mine'])
+        await updateLyricsAction(personal.id, 'my own words')
 
-        const res = await query('SELECT status FROM repertoire WHERE id = $1', [personal.id])
-        expect(res.rows[0].status).toBe('polishing')
+        const res = await query('SELECT status, tags, lyrics FROM user_songs WHERE id = $1', [
+          personal.id,
+        ])
+        expect(res.rows[0]).toMatchObject({
+          status: 'polishing',
+          tags: ['mine'],
+          lyrics: 'my own words',
+        })
       } finally {
-        await query('DELETE FROM repertoire WHERE id = $1', [personal.id])
+        await query('DELETE FROM user_songs WHERE id = $1', [personal.id])
       }
     })
 
-    it('leaves the band admin able to set the band row status', async () => {
+    it('leaves the band admin able to perform every one of the seven', async () => {
       asUser(userAId)
 
       await updateSongStatusAction(bandEntryId, 'mastered', bandId)
+      await updateSongTagsAction(bandEntryId, ['admin-tag'], bandId)
+      await updateLyricsAction(bandEntryId, 'admin lyrics', bandId)
+
+      const added = await addSongAction(catalogSongId, bandId)
+      expect(added.band_id).toBe(bandId)
+      await removeSongAction(added.id, bandId)
+
+      const created = await createAndAddSongAction(
+        { title: `RH-124 Admin Created ${suffix}`, artist: 'RH-124 Artist' },
+        bandId,
+      )
+      createdSongIds.push(created.song_id)
+      expect(await bandRowsForSong(created.song_id)).toBe(1)
+
+      const entry = await getSongEntryAction(bandEntryId, bandId)
+      await updateSongAction(entry!, {
+        title: entry!.song!.title,
+        artist: entry!.song!.artist,
+        key: 'Bm',
+        status: 'polishing',
+        tags: ['admin-tag'],
+        links: [],
+      }, bandId)
 
       const row = (await bandRepertoire()).find((r) => r.id === bandEntryId)
-      expect(row).toMatchObject({ status: 'mastered' })
+      expect(row).toMatchObject({
+        status: 'polishing',
+        tags: ['admin-tag'],
+        lyrics: 'admin lyrics',
+      })
+      await removeSongAction(created.id, bandId)
     })
   })
 

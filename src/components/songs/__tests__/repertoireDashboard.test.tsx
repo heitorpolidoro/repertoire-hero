@@ -18,6 +18,8 @@ import { renderToString } from 'react-dom/server'
 import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
 import { ALL_STATUSES, STATUS_CONFIG } from '@/lib/statusConfig'
+import { resolveSongFields } from '@/lib/songResolution'
+import type { SongStatus } from '@/types/database'
 import RepertoireDashboard, {
   type RepertoireDashboardActions,
 } from '../RepertoireDashboard'
@@ -110,7 +112,10 @@ describe('RepertoireDashboard status notes (RH-96 gating, RH-102 control)', () =
     song_id: 'song-1',
     status: 'learning',
     tags: [],
-    personal_key: null,
+    version_id: 'version-1',
+    key: null,
+    tuning: null,
+    map: null,
     lyrics: null,
     last_practiced: null,
     created_at: '2026-01-01T00:00:00.000Z',
@@ -267,5 +272,110 @@ describe('RepertoireDashboard status filter (RH-102 ER11)', () => {
       fireEvent.click(chip)
       expect(screen.getByRole('button', { name: cfg.label }).className).toContain(cfg.bgColor)
     }
+  })
+})
+
+/**
+ * RH-124 ER15 — the dashboard lists a repertoire in both contexts off the new
+ * tables.
+ *
+ * The rows are built the way the server builds them: the three levels of one
+ * version go through `resolveSongFields`, the only place either cascade is
+ * written, and what the list receives is the resolved row. That is what makes
+ * this a test of the new model rather than of a hand-written fixture — the
+ * `status` rendered is the owner row's, and the `key` the version's, because
+ * the helper decided so.
+ *
+ * One row per context, because the two are independent holds on the same
+ * version: the user's says `Learning`, the band's says `Mastered`, and neither
+ * derives from the other (RH-96).
+ */
+describe('RepertoireDashboard off user_songs and band_songs (RH-124 ER15)', () => {
+  const VERSION = { key: 'G', tuning: 'Standard', lyrics: null, map: null }
+  const SONG = { lyrics: 'the composition words', map: null }
+
+  const CATALOG = {
+    id: 'song-7',
+    title: 'Tempo Perdido',
+    artist: 'Legião Urbana',
+    album: 'Dois',
+    standard_key: 'Em',
+    cover_url: null,
+    duration_seconds: 302,
+    links: [],
+    created_at: '2026-01-01T00:00:00.000Z',
+  }
+
+  /** An owner row as `@/lib/ownerSongRows` folds it, for one context. */
+  const resolvedRow = (
+    id: string,
+    owner: { user_id: string | null; band_id: string | null },
+    status: SongStatus,
+  ) => ({
+    id,
+    ...owner,
+    song_id: CATALOG.id,
+    version_id: 'version-7',
+    ...resolveSongFields({
+      owner: { status, key: null, tuning: null, lyrics: null, map: null, tags: [], last_practiced: null },
+      version: VERSION,
+      song: SONG,
+    }),
+    song: CATALOG,
+  })
+
+  const USER_ROW = resolvedRow('user-song-1', { user_id: 'user-1', band_id: null }, 'learning')
+  const BAND_ROW = resolvedRow('band-song-1', { user_id: null, band_id: 'band-1' }, 'mastered')
+
+  const adminActions = {
+    ...NOOP_ACTIONS,
+    getBandRole: vi.fn(async () => 'admin' as const),
+  } as unknown as RepertoireDashboardActions
+
+  const renderWith = async (row: unknown) => {
+    getRepertoireAction.mockResolvedValue([row])
+    useRepertoireStore.setState({ songs: [row] as never, searchQuery: '', selectedStatus: null })
+    await act(async () => {
+      render(<RepertoireDashboard actions={adminActions} />)
+    })
+  }
+
+  beforeEach(() => {
+    getRepertoireAction.mockReset()
+    updateSongStatusAction.mockReset()
+  })
+
+  it('lists the user row in personal context with its resolved status', async () => {
+    useBandContextStore.getState().setUserContext()
+
+    await renderWith(USER_ROW)
+
+    const row = screen.getByRole('listitem')
+    expect(within(row).getByText('Tempo Perdido')).toBeTruthy()
+    expect(within(row).getByText('Legião Urbana')).toBeTruthy()
+    expect(within(row).getByRole('group', { name: 'Mastery status' }).textContent).toContain(
+      'Learning',
+    )
+  })
+
+  it('lists the band row in band context with its own, different resolved status', async () => {
+    useBandContextStore.getState().setBandContext('band-1', 'Banda Um', '#123456')
+
+    await renderWith(BAND_ROW)
+
+    const row = screen.getByRole('listitem')
+    expect(within(row).getByText('Tempo Perdido')).toBeTruthy()
+    expect(within(row).getByText('Legião Urbana')).toBeTruthy()
+    expect(within(row).getByRole('group', { name: 'Mastery status' }).textContent).toContain(
+      'Mastered',
+    )
+  })
+
+  it('resolves the key from the version, not from the catalog standard_key', () => {
+    // Not rendered anywhere yet (no screen hosts a key field — RH-102 and
+    // RH-118 own that), but it is the field the two-level cascade is about, and
+    // the row the dashboard is handed carries it.
+    expect(USER_ROW.key).toBe('G')
+    expect(USER_ROW.lyrics).toBe('the composition words')
   })
 })

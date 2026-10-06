@@ -125,3 +125,84 @@ export async function upsertAlbumAndVersion(
     input.standard_key ?? null,
   ])
 }
+
+/**
+ * RH-124 — the representative-version sort, spelled once.
+ *
+ * Several paths hold a song id and need a version: the manual add, the song
+ * picker, the playlist-side ensure, and the playlist read whose
+ * `playlist_songs` row is still song-keyed (RH-125 re-keys it). They all pick
+ * the same version, by this ordering: `album_type = 'album'` first, then the
+ * earliest `albums.release_date`, then the earliest `song_versions.created_at`,
+ * then `id`. The last two make it **total**, so two runs cannot disagree —
+ * which is the whole point. It is a sort, never a stored column.
+ *
+ * Nulls sort last at every level, and the join onto `albums` must be a
+ * `LEFT JOIN` wherever this ordering is used: `song_versions.album_id` is
+ * nullable on purpose, so an inner join would silently drop every album-less
+ * version. The two version-level tiebreakers keep the pick total even for a
+ * song whose every version is album-less.
+ *
+ * `migrations/0016_split_repertoire_owner_songs.sql` carries the same ordering
+ * in SQL, because a migration cannot import TypeScript; its header says so.
+ *
+ * Both aliases are supplied by the caller so the same text can be reused inside
+ * a correlated subquery or a lateral, where `v`/`a` may already be taken. They
+ * are SQL identifiers written by this module's callers, never by a user.
+ */
+export function representativeVersionOrder(version = 'v', album = 'a'): string {
+  return (
+    `(${album}.album_type = 'album') DESC NULLS LAST, ` +
+    `${album}.release_date ASC NULLS LAST, ` +
+    `${version}.created_at ASC, ${version}.id ASC`
+  )
+}
+
+/**
+ * A scalar subquery resolving the representative version of the song named by
+ * `songIdSql` — a `$n` placeholder or a column reference, supplied by the
+ * calling module and never by a caller's input.
+ */
+export function representativeVersionSubquery(songIdSql: string): string {
+  return `(SELECT rv.id
+             FROM song_versions rv
+             LEFT JOIN albums ra ON ra.id = rv.album_id
+            WHERE rv.song_id = ${songIdSql}
+            ORDER BY ${representativeVersionOrder('rv', 'ra')}
+            LIMIT 1)`
+}
+
+/**
+ * Guarantees `songId` has at least one `song_versions` row, and is a no-op when
+ * it already does.
+ *
+ * Needed because a catalog row can be created without going through
+ * `upsertAlbumAndVersion`: `scripts/seed-catalog.sql` inserts `songs` rows
+ * directly, after `migrations/0016`'s backfill has already run, and both
+ * song-keyed add paths (`addSongToRepertoire`, the playlist-side seed) then
+ * hold a song id whose representative version would be null — a `NOT NULL`
+ * violation rather than a row.
+ *
+ * The projection mirrors `migrate_catalog_to_versions()` in `migrations/0014`
+ * column for column — the label from the title split, the key from
+ * `standard_key`, `tuning` / `lyrics` / `map` left null so the cascade walks up
+ * — so a row born here and a row born in the backfill are the same row.
+ *
+ * `db` defaults to the pool; pass a transaction client to make it part of the
+ * caller's transaction, which both callers do: the version and the hold on it
+ * must land together.
+ */
+export async function ensureSongHasVersion(songId: string, db: Queryable = pool): Promise<void> {
+  await db.query<never>(
+    `INSERT INTO song_versions (song_id, album_id, label, duration_seconds, key)
+     SELECT s.id, a.id, song_title_label(s.title), s.duration_seconds, s.standard_key
+       FROM songs s
+       LEFT JOIN albums a
+         ON s.album IS NOT NULL AND btrim(s.album) <> ''
+        AND LOWER(a.artist) = LOWER(s.artist) AND LOWER(a.name) = LOWER(s.album)
+      WHERE s.id = $1
+        AND NOT EXISTS (SELECT 1 FROM song_versions v WHERE v.song_id = s.id)
+     ON CONFLICT DO NOTHING`,
+    [songId],
+  )
+}

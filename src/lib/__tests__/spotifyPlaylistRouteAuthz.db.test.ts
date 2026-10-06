@@ -24,7 +24,7 @@ vi.mock('@/lib/logger', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
-import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { OWNER_SONG_FROM, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { createBand } from '@/lib/bands'
@@ -248,11 +248,11 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
         [bandYId],
       )
       const bandRepertoireBefore = await countRows(
-        'SELECT count(*)::int AS count FROM repertoire WHERE band_id = $1',
+        `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1`,
         [bandYId],
       )
       const memberRepertoireBefore = await countRows(
-        'SELECT count(*)::int AS count FROM repertoire WHERE user_id = $1',
+        `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1`,
         [userBId],
       )
       asUser(userCId)
@@ -270,10 +270,10 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
         await countRows('SELECT count(*)::int AS count FROM playlists WHERE band_id = $1', [bandYId]),
       ).toBe(playlistsBefore)
       expect(
-        await countRows('SELECT count(*)::int AS count FROM repertoire WHERE band_id = $1', [bandYId]),
+        await countRows(`SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1`, [bandYId]),
       ).toBe(bandRepertoireBefore)
       expect(
-        await countRows('SELECT count(*)::int AS count FROM repertoire WHERE user_id = $1', [userBId]),
+        await countRows(`SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1`, [userBId]),
       ).toBe(memberRepertoireBefore)
       expect(spotifyCallCount()).toBe(0)
     })
@@ -326,8 +326,12 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
       )
     })
 
-    it('a band member still pulls the band playlist', async () => {
-      asUser(userBId)
+    // RH-124 ER19 — a pull seeds `band_songs` through `ensureInRepertoire`, and
+    // every write to a band's repertoire requires band admin. A member who is
+    // not an admin is refused with the same 404 a non-member gets, so the
+    // tightening introduces no existence leak. User A is band Y's admin.
+    it('a band admin still pulls the band playlist', async () => {
+      asUser(userAId)
 
       const response = await callSync(bandPlaylistId, 'pull')
       const body = await response.json()
@@ -353,8 +357,8 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
       expect(body.band_id).toBeNull()
     })
 
-    it('a member importing into their own band still creates a band playlist', async () => {
-      asUser(userBId)
+    it('an admin importing into their own band still creates a band playlist', async () => {
+      asUser(userAId)
 
       const response = await callImport('rh35-spotify-import-b', {
         sync_with_spotify: false,
@@ -365,6 +369,78 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
       expect(response.status).toBe(201)
       expect(body.band_id).toBe(bandYId)
       expect(body.user_id).toBeNull()
+    })
+  })
+
+  /**
+   * RH-124 ER19 — the two Spotify entry points that create a band's repertoire
+   * row sideways now require band admin, so ER18's "no band write without an
+   * admin check" has no counterexample.
+   *
+   * User B is a plain member of band Y. Both refusals answer the same 404 a
+   * non-member gets, through the existing `guardResource`, so nothing about the
+   * band's existence is leaked by the tightening.
+   */
+  describe('a non-admin member cannot write a band repertoire row through Spotify', () => {
+    it('the import route answers 404 for a band the caller is a member but not an admin of', async () => {
+      const playlistsBefore = await countRows(
+        'SELECT count(*)::int AS count FROM playlists WHERE band_id = $1',
+        [bandYId],
+      )
+      const bandRowsBefore = await countRows(
+        `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1`,
+        [bandYId],
+      )
+      asUser(userBId)
+      fetchSpy.mockClear()
+
+      const response = await callImport('rh35-spotify-import-member', {
+        sync_with_spotify: false,
+        band_id: bandYId,
+      })
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'Band not found', code: 404 })
+      expect(
+        await countRows('SELECT count(*)::int AS count FROM playlists WHERE band_id = $1', [bandYId]),
+      ).toBe(playlistsBefore)
+      expect(
+        await countRows(
+          `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1`,
+          [bandYId],
+        ),
+      ).toBe(bandRowsBefore)
+      expect(spotifyCallCount()).toBe(0)
+    })
+
+    it('the sync route refuses a band playlist for a non-admin, before any statement', async () => {
+      const entriesBefore = await countRows(
+        'SELECT count(*)::int AS count FROM playlist_songs WHERE playlist_id = $1',
+        [bandPlaylistId],
+      )
+      const bandRowsBefore = await countRows(
+        `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1`,
+        [bandYId],
+      )
+      asUser(userBId)
+      fetchSpy.mockClear()
+
+      const response = await callSync(bandPlaylistId, 'pull')
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'Band not found', code: 404 })
+      expect(
+        await countRows('SELECT count(*)::int AS count FROM playlist_songs WHERE playlist_id = $1', [
+          bandPlaylistId,
+        ]),
+      ).toBe(entriesBefore)
+      expect(
+        await countRows(
+          `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1`,
+          [bandYId],
+        ),
+      ).toBe(bandRowsBefore)
+      expect(spotifyCallCount()).toBe(0)
     })
   })
 })

@@ -23,7 +23,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { query } from '@/lib/db'
-import { addSongToRepertoire, updateSongStatus } from '@/lib/songs'
+import { addSongToRepertoire, updateSongStatus } from '@/lib/ownerSongs'
 import { createBand } from '@/lib/bands'
 import { createTestUser, deleteTestUser } from './test-helpers'
 
@@ -44,7 +44,9 @@ describe.skipIf(!RUN_DB_TESTS)('band status is authored, not aggregated (real da
   /** Every band row for the fixture band, in the shape ER2 compares. */
   const bandRows = async () => {
     const res = await query(
-      'SELECT id, song_id, status FROM repertoire WHERE band_id = $1 ORDER BY id',
+      `SELECT o.id, v.song_id, o.status FROM band_songs o
+       JOIN song_versions v ON v.id = o.version_id
+       WHERE o.band_id = $1 ORDER BY o.id`,
       [bandId],
     )
     return res.rows

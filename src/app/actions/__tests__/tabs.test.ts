@@ -14,7 +14,8 @@ vi.mock('@/lib/auth-session', () => ({
   getRequiredUserId: vi.fn(),
 }))
 
-vi.mock('@/lib/songs', () => ({
+// RH-124: the owner-row reads and writes moved to `@/lib/ownerSongs`.
+vi.mock('@/lib/ownerSongs', () => ({
   getPersonalEntryForSong: vi.fn(),
   addSongToRepertoire: vi.fn(),
 }))
@@ -46,7 +47,7 @@ import {
   getTabsAction,
 } from '../tabs'
 import { getRequiredUserId } from '@/lib/auth-session'
-import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/songs'
+import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/ownerSongs'
 import {
   createTab,
   getTabFileUrl,

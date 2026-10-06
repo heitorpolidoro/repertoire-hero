@@ -1,4 +1,4 @@
-import type { SongLink } from '@/types/database'
+import type { Song, SongLink, SongMap, SongStatus } from '@/types/database'
 
 /**
  * Row shapes for SELECT lists that are not already a domain type in
@@ -63,12 +63,46 @@ export interface PlaylistSongLinksRow {
   links: SongLink[] | null
 }
 
-/** `SELECT id, song_id, user_id, band_id FROM repertoire WHERE id = $1 AND (...)` */
+/**
+ * The `UNION ALL` of the user and band branches in `assertRepertoireAccess`:
+ * `SELECT o.id, v.song_id, o.version_id, o.user_id, NULL AS band_id FROM user_songs o ...`.
+ * Exactly one of `user_id` / `band_id` is non-null — which branch matched.
+ */
 export interface RepertoireAccessRow {
   id: string
   song_id: string
+  version_id: string
   user_id: string | null
   band_id: string | null
+}
+
+/**
+ * The `LEVELS` projection in `@/lib/ownerSongRows`: the three resolution levels
+ * **raw and un-coalesced**, plus the joined `songs` row as json.
+ *
+ * Every `owner_*` column is nullable because the owner table is `LEFT JOIN`ed in
+ * `getResolvedEntryForVersion` — a null `owner_row_id` is the whole "the owner
+ * holds no row" case, not a missing value. The fold is
+ * `resolveSongFields`'s; nothing reads these columns directly.
+ */
+export interface OwnerSongLevelsRow {
+  owner_row_id: string | null
+  owner_status: SongStatus | null
+  owner_key: string | null
+  owner_tuning: string | null
+  owner_lyrics: string | null
+  owner_map: SongMap | null
+  owner_tags: string[] | null
+  owner_last_practiced: string | null
+  version_id: string
+  song_id: string
+  version_key: string | null
+  version_tuning: string | null
+  version_lyrics: string | null
+  version_map: SongMap | null
+  song_lyrics: string | null
+  song_map: SongMap | null
+  song: Song
 }
 
 /** `SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1` */

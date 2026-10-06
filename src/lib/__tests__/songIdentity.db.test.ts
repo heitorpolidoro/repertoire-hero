@@ -25,15 +25,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { query, withTransaction } from '@/lib/db'
-import { createAndAddSong, removeSongFromRepertoire } from '@/lib/songs'
+import { createAndAddSong, removeSongFromRepertoire } from '@/lib/ownerSongs'
 import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
 import {
   LEGACY_CATALOG_TABLE,
+  LEGACY_REPERTOIRE_DDL,
+  LEGACY_REPERTOIRE_TABLE,
   LEGACY_TABS_DDL,
   LEGACY_TABS_TABLE,
   createTestUser,
   deleteTestUser,
+  lockMigrationReplay,
 } from './test-helpers'
 import type { SongLink } from '@/types/database'
 
@@ -180,7 +183,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
     ).rows,
     repertoire: (
       await client.query<MergeSnapshot['repertoire'][number]>(
-        'SELECT id, user_id, song_id FROM repertoire WHERE user_id = ANY($1) ORDER BY user_id, id',
+        `SELECT id, user_id, song_id FROM ${LEGACY_REPERTOIRE_TABLE} WHERE user_id = ANY($1) ORDER BY user_id, id`,
         [users],
       )
     ).rows,
@@ -205,13 +208,19 @@ async function runMergeScenario(): Promise<MergeScenario> {
   })
 
   await withTransaction(async (client) => {
+    // First statement, before any DDL: shared with the other replay suites.
+    await lockMigrationReplay(client)
+
     // The index the migration creates has to be gone before duplicates can be
     // seeded — `npm run db:migrate` has already run it in this database.
     await client.query('DROP INDEX IF EXISTS uq_songs_artist_title')
 
-    // RH-123 dropped the table `0009` re-points tab rows in, so the replay
-    // needs it back. Inside this transaction only, and rolled back with
-    // everything else; `LEGACY_TABS_DDL` is the one place it is spelled.
+    // RH-123 dropped the table `0009` re-points tab rows in, and RH-124
+    // dropped the owner-row table both of them hang off, so the replay needs
+    // both back — the tabs table's foreign key names the latter. Inside this
+    // transaction only, and rolled back with everything else;
+    // `test-helpers.ts` is the one place either is spelled.
+    await client.query(LEGACY_REPERTOIRE_DDL)
     await client.query(LEGACY_TABS_DDL)
 
     const userId = await seedUser(client, 'owner')
@@ -248,19 +257,19 @@ async function runMergeScenario(): Promise<MergeScenario> {
     // keeper, so repB is the one that has to go — after its tab is repointed.
     const repA = await insertId(
       client,
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'learning') RETURNING id",
+      `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id, status) VALUES ($1, $2, 'learning') RETURNING id`,
       [userId, keeperId],
     )
     const repB = await insertId(
       client,
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'mastered') RETURNING id",
+      `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id, status) VALUES ($1, $2, 'mastered') RETURNING id`,
       [userId, dupId],
     )
     // A second owner holds only the duplicate: nothing to collide with, so the
     // row is repointed rather than dropped.
     const repC = await insertId(
       client,
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'polishing') RETURNING id",
+      `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id, status) VALUES ($1, $2, 'polishing') RETURNING id`,
       [otherUserId, dupId],
     )
     await client.query(
@@ -384,7 +393,10 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
   }
 
   const track = async (entryId: string) => {
-    const res = await query<{ song_id: string }>('SELECT song_id FROM repertoire WHERE id = $1', [entryId])
+    const res = await query<{ song_id: string }>(
+      'SELECT v.song_id FROM user_songs o JOIN song_versions v ON v.id = o.version_id WHERE o.id = $1',
+      [entryId],
+    )
     return res.rows[0].song_id
   }
 
@@ -521,7 +533,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     expect(await catalogRows(`${title} - 2011 Remaster`)).toHaveLength(0)
   })
 
-  it('ER8 — a failure at the repertoire insert leaves no catalog row behind', async () => {
+  it('ER8 — a failure at the owner-row insert leaves no catalog row behind', async () => {
     const title = `Rolled Back ${sfx}`
     const guard = `rh95_block_${sfx}`
 
@@ -530,7 +542,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
        BEGIN RAISE EXCEPTION 'RH-95 injected failure'; END; $$ LANGUAGE plpgsql`,
     )
     await query(
-      `CREATE TRIGGER ${guard} BEFORE INSERT ON repertoire
+      `CREATE TRIGGER ${guard} BEFORE INSERT ON user_songs
        FOR EACH ROW WHEN (NEW.user_id = '${blockedUserId}'::uuid) EXECUTE FUNCTION ${guard}()`,
     )
 
@@ -540,12 +552,12 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
       ).rejects.toThrow('Failed to create and add song')
       expect(await catalogRows(title)).toHaveLength(0)
     } finally {
-      await query(`DROP TRIGGER IF EXISTS ${guard} ON repertoire`)
+      await query(`DROP TRIGGER IF EXISTS ${guard} ON user_songs`)
       await query(`DROP FUNCTION IF EXISTS ${guard}()`)
     }
   })
 
-  it('ER9 — two concurrent creates by one owner: one catalog row, one repertoire row', async () => {
+  it('ER9 — two concurrent creates by one owner: one catalog row, one owner row', async () => {
     const title = `Race Same Owner ${sfx}`
     const data = { title, artist: `Race Artist ${sfx}` }
 
@@ -566,14 +578,16 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     const rows = await catalogRows(title)
     expect(rows).toHaveLength(1)
 
-    const reps = await query<{ id: string }>('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [
-      userId,
-      rows[0].id,
-    ])
+    const reps = await query<{ id: string }>(
+      `SELECT o.id FROM user_songs o
+       JOIN song_versions v ON v.id = o.version_id
+       WHERE o.user_id = $1 AND v.song_id = $2`,
+      [userId, rows[0].id],
+    )
     expect(reps.rowCount).toBe(1)
   })
 
-  it('ER9 — two concurrent creates by different owners: one catalog row, two repertoire rows', async () => {
+  it('ER9 — two concurrent creates by different owners: one catalog row, two owner rows', async () => {
     const title = `Race Two Owners ${sfx}`
     const data = { title, artist: `Race Two Artist ${sfx}` }
 

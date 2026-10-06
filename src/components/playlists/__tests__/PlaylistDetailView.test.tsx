@@ -49,7 +49,10 @@ function song(songId: string, position: number, title: string): PlaylistSong {
 const PERSONAL_OWNER = { user_id: 'u1', band_id: null }
 
 const BLANK_ENTRY = {
-  personal_key: null,
+  version_id: 'version-1',
+  key: null,
+  tuning: null,
+  map: null,
   status: 'unknown',
   tags: [],
   last_practiced: null,

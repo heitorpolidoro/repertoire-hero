@@ -21,12 +21,13 @@ import {
  */
 const SESSION_RESOLVING_HELPERS: Record<string, string> = {
   // repertoire.ts — calls getRequiredUserId() and then assertBandMember() for
-  // the band case; the nine repertoire actions all funnel through it.
+  // the band case. Since RH-124 only the two **reads** funnel through it:
+  // reading a band's repertoire is member-level.
   resolveOwner: 'src/app/actions/repertoire.ts',
-  // repertoire.ts — the same shape as `resolveOwner` for the two actions that
-  // write `repertoire.status`: getRequiredUserId() and then assertBandAdmin()
-  // for the band case, because a band's status is authored by an admin (RH-96).
-  resolveStatusWriteOwner: 'src/app/actions/repertoire.ts',
+  // repertoire.ts — the same shape for every band **write**:
+  // getRequiredUserId() and then assertBandAdmin() for the band case, because
+  // every write to a band's repertoire requires band admin (RH-96, RH-124).
+  resolveWriteOwner: 'src/app/actions/repertoire.ts',
   // playlists.ts — an exported action that itself calls getRequiredUserId()
   // before delegating to getPlaylistDetailsWithEntries(), which is where both
   // authorization checks now live (RH-45).
@@ -68,7 +69,7 @@ describe('every exported Server Action resolves the session', () => {
     expect(Object.keys(SESSION_RESOLVING_HELPERS).sort()).toEqual([
       'getPlaylistDetailsWithEntriesAction',
       'resolveOwner',
-      'resolveStatusWriteOwner',
+      'resolveWriteOwner',
     ])
   })
 })

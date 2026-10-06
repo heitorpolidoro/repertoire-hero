@@ -3,11 +3,11 @@ import { query, withTransaction } from '@/lib/db'
 import type { PlaylistAccessRow, PlaylistEntryRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 import { buildUpdateSet } from '@/lib/sqlUpdate'
+import { ensureSongHasVersion, representativeVersionOrder, representativeVersionSubquery } from '@/lib/songVersions'
 import type { Playlist } from '@/types/database'
 
 export async function getUserPlaylists(userId: string): Promise<Playlist[]> {
   try {
-    // Fetch band IDs the user belongs to
     const bandIdsResult = await query<{ band_id: string }>('SELECT band_id FROM band_members WHERE user_id = $1', [userId])
     const bandIds = bandIdsResult.rows.map((m) => m.band_id)
 
@@ -145,38 +145,54 @@ export async function deletePlaylist(id: string, userId: string): Promise<void> 
   }
 }
 
+/**
+ * Seeds one owner's hold on the representative version of `songId`. The
+ * duplicate goes through the bare `ON CONFLICT DO NOTHING`, never a caught
+ * 23505, which inside a transaction leaves it aborted (AGENTS.md).
+ */
+function seedOwnerSongSql(table: 'user_songs' | 'band_songs', column: 'user_id' | 'band_id'): string {
+  return `INSERT INTO ${table} (${column}, version_id, status)
+          SELECT $1, ${representativeVersionSubquery('$2')}, 'unknown'
+          ON CONFLICT DO NOTHING`
+}
+
+/**
+ * Adds a catalog song to a playlist, and to the repertoire it belongs to.
+ *
+ * **A band playlist requires band admin** (RH-124): adding through a playlist
+ * is adding (docs/use-cases.md, *Writing a band's rows*). The role check is at
+ * this call site, in the shape RH-103 uses for reordering and with the same
+ * message, **before** the transaction and outside the wrapping `try` so the
+ * text reaches the UI verbatim (L1a). `assertPlaylistAccess` is left alone: it
+ * is also the Spotify read guard, which is member-level.
+ *
+ * **The dual write stays**, as a decision and not an oversight: the band branch
+ * also writes the caller's own `user_songs` row — wrong under *Add a song to a
+ * playlist*, and deleting it is RH-126's whole deliverable.
+ */
 export async function addSongToPlaylist(playlistId: string, userId: string, songId: string): Promise<void> {
   // 1. Fetch playlist context — and refuse a playlist the caller cannot write to.
   const playlist = await assertPlaylistAccess(playlistId, userId)
+  if (playlist.band_id) await assertBandAdmin(playlist.band_id, userId)
 
   try {
-    // 2. One transaction for the whole write: the song must not end up in a
-    //    repertoire without landing in the playlist. Expected duplicates go
-    //    through ON CONFLICT DO NOTHING — a caught 23505 would leave the
-    //    transaction aborted (see AGENTS.md, "Transactions").
+    // 2. One transaction: the song must not end up in a repertoire without
+    //    landing in the playlist.
     await withTransaction(async (client) => {
+      await ensureSongHasVersion(songId, client)
       if (playlist.band_id) {
-        // Band playlist: the band's repertoire and the caller's own.
-        await client.query<never>(
-          "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
-          [playlist.band_id, songId],
-        )
-        await client.query<never>(
-          "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
-          [userId, songId],
-        )
+        // Band playlist: the band's repertoire and — until RH-126 — the
+        // caller's own.
+        await client.query<never>(seedOwnerSongSql('band_songs', 'band_id'), [playlist.band_id, songId])
+        await client.query<never>(seedOwnerSongSql('user_songs', 'user_id'), [userId, songId])
       } else if (playlist.user_id) {
-        await client.query<never>(
-          "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
-          [playlist.user_id, songId],
-        )
+        await client.query<never>(seedOwnerSongSql('user_songs', 'user_id'), [playlist.user_id, songId])
       }
 
       // 3. Position is computed in the insert itself. MAX + 1 (not COUNT + 1)
-      //    tolerates the gaps `removeSongFromPlaylist` leaves behind, and
-      //    `uq_playlist_song_position` is what actually serialises two
-      //    concurrent adds: the loser fails with 23505 instead of silently
-      //    writing a duplicate position.
+      //    tolerates the gaps `removeSongFromPlaylist` leaves, and
+      //    `uq_playlist_song_position` serialises two concurrent adds: the
+      //    loser fails with 23505 rather than writing a duplicate position.
       await client.query<never>(
         `INSERT INTO playlist_songs (playlist_id, song_id, position)
          SELECT $1, $2, COALESCE(MAX(position), 0) + 1 FROM playlist_songs WHERE playlist_id = $1`,
@@ -217,9 +233,9 @@ export async function removeSongFromPlaylist(playlistId: string, userId: string,
  * The submitted list must be **exactly** the playlist's current row set: no
  * missing id, no extra, no duplicate and no row from another playlist. A subset
  * would renumber part of the list into positions other rows still hold, which
- * the constraint would reject at a confusing distance from the mistake. The
- * check and the write therefore share one `withTransaction`, so they agree on
- * the same rows; the deferrable constraint itself needs no transaction.
+ * the constraint would reject at a confusing distance from the mistake. Check
+ * and write therefore share one `withTransaction`, so they agree on the same
+ * rows; the deferrable constraint itself needs no transaction.
  *
  * The renumber is **one** statement, scoped by `playlist_id`, and there is no
  * `SET CONSTRAINTS` anywhere: `uq_playlist_song_position` is
@@ -340,24 +356,33 @@ export async function getPlaylistDetailsWithEntries(
   await assertPlaylistAccess(playlistId, userId)
   if (bandId) await assertBandMember(bandId, userId)
 
+  // `playlist_songs` is still song-keyed (RH-125 gives it a `version_id`), so
+  // the owner's row comes from a lateral applying the shared
+  // representative-version ordering to the rows that owner **actually holds** —
+  // one row per song, as the setlist expects. `LEFT JOIN albums` is not
+  // optional: `album_id` is nullable, and an inner join would drop every
+  // album-less version.
+  const table = bandId ? 'band_songs' : 'user_songs'
+  const ownerColumn = bandId ? 'band_id' : 'user_id'
   const sql = `
     SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist
     FROM playlist_songs ps
     JOIN songs s ON s.id = ps.song_id
-    JOIN repertoire r ON r.song_id = ps.song_id
-      AND (
-        ($1::uuid IS NOT NULL AND r.band_id = $1::uuid)
-        OR
-        ($1::uuid IS NULL AND r.user_id = $2::uuid)
-      )
-    WHERE ps.playlist_id = $3
+    JOIN LATERAL (
+      SELECT o.id FROM ${table} o
+      JOIN song_versions ov ON ov.id = o.version_id
+      LEFT JOIN albums oa ON oa.id = ov.album_id
+      WHERE ov.song_id = ps.song_id AND o.${ownerColumn} = $1
+      ORDER BY ${representativeVersionOrder('ov', 'oa')} LIMIT 1
+    ) r ON true
+    WHERE ps.playlist_id = $2
     ORDER BY ps.position ASC
   `
   try {
     const playlistRes = await query<{ name: string }>('SELECT name FROM playlists WHERE id = $1', [playlistId])
     const name = playlistRes.rows[0]?.name ?? 'Playlist'
 
-    const res = await query<PlaylistEntryRow>(sql, [bandId ?? null, userId, playlistId])
+    const res = await query<PlaylistEntryRow>(sql, [bandId ?? userId, playlistId])
     const entries = res.rows.map((row) => ({
       repertoireId: row.repertoire_id,
       songId: row.song_id,

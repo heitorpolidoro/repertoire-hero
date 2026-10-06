@@ -25,7 +25,10 @@ const ENTRY: Repertoire = {
   user_id: 'user-1',
   band_id: null,
   song_id: 'song-1',
-  personal_key: null,
+  version_id: 'version-1',
+  key: null,
+  tuning: null,
+  map: null,
   status: 'learning',
   tags: [],
   last_practiced: null,
@@ -62,8 +65,8 @@ describe('songEntry', () => {
     expect(identity.artist).toBe('Led Zeppelin')
   })
 
-  it('songIdentity prefers the personal key over the standard key', () => {
-    expect(songIdentity({ ...ENTRY, personal_key: 'C#' }).key).toBe('C#')
+  it('songIdentity prefers the owner\'s resolved key over the catalog standard key', () => {
+    expect(songIdentity({ ...ENTRY, key: 'C#' }).key).toBe('C#')
   })
 
   it('songIdentity falls back to the standard key when there is no personal key', () => {

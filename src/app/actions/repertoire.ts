@@ -8,17 +8,15 @@ import {
   updateSongStatus,
   updateSongTags,
   removeSongFromRepertoire,
-  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
   assertRepertoireAccess,
   updateLyrics,
-  applySongLinkUpdate,
   getPersonalEntryForSong,
   type RepertoireOwner,
-  type SongUpdateInput,
-} from '@/lib/songs'
+} from '@/lib/ownerSongs'
+import { applySongLinkUpdate, searchSongs, type SongUpdateInput } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import type { Repertoire, SongLink, SongStatus } from '@/types/database'
 
@@ -32,14 +30,26 @@ async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
 }
 
 /**
- * The owner resolution for the two actions that write `repertoire.status`.
+ * The owner resolution for **every** action that writes a band's row (RH-124).
  *
- * A band's status is authored by a band admin (RH-96), so membership is not
- * enough: `assertBandAdmin` is the only admin check either action makes, and it
- * throws `Access denied: band admin required` for a plain member before any
- * statement runs. A personal owner is resolved exactly as everywhere else.
+ * `docs/use-cases.md`, *Writing a band's rows*, is unqualified: adding,
+ * removing, status, key, tuning, lyrics, map and tags all require band admin. A
+ * member who is not an admin reads the band's repertoire and cannot change it.
+ * RH-96 applied that to status alone; this is the rest of it, and
+ * `assertBandAdmin` is the only admin check any of the seven makes. It throws
+ * `Access denied: band admin required` before any statement runs, and outside
+ * any wrapping `try`, so the text reaches the UI verbatim (convention L1a).
+ *
+ * The read path still resolves through {@link resolveOwner}: reading is
+ * member-level, and so is editing a song's shared links.
+ *
+ * Four consequences are accepted, not overlooked: a non-admin member can no
+ * longer edit a band row's tags inline, can no longer create a new song onto
+ * the band, can no longer remove one from it, and gets the existing Toast when
+ * saving lyrics onto the band's row in band context. Their own row is untouched
+ * by the gate — that is the point.
  */
-async function resolveStatusWriteOwner(bandId?: string | null): Promise<RepertoireOwner> {
+async function resolveWriteOwner(bandId?: string | null): Promise<RepertoireOwner> {
   const userId = await getRequiredUserId()
   if (!bandId) return { userId }
   await assertBandAdmin(bandId, userId)
@@ -52,28 +62,28 @@ export async function getRepertoireAction(bandId?: string | null) {
 }
 
 export async function addSongAction(songId: string, bandId?: string | null) {
-  const owner = await resolveOwner(bandId)
+  const owner = await resolveWriteOwner(bandId)
   const result = await addSongToRepertoire(owner, songId)
   revalidatePath('/')
   return result
 }
 
 export async function updateSongStatusAction(repertoireId: string, status: SongStatus, bandId?: string | null) {
-  const owner = await resolveStatusWriteOwner(bandId)
+  const owner = await resolveWriteOwner(bandId)
   const result = await updateSongStatus(owner, repertoireId, status)
   revalidatePath('/')
   return result
 }
 
 export async function updateSongTagsAction(repertoireId: string, tags: string[], bandId?: string | null) {
-  const owner = await resolveOwner(bandId)
+  const owner = await resolveWriteOwner(bandId)
   const result = await updateSongTags(owner, repertoireId, tags)
   revalidatePath('/')
   return result
 }
 
 export async function removeSongAction(repertoireId: string, bandId?: string | null) {
-  const owner = await resolveOwner(bandId)
+  const owner = await resolveWriteOwner(bandId)
   const result = await removeSongFromRepertoire(owner, repertoireId)
   revalidatePath('/')
   return result
@@ -94,9 +104,9 @@ export async function updateSongAction(
   data: SongUpdateInput,
   bandId?: string | null
 ) {
-  // `updateSong`'s second statement writes `status` together with `tags` and
-  // `personal_key`, so this action is gated on band admin too (RH-96).
-  const owner = await resolveStatusWriteOwner(bandId)
+  // `updateSong`'s owner-row write covers `status`, `tags` and `key`, so this
+  // action is gated on band admin like every other band write (RH-96, RH-124).
+  const owner = await resolveWriteOwner(bandId)
   const result = await updateSong(owner, entry, data)
   revalidatePath('/')
   return result
@@ -114,14 +124,20 @@ export async function createAndAddSongAction(
   },
   bandId?: string | null
 ) {
-  const owner = await resolveOwner(bandId)
+  // The seventh mutating action, and gated for the same reason as the other
+  // six: creating a song in band context produces a `band_songs` row, and
+  // creating one *is* a band write. Nothing in the UI reaches this branch —
+  // all three client call sites pass a single argument and therefore no
+  // `bandId` — so the band branch is reachable only by calling the Server
+  // Action directly, which is exactly the caller an authz gate exists for.
+  const owner = await resolveWriteOwner(bandId)
   const result = await createAndAddSong(owner, data)
   revalidatePath('/')
   return result
 }
 
 export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
-  const owner = await resolveOwner(bandId)
+  const owner = await resolveWriteOwner(bandId)
   await updateLyrics(owner, repertoireId, lyrics)
   revalidatePath('/')
 }

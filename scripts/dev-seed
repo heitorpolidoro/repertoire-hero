@@ -33,8 +33,8 @@ echo ""
 psql "$DB_URL" <<SQL
 
 -- ── Clean slate ─────────────────────────────────────────────────────────────
-DELETE FROM bands;        -- cascades to band_members, repertoire (band), playlists
-DELETE FROM "user";       -- cascades to account, session, profiles → repertoire (user)
+DELETE FROM bands;        -- cascades to band_members, band_songs, playlists
+DELETE FROM "user";       -- cascades to account, session, profiles -> user_songs
 DELETE FROM songs;        -- no FK owner; must be cleaned separately
 
 -- ── Users (Better Auth) ─────────────────────────────────────────────────────
@@ -88,39 +88,56 @@ INSERT INTO songs (title, artist, standard_key) VALUES
   ('Smells Like Teen Spirit', 'Nirvana',  'Fm'),
   ('Bohemian Rhapsody',   'Queen',        'Bb');
 
+-- ── One version per catalog song ────────────────────────────────────────────
+--
+-- A hold is keyed by a version since RH-124, so the seeded catalog rows need
+-- one each. `migrate_catalog_to_versions()` is migration 0014's own idempotent
+-- backfill, kept for exactly this: it is the single definition of what a
+-- version born from a bare `songs` row looks like, so the seed and the
+-- migration cannot disagree.
+SELECT migrate_catalog_to_versions();
+
 -- ── Personal repertoire: Com Spotify ────────────────────────────────────────
-INSERT INTO repertoire (user_id, song_id, status)
-SELECT p.id, g.id, 'learning'
-FROM profiles p, songs g
+INSERT INTO user_songs (user_id, version_id, status)
+SELECT p.id, v.id, 'learning'
+FROM profiles p, songs g JOIN song_versions v ON v.song_id = g.id
 WHERE p.email = 'com.spotify@exemple.com'
-  AND g.title IN ('Wish You Were Here', 'Wonderwall', 'Hotel California');
+  AND g.title IN ('Wish You Were Here', 'Wonderwall', 'Hotel California')
+ON CONFLICT DO NOTHING;
 
 -- ── Personal repertoire: Sem Spotify ────────────────────────────────────────
-INSERT INTO repertoire (user_id, song_id, status)
-SELECT p.id, g.id, 'practicing'
-FROM profiles p, songs g
+INSERT INTO user_songs (user_id, version_id, status)
+SELECT p.id, v.id, 'practicing'
+FROM profiles p, songs g JOIN song_versions v ON v.song_id = g.id
 WHERE p.email = 'sem_spotify@exemple.com'
-  AND g.title IN ('Stairway to Heaven', 'Smells Like Teen Spirit');
+  AND g.title IN ('Stairway to Heaven', 'Smells Like Teen Spirit')
+ON CONFLICT DO NOTHING;
 
 -- ── Band repertoire: Os Dois Spotify ────────────────────────────────────────
-INSERT INTO repertoire (band_id, song_id, status)
-SELECT b.id, g.id, 'polishing'
-FROM bands b, songs g
+INSERT INTO band_songs (band_id, version_id, status)
+SELECT b.id, v.id, 'polishing'
+FROM bands b, songs g JOIN song_versions v ON v.song_id = g.id
 WHERE b.name = 'Os Dois Spotify'
-  AND g.title IN ('Bohemian Rhapsody', 'Hotel California', 'Wish You Were Here');
+  AND g.title IN ('Bohemian Rhapsody', 'Hotel California', 'Wish You Were Here')
+ON CONFLICT DO NOTHING;
 
 -- ── Summary ──────────────────────────────────────────────────────────────────
 SELECT u.email, p.full_name, p.primary_instrument, p.instruments
 FROM "user" u JOIN profiles p ON p.id = u.id
 ORDER BY u.email;
 
-SELECT g.title, r.status,
-  COALESCE(p.full_name, b.name) AS owner
-FROM repertoire r
-LEFT JOIN songs g ON g.id = r.song_id
-LEFT JOIN profiles p ON p.id = r.user_id
-LEFT JOIN bands b ON b.id = r.band_id
-ORDER BY owner, g.title;
+SELECT g.title, o.status, p.full_name AS owner
+FROM user_songs o
+JOIN song_versions v ON v.id = o.version_id
+JOIN songs g ON g.id = v.song_id
+JOIN profiles p ON p.id = o.user_id
+UNION ALL
+SELECT g.title, o.status, b.name AS owner
+FROM band_songs o
+JOIN song_versions v ON v.id = o.version_id
+JOIN songs g ON g.id = v.song_id
+JOIN bands b ON b.id = o.band_id
+ORDER BY owner, title;
 
 SELECT b.name AS band, bm.role, p.full_name
 FROM bands b

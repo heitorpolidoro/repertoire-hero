@@ -17,7 +17,10 @@
  *     reader uses.
  *
  * RH-123 re-keyed the file entries by `songId` and took the version to 3; the
- * v2-rejection case below is what makes that bump observable.
+ * v2-rejection case below is what makes that bump observable. RH-124 takes it
+ * to 4, because the captured `Repertoire` is now a **resolved** row off
+ * `user_songs` / `band_songs` — no `personal_key`, a `version_id`, a `key` — and
+ * the v3-rejection case is what makes *that* bump observable.
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -38,7 +41,10 @@ function repertoire(id: string): Repertoire {
     user_id: null,
     band_id: 'band-1',
     song_id: `song-of-${id}`,
-    personal_key: 'Em',
+    version_id: `version-of-${id}`,
+    key: 'Em',
+    tuning: null,
+    map: null,
     status: 'polishing',
     tags: ['setlist'],
     last_practiced: null,
@@ -95,10 +101,29 @@ function buildOne(): OfflineSnapshot {
 }
 
 describe('buildOfflineSnapshot', () => {
-  // RH-83 ER10 took it to 2 (`personalRepertoire`); RH-123 ER9 takes it to 3
-  // (a file entry keyed by `songId`, not by a repertoire row id).
-  it('is at schema version 3', () => {
-    expect(OFFLINE_SCHEMA_VERSION).toBe(3)
+  // RH-83 ER10 took it to 2 (`personalRepertoire`); RH-123 ER9 to 3 (a file
+  // entry keyed by `songId`); RH-124 ER17 to 4 (a resolved owner row, off
+  // `user_songs` / `band_songs`, in place of a `repertoire` row).
+  it('is at schema version 4, one above what RH-123 left', () => {
+    expect(OFFLINE_SCHEMA_VERSION).toBe(4)
+  })
+
+  /**
+   * ER17 — nothing captured is a `repertoire` row any more. There is no id to
+   * compare against (the table is gone), so what the assertion can state is the
+   * shape: the captured row carries the owner-row id the entry carries, a
+   * `version_id`, and the **resolved** `key` — and no `personal_key`, the
+   * column that only ever existed on the dropped table.
+   */
+  it('captures the owner row, resolved, and never a repertoire row (ER17)', () => {
+    const [song] = buildOne().songs
+
+    expect(song.repertoireId).toBe(song.repertoire.id)
+    expect(song.repertoire.version_id).toBe('version-of-rep-1')
+    expect(song.repertoire.key).toBe('Em')
+    expect(song.repertoire.lyrics).toBe('# Tempo Perdido')
+    expect('personal_key' in song.repertoire).toBe(false)
+    expect(song.personalRepertoire && 'personal_key' in song.personalRepertoire).toBe(false)
   })
 
   it('captures the member own repertoire row per song, or null (ER10)', () => {
@@ -229,6 +254,20 @@ describe('readValidSnapshot', () => {
     // And not only because of the version number: the shape itself no longer
     // validates, so a hand-edited version field would not resurrect it.
     expect(readValidSnapshot({ ...v2, schemaVersion: OFFLINE_SCHEMA_VERSION })).toBeNull()
+  })
+
+  /**
+   * ER17 — a snapshot written under the previous version is rejected. The shape
+   * still validates (`isSongSnapshot` checks structure, not the row's columns),
+   * which is exactly why the version number has to do the work: without the
+   * bump a v3 record would be read back and Fast View would show an empty key
+   * line offline against a filled one online.
+   */
+  it('rejects a snapshot written under the previous schema version (ER17)', () => {
+    const current = buildOne()
+    const v3 = { ...current, schemaVersion: OFFLINE_SCHEMA_VERSION - 1 }
+
+    expect(readValidSnapshot(v3)).toBeNull()
   })
 
   it('rejects a malformed value', () => {

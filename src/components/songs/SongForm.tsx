@@ -119,7 +119,7 @@ const mapFormFields = (
     title: inner.title,
     artist: inner.artist,
     album: inner.album ?? "",
-    key: song.personal_key ?? inner.standard_key ?? "",
+    key: song.key ?? inner.standard_key ?? "",
     cover_url: inner.cover_url ?? "",
     youtube_url: youtubeUrl,
     duration:
@@ -148,7 +148,7 @@ const buildInitialState = (song?: Repertoire): FormState => {
       title: "",
       artist: "",
       album: "",
-      key: song?.personal_key ?? "",
+      key: song?.key ?? "",
       cover_url: "",
       youtube_url: "",
       duration: "",

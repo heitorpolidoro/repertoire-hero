@@ -18,10 +18,12 @@
  *     so a repertoire row id would key the capture by something the read no
  *     longer knows about.
  *   - **`OfflineSongSnapshot.repertoireId` stays**, and the two keys coexist on
- *     purpose. `findSong` — and so the `getSongEntry` reader — keys on the
- *     repertoire row, because that is what the route carries and what
- *     `isSongSnapshot` keeps requiring; `findSongBySongId` keys on
- *     `repertoire.song_id`, which is the already-present field both the
+ *     purpose. Since RH-124 it holds the **owner row's** id — a `user_songs` or
+ *     `band_songs` row — because `repertoire` is gone; the field name survives
+ *     with the rest of the `Repertoire` vocabulary. `findSong` — and so the
+ *     `getSongEntry` reader — keys on it, because that is what the route
+ *     carries and what `isSongSnapshot` keeps requiring; `findSongBySongId`
+ *     keys on `repertoire.song_id`, the already-present field both the
  *     `getTabs` and the `getPersonalEntryForSong` readers resolve through. The
  *     song snapshot therefore gains **no** new field for the file lookup.
  *     `new Set(snapshot.songs.map(s => s.repertoireId))` is still exactly the
@@ -38,8 +40,8 @@
  * band-context download no longer photographs the band's charts and skips the
  * member's own.
  *
- * See docs/tasks/RH-80-spec.md §1, docs/tasks/RH-84-spec.md §5 and
- * docs/tasks/RH-124-spec.md §6.
+ * See docs/tasks/RH-80-spec.md §1, docs/tasks/RH-84-spec.md §5,
+ * docs/tasks/RH-124-spec.md §6 and docs/tasks/RH-125-spec.md §7.
  */
 
 import type { PlaylistEntry } from '@/lib/playlistNav'
@@ -65,8 +67,18 @@ import type { Repertoire, SongFile } from '@/types/database'
  * snapshot would also now fail `isTabSnapshot`; the version bump is what turns
  * that into a purge of a superseded version by `listOfflinePlaylists`, so the
  * download reads as not-downloaded rather than as a shape error.)
+ *
+ * 3 -> 4 (RH-124): `repertoire` became `user_songs` / `band_songs`, keyed by a
+ * version, and the captured `Repertoire` is now a **resolved** row — it lost
+ * `personal_key` and gained `version_id`, `key`, `tuning` and `map`. A v3
+ * record therefore carries a `personal_key` the reader no longer looks at and
+ * no `key` at all, so Fast View would show an empty key line offline and a
+ * filled one online. Offline is read-only and cannot walk the three levels
+ * itself, so there is nothing to recompute from a v3 record: it is discarded,
+ * and `listOfflinePlaylists` purges it so the playlist reads as not downloaded
+ * rather than as a copy Fast View then contradicts.
  */
-export const OFFLINE_SCHEMA_VERSION = 3
+export const OFFLINE_SCHEMA_VERSION = 4
 
 /** One file PDF, as stored: the row's fields plus where its bytes live and how many. */
 export interface OfflineTabSnapshot {
@@ -94,12 +106,18 @@ export interface OfflineTabSnapshot {
  */
 export interface OfflineSongSnapshot {
   /**
-   * Equals `entry.repertoireId` and `repertoire.id`; the `getSongEntry` lookup
-   * key. The *file* lookup key is `repertoire.song_id` instead (RH-123) — see
-   * the module docblock on why the two coexist.
+   * Equals `entry.repertoireId` and `repertoire.id` — the owner row's id since
+   * RH-124, never a `repertoire` row's — and the `getSongEntry` lookup key. The
+   * *file* lookup key is `repertoire.song_id` instead (RH-123) — see the module
+   * docblock on why the two coexist.
    */
   repertoireId: string
   entry: PlaylistEntry
+  /**
+   * The owner's row with every field already **resolved** (RH-124): offline is
+   * read-only and cannot walk `song_versions` and `songs` itself, so what is
+   * captured is the answer, not the three levels.
+   */
   repertoire: Repertoire
   /**
    * The member's own row for this song, or `null` — both in band context (they

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { OWNER_SONG_FROM, createTestUser, deleteTestUser, seedOwnerSong } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const skip = !RUN_DB_TESTS
@@ -184,6 +184,18 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(foundAinB).toBeUndefined()
   })
 
+  /**
+   * UC3.2, plus RH-124's two additions to it.
+   *
+   * ER20 — the **dual write is unchanged**: an admin adding a song to a band
+   * playlist still produces both the `band_songs` row and the caller's own
+   * `user_songs` row. That second write is wrong under *Add a song to a
+   * playlist* and deleting it is RH-126's whole deliverable, so it is asserted
+   * here as the current, deliberate behaviour rather than removed.
+   *
+   * ER19 — the band branch now requires band admin. User A administers the
+   * band; the member case is the test that follows.
+   */
   it('should autogest repertoire and propagate to members when adding song to a band playlist (UC3.2)', async () => {
     // 1. Create a band directly, to set it up easily
     const bandInsert = await query<{ id: string }>(
@@ -223,21 +235,27 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // 6. Verify that:
     // A. The song was added to the band repertoire
     const bandRep = await query<{ id: string }>(
-      'SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2',
+      `SELECT o.id FROM band_songs o
+       JOIN song_versions v ON v.id = o.version_id
+       WHERE o.band_id = $1 AND v.song_id = $2`,
       [bandId, songId],
     )
     expect(bandRep.rows).toHaveLength(1)
 
     // B. The song was automatically propagated to User A's personal repertoire
     const userARep = await query<{ id: string }>(
-      'SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      `SELECT o.id FROM user_songs o
+       JOIN song_versions v ON v.id = o.version_id
+       WHERE o.user_id = $1 AND v.song_id = $2`,
       [userAId, songId],
     )
     expect(userARep.rows).toHaveLength(1)
 
     // C. The song was NOT automatically propagated to User B's personal repertoire (correct for client-side RLS)
     const userBRep = await query<{ id: string }>(
-      'SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      `SELECT o.id FROM user_songs o
+       JOIN song_versions v ON v.id = o.version_id
+       WHERE o.user_id = $1 AND v.song_id = $2`,
       [userBId, songId],
     )
     expect(userBRep.rows).toHaveLength(0)
@@ -248,6 +266,76 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(playlistWithSongs!.songs).toBeDefined()
     expect(playlistWithSongs!.songs!.length).toBe(1)
     expect(playlistWithSongs!.songs![0].song_id).toBe(songId)
+  })
+
+  /**
+   * RH-124 ER19 — adding a song to a **band** playlist is a band write, so it
+   * requires band admin. `assertPlaylistAccess` is unchanged: it answers "may
+   * this caller see this playlist", which is member-level and is also the
+   * Spotify read guard. The role check sits at this call site, with the same
+   * message RH-103 uses for reordering, and nothing is written.
+   *
+   * This is a deliberate behaviour change: before this task any member could
+   * add to a band playlist, and the band repertoire row that appeared was the
+   * whole point.
+   */
+  it('refuses a non-admin member adding to a band playlist, writing neither row (RH-124 ER19)', async () => {
+    const band = await query<{ id: string }>(
+      'INSERT INTO bands (name) VALUES ($1) RETURNING id',
+      [`Band Gate ${suffix}`],
+    )
+    const bandId = band.rows[0].id
+    createdBands.push(bandId)
+    await query(
+      `INSERT INTO band_members (band_id, user_id, role)
+       VALUES ($1, $2, 'admin'), ($1, $3, 'member')`,
+      [bandId, userAId, userBId],
+    )
+
+    const playlist = await query<{ id: string }>(
+      'INSERT INTO playlists (band_id, name) VALUES ($1, $2) RETURNING id',
+      [bandId, `Band Gate Setlist ${suffix}`],
+    )
+    const playlistId = playlist.rows[0].id
+    createdPlaylists.push(playlistId)
+
+    const song = await query<{ id: string }>(
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
+      [`Gate Song ${suffix}`, 'Gate Artist'],
+    )
+    const songId = song.rows[0].id
+    createdSongs.push(songId)
+
+    await expect(addSongToPlaylist(playlistId, userBId, songId)).rejects.toThrow(
+      'Access denied: band admin required',
+    )
+
+    const bandRows = await query(
+      `SELECT o.id FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1 AND v.song_id = $2`,
+      [bandId, songId],
+    )
+    expect(bandRows.rows).toHaveLength(0)
+    const entries = await query('SELECT id FROM playlist_songs WHERE playlist_id = $1', [playlistId])
+    expect(entries.rows).toHaveLength(0)
+
+    // The same call as the band's admin succeeds, and produces both rows.
+    await addSongToPlaylist(playlistId, userAId, songId)
+    expect(
+      (
+        await query(
+          `SELECT o.id FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1 AND v.song_id = $2`,
+          [bandId, songId],
+        )
+      ).rows,
+    ).toHaveLength(1)
+    expect(
+      (
+        await query(
+          `SELECT o.id FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1 AND v.song_id = $2`,
+          [userAId, songId],
+        )
+      ).rows,
+    ).toHaveLength(1)
   })
 
   // -------------------------------------------------------------------------
@@ -308,18 +396,12 @@ describe.skipIf(skip)('playlists integration tests', () => {
         )
       }
 
-      await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown')", [
-        userAId,
-        firstSongId,
-      ])
-      await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown')", [
-        userAId,
-        secondSongId,
-      ])
-      await query("INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown')", [
-        bandId,
-        firstSongId,
-      ])
+      // RH-124: the hold is keyed by a version, so each seeded row points at
+      // the song's representative version. `ensureSongHasVersion` is what
+      // guarantees these hand-inserted catalog rows have one.
+      await seedOwnerSong({ userId: userAId }, firstSongId)
+      await seedOwnerSong({ userId: userAId }, secondSongId)
+      await seedOwnerSong({ bandId }, firstSongId)
     })
 
     it('returns the playlist name and its entries ordered by position, for a personal owner', async () => {
@@ -344,7 +426,9 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
       // The repertoire id is the *band's* row, not user A's own for that song.
       const bandRow = await query(
-        'SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2',
+        `SELECT o.id FROM band_songs o
+         JOIN song_versions v ON v.id = o.version_id
+         WHERE o.band_id = $1 AND v.song_id = $2`,
         [bandId, firstSongId],
       )
       expect(details.entries[0].repertoireId).toBe(bandRow.rows[0].id)

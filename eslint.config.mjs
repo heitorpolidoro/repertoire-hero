@@ -100,22 +100,15 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 743], "max-lines": ["error", 815] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },
-  // RH-95: `createAndAddSong` moved its catalog lookup/insert into
-  // `src/lib/songIdentity.ts` and its statements into one `withTransaction`
-  // callback, so the file's worst complexity fell from 21 to 8 — under the base
-  // budget of 15, which is why the `complexity` entry is gone rather than
-  // lowered — and its length from 505 to 483. RH-96 dropped the RH-83 status
-  // seed from `addSongToRepertoire`, taking it from 483 to 473. RH-97 replaced
-  // `updateSong`'s seven-column `CASE WHEN` with the fill/refuse split in
-  // `src/lib/catalogFields.ts`: 473 to 471. RH-121 dropped `contributor_id`
-  // from `SONG_JSON` and from the `resolveOrCreateSongIdentity` call, which
-  // reflowed both into one line fewer: 471 to 470. RH-122 found the file sitting
-  // exactly on its ceiling and had to pay for the album/version upsert out of
-  // it: `data` is already the resolver's input shape, so the ten-line object
-  // literal built inline at the `resolveOrCreateSongIdentity` call collapsed to
-  // `(data, client)` and the net change — minus ten, plus the import and the
-  // `upsertAlbumAndVersion` call — is 470 to 465.
-  { name: "complexity-budget/override", files: ["src/lib/songs.ts"], rules: { "max-lines": ["error", 465] } },
+  // RH-124 removed `src/lib/songs.ts`'s entry outright rather than lowering it:
+  // the owner-row half of the module — every `repertoire` read and write, plus
+  // `updateSong`'s and `createAndAddSong`'s owner-row halves — moved to
+  // `src/lib/ownerSongs.ts`, leaving the catalog work at 185 lines, below the
+  // global 400. The ratchet may only shrink, and deleting an entry is the
+  // smallest it goes. Neither new module carries one: both stay inside the
+  // plain budgets. (History, for the record: RH-39 pinned it at 531, RH-95 took
+  // it from 505 to 483, RH-96 to 473, RH-97 to 471, RH-121 to 470 and RH-122 to
+  // 465.)
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 678] } },

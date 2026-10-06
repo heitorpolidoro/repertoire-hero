@@ -36,7 +36,8 @@ const UPLOADED = songFile('t-9', '2026-02-01T10:00:00.000Z')
 
 const OWN_ENTRY: Repertoire = {
   id: 'rep-created', user_id: 'user-1', band_id: null, song_id: 'song-1',
-  personal_key: null, status: 'unknown', tags: [], last_practiced: null, lyrics: null,
+  version_id: 'version-1', key: null, tuning: null, map: null,
+  status: 'unknown', tags: [], last_practiced: null, lyrics: null,
 }
 
 type ActionSpies = { [K in keyof TabLibraryActions]: Mock }

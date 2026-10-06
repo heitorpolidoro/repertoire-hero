@@ -6,10 +6,10 @@ import {
   createAndAddSong,
   updateSongStatus,
   updateSongTags,
-  updatePersonalKey,
+  updateSongKey,
   removeSongFromRepertoire,
   updateSong,
-} from '../songs'
+} from '../ownerSongs'
 import { getBands, getBandPlaylists } from '../bands'
 import { query } from '@/lib/db'
 
@@ -42,7 +42,7 @@ let playlistsReturnBandId = false
  * apart. `resolveOrCreateSongIdentity` looks a song up and must miss, so the
  * insert path runs; `updateSong` reads the row it may fill `FOR UPDATE` and
  * must hit, with every column empty so the fill/refuse split (RH-97) leaves
- * the repertoire UPDATE as the only failure under test.
+ * the owner-row UPDATE as the only failure under test.
  */
 const songsSelect = (normalizedSql: string) => {
   if (!normalizedSql.includes('for update')) return { rowCount: 0, rows: [] }
@@ -99,8 +99,10 @@ beforeEach(() => {
       }
     }
 
-    // 2. repertoire lookup/check
-    if (normalizedSql.includes('from repertoire')) {
+    // 2. owner-row lookup/check — `user_songs` / `band_songs` since RH-124.
+    // One pattern, not two branches: this dispatcher is pinned at its current
+    // worst complexity by the F20 ratchet and may not grow.
+    if (/from (user|band)_songs/.test(normalizedSql)) {
       // Return 1 row so it skips repertoire insert by default, or empty if mockData is []
       if (mockData && mockData.length === 0) {
         return { rowCount: 0, rows: [] }
@@ -138,8 +140,8 @@ beforeEach(() => {
       return { rowCount: 1, rows: [{ id: 'global-song-id' }] }
     }
 
-    // 8. update repertoire
-    if (normalizedSql.includes('update repertoire')) {
+    // 8. the owner-row UPDATE
+    if (/update (user|band)_songs/.test(normalizedSql)) {
       if (failRepertoireUpdate) {
         throw mockError
       }
@@ -177,7 +179,7 @@ describe('Data Layer Edge Cases', () => {
     })
   })
 
-  describe('songs.ts edge cases', () => {
+  describe('ownerSongs.ts edge cases', () => {
     it('createAndAddSong throws on global song insertion error', async () => {
       mockInsertError = mockError
       await expect(createAndAddSong({ userId: 'mock-user-id' }, { title: 'Song', artist: 'Artist' })).rejects.toThrow('Failed to create and add song: Mocked Database Error')
@@ -193,9 +195,9 @@ describe('Data Layer Edge Cases', () => {
       await expect(updateSongTags({ userId: 'mock-user-id' }, '1', ['tag'])).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
-    it('updatePersonalKey throws not found if data is empty', async () => {
+    it('updateSongKey throws not found if data is empty', async () => {
       mockData = []
-      await expect(updatePersonalKey({ userId: 'mock-user-id' }, '1', 'Am')).rejects.toThrow('Repertoire entry not found or access denied')
+      await expect(updateSongKey({ userId: 'mock-user-id' }, '1', 'Am')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
     it('removeSongFromRepertoire throws not found if data is empty', async () => {
@@ -203,7 +205,7 @@ describe('Data Layer Edge Cases', () => {
       await expect(removeSongFromRepertoire({ userId: 'mock-user-id' }, '1')).rejects.toThrow('Repertoire entry not found or access denied')
     })
 
-    it('updateSong throws if repertoire update fails but songs update succeeds', async () => {
+    it('updateSong throws if the owner-row update fails but the songs update succeeds', async () => {
       mockData = []
       failRepertoireUpdate = true
 

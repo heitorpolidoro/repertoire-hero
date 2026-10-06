@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query, withTransaction } from '@/lib/db'
 import type { PlaylistSongIdRow, PlaylistSongLinksRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
-import { resolveSpotifyRouteAccess, resolveOwnedPlaylist } from '@/lib/spotifyRouteAuth'
+import { resolveSpotifyRouteAccess, resolveWritablePlaylist } from '@/lib/spotifyRouteAuth'
 import {
   fetchAllSpotifyTracks,
   findOrCreateSong,
@@ -18,9 +18,10 @@ import {
 // push — read local playlist songs → replace Spotify playlist track list
 //
 // [id] is a LOCAL playlists.id, and both directions are destructive to it, so
-// resolveOwnedPlaylist() runs before any read, write or outbound call: a pull
+// resolveWritablePlaylist() runs before any read, write or outbound call: a pull
 // replaces the whole track list and seeds every band member's repertoire, a
 // push exfiltrates the local setlist into a Spotify playlist the caller picked.
+// A band-owned playlist additionally requires band admin (RH-124).
 // ---------------------------------------------------------------------------
 export async function POST(
   request: NextRequest,
@@ -32,7 +33,7 @@ export async function POST(
   if (!access.ok) return access.response
   const { userId, accessToken } = access
 
-  const playlistAccess = await resolveOwnedPlaylist(localPlaylistId, userId)
+  const playlistAccess = await resolveWritablePlaylist(localPlaylistId, userId)
   if (!playlistAccess.ok) return playlistAccess.response
   const { playlist } = playlistAccess
 

@@ -31,7 +31,7 @@ const ENTRY = {
   id: 'rep-1',
   status: 'learning',
   tags: ['rock'],
-  personal_key: 'G',
+  key: 'G',
   song: {
     id: 'song-1',
     title: 'Yellow',

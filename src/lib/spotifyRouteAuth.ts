@@ -12,6 +12,12 @@
  * the Server Actions use (`assertPlaylistAccess`, `assertBandMember`), so the
  * ownership rule lives in exactly one place per resource.
  *
+ * `resolveBandOwnership` checks **band admin**, not membership (RH-124): both
+ * callers go on to write a `band_songs` row through `ensureInRepertoire`, and
+ * every write to a band's repertoire requires band admin (docs/use-cases.md,
+ * *Writing a band's rows*). `assertPlaylistAccess` is deliberately *not* made
+ * role-aware — it is also the Spotify read guard, which is member-level.
+ *
  * `[id]` is not the same kind of id in all three routes, which is why they do
  * not all get a guard:
  *   - `sync`   — `[id]` is a local `playlists.id`: guarded by
@@ -28,7 +34,7 @@ import { NextResponse } from 'next/server'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { assertPlaylistAccess } from '@/lib/playlists'
-import { assertBandMember } from '@/lib/bands'
+import { assertBandAdmin } from '@/lib/bands'
 import { logger } from '@/lib/logger'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -133,11 +139,35 @@ export async function resolveOwnedPlaylist(
 
 export type BandRouteAccess = { ok: true } | { ok: false; response: NextResponse }
 
-/** Confirms `userId` is a member of `bandId` before anything is created for it. */
+/**
+ * Confirms `userId` is an **admin** of `bandId` before anything is created for
+ * it. A plain member is refused, and `guardResource` turns that refusal into
+ * the same 404 a non-existent band gets, so no existence leak is introduced.
+ */
 export async function resolveBandOwnership(
   bandId: string,
   userId: string
 ): Promise<BandRouteAccess> {
-  const result = await guardResource(bandId, 'Band', () => assertBandMember(bandId, userId))
+  const result = await guardResource(bandId, 'Band', () => assertBandAdmin(bandId, userId))
   return result.ok ? { ok: true } : result
+}
+
+/**
+ * The sync route's guard: the local playlist the caller may act on, plus **band
+ * admin** when that playlist is a band's.
+ *
+ * A pull seeds the band's repertoire through `ensureInRepertoire`, and every
+ * write to a band's repertoire requires band admin (RH-124). Composed here
+ * rather than branched inside the route handler so the route keeps one guard
+ * call and its complexity budget (F20).
+ */
+export async function resolveWritablePlaylist(
+  localPlaylistId: string,
+  userId: string
+): Promise<PlaylistRouteAccess> {
+  const access = await resolveOwnedPlaylist(localPlaylistId, userId)
+  if (!access.ok || !access.playlist.band_id) return access
+
+  const band = await resolveBandOwnership(access.playlist.band_id, userId)
+  return band.ok ? access : band
 }

@@ -2,7 +2,7 @@
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
-import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/songs'
+import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/ownerSongs'
 import {
   createTab,
   getTabFileUrl,

@@ -5,6 +5,7 @@ import { LyricsSection } from '../LyricsSection'
 import { LyricsEditorPanel } from '../LyricsEditorPanel'
 import { useLyricsEditor, type LyricsEditorActions } from '@/hooks/useLyricsEditor'
 import type { LyricsEditorController } from '@/lib/lyricsEditor'
+import { resolveSongFields } from '@/lib/songResolution'
 import type { Repertoire } from '@/types/database'
 
 afterEach(cleanup)
@@ -354,7 +355,10 @@ const BAND_ROW: Repertoire = {
   user_id: null,
   band_id: 'band-1',
   song_id: 'song-1',
-  personal_key: null,
+  version_id: 'version-1',
+  key: null,
+  tuning: null,
+  map: null,
   status: 'learning',
   tags: [],
   last_practiced: null,
@@ -403,5 +407,71 @@ describe('Fast View lyrics on first paint (ER2)', () => {
     render(<LyricsHost personalEntry={null} />)
     expect(screen.getByText('band words')).toBeDefined()
     expect(screen.getByText('👥 Band')).toBeDefined()
+  })
+})
+
+/**
+ * RH-124 ER16 — the Fast View entry point resolves its song through the one
+ * helper, and words that exist **only** on `songs` reach the screen.
+ *
+ * The entry handed to the controller is built the way the server builds it: the
+ * three levels of one version go through `resolveSongFields`. The owner row
+ * overrides nothing and the version carries nothing, so `lyrics` comes from the
+ * composition — three levels up, which is the depth `lyrics` and `map` walk and
+ * `key` and `tuning` do not.
+ */
+describe('Fast View lyrics inherited from the composition (RH-124 ER16)', () => {
+  const SONG_ONLY_LYRICS = 'words that live only on the song'
+
+  const resolvedEntry = (): Repertoire => ({
+    id: 'owner-row-1',
+    user_id: 'u1',
+    band_id: null,
+    song_id: 'song-1',
+    version_id: 'version-1',
+    ...resolveSongFields({
+      // Nothing overridden at either of the two lower levels.
+      owner: {
+        status: 'learning',
+        key: null,
+        tuning: null,
+        lyrics: null,
+        map: null,
+        tags: [],
+        last_practiced: null,
+      },
+      version: { key: 'G', tuning: 'Standard', lyrics: null, map: null },
+      song: { lyrics: SONG_ONLY_LYRICS, map: null },
+    }),
+    status: 'learning',
+  })
+
+  function Host() {
+    const controller = useLyricsEditor({
+      entry: resolvedEntry(),
+      personalEntry: null,
+      songTitle: 'Song',
+      artist: 'Artist',
+      actions: NOOP_ACTIONS,
+      onEntryLyricsSaved: vi.fn(),
+      onPersonalLyricsSaved: vi.fn(),
+      onPersonalEntryCreated: vi.fn(),
+      notify: vi.fn(),
+    })
+    return <LyricsSection controller={controller} loadingPersonal={false} />
+  }
+
+  it('renders the lyrics that exist only on songs, with no interaction', () => {
+    render(<Host />)
+
+    expect(screen.getByText(SONG_ONLY_LYRICS)).toBeDefined()
+  })
+
+  it('does not inherit the key past the version, which is the other depth', () => {
+    const entry = resolvedEntry()
+
+    expect(entry.key).toBe('G')
+    expect(entry.tuning).toBe('Standard')
+    expect(entry.lyrics).toBe(SONG_ONLY_LYRICS)
   })
 })

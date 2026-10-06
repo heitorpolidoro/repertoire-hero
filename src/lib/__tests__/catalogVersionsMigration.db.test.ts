@@ -34,7 +34,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { query, withTransaction } from '@/lib/db'
-import { LEGACY_TABS_DDL, LEGACY_TABS_TABLE } from './test-helpers'
+import {
+  LEGACY_REPERTOIRE_DDL,
+  LEGACY_REPERTOIRE_TABLE,
+  LEGACY_TABS_DDL,
+  LEGACY_TABS_TABLE,
+  lockMigrationReplay,
+} from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
@@ -81,6 +87,9 @@ async function inRolledBackTransaction<T>(body: (client: Client) => Promise<T>):
   let captured = false
 
   await withTransaction(async (client) => {
+    // First statement, before any DDL: the four migration-replay suites share
+    // one advisory lock so they cannot deadlock on the same table names.
+    await lockMigrationReplay(client)
     result = await body(client)
     captured = true
     throw new Error(ROLLBACK)
@@ -146,7 +155,9 @@ describe('the albums-and-song-versions migration file (RH-122 ER1, ER11, ER14)',
     expect(migrationSql()).toContain('ON songs (lower(btrim(artist)), lower(btrim(title)))')
   })
 
-  it('contains no ALTER TABLE repertoire (ER14)', () => {
+  // RH-122 claimed the owner-row table untouched; RH-124 is what replaced it.
+  // The assertion still holds of `migrations/0014`, which is history.
+  it('contains no ALTER TABLE on the owner-row table (RH-122 ER14)', () => {
     expect(migrationStatements()).not.toMatch(/ALTER\s+TABLE\s+(IF\s+EXISTS\s+)?repertoire\b/i)
     // The detector has to be able to see the real thing.
     expect('ALTER TABLE repertoire ADD COLUMN version_id uuid').toMatch(
@@ -170,7 +181,9 @@ describe.skipIf(!RUN_DB_TESTS)('replaying the migration over colliding titles (E
 
     const outcome = await inRolledBackTransaction(async (client) => {
       // RH-123 dropped the table the migration's collapse re-points tab rows
-      // in, so the replay needs it back (see `LEGACY_TABS_DDL`).
+      // in, and RH-124 dropped the owner-row table its foreign key names, so
+      // the replay needs both back (see `test-helpers.ts`).
+      await client.query(LEGACY_REPERTOIRE_DDL)
       await client.query(LEGACY_TABS_DDL)
 
       // Both rows are legal today — the titles differ. The rewrite is what
@@ -387,9 +400,11 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
       await client.query(`DROP INDEX IF EXISTS ${SONGS_UNIQUE}`)
 
       // RH-123 dropped the table `migrate_catalog_to_versions()` re-points tab
-      // rows in, so this replay needs it back. Inside this transaction only,
-      // and rolled back with everything else; `LEGACY_TABS_DDL` is the one
-      // place it is spelled (ER5).
+      // rows in, and RH-124 dropped the owner-row table both hang off, so this
+      // replay needs both back. Inside this transaction only, and rolled back
+      // with everything else; `test-helpers.ts` is the one place either is
+      // spelled (RH-123 ER5, RH-124 ER5).
+      await client.query(LEGACY_REPERTOIRE_DDL)
       await client.query(LEGACY_TABS_DDL)
 
       const userId = randomUUID()
@@ -422,7 +437,7 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
       // keeper's is kept exactly as it is.
       const keeperRep = (
         await client.query<{ id: string }>(
-          `INSERT INTO repertoire (user_id, song_id, status, tags, personal_key, last_practiced)
+          `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id, status, tags, personal_key, last_practiced)
            VALUES ($1, $2, 'learning', ARRAY['keeper-tag'], 'C', now() - interval '10 days')
            RETURNING id`,
           [userId, keeper],
@@ -430,7 +445,7 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
       ).rows[0].id
       const loserRep = (
         await client.query<{ id: string }>(
-          `INSERT INTO repertoire (user_id, song_id, status, tags, personal_key, last_practiced)
+          `INSERT INTO ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id, status, tags, personal_key, last_practiced)
            VALUES ($1, $2, 'mastered', ARRAY['loser-tag'], 'G', now()) RETURNING id`,
           [userId, loser],
         )
@@ -481,13 +496,13 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
             await client.query<CollapseOutcome['keeperRepertoire']>(
               `SELECT id, status::text AS status, tags, personal_key,
                       to_char(last_practiced, 'YYYY-MM-DD') AS last_practiced
-                 FROM repertoire WHERE id = $1`,
+                 FROM ${LEGACY_REPERTOIRE_TABLE} WHERE id = $1`,
               [keeperRep],
             )
           ).rows[0],
           loserRepertoireRows: await count(
             client,
-            'SELECT count(*)::text AS n FROM repertoire WHERE id = $1',
+            `SELECT count(*)::text AS n FROM ${LEGACY_REPERTOIRE_TABLE} WHERE id = $1`,
             [loserRep],
           ),
           tabRepertoireIds: (

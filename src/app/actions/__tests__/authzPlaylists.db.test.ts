@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 
 vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 
-import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import { createTestUser, deleteTestUser, seedOwnerSong } from '@/lib/__tests__/test-helpers'
 import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
 import {
   updatePlaylistAction,
@@ -71,10 +71,7 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
       playlistId,
       songOneId,
     ])
-    await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown')", [
-      userAId,
-      songOneId,
-    ])
+    await seedOwnerSong({ userId: userAId }, songOneId)
 
     const bandPlaylist = await query(
       'INSERT INTO playlists (band_id, name) VALUES ($1, $2) RETURNING id',

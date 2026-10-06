@@ -23,7 +23,7 @@
  *    neither filled nor refused; erasing a shared value is not something this
  *    path offers, and warning about an absent value would be noise.
  *  - **`standard_key` is fill-when-empty but never refused**, because the key
- *    the musician typed was in fact saved — to `repertoire.personal_key`.
+ *    the musician typed was in fact saved — to the owner row's `key`.
  *
  * A refused column's route is `CorrectionModal` -> the `global_song_edits`
  * queue; see `docs/use-cases.md` § *Suggest a correction to the catalog*.

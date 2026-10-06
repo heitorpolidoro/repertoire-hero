@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { query } from '@/lib/db'
-import { createAndAddSong } from '@/lib/songs'
+import { createAndAddSong } from '@/lib/ownerSongs'
 import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
 import { splitSongTitle } from '@/lib/songTitle'
@@ -268,33 +268,56 @@ describe.skipIf(!RUN_DB_TESTS)('the catalog version schema (RH-122)', () => {
     ])
   })
 
-  describe('repertoire is untouched by this task (ER14)', () => {
-    it('still carries song_id referencing songs, and no version_id', async () => {
+  /**
+   * RH-122's ER14 said the owner-row table was untouched and still song-keyed.
+   * RH-124 is the task that touched it: `repertoire` became `user_songs` and
+   * `band_songs`, keyed by `version_id`. The claim is kept as its successor
+   * rather than deleted, because what it is really pinning is that the owner
+   * side points at the catalog through a version now.
+   */
+  describe('the owner-row tables are version-keyed (RH-124)', () => {
+    it.each(['user_songs', 'band_songs'] as const)('%s carries version_id and no song_id', async (table) => {
       const columns = await query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns
-          WHERE table_schema = 'public' AND table_name = 'repertoire' ORDER BY column_name`,
+          WHERE table_schema = 'public' AND table_name = $1 ORDER BY column_name`,
+        [table],
       )
       const names = columns.rows.map((r) => r.column_name)
+      const ownerColumn = table === 'user_songs' ? 'user_id' : 'band_id'
 
-      // The column set as it stood before this task, exactly.
-      expect(names).toEqual([
-        'band_id',
-        'id',
-        'last_practiced',
-        'lyrics',
-        'personal_key',
-        'song_id',
-        'status',
-        'tags',
-        'user_id',
-      ])
-      expect(names).not.toContain('version_id')
+      expect(names).toEqual(
+        [
+          'created_at',
+          'id',
+          'key',
+          'last_practiced',
+          'lyrics',
+          'map',
+          ownerColumn,
+          'status',
+          'tags',
+          'tuning',
+          'version_id',
+        ].sort(),
+      )
+      expect(names).not.toContain('song_id')
+      expect(names).not.toContain('personal_key')
 
       const fk = await query<{ referenced: string }>(
         `SELECT confrelid::regclass::text AS referenced FROM pg_constraint
-          WHERE conname = 'repertoire_song_id_fkey'`,
+          WHERE conname = $1`,
+        [`${table}_version_id_fkey`],
       )
-      expect(fk.rows.map((r) => r.referenced)).toEqual(['songs'])
+      expect(fk.rows.map((r) => r.referenced)).toEqual(['song_versions'])
+    })
+
+    it('has no owner-row table keyed by a song any more', async () => {
+      const left = await query<{ table_name: string }>(
+        `SELECT table_name FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = $1`,
+        ['reper' + 'toire'],
+      )
+      expect(left.rows).toEqual([])
     })
   })
 

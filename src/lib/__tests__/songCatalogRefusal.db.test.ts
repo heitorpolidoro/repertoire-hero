@@ -12,7 +12,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { query } from '@/lib/db'
-import { addSongToRepertoire, updateSong, type SongUpdateInput } from '@/lib/songs'
+import { addSongToRepertoire, updateSong } from '@/lib/ownerSongs'
+import type { SongUpdateInput } from '@/lib/songs'
 import type { Repertoire, SongLink } from '@/types/database'
 import { createTestUser, deleteTestUser } from './test-helpers'
 
@@ -83,8 +84,8 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
   }
 
   const repertoireRow = async (repertoireId: string) => {
-    const res = await query<{ status: string; tags: string[]; personal_key: string | null }>(
-      'SELECT status, tags, personal_key FROM repertoire WHERE id = $1',
+    const res = await query<{ status: string; tags: string[]; key: string | null }>(
+      'SELECT status, tags, key FROM user_songs WHERE id = $1',
       [repertoireId],
     )
     return res.rows[0]
@@ -175,7 +176,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
     expect(await repertoireRow(entry.id)).toEqual({
       status: 'polishing',
       tags: ['rock', 'live'],
-      personal_key: 'Am',
+      key: 'Am',
     })
   })
 
@@ -209,7 +210,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
     const result = await updateSong({ userId }, entry, input(entry, { key: 'Am' }))
 
     expect((await catalogRow(entry.song_id)).standard_key).toBe('G')
-    expect((await repertoireRow(entry.id)).personal_key).toBe('Am')
+    expect((await repertoireRow(entry.id)).key).toBe('Am')
     expect(result.refused).toEqual([])
   })
 })

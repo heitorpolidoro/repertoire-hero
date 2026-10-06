@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { NextResponse } from 'next/server'
 
 vi.mock('@/lib/playlists', () => ({ assertPlaylistAccess: vi.fn() }))
-vi.mock('@/lib/bands', () => ({ assertBandMember: vi.fn() }))
+vi.mock('@/lib/bands', () => ({ assertBandMember: vi.fn(), assertBandAdmin: vi.fn() }))
 vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 vi.mock('@/lib/spotifyAuth', () => ({ getSpotifyAccessToken: vi.fn() }))
 vi.mock('@/lib/logger', () => ({
@@ -23,7 +23,7 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 import { assertPlaylistAccess } from '@/lib/playlists'
-import { assertBandMember } from '@/lib/bands'
+import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { logger } from '@/lib/logger'
@@ -106,19 +106,21 @@ describe('resolveBandOwnership', () => {
     vi.clearAllMocks()
   })
 
-  it('resolves ok when the caller is a member of the band', async () => {
-    vi.mocked(assertBandMember).mockResolvedValue('member')
+  // RH-124: band **admin**, not membership. Both callers go on to write a
+  // `band_songs` row through `ensureInRepertoire`, and every write to a band's
+  // repertoire requires band admin.
+  it('resolves ok when the caller is an admin of the band', async () => {
+    vi.mocked(assertBandAdmin).mockResolvedValue(undefined)
 
     const result = await resolveBandOwnership(BAND_ID, USER_ID)
 
     expect(result).toEqual({ ok: true })
-    expect(assertBandMember).toHaveBeenCalledWith(BAND_ID, USER_ID)
+    expect(assertBandAdmin).toHaveBeenCalledWith(BAND_ID, USER_ID)
+    expect(assertBandMember).not.toHaveBeenCalled()
   })
 
-  it('answers a fixed 404 when the caller is not a member', async () => {
-    vi.mocked(assertBandMember).mockRejectedValue(
-      new Error('Access denied: not a member of this band'),
-    )
+  it('answers the same fixed 404 for a non-admin member as for a non-member', async () => {
+    vi.mocked(assertBandAdmin).mockRejectedValue(new Error('Access denied: band admin required'))
 
     const result = await resolveBandOwnership(BAND_ID, USER_ID)
 
@@ -130,11 +132,11 @@ describe('resolveBandOwnership', () => {
     const result = await resolveBandOwnership('not-a-uuid', USER_ID)
 
     await expectRefusal(result, 404, { error: 'Band not found', code: 404 })
-    expect(vi.mocked(assertBandMember).mock.calls).toHaveLength(0)
+    expect(vi.mocked(assertBandAdmin).mock.calls).toHaveLength(0)
   })
 
   it('answers 500 and logs once when the helper fails for a genuine reason', async () => {
-    vi.mocked(assertBandMember).mockRejectedValue(
+    vi.mocked(assertBandAdmin).mockRejectedValue(
       new Error('Failed to check band membership: boom'),
     )
 
@@ -146,7 +148,7 @@ describe('resolveBandOwnership', () => {
   })
 
   it('answers 500 for a non-Error rejection too', async () => {
-    vi.mocked(assertBandMember).mockRejectedValue('a bare string')
+    vi.mocked(assertBandAdmin).mockRejectedValue('a bare string')
 
     const result = await resolveBandOwnership(BAND_ID, USER_ID)
 

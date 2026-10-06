@@ -11,7 +11,7 @@
 
 import { pool, withTransaction, type Queryable } from '@/lib/db'
 import { primarySpotifyArtist, resolveOrCreateSongIdentity } from '@/lib/songIdentity'
-import { upsertAlbumAndVersion } from '@/lib/songVersions'
+import { representativeVersionSubquery, upsertAlbumAndVersion } from '@/lib/songVersions'
 
 export interface SpotifyRawTrack {
   spotifyTrackId: string
@@ -135,16 +135,30 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> 
 }
 
 // ---------------------------------------------------------------------------
-// Ensures the song is in the owner's repertoire. Safe to call multiple times.
+// Ensures the song is in the owner's repertoire, against that song's
+// representative version. Safe to call multiple times.
 //
 // Set-based on purpose (RH-36, finding F19): the previous shape ran a lookup
 // and possibly an insert per band member — 3 + 2N statements per track, inside
 // the per-track loop of the sync and import routes, on a pool capped at 10.
-// The duplicates are absorbed by `ON CONFLICT DO NOTHING` (the bare form, which
-// covers the partial unique indexes `uq_repertoire_user_song` and
-// `uq_repertoire_band_song`) rather than by catching 23505: inside a
-// transaction a caught 23505 leaves the transaction aborted, so every later
-// statement fails with 25P02.
+// The duplicates are absorbed by the bare `ON CONFLICT DO NOTHING`, which
+// covers `uq_user_songs_user_version` / `uq_band_songs_band_version` without
+// naming either, rather than by catching 23505: inside a transaction a caught
+// 23505 leaves the transaction aborted, so every later statement fails with
+// 25P02.
+//
+// No "does this song have a version?" guard is needed here, unlike in the two
+// song-keyed add paths: both callers reach this through `findOrCreateSong`,
+// which always upserts the album and the version first.
+//
+// **Who may call this is decided by the caller, not here** (RH-124): it takes a
+// resolved owner and no caller id, so there is nothing for it to authorize
+// against. Both entry points gate at their own guard — the import route's
+// body-`band_id` check and the sync route's playlist check, both
+// `assertBandAdmin` through `resolveBandOwnership`.
+//
+// The band branch's second statement — a row for **every** member — is the dual
+// write RH-126 removes. It is repointed here, not deleted.
 //
 // `db` defaults to the pool; pass a transaction client to make the seeding part
 // of a caller's transaction.
@@ -154,18 +168,23 @@ export async function ensureInRepertoire(
   owner: { userId?: string; bandId?: string },
   db: Queryable = pool,
 ): Promise<void> {
+  const version = representativeVersionSubquery('$2')
   if (owner.bandId) {
     await db.query<never>(
-      "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+      `INSERT INTO band_songs (band_id, version_id, status)
+       SELECT $1, ${version}, 'unknown' ON CONFLICT DO NOTHING`,
       [owner.bandId, songId],
     )
     await db.query<never>(
-      "INSERT INTO repertoire (user_id, song_id, status) SELECT bm.user_id, $1, 'unknown' FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING",
+      `INSERT INTO user_songs (user_id, version_id, status)
+       SELECT bm.user_id, ${representativeVersionSubquery('$1')}, 'unknown'
+       FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING`,
       [songId, owner.bandId],
     )
   } else if (owner.userId) {
     await db.query<never>(
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
+      `INSERT INTO user_songs (user_id, version_id, status)
+       SELECT $1, ${version}, 'unknown' ON CONFLICT DO NOTHING`,
       [owner.userId, songId],
     )
   }

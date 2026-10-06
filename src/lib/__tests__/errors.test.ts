@@ -13,14 +13,16 @@ import {
   addSongToRepertoire,
   updateSongStatus,
   updateSongTags,
-  updatePersonalKey,
+  updateSongKey,
   removeSongFromRepertoire,
-  searchSongs,
   getSongEntry,
+  getPersonalEntryForSong,
+  updateLyrics,
   updateSong,
   createAndAddSong,
   assertRepertoireAccess,
-} from "../songs";
+} from "../ownerSongs";
+import { searchSongs } from "../songs";
 import {
   getBands,
   getBandWithMembers,
@@ -61,7 +63,7 @@ let failLookup = true;
 let failRepertoireCheck = true;
 let failRepertoireInsert = true;
 /**
- * What the `INSERT INTO repertoire` mock hands back. RH-95 made zero rows
+ * What the owner-table insert mock hands back. RH-95 made zero rows
  * meaningful — `ON CONFLICT DO NOTHING` returns none when the owner already has
  * the song — and this is a value rather than a flag on purpose: the dispatcher
  * below is pinned at complexity 17 by the F20 ratchet, so it cannot afford
@@ -116,8 +118,11 @@ beforeEach(() => {
       return { rowCount: 1, rows: [{ id: "global-song-id" }] };
     }
 
-    // 3. repertoire lookup/check
-    if (normalizedSql.includes("from repertoire")) {
+    // 3. owner-row lookup/check. RH-124 split `repertoire` into `user_songs`
+    // and `band_songs`, so the pattern names both; the branch count is
+    // unchanged, which matters because this file sits exactly on its
+    // `complexity: 32` ceiling and the ratchet may only shrink.
+    if (/from (user|band)_songs/.test(normalizedSql)) {
       if (failRepertoireCheck) {
         throw mockError;
       }
@@ -144,8 +149,8 @@ beforeEach(() => {
       return { rowCount: 0, rows: [] };
     }
 
-    // 4. repertoire insert
-    if (normalizedSql.includes("insert into repertoire")) {
+    // 4. owner-row insert
+    if (/insert into (user|band)_songs/.test(normalizedSql)) {
       if (failRepertoireInsert) {
         throw mockError;
       }
@@ -246,7 +251,7 @@ describe("Data Layer Error Handling", () => {
     });
   });
 
-  describe("songs.ts errors", () => {
+  describe("ownerSongs.ts and songs.ts errors", () => {
     it("getRepertoire throws on DB error", async () => {
       await expect(getRepertoire({ userId: "mock-user-id" })).rejects.toThrow(
         "Failed to fetch repertoire: Mocked Database Error",
@@ -271,8 +276,8 @@ describe("Data Layer Error Handling", () => {
       );
     });
 
-    it("updatePersonalKey throws on DB error", async () => {
-      await expect(updatePersonalKey({ userId: "mock-user-id" }, "1", "Am")).rejects.toThrow(
+    it("updateSongKey throws on DB error", async () => {
+      await expect(updateSongKey({ userId: "mock-user-id" }, "1", "Am")).rejects.toThrow(
         "Failed to update personal key: Mocked Database Error",
       );
     });
@@ -296,10 +301,22 @@ describe("Data Layer Error Handling", () => {
     });
 
     it("updateSong throws on DB error", async () => {
-      const mockEntry = { id: "1", user_id: null, band_id: null, song_id: "song-1", personal_key: null, status: "unknown" as const, tags: [], last_practiced: null };
+      const mockEntry = { id: "1", user_id: null, band_id: null, song_id: "song-1", version_id: "version-1", key: null, tuning: null, map: null, lyrics: null, status: "unknown" as const, tags: [], last_practiced: null };
       const mockData = { title: "Test", artist: "Artist", key: null, status: "unknown" as const, tags: [], links: [] };
       await expect(updateSong({ userId: "mock-user-id" }, mockEntry, mockData)).rejects.toThrow(
         "Failed to update song: Mocked Database Error",
+      );
+    });
+
+    it("updateLyrics throws on DB error", async () => {
+      await expect(updateLyrics({ userId: "mock-user-id" }, "1", "la la")).rejects.toThrow(
+        "Failed to update lyrics: Mocked Database Error",
+      );
+    });
+
+    it("getPersonalEntryForSong throws on DB error", async () => {
+      await expect(getPersonalEntryForSong("song-1", "mock-user-id")).rejects.toThrow(
+        "Failed to fetch personal entry for song: Mocked Database Error",
       );
     });
 

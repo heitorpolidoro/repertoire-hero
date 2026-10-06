@@ -249,12 +249,16 @@ describe('ensureInRepertoire', () => {
     expect(mockedQuery).toHaveBeenCalledTimes(2)
 
     const [bandSql, bandValues] = mockedQuery.mock.calls[0]
-    expect(String(bandSql)).toContain('INSERT INTO repertoire (band_id, song_id, status)')
+    expect(String(bandSql)).toContain('INSERT INTO band_songs (band_id, version_id, status)')
+    // The version is the representative one for the song, and the join onto
+    // `albums` inside that ordering is a LEFT JOIN — an inner one would drop
+    // every album-less version (RH-124 ER4).
+    expect(String(bandSql)).toContain('LEFT JOIN albums')
     expect(String(bandSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
     expect(bandValues).toEqual(['band-1', 'song-1'])
 
     const [membersSql, memberValues] = mockedQuery.mock.calls[1]
-    expect(String(membersSql)).toContain('INSERT INTO repertoire (user_id, song_id, status)')
+    expect(String(membersSql)).toContain('INSERT INTO user_songs (user_id, version_id, status)')
     expect(String(membersSql)).toContain('FROM band_members')
     expect(String(membersSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
     expect(memberValues).toEqual(['song-1', 'band-1'])
@@ -267,7 +271,7 @@ describe('ensureInRepertoire', () => {
 
     expect(mockedQuery).toHaveBeenCalledTimes(1)
     const [sql, values] = mockedQuery.mock.calls[0]
-    expect(String(sql)).toContain('INSERT INTO repertoire (user_id, song_id, status)')
+    expect(String(sql)).toContain('INSERT INTO user_songs (user_id, version_id, status)')
     expect(String(sql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
     expect(values).toEqual(['u1', 'song-1'])
   })

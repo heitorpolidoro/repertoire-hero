@@ -27,7 +27,12 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@vercel/blob', () => ({ put: vi.fn(), del: vi.fn() }))
 
 import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
-import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import {
+  OWNER_SONG_FROM,
+  createTestUser,
+  deleteTestUser,
+  seedOwnerSong,
+} from '@/lib/__tests__/test-helpers'
 import { createBand, joinBandByInviteClient } from '@/lib/bands'
 import { query } from '@/lib/db'
 import { put, del } from '@vercel/blob'
@@ -113,14 +118,8 @@ describe.skipIf(!RUN_DB_TESTS)('the file actions are scoped to user_id (real dat
     songId = await createTestSong(`RH-123 Song ${suffix}`)
     bandOnlySongId = await createTestSong(`RH-123 Band Song ${suffix}`)
     // On the *band's* row and nobody's own — the band-context starting point.
-    await query("INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'polishing')", [
-      bandId,
-      bandOnlySongId,
-    ])
-    await query("INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'learning')", [
-      userAId,
-      songId,
-    ])
+    await seedOwnerSong({ bandId }, bandOnlySongId, { status: 'polishing' })
+    await seedOwnerSong({ userId: userAId }, songId, { status: 'learning' })
 
     fileAId = await seedFile(userAId, `RH-123 A ${suffix}`, A_URL)
     fileBId = await seedFile(userBId, `RH-123 B ${suffix}`, B_URL)
@@ -212,7 +211,8 @@ describe.skipIf(!RUN_DB_TESTS)('the file actions are scoped to user_id (real dat
   it("an upload creates the uploader's own repertoire row with status unknown", async () => {
     asUser(userBId)
     const before = await countRows(
-      'SELECT count(*)::int AS count FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user}
+       WHERE o.user_id = $1 AND v.song_id = $2`,
       [userBId, bandOnlySongId],
     )
     expect(before).toBe(0)
@@ -226,7 +226,8 @@ describe.skipIf(!RUN_DB_TESTS)('the file actions are scoped to user_id (real dat
       status: 'unknown',
     })
     const row = await query<{ status: string }>(
-      'SELECT status::text AS status FROM repertoire WHERE user_id = $1 AND song_id = $2',
+      `SELECT o.status::text AS status FROM ${OWNER_SONG_FROM.user}
+       WHERE o.user_id = $1 AND v.song_id = $2`,
       [userBId, bandOnlySongId],
     )
     expect(row.rows.map((r) => r.status)).toEqual(['unknown'])

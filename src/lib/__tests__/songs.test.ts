@@ -1,7 +1,8 @@
 /**
- * Integration test for songs.ts
+ * Integration test for the owner-row data access (`@/lib/ownerSongs`, RH-124)
+ * and the shared catalog work left in `@/lib/songs`.
  *
- * Verifies that all repertoire and global song operations work correctly
+ * Verifies that every owner-scoped and catalog operation works correctly
  * against a local running Postgres instance.
  *
  * The test is fully self-contained: it creates temporary users in beforeAll
@@ -20,16 +21,15 @@ import {
   addSongToRepertoire,
   updateSongStatus,
   updateSongTags,
-  updatePersonalKey,
+  updateSongKey,
   removeSongFromRepertoire,
-  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
   updateLyrics,
-  applySongLinkUpdate,
   getPersonalEntryForSong,
-} from '../songs'
+} from '../ownerSongs'
+import { applySongLinkUpdate, searchSongs } from '../songs'
 import { createBand } from '../bands'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { query } from '@/lib/db'
@@ -210,13 +210,13 @@ describe.skipIf(skip)('songs service integration tests', () => {
     const entry = await createAndAddSong({ userId: userId }, songData)
     createdSongIds.add(entry.song_id)
 
-    expect(entry.personal_key).toBeNull()
+    expect(entry.key).toBeNull()
 
-    await updatePersonalKey({ userId: userId }, entry.id, 'G#')
+    await updateSongKey({ userId: userId }, entry.id, 'G#')
 
     const updated = await getSongEntry({ userId: userId }, entry.id)
     expect(updated).not.toBeNull()
-    expect(updated!.personal_key).toBe('G#')
+    expect(updated!.key).toBe('G#')
   })
 
   it('removeSongFromRepertoire deletes the repertoire entry', async () => {
@@ -278,7 +278,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(nonExistent).toBeNull()
   })
 
-  it('updateSong always overwrites repertoire-scoped fields (status, tags, personal_key)', async () => {
+  it('updateSong always overwrites owner-scoped fields (status, tags, key)', async () => {
     const songData = {
       title: `Original Title_${suffix}`,
       artist: 'Original Artist',
@@ -306,7 +306,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(updated).not.toBeNull()
     expect(updated!.status).toBe('mastered')
     expect(updated!.tags).toEqual(['updated-tag'])
-    expect(updated!.personal_key).toBe('B')
+    expect(updated!.key).toBe('B')
   })
 
   it('updateSong does not overwrite already-set global song fields (fill-if-empty)', async () => {

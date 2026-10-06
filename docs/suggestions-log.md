@@ -9426,3 +9426,121 @@ codebase's own prior art.
    sure the sweeper is actually filed as a task rather than living only in these
    comments.
 
+
+## [RH-124] Split repertoire into user_songs and band_songs keyed by version_id — 2026-10-05
+
+1. **The TypeScript/route vocabulary rename is deferred, deliberately.** The SQL
+   now says `user_songs` / `band_songs` and `version_id`, while the TypeScript
+   still says `Repertoire`, `repertoireId`, `getRepertoire`,
+   `addSongToRepertoire` and `/songs/[id]/fast-view`. Three reasons, recorded so
+   the gap reads as a decision: "repertoire" is still the right *domain* word —
+   `docs/use-cases.md` says *Remove a song from the repertoire* about the new
+   model too; this repository ships vocabulary renames as their own PR (RH-121
+   was exactly that, `global_songs` -> `songs`); and renaming across the ~40
+   files that mention the type would double this diff without changing one
+   behaviour. **A follow-up task in RH-121's shape is the home for it**:
+   `Repertoire` -> `OwnerSong`, `repertoireId` -> `ownerSongId`,
+   `getRepertoire` -> `getOwnerSongs`, and `OfflineSongSnapshot.repertoireId`
+   with it (which would move `OFFLINE_SCHEMA_VERSION` again).
+
+2. **The dual write in `src/lib/playlists.ts` and
+   `src/lib/spotifyPlaylistSync.ts` is repointed, not removed.** Adding a song
+   to a band playlist still writes the caller's own `user_songs` row beside the
+   band's, and a Spotify pull still writes every member's. That is wrong under
+   *Add a song to a playlist*, and deleting the second write is **RH-126's whole
+   deliverable** — doing it here would leave RH-126 with half a task. With
+   RH-124's gate in place the caller of the band branch is now always an admin,
+   so the stray row lands on an admin's own repertoire: still wrong, still
+   RH-126's.
+
+3. **`orphaned_repertoire_rows` has no reader.** Like `abandoned_blobs` before
+   it, the ledger exists because `migrations/0016` drops its own source three
+   steps after writing it, so a row the split could not carry would otherwise
+   vanish with a musician's status, tags and practice date in it. Nothing reads
+   it, and in practice it should stay empty — every reason it records is
+   defensive (`no_owner` / `two_owners` need the CHECK to have been dropped by
+   hand, `no_version` needs the catalog backfill to have missed a row). Worth a
+   one-line operational check after the migration runs in production rather than
+   a reader.
+
+4. **`src/lib/ownerSongs.ts` and `src/lib/playlists.ts` both sit within a few
+   lines of the global 400-line budget**, and `src/lib/ownerSongRows.ts` exists
+   because of it: the projection and the fold were split out of `ownerSongs.ts`
+   to get it under the ceiling. The ratchet may only shrink, so the next task to
+   touch either file will have to pay for its additions out of the same budget.
+   An extraction with a reason of its own — the write machinery
+   (`writeOwnerSongRow`, `writeOwnerField`, `OwnerSongPatch`) is a plausible
+   one — would buy room before that becomes a squeeze.
+
+5. **`ensureSongHasVersion` duplicates `migrate_catalog_to_versions()`'s
+   per-song projection in TypeScript.** It exists because
+   `scripts/seed-catalog.sql` inserts `songs` rows *after* the migration has
+   run, so a seeded catalog row has no version and a hold has nothing to point
+   at. The two are pinned to each other only by a comment. Making the seed go
+   through the backfill function — or giving the function a single-song
+   variant the TypeScript calls — would remove the second copy.
+
+## [RH-124] Split repertoire into user_songs and band_songs — 2026-10-05 (code review)
+
+1. **`src/lib/songEntry.ts:36` and `src/components/songs/SongForm.tsx:122,151` keep a
+   display-level `songs.standard_key` fallback for `key`** (`entry?.key ?? entry?.song?.
+   standard_key`). This is *not* a new `COALESCE` and not in the cascade — it is the
+   pre-existing display default, preserved verbatim, and "reads moving off
+   `songs.standard_key`" is explicitly Out of Scope here. Still worth flagging because at
+   the UI layer it reads as a third level for `key`, which is the one thing ER9 forbids in
+   the resolver. Recommend RH-102 / RH-109 remove it when the version-level key becomes the
+   read, and that a line in `docs/suggestions-log.md` name it so the next reader does not
+   mistake it for the cascade.
+
+2. **`updateSong` (`src/lib/ownerSongs.ts:357`) ignores the owner-row `rowCount`.** An
+   `(entry.id, owner)` pair matching no row commits the catalog fill and reports success.
+   This is byte-for-byte the previous behaviour (`songs.ts` HEAD did the same), so it is not
+   a regression and I did not treat it as blocking — but the module's other four writes all
+   fail closed with `Repertoire entry not found or access denied`, and this one is now the
+   odd one out in a file whose docblock advertises one write path. A one-line
+   `if (matched === 0) throw` would make the file uniform; it is a behaviour change, so it
+   belongs in its own task.
+
+3. **`getResolvedEntryForVersion` wraps its own sentinel.** The `Song version not found`
+   throw is inside the `try`, so callers see
+   `Failed to resolve song version: Song version not found`. Harmless — no UI reads it, and
+   the ER12 test only asserts that it rejects — but the sentinel would read better outside
+   the wrapper, in the L1a shape `updateLyrics` uses two functions above.
+
+4. **Two different mechanisms guarantee "the song has a version" before `addRowSql` runs:**
+   `addSongToRepertoire` calls `ensureSongHasVersion`, while `createAndAddSong` relies on
+   `resolveCatalogSongForAdd` → `upsertAlbumAndVersion`. Both are correct and both are
+   commented, but a reader auditing the `NOT NULL` invariant has to check two places. If a
+   third add path ever appears, consider making `addRowSql`'s callers go through one guard.
+
+5. **Edge case for RH-109 to inherit:** `createAndAddSong` for an existing catalog song with
+   a *new* album inserts a new `song_versions` row, then takes the hold on the song's
+   **representative** version — which may be an older one. An owner who already holds that
+   representative version gets `Song already in your repertoire` even though a new version
+   was just created. That is the documented consequence of staying song-addressed until
+   version-aware addressing lands, not a defect of this diff, but it is the kind of thing
+   worth having written down before RH-109 is specced.
+
+
+## [RH-124] Split repertoire into user_songs and band_songs — 2026-10-06 (QA)
+
+1. **ER14 wording vs. implementation.** The ER says the `src/lib/songs.ts` override is
+   "re-pinned to the file's new worst number (it was 465)"; the change deletes the entry
+   instead. This is correct — the file is 185 lines, under the global 400, so there is
+   no worst number to pin, and the ratchet rule ("may only shrink") is better served by
+   deletion. Worth recording in the task so the discrepancy is not re-litigated.
+2. **ER5's trigger clause is literally violated by its own guard.**
+   `sync_band_repertoire_on_member_update` appears once under `src/`, at
+   `ownerSongsGuards.test.ts:49`, as the regex that enforces its absence. Unavoidable
+   for a grep-based guard, and AGENTS.md already documents the identical precedent for
+   `migrationsSingleSource.test.ts`. If the rule is ever automated more strictly,
+   consider building the pattern from fragments so the literal never appears.
+3. **`updateSongLinksAction` is an eighth exported mutating action** not covered by the
+   seven-action gate. It writes `songs.links` (shared catalog) under
+   `assertRepertoireAccess`, which is the documented member-level behaviour, so it is
+   not a gap — but anyone auditing "every mutating action in the file" will trip over it
+   the way I did. The file comment at line 44 says so; a one-line note in the AGENTS.md
+   band-ownership bullet would close the loop.
+4. **`playlists.test.ts` is DB-backed but not named `*.db.test.ts`.** It holds the ER19
+   and ER20 assertions and is gated the same way, but the naming convention makes it
+   easy to miss when someone greps for the DB-gated suites.

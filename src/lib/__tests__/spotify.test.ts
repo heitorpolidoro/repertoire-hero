@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
-import { createTestUserWithGoTrue, deleteTestUserWithGoTrue } from './test-helpers'
+import { OWNER_SONG_FROM, createTestUserWithGoTrue, deleteTestUserWithGoTrue, seedOwnerSong } from './test-helpers'
 import { query } from '@/lib/db'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -104,15 +104,15 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       await query('DELETE FROM bands WHERE id = ANY($1)', [createdBands])
     }
 
-    // 3. Delete repertoires
+    // 3. Delete the owner-row holds (`user_songs` / `band_songs`, RH-124)
     if (userAId) {
-      await query('DELETE FROM repertoire WHERE user_id = $1', [userAId])
+      await query('DELETE FROM user_songs WHERE user_id = $1', [userAId])
     }
     if (userBId) {
-      await query('DELETE FROM repertoire WHERE user_id = $1', [userBId])
+      await query('DELETE FROM user_songs WHERE user_id = $1', [userBId])
     }
     if (createdBands.length > 0) {
-      await query('DELETE FROM repertoire WHERE band_id = ANY($1)', [createdBands])
+      await query('DELETE FROM band_songs WHERE band_id = ANY($1)', [createdBands])
     }
 
     // 4. Delete spotify tokens
@@ -435,7 +435,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
       // Verify it was added to User A's repertoire
       const repRows = await query<{ status: string }>(
-        'SELECT status FROM repertoire WHERE user_id = $1 AND song_id = $2',
+        `SELECT o.status FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1 AND v.song_id = $2`,
         [userAId, songId],
       )
       expect(repRows.rows).toHaveLength(1)
@@ -469,16 +469,20 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       createdSongs.push(songId)
 
       // 1. Verify in Band Repertoire
-      const bandRep = await query('SELECT id FROM repertoire WHERE band_id = $1 AND song_id = $2', [bandId, songId])
+      // The band's row, then User A's (the admin who imported) and User B's
+      // (a member the import propagates to — the dual write RH-126 removes).
+      const bandRep = await query(
+        `SELECT o.id FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1 AND v.song_id = $2`,
+        [bandId, songId],
+      )
       expect(bandRep.rows).toHaveLength(1)
-
-      // 2. Verify in User A repertoire (admin)
-      const repA = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [userAId, songId])
-      expect(repA.rows).toHaveLength(1)
-
-      // 3. Verify propagated in User B repertoire (member)
-      const repB = await query('SELECT id FROM repertoire WHERE user_id = $1 AND song_id = $2', [userBId, songId])
-      expect(repB.rows).toHaveLength(1)
+      for (const ownerId of [userAId, userBId]) {
+        const rows = await query(
+          `SELECT o.id FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1 AND v.song_id = $2`,
+          [ownerId, songId],
+        )
+        expect(rows.rows).toHaveLength(1)
+      }
     })
   })
 
@@ -548,14 +552,10 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
         [localPlaylistId, songIdA],
       )
 
-      // Add both to User A's repertoire
-      await query(
-        `INSERT INTO repertoire (user_id, song_id, status)
-         VALUES ($1, $2, 'learning'), ($1, $3, 'practicing')
-         ON CONFLICT (user_id, song_id) WHERE user_id IS NOT NULL
-         DO UPDATE SET status = EXCLUDED.status`,
-        [userAId, songIdA, songIdB],
-      )
+      // Add both to User A's repertoire. Keyed by a version since RH-124, so
+      // the helper ensures the hand-inserted catalog rows have one.
+      await seedOwnerSong({ userId: userAId }, songIdA, { status: 'learning' })
+      await seedOwnerSong({ userId: userAId }, songIdB, { status: 'practicing' })
     })
 
     it('should pull tracks from Spotify: add new ones, remove obsolete ones, but keep them in the repertoire (UC4.2)', async () => {
@@ -589,7 +589,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       // SECURITY CRITICAL EDGE CASE check: Song A is removed from the playlist,
       // but MUST REMAIN in the user's repertoire
       const repA = await query<{ status: string }>(
-        'SELECT status FROM repertoire WHERE user_id = $1 AND song_id = $2',
+        `SELECT o.status FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1 AND v.song_id = $2`,
         [userAId, songIdA],
       )
       expect(repA.rows).toHaveLength(1)

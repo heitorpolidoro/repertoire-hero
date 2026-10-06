@@ -13,7 +13,7 @@ import type { PlaylistDetailActions } from "@/hooks/usePlaylistDetail";
 import { getSession } from "@/lib/auth-session";
 import { assertBandMember } from "@/lib/bands";
 import { getPlaylistWithSongs } from "@/lib/playlists";
-import { getRepertoire } from "@/lib/songs";
+import { getRepertoire } from "@/lib/ownerSongs";
 
 /**
  * The page owns the Server Actions and injects them, so `src/components` and

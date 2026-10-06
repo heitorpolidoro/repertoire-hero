@@ -51,7 +51,10 @@ function entry(overrides: Partial<Repertoire> & Pick<Repertoire, 'id' | 'song_id
   return {
     user_id: 'user-1',
     band_id: null,
-    personal_key: null,
+    version_id: 'version-1',
+    key: null,
+    tuning: null,
+    map: null,
     status: 'unknown',
     tags: [],
     last_practiced: null,

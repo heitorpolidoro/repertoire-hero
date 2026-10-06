@@ -1,9 +1,16 @@
 /**
- * RH-45 — the repertoire actions no longer carry SQL: `updateLyrics`,
- * `applySongLinkUpdate` and `getPersonalEntryForSong` moved into `@/lib/songs`,
- * which this suite already mocked for the other nine actions. What is asserted
- * here is delegation: the owner fork, the resolved `songId`, and which branches
- * call `revalidatePath`.
+ * RH-45 — the repertoire actions carry no SQL; what is asserted here is
+ * delegation: the owner fork, the resolved `songId`, and which branches call
+ * `revalidatePath`.
+ *
+ * RH-124 split the delegate between two modules, and the split is the subject
+ * of half these cases: every owner-scoped read and write lives in
+ * `@/lib/ownerSongs` (`user_songs` / `band_songs`), while `@/lib/songs` keeps
+ * the shared catalog — `searchSongs` and `applySongLinkUpdate`. Both are mocked.
+ *
+ * RH-124 also moved **all seven** mutating actions onto the band-admin gate,
+ * where RH-96 had put two. `adminGated` below is therefore true for every
+ * write and false only for the two reads.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -20,20 +27,23 @@ vi.mock('@/lib/linkFetcher', () => ({
   fetchUrlTitle: vi.fn(),
 }))
 
-vi.mock('@/lib/songs', () => ({
+vi.mock('@/lib/ownerSongs', () => ({
   getRepertoire: vi.fn(),
   addSongToRepertoire: vi.fn(),
   updateSongStatus: vi.fn(),
   updateSongTags: vi.fn(),
   removeSongFromRepertoire: vi.fn(),
-  searchSongs: vi.fn(),
   getSongEntry: vi.fn(),
   updateSong: vi.fn(),
   createAndAddSong: vi.fn(),
   assertRepertoireAccess: vi.fn(),
   updateLyrics: vi.fn(),
-  applySongLinkUpdate: vi.fn(),
   getPersonalEntryForSong: vi.fn(),
+}))
+
+vi.mock('@/lib/songs', () => ({
+  searchSongs: vi.fn(),
+  applySongLinkUpdate: vi.fn(),
 }))
 
 vi.mock('@/lib/bands', () => ({
@@ -66,15 +76,14 @@ import {
   updateSongStatus,
   updateSongTags,
   removeSongFromRepertoire,
-  searchSongs,
   getSongEntry,
   updateSong,
   createAndAddSong,
   assertRepertoireAccess,
   updateLyrics,
-  applySongLinkUpdate,
   getPersonalEntryForSong,
-} from '@/lib/songs'
+} from '@/lib/ownerSongs'
+import { applySongLinkUpdate, searchSongs } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import type { Repertoire, SongLink } from '@/types/database'
 
@@ -88,11 +97,12 @@ const UPDATE_DATA = { title: 'New Title' }
 const CREATE_DATA = { title: 'Fresh', artist: 'Someone' }
 
 /**
- * Every action that resolves an owner before delegating to `@/lib/songs`.
+ * Every action that resolves an owner before delegating to `@/lib/ownerSongs`.
  *
- * `adminGated` names the band guard the action authorizes through: the two
- * actions that write `repertoire.status` go through `assertBandAdmin` (RH-96),
- * every other one through `assertBandMember`.
+ * `adminGated` names the band guard the action authorizes through. Since RH-124
+ * every **write** goes through `assertBandAdmin` — *Writing a band's rows* is
+ * unqualified — and only the two reads, `getRepertoireAction` and
+ * `getSongEntryAction`, go through `assertBandMember`.
  */
 const DELEGATIONS: Array<{
   label: string
@@ -115,6 +125,7 @@ const DELEGATIONS: Array<{
     run: (bandId) => addSongAction(SONG_ID, bandId),
     tail: [SONG_ID],
     revalidates: true,
+    adminGated: true,
   },
   {
     label: 'updateSongStatusAction',
@@ -130,6 +141,7 @@ const DELEGATIONS: Array<{
     run: (bandId) => updateSongTagsAction(REPERTOIRE_ID, ['rock'], bandId),
     tail: [REPERTOIRE_ID, ['rock']],
     revalidates: true,
+    adminGated: true,
   },
   {
     label: 'removeSongAction',
@@ -137,6 +149,7 @@ const DELEGATIONS: Array<{
     run: (bandId) => removeSongAction(REPERTOIRE_ID, bandId),
     tail: [REPERTOIRE_ID],
     revalidates: true,
+    adminGated: true,
   },
   {
     label: 'getSongEntryAction',
@@ -159,6 +172,7 @@ const DELEGATIONS: Array<{
     run: (bandId) => createAndAddSongAction(CREATE_DATA, bandId),
     tail: [CREATE_DATA],
     revalidates: true,
+    adminGated: true,
   },
 ]
 
@@ -175,6 +189,7 @@ beforeEach(() => {
   vi.mocked(assertRepertoireAccess).mockResolvedValue({
     id: REPERTOIRE_ID,
     song_id: SONG_ID,
+    version_id: 'version-1',
     user_id: USER_ID,
     band_id: null,
   })
@@ -240,11 +255,13 @@ describe('owner resolution', () => {
 })
 
 /**
- * RH-96 — a band's status is authored by a band admin. The two actions that
- * write `repertoire.status` authorize through `assertBandAdmin`, which is the
- * only admin check either of them makes.
+ * RH-124 ER18 — **every** band write requires band admin, not just the two
+ * status writers RH-96 gated. All seven mutating actions authorize through
+ * `assertBandAdmin`, which is the only admin check any of them makes; a
+ * non-admin member is refused before a single statement runs, and personal
+ * writes are untouched.
  */
-describe('the band-admin gate on the two status writers', () => {
+describe('the band-admin gate on all seven mutating actions', () => {
   const STATUS_WRITERS: Array<{
     label: string
     lib: () => ReturnType<typeof vi.fn>
@@ -259,6 +276,31 @@ describe('the band-admin gate on the two status writers', () => {
       label: 'updateSongAction',
       lib: () => vi.mocked(updateSong),
       run: (bandId) => updateSongAction(ENTRY, UPDATE_DATA, bandId),
+    },
+    {
+      label: 'addSongAction',
+      lib: () => vi.mocked(addSongToRepertoire),
+      run: (bandId) => addSongAction(SONG_ID, bandId),
+    },
+    {
+      label: 'removeSongAction',
+      lib: () => vi.mocked(removeSongFromRepertoire),
+      run: (bandId) => removeSongAction(REPERTOIRE_ID, bandId),
+    },
+    {
+      label: 'updateSongTagsAction',
+      lib: () => vi.mocked(updateSongTags),
+      run: (bandId) => updateSongTagsAction(REPERTOIRE_ID, ['rock'], bandId),
+    },
+    {
+      label: 'createAndAddSongAction',
+      lib: () => vi.mocked(createAndAddSong),
+      run: (bandId) => createAndAddSongAction(CREATE_DATA, bandId),
+    },
+    {
+      label: 'updateLyricsAction',
+      lib: () => vi.mocked(updateLyrics),
+      run: (bandId) => updateLyricsAction(REPERTOIRE_ID, 'la la la', bandId),
     },
   ]
 
@@ -301,8 +343,10 @@ describe('updateLyricsAction', () => {
     expect(revalidatePath).toHaveBeenCalledWith('/')
   })
 
-  it('refuses a bandId the caller is not a member of, without writing', async () => {
-    vi.mocked(assertBandMember).mockRejectedValueOnce(new Error('Access denied: not a member of this band'))
+  // Since RH-124 the refusal comes out of `assertBandAdmin`, not
+  // `assertBandMember`: saving lyrics onto a band's row is a band write.
+  it('refuses a bandId the caller is not an admin of, without writing', async () => {
+    vi.mocked(assertBandAdmin).mockRejectedValueOnce(new Error('Access denied: band admin required'))
 
     await expect(updateLyricsAction(REPERTOIRE_ID, 'hijacked', BAND_ID)).rejects.toThrow('Access denied')
     expect(updateLyrics).not.toHaveBeenCalled()
