@@ -9741,3 +9741,85 @@ fixed in this task (recorded here for the record); four are follow-ups.
     Loud rather than silent, and node-postgres discards an errored connection on release,
     so it is theoretical — noted only because this work is what made `search_path` a live
     concern here. `client.release(error)` would close it outright.
+
+
+## [RH-131] Clear the npm audit advisories — 2026-10-06 (decisions)
+
+`npm run audit` exited 1 on `master` independently of any task, so the
+`Dependency audit (npm audit)` CI job was red on every pull request and carried no
+signal. Eleven advisories: 1 critical, 8 high, 2 moderate. What follows is what was
+fixed, and the two things that were *decided* rather than fixed.
+
+### Fixed outright
+
+1. **`sharp` 0.35.4 → `^0.35.5`** (GHSA-wq5f-xc86-pv6w, high — CVE-2026-96889 in the
+   bundled librsvg). This one was **introduced by RH-127**, which promoted `sharp` to a
+   direct dependency at the version the lockfile happened to carry. `^0.35.5` also
+   restores the repo's own convention: only `next`, `react` and `react-dom` are pinned
+   exactly, everything else is caret-ranged.
+   Worth recording for whoever hits this next: `npm install sharp@^0.35.5` wrote the
+   lockfile but left `node_modules/sharp` at 0.35.4 and reported "up to date" three
+   times. Only `npm ci` reconciled the tree. A version read from `package-lock.json` is
+   not evidence that the installed tree matches it.
+2. **`brace-expansion`, `fast-uri`, `source-map-js`, `smol-toml`** — all four cleared by
+   a plain `npm audit fix`, no breaking change. (Dependabot PR #19 independently carries
+   the first two.)
+3. **`next` 16.3.4 → 16.4.0** — see the decision below.
+
+### Decision 1 — the `next` critical was fixed, not accepted
+
+GHSA-vcvr-r3jv-pc5j, remote code execution in `next/og`'s `ImageResponse`, vulnerable
+range `16.2.0 - 16.3.5`.
+
+**It was not reachable in this app.** A repo-wide grep for `next/og` and `ImageResponse`
+across every `.ts`, `.tsx`, `.js` and `.mjs` outside `node_modules` returns nothing, so
+nothing here constructs an `ImageResponse`. Accepting it on that basis was available and
+would have been defensible.
+
+It was fixed anyway, because the cost turned out to be low and the reachability argument
+is fragile: it holds only until someone adds an OG-image route, which is an ordinary
+thing to do in a Next.js app and would reintroduce an RCE silently, with no advisory
+left to warn them. Note the earlier note in this log claimed npm named the fix as
+`16.3.8`, a patch; the actual fix is **`16.4.0`, a minor bump**.
+
+Verified on 16.4.0: full suite `176 files / 2159 passed / 1 skipped` with
+`RUN_DB_TESTS=1` against Postgres, and `npm run build` succeeds (service worker written,
+40 URLs precached). React stays at 19.2.0, which satisfies 16.4.0's peer range.
+
+### Decision 2 — the `eslint-config-next` chain downgrade was REFUSED
+
+Five high advisories, one root cause:
+
+```
+braces (range: *) → micromatch → fast-glob → @next/eslint-plugin-next → eslint-config-next
+```
+
+npm's only proposed remedy is `eslint-config-next@14.2.35`. **This is refused.**
+
+Two reasons, and the first is the one that matters:
+
+- **`braces`' vulnerable range is `*` — every published version is affected, so no
+  forward fix exists.** npm's suggestion works only because `eslint-config-next@14.2.35`
+  does not depend on `fast-glob` at all, not because anything was patched. And the
+  advisory on `@next/eslint-plugin-next` covers `>=14.3.0-canary.0`, which includes the
+  current latest (16.4.0) — so bumping forward cannot clear it either.
+- It is a **major downgrade of the lint config from the 16.x line this project tracks**,
+  to clear a DoS advisory in a dev-only dependency. `eslint-config-next` is in
+  `devDependencies`, never ships, and runs over this repo's own source. The attack
+  requires feeding the linter a deliberately pathological glob pattern. Trading away
+  lint rules that understand Next.js 16 for that is a bad trade.
+
+`npm audit fix --force` was never run.
+
+### What the gate now measures
+
+`package.json`'s `audit` script becomes `npm audit --audit-level=high --omit=dev`, and
+`audit:all` keeps the unfiltered view. **The production dependency tree is now clean:
+0 vulnerabilities at every severity.** The gate therefore asserts something true and
+useful — nothing we ship to a user has a known high-or-worse advisory — instead of
+failing on five dev-only findings that have no available fix.
+
+The honest cost, stated so nobody is surprised: this stops the CI gate noticing a
+*future* dev-dependency advisory. `audit:all` is the escape hatch, and whoever revisits
+this should run it rather than trusting `audit` alone. The alternative — leaving the gate
+red forever on unfixable findings — teaches everyone to ignore it, which is worse.
