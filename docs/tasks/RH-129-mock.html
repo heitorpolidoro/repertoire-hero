@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-128 — Image files in the viewer and the stage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  .chart { background-image:
+      repeating-linear-gradient(0deg, #0000 0 18px, #d4d4d8 18px 19px),
+      linear-gradient(#fffbeb, #fef3c7); }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+<div class="max-w-5xl mx-auto p-6 flex flex-col gap-10">
+
+  <header class="flex flex-col gap-1">
+    <h1 class="text-2xl font-bold">RH-128 — Render an image file as a single page</h1>
+    <p class="text-sm text-slate-600">Interactive mock. Sections 1–3 show what the task ships. Section 4 is a question for you.</p>
+  </header>
+
+  <!-- 1. Viewer card -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-lg font-semibold">1. The viewer card</h2>
+    <p class="text-sm text-slate-600">Same card, same header row. A PDF keeps the Google viewer iframe; a photo is rendered directly, with no iframe at all.</p>
+    <div class="flex gap-2">
+      <button data-viewer="pdf" class="viewer-tab px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white">PDF tab</button>
+      <button data-viewer="img" class="viewer-tab px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-600">Photo tab (new)</button>
+    </div>
+
+    <div class="flex flex-col gap-2 bg-white border border-emerald-200 rounded-xl p-3 shadow-sm">
+      <div class="flex items-center justify-between px-1">
+        <span id="viewer-title" class="text-xs font-semibold text-slate-700 truncate">Viewing: Guitar chart</span>
+        <div class="flex items-center gap-2">
+          <button class="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">⛶ Stage</button>
+          <button class="text-xs text-slate-400">Close</button>
+        </div>
+      </div>
+
+      <div id="viewer-pdf" class="h-[360px] rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 text-xs text-slate-500">
+        <span class="font-mono bg-white border border-slate-200 rounded px-2 py-1">&lt;iframe src="docs.google.com/gview?url=…"&gt;</span>
+        unchanged
+      </div>
+
+      <div id="viewer-img" class="hidden h-[360px] rounded-lg border border-slate-200 overflow-auto bg-slate-900 flex items-start justify-center">
+        <div class="chart w-[300px] h-[420px] m-3 rounded shadow-lg relative">
+          <div class="absolute top-4 left-4 text-[11px] font-bold text-slate-700">Photo of a handwritten chart</div>
+          <div class="absolute bottom-3 right-3 text-[10px] text-slate-500 font-mono">&lt;img src={file_url}&gt;</div>
+        </div>
+      </div>
+      <p id="viewer-note" class="hidden text-[11px] text-slate-500 px-1">Offline this still paints: the offline file URL is the same-origin cache key the service worker already answers.</p>
+    </div>
+  </section>
+
+  <!-- 2. Stage -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-lg font-semibold">2. The stage</h2>
+    <p class="text-sm text-slate-600">Same annotation layer, same toolbar. For a photo there is one page, so the page arrows and the <span class="font-mono">Page n / m</span> readout are not rendered — the save indicator stays.</p>
+    <div class="flex gap-2">
+      <button data-stage="pdf" class="stage-tab px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white">Multi-page PDF</button>
+      <button data-stage="img" class="stage-tab px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-600">Photo (new)</button>
+    </div>
+
+    <div class="rounded-xl overflow-hidden border border-slate-800 bg-black flex flex-col h-[520px]">
+      <div class="flex items-center justify-between px-4 py-3 bg-slate-900 text-white shrink-0">
+        <div class="flex flex-col min-w-0">
+          <span id="stage-title" class="text-sm font-bold truncate">Guitar chart</span>
+          <span class="text-xs text-slate-400">Smooth Criminal • Am</span>
+        </div>
+        <button class="w-8 h-8 rounded-lg bg-red-600 text-white font-bold text-sm">✕</button>
+      </div>
+
+      <div class="flex-1 min-h-0 overflow-auto flex items-start justify-center p-4">
+        <div id="stage-page" class="chart w-[260px] h-[360px] rounded shadow-xl relative">
+          <svg class="absolute inset-0 w-full h-full" viewBox="0 0 260 360">
+            <path d="M30 120 q40 -30 80 0 t80 10" stroke="#ef4444" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M40 220 l60 20 l50 -30" stroke="#2563eb" stroke-width="3" fill="none" stroke-linecap="round"/>
+          </svg>
+          <div class="absolute top-3 left-3 text-[11px] font-bold text-slate-700" id="stage-kind">Photo, page 1 of 1</div>
+        </div>
+      </div>
+
+      <div class="shrink-0 bg-slate-900 border-t border-slate-800 px-3 py-2 flex flex-col gap-2">
+        <div id="stage-nav" class="flex items-center justify-center gap-3 text-white text-xs">
+          <button class="px-3 py-1.5 rounded-lg bg-slate-800 font-semibold">‹ Prev</button>
+          <span class="font-mono">Page 2 / 4</span>
+          <button class="px-3 py-1.5 rounded-lg bg-slate-800 font-semibold">Next ›</button>
+          <span class="ml-2 text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full bg-slate-800 text-slate-300 save-chip">Saved</span>
+        </div>
+        <div class="flex items-center justify-between gap-2 flex-nowrap overflow-x-auto">
+          <button class="shrink-0 min-h-11 px-3 rounded-lg text-xs font-semibold bg-emerald-600 text-white">✏️ Draw: On</button>
+          <div class="shrink-0 flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-xs text-slate-300">
+            <span class="px-3 py-1.5 rounded-md bg-emerald-600 text-white font-semibold">✏️ Pen</span>
+            <span class="px-3 py-1.5">🧹 Erase</span>
+            <span class="px-3 py-1.5">✋ Pan</span>
+          </div>
+          <div class="shrink-0 flex items-center gap-1.5">
+            <span class="w-6 h-6 rounded-full border-2 border-white bg-black"></span>
+            <span class="w-6 h-6 rounded-full border-2 border-slate-600 bg-red-500"></span>
+            <span class="w-6 h-6 rounded-full border-2 border-slate-600 bg-blue-600"></span>
+            <span class="w-6 h-6 rounded-full border-2 border-slate-600 bg-green-600"></span>
+          </div>
+          <div class="shrink-0 flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-white text-xs">
+            <span class="w-7 h-7 grid place-items-center">−</span><span class="px-2 font-mono">100%</span><span class="w-7 h-7 grid place-items-center">+</span>
+          </div>
+          <span id="stage-nav-inline" class="hidden shrink-0 text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full bg-slate-800 text-slate-300">Saved</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Picker -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-lg font-semibold">3. The upload form</h2>
+    <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-3 shadow-sm max-w-md">
+      <h3 class="text-xs font-semibold text-slate-700">Upload New File</h3>
+      <input class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="Title (e.g. Guitar Solo, Bass)" />
+      <div class="text-xs text-slate-500 border border-dashed border-slate-300 rounded-lg px-3 py-2 font-mono">accept="application/pdf,image/jpeg,image/png,image/webp"</div>
+      <button class="w-full py-2 bg-emerald-600 text-white font-medium text-sm rounded-lg">Upload file</button>
+      <p class="text-[11px] text-slate-500">Section heading becomes <b>Tabs</b>, empty state becomes <b>No files uploaded yet.</b></p>
+    </div>
+  </section>
+
+  <!-- 4. Question -->
+  <section class="flex flex-col gap-3">
+    <h2 class="text-lg font-semibold">4. Stage chrome — a question for you</h2>
+    <p class="text-sm text-slate-700 max-w-3xl">
+      <code>docs/use-cases.md</code> says reading and annotating should look different: with drawing off you should see the page
+      and one small button at the bottom; the full toolbar should only appear once you turn drawing on. That change applies to
+      PDFs exactly as much as to photos, so it is not needed to make photos work. <b>This spec leaves it out and proposes it as
+      the next task (option A).</b> Compare the two below.
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="flex flex-col gap-2">
+        <div class="text-sm font-semibold">A — what this task ships (toolbar always visible)</div>
+        <div class="rounded-xl overflow-hidden border border-slate-800 bg-black flex flex-col h-[400px]">
+          <div class="flex-1 min-h-0 flex items-start justify-center p-3 overflow-hidden">
+            <div class="chart w-[180px] h-full rounded shadow-xl"></div>
+          </div>
+          <div class="shrink-0 bg-slate-900 border-t border-slate-800 px-2 py-2 flex items-center justify-between gap-1 text-white text-[10px]">
+            <span class="px-2 py-2 rounded bg-slate-800">✏️ Draw: Off</span>
+            <span class="px-2 py-2 rounded bg-slate-800">Pen/Erase/Pan</span>
+            <span class="px-2 py-2 rounded bg-slate-800">− 100% +</span>
+            <span class="px-2 py-1 rounded-full bg-slate-800">Saved</span>
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-600">
+          Reading and drawing look the same. One toolbar row, not two — a photo is a single page, so the
+          <span class="font-mono">‹ Prev / Page 1 / 1 / Next ›</span> row from section 2 is not rendered at all, and the
+          <b>Saved</b> chip sits in the toolbar instead. That row is about 60&nbsp;px of the roughly 390&nbsp;px a sideways
+          phone gives the stage: <b>about a sixth</b>, not the quarter two rows would have cost.
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <div class="text-sm font-semibold">B — the use-case chrome, pulled into this task</div>
+        <div class="rounded-xl overflow-hidden border border-slate-800 bg-black flex flex-col h-[400px] relative">
+          <div class="flex-1 min-h-0 flex items-start justify-center p-3 overflow-hidden">
+            <div class="chart w-[180px] h-full rounded shadow-xl"></div>
+          </div>
+          <button class="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/90 border border-slate-700 text-white text-xs font-semibold">✏️ Draw</button>
+        </div>
+        <p class="text-[11px] text-slate-600">
+          Reading shows the page and one button; the toolbar from A appears only after tapping it. It buys back that sixth
+          while reading — and the same sixth on every PDF, which is why it is really its own task.
+        </p>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
+      <b>Answer with one letter.</b> A = ship photos now with the toolbar as it is today, and do the chrome change as its own
+      task next. B = hold this task until the chrome change ships with it.
+      <br /><span class="text-[12px] text-amber-900">Honest note: an earlier draft of this question claimed the bar eats a quarter
+      of a sideways phone. With the page row gone for a single-page photo it is closer to a sixth, so the screen-space argument for
+      doing B now is weaker than it first looked — the remaining argument for B is only that reading and drawing still look
+      identical.</span>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const show = (id, on) => document.getElementById(id).classList.toggle('hidden', !on);
+
+  document.querySelectorAll('.viewer-tab').forEach(btn => btn.addEventListener('click', () => {
+    const img = btn.dataset.viewer === 'img';
+    document.querySelectorAll('.viewer-tab').forEach(b => {
+      const active = b === btn;
+      b.className = 'viewer-tab px-3 py-1.5 text-xs font-semibold rounded-lg ' +
+        (active ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600');
+    });
+    show('viewer-pdf', !img); show('viewer-img', img); show('viewer-note', img);
+    document.getElementById('viewer-title').textContent = 'Viewing: ' + (img ? 'Chart photo' : 'Guitar chart');
+  }));
+
+  document.querySelectorAll('.stage-tab').forEach(btn => btn.addEventListener('click', () => {
+    const img = btn.dataset.stage === 'img';
+    document.querySelectorAll('.stage-tab').forEach(b => {
+      const active = b === btn;
+      b.className = 'stage-tab px-3 py-1.5 text-xs font-semibold rounded-lg ' +
+        (active ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600');
+    });
+    show('stage-nav', !img);
+    show('stage-nav-inline', img);
+    document.getElementById('stage-title').textContent = img ? 'Chart photo' : 'Guitar chart';
+    document.getElementById('stage-kind').textContent = img ? 'Photo, page 1 of 1' : 'PDF, page 2 of 4';
+  }));
+
+  // default: photo selected in the stage, PDF in the viewer
+  document.querySelector('[data-stage="img"]').click();
+  if (window.lucide) window.lucide.createIcons();
+</script>
+</body>
+</html>

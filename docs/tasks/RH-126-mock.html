@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-125 — Playlist entries point at a version</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<div class="max-w-5xl mx-auto px-6 py-10 space-y-12">
+
+  <header class="space-y-2">
+    <h1 class="text-2xl font-semibold">RH-125 — a playlist entry is a version</h1>
+    <p class="text-slate-600 text-sm max-w-3xl">
+      After this task a setlist row names a recording, not a song. Two takes of the same song can
+      sit in the same setlist, and the key/tuning/lyrics shown on a row are resolved from
+      (this playlist's owner, that version). One row type is new and needs a decision: a song that
+      is in the setlist but not in the owner's repertoire.
+    </p>
+  </header>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="space-y-4">
+    <h2 class="text-lg font-semibold">The setlist, with two takes of one song</h2>
+    <p class="text-sm text-slate-600">
+      The version label is the suffix after the title. Both rows below are "Enter Sandman" by
+      Metallica — the album take and the live take — and each carries its own key.
+    </p>
+    <div class="bg-white rounded-xl shadow-sm divide-y divide-slate-100" id="setlist"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="space-y-4">
+    <h2 class="text-lg font-semibold">Page question — a song in the setlist that is not in the repertoire</h2>
+    <p class="text-sm text-slate-600 max-w-3xl">
+      This happens when a song is removed from the repertoire but left in the setlist. It is not an
+      error: the row stays, showing its title, artist, version label and duration. The question is what its
+      mastery chip looks like, since there is no personal progress to show and nothing to cycle
+      when it is tapped.
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold">A</span>
+          <span class="text-sm font-medium">Exactly like today: a normal "Unknown" chip</span>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm divide-y divide-slate-100" id="optionA"></div>
+        <p class="text-xs text-slate-500">
+          Looks identical to a song you own and have not started. Tapping it does nothing, silently.
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">B</span>
+          <span class="text-sm font-medium">A muted "Not in repertoire" chip, not tappable</span>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm divide-y divide-slate-100" id="optionB"></div>
+        <p class="text-xs text-slate-500">
+          Says why there is no progress, and does not invite a tap that cannot do anything.
+          <strong>The spec currently picks B.</strong>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="space-y-3">
+    <h2 class="text-lg font-semibold">Resolution, for context (not a question)</h2>
+    <p class="text-sm text-slate-600 max-w-3xl">
+      The same version shown in a personal playlist and in a band playlist is read against two
+      different rows. Toggle the owner and watch the mastery chip change — nothing about the entry
+      itself changes, only whose repertoire row the chip comes from. (The row shows no key: the
+      playlist list draws title, artist, version label, duration and the chip, and nothing else.)
+    </p>
+    <div class="flex gap-2">
+      <button data-owner="me" class="owner-btn px-3 py-1.5 rounded-lg text-sm bg-slate-900 text-white">My playlist</button>
+      <button data-owner="band" class="owner-btn px-3 py-1.5 rounded-lg text-sm bg-white border border-slate-200">Band playlist</button>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm divide-y divide-slate-100" id="ownerList"></div>
+  </section>
+
+</div>
+
+<script>
+const CHIP = {
+  unknown:    'bg-slate-100 text-slate-600',
+  learning:   'bg-amber-100 text-amber-700',
+  practicing: 'bg-sky-100 text-sky-700',
+  polishing:  'bg-violet-100 text-violet-700',
+  mastered:   'bg-emerald-100 text-emerald-700',
+}
+
+const SETLIST = [
+  { pos: 1, title: 'Enter Sandman', label: null,              artist: 'Metallica', key: 'Em',  status: 'mastered',   dur: '5:31' },
+  { pos: 2, title: 'Enter Sandman', label: 'Live at Wembley', artist: 'Metallica', key: 'D#m', status: 'practicing', dur: '6:48' },
+  { pos: 3, title: 'Black Hole Sun', label: null,             artist: 'Soundgarden', key: 'G',  status: 'learning',  dur: '5:18' },
+]
+
+const OWNER_VIEW = {
+  me:   { label: 'My playlist',   status: 'polishing' },
+  band: { label: 'Band playlist', status: 'learning'  },
+}
+
+function row(entry, chip) {
+  return `
+    <div class="flex items-center gap-4 px-4 py-3">
+      <span class="w-6 text-sm text-slate-400 tabular-nums">${entry.pos}</span>
+      <div class="flex-1 min-w-0">
+        <div class="truncate font-medium">
+          ${entry.title}${entry.label ? `<span class="text-slate-400 font-normal"> — ${entry.label}</span>` : ''}
+        </div>
+        <div class="text-xs text-slate-500 truncate">${entry.artist}</div>
+      </div>
+      <span class="text-xs text-slate-400 tabular-nums w-10 text-right">${entry.dur}</span>
+      ${chip}
+    </div>`
+}
+
+const statusChip = (status) =>
+  `<button class="text-xs px-2.5 py-1 rounded-full font-medium ${CHIP[status]}">${status[0].toUpperCase()+status.slice(1)}</button>`
+
+const noRowChipA = statusChip('unknown')
+const noRowChipB =
+  `<span class="text-xs px-2.5 py-1 rounded-full font-medium bg-white border border-dashed border-slate-300 text-slate-400 cursor-default">Not in repertoire</span>`
+
+document.getElementById('setlist').innerHTML =
+  SETLIST.map((e) => row(e, statusChip(e.status))).join('')
+
+const orphan = { pos: 4, title: 'Spoonman', label: null, artist: 'Soundgarden', key: 'A', dur: '4:06' }
+document.getElementById('optionA').innerHTML = row(SETLIST[0], statusChip(SETLIST[0].status)) + row(orphan, noRowChipA)
+document.getElementById('optionB').innerHTML = row(SETLIST[0], statusChip(SETLIST[0].status)) + row(orphan, noRowChipB)
+
+function renderOwner(owner) {
+  const view = OWNER_VIEW[owner]
+  const entry = { pos: 1, title: 'Enter Sandman', label: 'Live at Wembley', artist: 'Metallica', dur: '6:48' }
+  document.getElementById('ownerList').innerHTML = row(entry, statusChip(view.status))
+  document.querySelectorAll('.owner-btn').forEach((btn) => {
+    const active = btn.dataset.owner === owner
+    btn.className = 'owner-btn px-3 py-1.5 rounded-lg text-sm ' +
+      (active ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200')
+  })
+}
+document.querySelectorAll('.owner-btn').forEach((btn) =>
+  btn.addEventListener('click', () => renderOwner(btn.dataset.owner)))
+renderOwner('me')
+
+if (window.lucide) window.lucide.createIcons()
+</script>
+</body>
+</html>
