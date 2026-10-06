@@ -21,14 +21,20 @@ export const STATUS_SCORES: Record<SongStatus, number> = {
   mastered: 4,
 }
 
-/** Every tag the playlist's songs carry, deduplicated and locale-sorted. */
+/**
+ * Every tag the playlist's songs carry, deduplicated and locale-sorted.
+ *
+ * `repertoire` is keyed by **`version_id`** (RH-125), which is what a playlist
+ * entry names and half of the owner table's unique key. An entry the owner
+ * holds no row for simply contributes no tag.
+ */
 export function collectPlaylistTags(
   songs: PlaylistSong[],
   repertoire: ReadonlyMap<string, Repertoire>,
 ): string[] {
   const tags = new Set<string>()
   for (const ps of songs) {
-    for (const tag of repertoire.get(ps.song_id)?.tags ?? []) tags.add(tag)
+    for (const tag of repertoire.get(ps.version_id)?.tags ?? []) tags.add(tag)
   }
   return [...tags].sort((tagA, tagB) => tagA.localeCompare(tagB))
 }
@@ -51,7 +57,7 @@ export function filterPlaylistSongs(
   let result = songs
   if (filter.tag) {
     const tag = filter.tag
-    result = result.filter((ps) => repertoire.get(ps.song_id)?.tags.includes(tag))
+    result = result.filter((ps) => repertoire.get(ps.version_id)?.tags.includes(tag))
   }
   const query = filter.query.toLowerCase().trim()
   if (query) {
@@ -91,8 +97,8 @@ function nearestScoreStatus(score: number): SongStatus {
 }
 
 /**
- * How far along the playlist is: one count per status (a song with no
- * repertoire entry reads as `unknown`), the total playing time, and the 0-100
+ * How far along the playlist is: one count per status (an entry the owner holds
+ * no row for reads as `unknown`), the total playing time, and the 0-100
  * score with the status label nearest to it. An empty playlist reports
  * `total: 0` and scores 0 rather than dividing by zero.
  */
@@ -109,7 +115,7 @@ export function summarisePlaylistMastery(
   }
   let totalSeconds = 0
   for (const ps of songs) {
-    counts[repertoire.get(ps.song_id)?.status ?? 'unknown']++
+    counts[repertoire.get(ps.version_id)?.status ?? 'unknown']++
     totalSeconds += ps.song?.duration_seconds ?? 0
   }
   const total = songs.length
@@ -143,10 +149,10 @@ export interface SongStatusChange {
  */
 export function setSongStatus(
   repertoire: ReadonlyMap<string, Repertoire>,
-  songId: string,
+  versionId: string,
   status: SongStatus,
 ): SongStatusChange | null {
-  const entry = repertoire.get(songId)
+  const entry = repertoire.get(versionId)
   if (!entry) return null
   return { entry, status, updated: { ...entry, status } }
 }
@@ -154,11 +160,11 @@ export function setSongStatus(
 /** The repertoire map with one entry replaced, cloned so React sees a new map. */
 export function withRepertoireEntry(
   repertoire: ReadonlyMap<string, Repertoire>,
-  songId: string,
+  versionId: string,
   entry: Repertoire,
 ): Map<string, Repertoire> {
   const next = new Map(repertoire)
-  next.set(songId, entry)
+  next.set(versionId, entry)
   return next
 }
 
@@ -177,18 +183,18 @@ export type PlaylistMove = { moved: true; orderedIds: string[] } | { moved: fals
 export const NO_PLAYLIST_MOVE: PlaylistMove = { moved: false }
 
 /**
- * The id order after moving `songId` one place in `direction`. The list is read
- * through `sortPlaylistSongs`, so "the row above" is the row above by
- * `position` whatever order the caller's array happens to be in, and the
- * caller's array is never mutated.
+ * The id order after moving the entry for `versionId` one place in
+ * `direction`. The list is read through `sortPlaylistSongs`, so "the row above"
+ * is the row above by `position` whatever order the caller's array happens to
+ * be in, and the caller's array is never mutated.
  */
 export function movePlaylistSong(
   songs: PlaylistSong[],
-  songId: string,
+  versionId: string,
   direction: 'up' | 'down',
 ): PlaylistMove {
   const sorted = sortPlaylistSongs(songs)
-  const from = sorted.findIndex(ps => ps.song_id === songId)
+  const from = sorted.findIndex(ps => ps.version_id === versionId)
   if (from === -1) return NO_PLAYLIST_MOVE
 
   const to = direction === 'up' ? from - 1 : from + 1

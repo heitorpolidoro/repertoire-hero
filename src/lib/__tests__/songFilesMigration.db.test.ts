@@ -16,8 +16,36 @@
  *     assertions are taken, and the transaction is **always** rolled back. The
  *     shared database never leaves its migrated shape and nothing is left
  *     behind for the next suite. The legacy shape itself comes from
- *     `LEGACY_TABS_DDL` / `LEGACY_TABS_TABLE` in `test-helpers.ts`, the one
- *     place the dropped table is named under `src/` (ER5).
+ *     `legacyCatalogReplayDdl` / `LEGACY_TABS_TABLE` in `test-helpers.ts`, the
+ *     one place the dropped table is named under `src/` (ER5).
+ *
+ * WHERE THE REPLAY HAPPENS, AND WHY IT MOVED (RH-129)
+ *
+ * In a **throwaway `rh123_<token>` schema**, built by `legacyCatalogReplayDdl`
+ * and first on the transaction's `search_path`, so every unqualified name in
+ * the migration file resolves inside it and nothing in `public` is touched.
+ *
+ * It used to rebuild the legacy shape in `public`, which meant dropping
+ * `public.song_files` and `public.abandoned_blobs` to get back to the
+ * pre-migration state. That is the deadlock: `song_files` carries foreign keys
+ * to `profiles` and `songs`, so `DROP TABLE song_files` needs ACCESS EXCLUSIVE
+ * on the *referenced* relations too, and an ordinary suite holding AccessShare
+ * on `songs` and then asking for RowExclusive is taking the same two relations
+ * the other way round. Postgres breaks the cycle by killing one transaction at
+ * random, which reads as an unrelated suite failing with `deadlock detected`.
+ * Measured at 2 occurrences in 24 full runs, in this file and
+ * `ownerSongsMigration`, *with* the advisory lock those two shared — because
+ * the lock serialised them against each other and the other party in the cycle
+ * was never the other replay. The schema removes the shared relation instead,
+ * so there is no lock to order and no lock to take: see the note in
+ * `test-helpers.ts` where that lock used to be.
+ *
+ * Nothing in the migration notices the move. Every name in it is unqualified,
+ * and it issues no `DROP INDEX`, so it is not exposed to the hazard
+ * `legacyCatalogReplayDdl` documents (an unqualified index name resolving along
+ * the `search_path` into `public`); the one existence check that *was* written
+ * against `public` is re-pointed at the replay schema rather than dropped, so
+ * it still proves the migration dropped the legacy table.
  *
  * It is the task's only guard on its one irreversible act — annotations
  * crossing from `repertoire_tabs` into `song_files` — which is why
@@ -35,11 +63,10 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { withTransaction, type Queryable } from '@/lib/db'
 import {
-  LEGACY_REPERTOIRE_DDL,
+  legacyCatalogReplayDdl,
   LEGACY_REPERTOIRE_TABLE,
-  LEGACY_TABS_DDL,
   LEGACY_TABS_TABLE,
-  lockMigrationReplay,
+  ownerStubsDdl,
 } from './test-helpers'
 import type { TabAnnotations } from '@/types/database'
 
@@ -107,43 +134,46 @@ async function insertId(client: Queryable, sql: string, params: unknown[]): Prom
 async function runMigrationScenario(): Promise<MigrationScenario> {
   const sql = migrationSql()
   const token = randomUUID().replace(/-/g, '').slice(0, 12)
+  const schema = `rh123_${token}`
   let scenario: MigrationScenario | undefined
 
   await withTransaction(async (client) => {
-    // First statement, before any DDL: shared with the other replay suites.
-    await lockMigrationReplay(client)
+    // The pre-migration shape, in a schema of its own: `songs`, and the
+    // owner-row and tabs tables RH-124 and RH-123 dropped. `test-helpers.ts` is
+    // the one place either of those two is spelled (RH-123 ER5, RH-124 ER5).
+    //
+    // No `DROP TABLE song_files` / `DROP TABLE abandoned_blobs` is needed or
+    // wanted any more: this schema has neither, and the migration's own
+    // `CREATE TABLE IF NOT EXISTS` resolves for creation in the first schema on
+    // the `search_path`, so it creates them *here* even though `public` holds
+    // both names. Issuing those drops was the deadlock (see the file header).
+    //
+    // `ownerStubsDdl` is what keeps the migration's own foreign keys inside the
+    // schema: `song_files.user_id REFERENCES profiles(id)` is unqualified, and
+    // without a local `profiles` it would resolve to `public`'s and take
+    // SHARE ROW EXCLUSIVE on a table every other worker inserts into.
+    await client.query(legacyCatalogReplayDdl(schema))
+    await client.query(ownerStubsDdl(schema))
+    await client.query(`SET LOCAL search_path = ${schema}, public`)
 
-    // Back to the pre-migration shape. `npm run db:migrate` has already run the
-    // file against this database, so `song_files` and `abandoned_blobs` exist
-    // and `repertoire_tabs` does not.
-    await client.query('DROP TABLE IF EXISTS song_files')
-    await client.query('DROP TABLE IF EXISTS abandoned_blobs')
-    // RH-124 dropped the owner-row table the legacy tabs table's foreign key
-    // points at, so that has to come back first. Both DDLs come from the one
-    // place they are spelled (`test-helpers.ts`).
-    await client.query(LEGACY_REPERTOIRE_DDL)
-    await client.query(LEGACY_TABS_DDL)
-
+    // A synthetic owner, registered in the schema's stub so step 2's
+    // `INSERT INTO song_files` satisfies its foreign key. No `"user"` row and
+    // no real `profiles` row: nothing the migration issues reads a column of
+    // either, and seeding them in `public` would put this replay back in the
+    // lock graph it just left.
     const userId = randomUUID()
-    const email = `rh123-${token}@example.com`
-    await client.query(
-      'INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, true)',
-      [userId, 'RH-123 Owner', email],
-    )
-    await client.query('INSERT INTO profiles (id, email, full_name) VALUES ($1, $2, $3)', [
-      userId,
-      email,
-      'RH-123 Owner',
-    ])
+    await client.query('INSERT INTO profiles (id) VALUES ($1)', [userId])
 
     const songId = await insertId(
       client,
       'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
       [`RH-123 Song ${token}`, `RH-123 Artist ${token}`],
     )
-    const bandId = await insertId(client, 'INSERT INTO bands (name) VALUES ($1) RETURNING id', [
-      `RH-123 Band ${token}`,
-    ])
+    // Synthetic too, and deliberately *not* registered: the replay schema's
+    // owner-row table carries no band foreign key (see `legacyRepertoireDdl`),
+    // and the band-owned path is the one the migration drops rather than
+    // carries, so it never reaches a table that references `bands`.
+    const bandId = randomUUID()
 
     const userEntryId = await insertId(
       client,
@@ -175,18 +205,29 @@ async function runMigrationScenario(): Promise<MigrationScenario> {
        FROM song_files WHERE song_id = $1 ORDER BY created_at`,
       [songId],
     )
+    // Both of these used to name `public` and now name the replay schema. They
+    // are re-pointed rather than dropped: against `public` they would now be
+    // vacuous — `public.song_files` is whatever `npm run db:migrate` left and
+    // `public.repertoire_tabs` has been gone since RH-123 — so they would pass
+    // without the migration having run at all. Read inside the schema they
+    // still assert what they were written to assert: the column set this file
+    // creates, and that its last statement dropped the legacy table.
     const columns = await client.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'song_files'`,
-      [],
+       WHERE table_schema = $1 AND table_name = 'song_files'`,
+      [schema],
     )
     const abandoned = await client.query<{ file_url: string; reason: string }>(
-      'SELECT file_url, reason FROM abandoned_blobs ORDER BY file_url',
+      // Schema-qualified on purpose: unqualified, this would fall through to
+      // `public.abandoned_blobs` if the migration's own `CREATE TABLE IF NOT
+      // EXISTS` were ever removed, and fail against an empty live table with a
+      // message pointing nowhere.
+      `SELECT file_url, reason FROM ${schema}.abandoned_blobs ORDER BY file_url`,
       [],
     )
     const stillThere = await client.query<{ exists: boolean }>(
-      `SELECT to_regclass('public.${LEGACY_TABS_TABLE}') IS NOT NULL AS exists`,
-      [],
+      `SELECT to_regclass($1) IS NOT NULL AS exists`,
+      [`${schema}.${LEGACY_TABS_TABLE}`],
     )
 
     scenario = {

@@ -26,17 +26,21 @@ import type { Song, Playlist, PlaylistSong, Repertoire } from '@/types/database'
 afterEach(cleanup)
 afterEach(() => vi.unstubAllGlobals())
 
-function song(songId: string, position: number): PlaylistSong {
-  return { id: `ps-${songId}`, playlist_id: 'pl-1', song_id: songId, position }
+/**
+ * One playlist entry, keyed by the **version** it names (RH-125); `song_id` is
+ * derived rather than equal, so a lookup by the wrong id cannot pass.
+ */
+function song(versionId: string, position: number): PlaylistSong {
+  return { id: `ps-${versionId}`, playlist_id: 'pl-1', version_id: versionId, position }
 }
 
-function entry(songId: string, overrides: Partial<Repertoire> = {}): Repertoire {
+function entry(versionId: string, overrides: Partial<Repertoire> = {}): Repertoire {
   return {
-    id: `rep-${songId}`,
+    id: `rep-${versionId}`,
     user_id: 'u1',
     band_id: null,
-    song_id: songId,
-    version_id: 'version-1',
+    song_id: `song-of-${versionId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -121,7 +125,7 @@ describe('usePlaylistDetail (RH-71)', () => {
     const { result, fetchMock } = setup()
 
     expect(result.current.playlist.name).toBe('Setlist')
-    expect(result.current.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(result.current.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
     expect(result.current.repertoireMap.get('s1')?.id).toBe('rep-s1')
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -164,8 +168,12 @@ describe('usePlaylistDetail (RH-71)', () => {
       await result.current.removeSong('s2')
     })
 
+    // RH-125 ER13 — removal is by `(playlist_id, version_id)`: `s2` is the
+    // entry's `version_id`, and the row's `song_id` (`song-of-s2`) is not what
+    // is sent. The hook hands the lib function exactly what the row names.
     expect(actions.removeSongFromPlaylist).toHaveBeenCalledWith('pl-1', 's2')
-    expect(result.current.songs.map((ps) => ps.song_id)).toEqual(['s1'])
+    expect(actions.removeSongFromPlaylist).not.toHaveBeenCalledWith('pl-1', 'song-of-s2')
+    expect(result.current.songs.map((ps) => ps.version_id)).toEqual(['s1'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(onRefresh).toHaveBeenCalledTimes(1)
 
@@ -176,7 +184,7 @@ describe('usePlaylistDetail (RH-71)', () => {
       await result.current.sync.pull()
     })
 
-    expect(result.current.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(result.current.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
   })
 
   it('restores a removed song and reports the failure when the write rejects', async () => {
@@ -189,7 +197,7 @@ describe('usePlaylistDetail (RH-71)', () => {
       await result.current.removeSong('s2')
     })
 
-    expect(result.current.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(result.current.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
     expect(result.current.error).toBe('Failed to remove song')
     expect(onRefresh).not.toHaveBeenCalled()
   })
@@ -311,7 +319,7 @@ describe('usePlaylistDetail (RH-71)', () => {
     })
 
     expect(pickerActions.addSongToPlaylist).toHaveBeenCalledWith('pl-1', 's3')
-    expect(result.current.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2', 's3'])
+    expect(result.current.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2', 's3'])
     expect(onRefresh).toHaveBeenCalledTimes(1)
   })
 

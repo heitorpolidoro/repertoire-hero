@@ -20,7 +20,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongPicker, type SongPickerActions, type UseSongPickerOptions } from '@/hooks/useSongPicker'
 import { searchSpotify } from '@/lib/spotify'
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { Song, PlaylistSong, Repertoire } from '@/types/database'
+import type { CatalogSearchResult, Song, PlaylistSong, Repertoire } from '@/types/database'
 
 vi.mock('@/lib/spotify', () => ({ searchSpotify: vi.fn() }))
 
@@ -60,8 +60,18 @@ function track(id: string, title: string, artist = 'Led Zeppelin'): SpotifyTrack
   }
 }
 
+/**
+ * A catalog search result (RH-125): the song plus the representative version the
+ * search already computed, named `v-<song id>` so the two ids are never
+ * interchangeable in an assertion.
+ */
+function result_(id: string, title: string, artist = 'Led Zeppelin'): CatalogSearchResult {
+  return { ...song(id, title, artist), version_id: `v-${id}` }
+}
+
+/** One playlist entry, naming the version its song's card would add. */
 function playlistSong(songId: string): PlaylistSong {
-  return { id: `ps-${songId}`, playlist_id: PLAYLIST_ID, song_id: songId, position: 0 }
+  return { id: `ps-${songId}`, playlist_id: PLAYLIST_ID, version_id: `v-${songId}`, position: 0 }
 }
 
 function entry(songId: string, title?: string, artist?: string): Repertoire {
@@ -70,7 +80,7 @@ function entry(songId: string, title?: string, artist?: string): Repertoire {
     user_id: 'user-1',
     band_id: null,
     song_id: songId,
-    version_id: 'version-1',
+    version_id: `v-${songId}`,
     key: null,
     tuning: null,
     map: null,
@@ -228,7 +238,11 @@ describe('useSongPicker', () => {
 
   it('hides a catalog result already in the playlist', async () => {
     const actions = makeActions()
-    actions.searchCatalog.mockResolvedValue([song('song-1', 'Kashmir'), song('song-2', 'Black Dog')])
+    actions.searchCatalog.mockResolvedValue([
+      result_('song-1', 'Kashmir'),
+      result_('song-2', 'Black Dog'),
+    ])
+    // The playlist holds `v-song-1`, so the filter compares version ids.
     const { result } = setup({ actions, songs: [playlistSong('song-1')] })
 
     act(() => result.current.changeQuery('kash'))
@@ -239,7 +253,7 @@ describe('useSongPicker', () => {
 
   it('hides a Spotify track the catalog already covers', async () => {
     const actions = makeActions()
-    actions.searchCatalog.mockResolvedValue([song('song-1', 'Kashmir')])
+    actions.searchCatalog.mockResolvedValue([result_('song-1', 'Kashmir')])
     searchSpotifyMock.mockResolvedValue([track('sp-1', 'KASHMIR'), track('sp-2', 'Rock and Roll')])
     const { result } = setup({ actions })
 
@@ -266,17 +280,21 @@ describe('useSongPicker', () => {
   it('adds a catalog song already in the repertoire straight to the playlist', async () => {
     const actions = makeActions()
     actions.getPlaylistWithSongs.mockResolvedValue({ songs: [playlistSong('song-1')] })
+    // The repertoire map is keyed by `version_id` (RH-125).
     const { result, onSongsChanged, afterAdd } = setup({
       actions,
-      repertoire: new Map([['song-1', entry('song-1', 'Kashmir')]]),
+      repertoire: new Map([['v-song-1', entry('song-1', 'Kashmir')]]),
     })
 
     await act(async () => {
-      await result.current.addCatalogSong(song('song-1', 'Kashmir'))
+      await result.current.addCatalogSong(result_('song-1', 'Kashmir'))
     })
 
+    // RH-125 ER13/ER14 — the card's own version goes to the playlist, and the
+    // song id is not what is sent.
     expect(actions.addToRepertoire).not.toHaveBeenCalled()
-    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'song-1')
+    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-1')
+    expect(actions.addSongToPlaylist).not.toHaveBeenCalledWith(PLAYLIST_ID, 'song-1')
     expect(actions.getPlaylistWithSongs).toHaveBeenCalledWith(PLAYLIST_ID)
     expect(onSongsChanged).toHaveBeenCalledWith([playlistSong('song-1')])
     expect(afterAdd).toHaveBeenCalledTimes(1)
@@ -288,11 +306,13 @@ describe('useSongPicker', () => {
     const { result } = setup({ actions })
 
     await act(async () => {
-      await result.current.addCatalogSong(song('song-1', 'Kashmir'))
+      await result.current.addCatalogSong(result_('song-1', 'Kashmir'))
     })
 
+    // `addToRepertoire` takes the **song** — it is what resolves the version —
+    // and the version it answers with is what reaches the playlist.
     expect(actions.addToRepertoire).toHaveBeenCalledWith('song-1')
-    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'song-1')
+    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-1')
     expect(actions.addToRepertoire.mock.invocationCallOrder[0]).toBeLessThan(
       actions.addSongToPlaylist.mock.invocationCallOrder[0],
     )
@@ -316,7 +336,7 @@ describe('useSongPicker', () => {
       cover_url: 'https://img.example/cover.jpg',
       links: [{ label: 'Spotify', url: spotifyTrack.spotifyUrl }],
     })
-    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'song-9')
+    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-9')
   })
 
   it('reuses the existing repertoire entry when the create reports the song is already in the repertoire', async () => {
@@ -324,14 +344,15 @@ describe('useSongPicker', () => {
     actions.createAndAddSong.mockRejectedValue(new Error('Song is already in your repertoire'))
     const { result } = setup({
       actions,
-      repertoire: new Map([['song-7', entry('song-7', 'Kashmir', 'Led Zeppelin')]]),
+      repertoire: new Map([['v-song-7', entry('song-7', 'Kashmir', 'Led Zeppelin')]]),
     })
 
     await act(async () => {
       await result.current.addSpotifyTrack(track('sp-7', 'KASHMIR', 'LED ZEPPELIN'))
     })
 
-    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'song-7')
+    // The recovery reads the **version** the owner already holds for that song.
+    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-7')
     expect(result.current.rowErrors).toEqual({})
 
     // ...and with no entry to reuse, the create's own error is what the row shows.
@@ -346,7 +367,7 @@ describe('useSongPicker', () => {
   it('records a per-row error when an add fails and clears it on the next attempt', async () => {
     const actions = makeActions()
     actions.addSongToPlaylist.mockRejectedValueOnce(new Error('Playlist is locked'))
-    const { result } = setup({ actions, repertoire: new Map([['song-1', entry('song-1', 'Kashmir')]]) })
+    const { result } = setup({ actions, repertoire: new Map([['v-song-1', entry('song-1', 'Kashmir')]]) })
 
     let settled = false
     await act(async () => {

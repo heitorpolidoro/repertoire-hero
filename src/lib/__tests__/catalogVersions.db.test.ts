@@ -412,10 +412,15 @@ describe.skipIf(!RUN_DB_TESTS)('the catalog write paths (RH-122)', () => {
       durationSeconds: 231,
     })
 
-    const firstId = await findOrCreateSong(track)
-    const secondId = await findOrCreateSong(track)
+    const first = await findOrCreateSong(track)
+    const second = await findOrCreateSong(track)
+    const firstId = first.songId
 
-    expect(secondId).toBe(firstId)
+    expect(second.songId).toBe(firstId)
+    // RH-125 — the **same** version id both times. The second call's insert is
+    // a no-op, so the id comes from the read-back; an id that differed would
+    // mean the playlist entry pointed at a second row for the same recording.
+    expect(second.versionId).toBe(first.versionId)
     expect(await countOf('songs', 'artist = $1', [importArtist])).toBe(1)
     expect(await countOf('albums', 'artist = $1', [importArtist])).toBe(1)
     expect(await countOf('song_versions', 'song_id = $1', [firstId])).toBe(1)

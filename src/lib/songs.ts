@@ -14,21 +14,32 @@ import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitSongEdit } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
-import { upsertAlbumAndVersion } from '@/lib/songVersions'
+import { representativeVersionSubquery, upsertAlbumAndVersion } from '@/lib/songVersions'
 import { splitCatalogUpdate } from '@/lib/catalogFields'
-import type { Song, SongLink, SongStatus, RefusedCatalogField } from '@/types/database'
+import type { CatalogSearchResult, Song, SongLink, SongStatus, RefusedCatalogField } from '@/types/database'
 
-export async function searchSongs(queryStr: string): Promise<Song[]> {
+/**
+ * Catalog matches for the picker's query, each carrying the id of its
+ * **representative version** (RH-125) so a collapsed card can add exactly that
+ * version and the picker computes no ordering of its own.
+ *
+ * The subquery is `representativeVersionSubquery`, the one place that ordering
+ * exists, and it answers `null` for a `songs` row that has no version yet —
+ * which `scripts/seed-catalog.sql` can produce. The caller treats a null as
+ * "let the repertoire write resolve it", never as "unavailable".
+ */
+export async function searchSongs(queryStr: string): Promise<CatalogSearchResult[]> {
   const trimmed = queryStr.trim()
   if (!trimmed) return []
   const sql = `
-    SELECT * FROM songs
-    WHERE title ILIKE $1 OR artist ILIKE $1
-    ORDER BY title ASC
+    SELECT s.*, ${representativeVersionSubquery('s.id')} AS version_id
+    FROM songs s
+    WHERE s.title ILIKE $1 OR s.artist ILIKE $1
+    ORDER BY s.title ASC
     LIMIT 20
   `
   try {
-    const res = await query<Song>(sql, [`%${trimmed}%`])
+    const res = await query<CatalogSearchResult>(sql, [`%${trimmed}%`])
     return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))

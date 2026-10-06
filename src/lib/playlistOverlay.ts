@@ -27,7 +27,10 @@ import type { Playlist, PlaylistSong, Repertoire } from '@/types/database'
  * because a pull rewrites the server list wholesale and reports no list this
  * overlay could compare against. Without that, a re-added song is written to
  * the database and never seen again until a full page load, and the second
- * attempt is a silent no-op (`addSongToPlaylist` is `ON CONFLICT DO NOTHING`).
+ * attempt raises rather than passing silently: `addSongToPlaylist`'s insert
+ * carries **no** `ON CONFLICT` clause (RH-125 §2) — it is positional, so an
+ * arbiter would leave a `position` gap behind the row it skipped — so a
+ * duplicate add fails on `uq_playlist_song_version`.
  *
  * The names are deliberately not the ones `src/lib/playlistList.ts` exports for
  * `PlaylistsView` — two same-shaped lib exports under the same name, one import
@@ -41,13 +44,16 @@ export interface PlaylistDetailOverlay {
   /** A replacement tag list for the playlist itself, or `null` when none was. */
   tags: string[] | null
   /**
-   * Song ids removed here; their rows go before the write lands, and stay gone
-   * until the picker reports them back or a pull rewrites the list.
+   * Version ids removed here; their rows go before the write lands, and stay
+   * gone until the picker reports them back or a pull rewrites the list.
+   *
+   * Version ids and not song ids (RH-125): a playlist entry names a version, so
+   * two takes of one song are two rows and hiding one must not hide the other.
    */
-  removedSongIds: string[]
+  removedVersionIds: string[]
   /** The rows the add-song picker last reported from its own reload. */
   reportedSongs: PlaylistSong[]
-  /** Repertoire entries edited here, by song id. */
+  /** Repertoire entries edited here, by `version_id`. */
   entries: Record<string, Repertoire>
   /**
    * RH-103 — `position` overrides by `playlist_songs.id`, laid over the server
@@ -63,18 +69,18 @@ export interface PlaylistDetailOverlay {
 export type PlaylistOverlayAction =
   | { type: 'rename'; name: string }
   | { type: 'playlist-tags'; tags: string[] }
-  | { type: 'remove-song'; songId: string }
-  | { type: 'restore-song'; songId: string }
+  | { type: 'remove-song'; versionId: string }
+  | { type: 'restore-song'; versionId: string }
   | { type: 'songs-reported'; songs: PlaylistSong[] }
   | { type: 'songs-pulled' }
-  | { type: 'repertoire-entry'; songId: string; entry: Repertoire }
+  | { type: 'repertoire-entry'; versionId: string; entry: Repertoire }
   | { type: 'song-positions'; positions: Record<string, number> }
 
 /** The starting value, so no call site has to spell the literal (`NO_PANEL`). */
 export const EMPTY_PLAYLIST_OVERLAY: PlaylistDetailOverlay = {
   name: null,
   tags: null,
-  removedSongIds: [],
+  removedVersionIds: [],
   reportedSongs: [],
   entries: {},
   positions: {},
@@ -95,29 +101,29 @@ export function playlistOverlayReducer(
     case 'playlist-tags':
       return { ...state, tags: action.tags }
     case 'remove-song':
-      return { ...state, removedSongIds: [...state.removedSongIds, action.songId] }
+      return { ...state, removedVersionIds: [...state.removedVersionIds, action.versionId] }
     case 'restore-song':
       return {
         ...state,
-        removedSongIds: state.removedSongIds.filter(id => id !== action.songId),
+        removedVersionIds: state.removedVersionIds.filter(id => id !== action.versionId),
       }
     case 'songs-reported': {
-      // A song the picker just reported is in the playlist again, whoever put
-      // it there, so the entry that hid it is released with it. The ids the
+      // A version the picker just reported is in the playlist again, whoever
+      // put it there, so the entry that hid it is released with it. The ids the
       // report does not carry keep theirs: that is a removal still in flight.
-      const reported = new Set(action.songs.map(ps => ps.song_id))
+      const reported = new Set(action.songs.map(ps => ps.version_id))
       return {
         ...state,
         reportedSongs: action.songs,
-        removedSongIds: state.removedSongIds.filter(id => !reported.has(id)),
+        removedVersionIds: state.removedVersionIds.filter(id => !reported.has(id)),
       }
     }
     case 'songs-pulled':
       // A pull replaced the server list from Spotify and reports nothing to
       // compare against, so every removal this tab was hiding is released.
-      return { ...state, removedSongIds: [] }
+      return { ...state, removedVersionIds: [] }
     case 'repertoire-entry':
-      return { ...state, entries: { ...state.entries, [action.songId]: action.entry } }
+      return { ...state, entries: { ...state.entries, [action.versionId]: action.entry } }
     case 'song-positions':
       // Replaced, not merged — see the field's note above.
       return { ...state, positions: action.positions }
@@ -129,12 +135,12 @@ export function playlistOverlayReducer(
 /**
  * What the island renders: the server playlist with this tab's rename and tag
  * list over it, the server song list with the removals hidden and the rows the
- * picker reported appended, and the owner's repertoire indexed by song id with
- * the locally edited entries replaced.
+ * picker reported appended, and the owner's repertoire indexed by `version_id`
+ * with the locally edited entries replaced.
  *
  * A reported row the server props already carry is dropped rather than appended
- * twice — matched by `song_id`, which is what the whole list is keyed by — and
- * the server's own order is left alone.
+ * twice — matched by `version_id`, which is what the whole list is keyed by
+ * (RH-125) — and the server's own order is left alone.
  */
 export function applyDetailOverlay(
   serverPlaylist: Playlist,
@@ -148,13 +154,13 @@ export function applyDetailOverlay(
   }
 
   const serverSongs = serverPlaylist.songs ?? []
-  const known = new Set(serverSongs.map(ps => ps.song_id))
-  const removed = new Set(overlay.removedSongIds)
+  const known = new Set(serverSongs.map(ps => ps.version_id))
+  const removed = new Set(overlay.removedVersionIds)
   const songs = [
     ...serverSongs,
-    ...overlay.reportedSongs.filter(ps => !known.has(ps.song_id)),
+    ...overlay.reportedSongs.filter(ps => !known.has(ps.version_id)),
   ]
-    .filter(ps => !removed.has(ps.song_id))
+    .filter(ps => !removed.has(ps.version_id))
     .map(ps =>
       // A row the overlay says nothing about keeps the server's own position,
       // which is also why this entry is inert once the refresh lands.
@@ -164,8 +170,8 @@ export function applyDetailOverlay(
     )
 
   const repertoireMap = Object.entries(overlay.entries).reduce(
-    (map, [songId, entry]) => withRepertoireEntry(map, songId, entry),
-    new Map<string, Repertoire>(repertoire.map(entry => [entry.song_id, entry])),
+    (map, [versionId, entry]) => withRepertoireEntry(map, versionId, entry),
+    new Map<string, Repertoire>(repertoire.map(entry => [entry.version_id, entry])),
   )
 
   return { playlist, songs, repertoireMap }

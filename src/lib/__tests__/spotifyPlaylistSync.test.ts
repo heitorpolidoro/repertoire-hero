@@ -29,6 +29,7 @@ import {
   findOrCreateSong,
   ensureInRepertoire,
   buildPlaylistSongsInsert,
+  dedupeVersionIds,
 } from '../spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '../spotifyPlaylistSync'
 
@@ -131,15 +132,16 @@ describe('findOrCreateSong', () => {
         rows: [{ id: 'song-1', links: [{ label: 'Chords', url: 'http://chords' }] }],
         rowCount: 1,
       })
-      // 2 — the album upsert, 3 — the version upsert (RH-122)
+      // 2 — the album upsert, 3 — the version upsert (RH-122), which answers
+      // its own id since RH-125
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
       // 4 — the link append
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
-    const songId = await findOrCreateSong(rawTrack)
+    const resolved = await findOrCreateSong(rawTrack)
 
-    expect(songId).toBe('song-1')
+    expect(resolved).toEqual({ songId: 'song-1', versionId: 'version-1' })
     expect(mockedQuery).toHaveBeenCalledTimes(4)
     const [updateSql, updateValues] = mockedQuery.mock.calls[3]
     expect(updateSql).toBe('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2')
@@ -159,9 +161,12 @@ describe('findOrCreateSong', () => {
         rowCount: 1,
       })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
-    expect(await findOrCreateSong(rawTrack)).toBe('song-1')
+    expect(await findOrCreateSong(rawTrack)).toEqual({
+      songId: 'song-1',
+      versionId: 'version-1',
+    })
     // The lookup plus the two upserts, and no `UPDATE songs`.
     expect(mockedQuery).toHaveBeenCalledTimes(3)
     const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
@@ -173,9 +178,12 @@ describe('findOrCreateSong', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
-    expect(await findOrCreateSong(rawTrack)).toBe('song-new')
+    expect(await findOrCreateSong(rawTrack)).toEqual({
+      songId: 'song-new',
+      versionId: 'version-1',
+    })
 
     // Both statements come from `@/lib/songIdentity` now (RH-95): the lookup
     // carries the artist predicate and no album one, and the insert seeds the
@@ -214,7 +222,7 @@ describe('findOrCreateSong', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await findOrCreateSong(rawTrack)
 
@@ -229,7 +237,7 @@ describe('findOrCreateSong', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await findOrCreateSong(rawTrack)
 
@@ -244,59 +252,131 @@ describe('ensureInRepertoire', () => {
     // INSERT … SELECT, so the statement count no longer depends on the band.
     mockedQuery.mockResolvedValue({ rows: [], rowCount: 0 })
 
-    await ensureInRepertoire('song-1', { bandId: 'band-1' })
+    await ensureInRepertoire('version-1', { bandId: 'band-1' })
 
     expect(mockedQuery).toHaveBeenCalledTimes(2)
 
     const [bandSql, bandValues] = mockedQuery.mock.calls[0]
     expect(String(bandSql)).toContain('INSERT INTO band_songs (band_id, version_id, status)')
-    // The version is the representative one for the song, and the join onto
-    // `albums` inside that ordering is a LEFT JOIN — an inner one would drop
-    // every album-less version (RH-124 ER4).
-    expect(String(bandSql)).toContain('LEFT JOIN albums')
+    // RH-125: the caller resolved the version, so there is no
+    // representative-version pick left here — and therefore no `albums` join.
+    expect(String(bandSql)).not.toContain('albums')
     expect(String(bandSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
-    expect(bandValues).toEqual(['band-1', 'song-1'])
+    expect(bandValues).toEqual(['band-1', 'version-1'])
 
     const [membersSql, memberValues] = mockedQuery.mock.calls[1]
     expect(String(membersSql)).toContain('INSERT INTO user_songs (user_id, version_id, status)')
     expect(String(membersSql)).toContain('FROM band_members')
+    expect(String(membersSql)).not.toContain('albums')
     expect(String(membersSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
-    expect(memberValues).toEqual(['song-1', 'band-1'])
+    expect(memberValues).toEqual(['version-1', 'band-1'])
   })
 
   it('issues exactly one statement for a personal owner', async () => {
     mockedQuery.mockResolvedValue({ rows: [], rowCount: 0 })
 
-    await ensureInRepertoire('song-1', { userId: 'u1' })
+    await ensureInRepertoire('version-1', { userId: 'u1' })
 
     expect(mockedQuery).toHaveBeenCalledTimes(1)
     const [sql, values] = mockedQuery.mock.calls[0]
     expect(String(sql)).toContain('INSERT INTO user_songs (user_id, version_id, status)')
     expect(String(sql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
-    expect(values).toEqual(['u1', 'song-1'])
+    expect(values).toEqual(['u1', 'version-1'])
   })
 
   it('runs on the client it is handed so it can join a caller transaction', async () => {
     const clientQuery = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 })
 
-    await ensureInRepertoire('song-1', { userId: 'u1' }, { query: clientQuery })
+    await ensureInRepertoire('version-1', { userId: 'u1' }, { query: clientQuery })
 
     expect(clientQuery).toHaveBeenCalledTimes(1)
     expect(mockedQuery).not.toHaveBeenCalled()
   })
 
   it('does nothing when the owner carries neither a band nor a user', async () => {
-    await ensureInRepertoire('song-1', {})
+    await ensureInRepertoire('version-1', {})
     expect(mockedQuery).not.toHaveBeenCalled()
   })
 })
 
 describe('buildPlaylistSongsInsert', () => {
   it('numbers placeholders in threes and assigns positions 1..n', () => {
-    const { sql, values } = buildPlaylistSongsInsert('pl-1', ['s1', 's2'])
+    const { sql, values } = buildPlaylistSongsInsert('pl-1', ['v1', 'v2'])
 
-    expect(sql).toContain('INSERT INTO playlist_songs (playlist_id, song_id, position)')
+    // RH-125 ER15: the column is `version_id`.
+    expect(sql).toContain('INSERT INTO playlist_songs (playlist_id, version_id, position)')
     expect(sql).toContain('($1, $2, $3), ($4, $5, $6)')
-    expect(values).toEqual(['pl-1', 's1', 1, 'pl-1', 's2', 2])
+    expect(values).toEqual(['pl-1', 'v1', 1, 'pl-1', 'v2', 2])
+  })
+
+  /**
+   * RH-125 ER15 / §2 — **no `ON CONFLICT` clause**, asserted rather than
+   * described.
+   *
+   * The insert is positional: an arbiter that skipped a duplicate version would
+   * leave a `position` gap behind the skipped row, and a duplicate add would
+   * stop raising. Neither failure is visible to any other assertion in this
+   * task, which is why it is pinned here.
+   */
+  it('carries no ON CONFLICT clause', () => {
+    const { sql } = buildPlaylistSongsInsert('pl-1', ['v1', 'v2', 'v3'])
+
+    expect(sql).not.toMatch(/ON\s+CONFLICT/i)
+    expect(sql).not.toMatch(/song_id/)
+  })
+
+  /**
+   * RH-125 ER15 — two versions of **one** song both reach the playlist, in
+   * order.
+   *
+   * This is what the re-key buys: the old `uq_playlist_song (playlist_id,
+   * song_id)` refused the second one outright, so importing a Spotify playlist
+   * holding the album take and the remaster of a song used to fail the whole
+   * import. The two tracks resolve to two versions under RH-122's
+   * `(song_id, album_id, label)` identity, and both get a row.
+   */
+  it('keeps two versions of one song, in playlist order (ER15)', () => {
+    const { sql, values } = buildPlaylistSongsInsert('pl-1', ['v-studio', 'v-remaster'])
+
+    expect(sql).toContain('($1, $2, $3), ($4, $5, $6)')
+    expect(values).toEqual(['pl-1', 'v-studio', 1, 'pl-1', 'v-remaster', 2])
+  })
+
+  /** Re-syncing the same track resolves to one version, so one row is written. */
+  it('writes one row for a single version, whatever resolved to it', () => {
+    const { values } = buildPlaylistSongsInsert('pl-1', ['v-studio'])
+
+    expect(values).toEqual(['pl-1', 'v-studio', 1])
+  })
+})
+
+/**
+ * RH-125 ER15 — the pull's dedup compares **versions**.
+ *
+ * `dedupeVersionIds` is the dedup the sync route runs, imported rather than
+ * re-implemented. It used to be a local copy of the route's loop commented
+ * "exactly the route's loop", which asserted only itself: deleting the route's
+ * dedup entirely left this suite green, so ER15's first two clauses were
+ * unasserted. The route now has no loop of its own to drift from this.
+ */
+describe('the pull dedup, by version (dedupeVersionIds)', () => {
+  it('keeps both takes of one song, in order', () => {
+    // Two tracks of one song resolving to two versions: both entries survive,
+    // and they survive in the order the playlist gave them.
+    expect(dedupeVersionIds(['v-studio', 'v-remaster'])).toEqual(['v-studio', 'v-remaster'])
+  })
+
+  it('adds nothing for the same track twice', () => {
+    expect(dedupeVersionIds(['v-studio', 'v-studio'])).toEqual(['v-studio'])
+  })
+
+  it('keeps the first occurrence, not the last', () => {
+    // What makes the dedup order-preserving rather than a bare `new Set()`
+    // round trip: a repeat later in the playlist must not move the entry.
+    expect(dedupeVersionIds(['v-a', 'v-b', 'v-a', 'v-c', 'v-b'])).toEqual(['v-a', 'v-b', 'v-c'])
+  })
+
+  it('answers an empty list for no tracks', () => {
+    expect(dedupeVersionIds([])).toEqual([])
   })
 })

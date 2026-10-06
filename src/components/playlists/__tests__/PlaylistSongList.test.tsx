@@ -26,17 +26,22 @@ import type { PlaylistSong, Repertoire, SongStatus } from '@/types/database'
 
 afterEach(cleanup)
 
+/**
+ * One row, keyed by the **version** it names (RH-125). `song.id` is derived, so
+ * a repertoire map keyed by the song id cannot pass for one keyed by version.
+ */
 function playlistSong(
-  songId: string,
-  overrides: { position?: number; title?: string; duration?: number | null } = {},
+  versionId: string,
+  overrides: { position?: number; title?: string; duration?: number | null; label?: string } = {},
 ): PlaylistSong {
   return {
-    id: `ps-${songId}`,
+    id: `ps-${versionId}`,
     playlist_id: 'playlist-1',
-    song_id: songId,
+    version_id: versionId,
     position: overrides.position ?? 0,
+    label: overrides.label ?? null,
     song: {
-      id: songId,
+      id: `song-of-${versionId}`,
       title: overrides.title ?? 'Kashmir',
       artist: 'Led Zeppelin',
       album: 'Physical Graffiti',
@@ -49,13 +54,13 @@ function playlistSong(
   }
 }
 
-function entry(songId: string, status: SongStatus, tags: string[] = []): Repertoire {
+function entry(versionId: string, status: SongStatus, tags: string[] = []): Repertoire {
   return {
-    id: `rep-${songId}`,
+    id: `rep-${versionId}`,
     user_id: 'user-1',
     band_id: null,
-    song_id: songId,
-    version_id: 'version-1',
+    song_id: `song-of-${versionId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -305,5 +310,65 @@ describe('PlaylistSongList', () => {
 
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(editor.close).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * RH-125 ER18 — two takes of one song are distinguishable in the list.
+ *
+ * This is the whole user-visible point of the re-key: a playlist can now hold
+ * the studio take and the live take of one song, and without the version's
+ * label the two rows would be character-for-character identical. The label is
+ * drawn by `PlaylistSongIdentity`, which both the resting row and the reorder
+ * row share.
+ */
+describe('two versions of one song (RH-125 ER18)', () => {
+  const studio = playlistSong('v-studio', {
+    position: 1,
+    title: 'Bad',
+    label: 'Album Version',
+  })
+  const live = playlistSong('v-live', {
+    position: 2,
+    title: 'Bad',
+    label: 'Live at Wembley',
+  })
+
+  it('renders both rows, each carrying its own version label', () => {
+    render(<PlaylistSongList {...props({ songs: [studio, live] })} />)
+
+    const rows = within(songList()).getAllByRole('listitem')
+    expect(rows).toHaveLength(2)
+    // The same title twice — which is exactly why the label has to be there.
+    expect(within(songList()).getAllByText('Bad')).toHaveLength(2)
+    expect(within(rows[0]).getByText('Album Version')).toBeDefined()
+    expect(within(rows[1]).getByText('Live at Wembley')).toBeDefined()
+  })
+
+  it('draws no label line for an unlabelled recording', () => {
+    const unlabelled = playlistSong('v-plain', { position: 1, title: 'Bad' })
+
+    render(<PlaylistSongList {...props({ songs: [unlabelled] })} />)
+
+    const row = within(songList()).getAllByRole('listitem')[0]
+    expect(within(row).getByText('Bad')).toBeDefined()
+    expect(within(row).queryByText('Album Version')).toBeNull()
+  })
+
+  it('keys each row on its own entry, so neither take replaces the other', () => {
+    const entries = new Map([
+      ['v-studio', entry('v-studio', 'mastered', ['encore'])],
+      ['v-live', entry('v-live', 'learning', ['soundcheck'])],
+    ])
+
+    render(
+      <PlaylistSongList {...props({ songs: [studio, live], repertoireMap: entries })} />,
+    )
+
+    const rows = within(songList()).getAllByRole('listitem')
+    // Each row reads its own owner row through its own `version_id`: the tags
+    // differ, which a song-keyed map could not produce.
+    expect(within(rows[0]).getByText('encore')).toBeDefined()
+    expect(within(rows[1]).getByText('soundcheck')).toBeDefined()
   })
 })

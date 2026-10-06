@@ -45,7 +45,9 @@ export function SetlistPanel({
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
         {entries.map((entry, index) => (
           <SetlistRow
-            key={entry.repertoireId}
+            // Keyed by the entry's own identity (RH-125): `repertoireId` may be
+            // null for more than one entry, and two nulls are not two keys.
+            key={entry.versionId}
             index={index}
             entry={entry}
             isCurrent={entry.repertoireId === currentRepertoireId}

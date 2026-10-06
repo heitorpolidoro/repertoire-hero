@@ -15,6 +15,7 @@ export interface PlaylistSongListProps extends PlaylistSongHandlers {
   songs: PlaylistSong[];
   /** The songs left after the page's tag and text filters. */
   filteredSongs: PlaylistSong[];
+  /** The owner's repertoire, keyed by `version_id` (RH-125). */
   repertoireMap: Map<string, Repertoire>;
   playlistId: string;
   bandId: string | null;
@@ -28,7 +29,7 @@ export interface PlaylistSongListProps extends PlaylistSongHandlers {
    */
   reordering: boolean;
   /** One place up or down; the controller short-circuits at the ends. */
-  onMoveSong: (songId: string, direction: "up" | "down") => Promise<void>;
+  onMoveSong: (versionId: string, direction: "up" | "down") => Promise<void>;
   /** The drag's commit, with the full permuted `playlist_songs.id` order. */
   onReorderSongs: (orderedIds: string[]) => Promise<void>;
 }
@@ -106,7 +107,7 @@ export function PlaylistSongList({
                 key={ps.id}
                 {...rowProps}
                 playlistSong={ps}
-                entry={repertoireMap.get(ps.song_id)}
+                entry={repertoireMap.get(ps.version_id)}
                 playlistId={playlistId}
                 bandId={bandId}
               />

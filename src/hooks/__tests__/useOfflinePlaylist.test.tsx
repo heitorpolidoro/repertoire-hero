@@ -54,8 +54,8 @@ function tabRow(id: string, songId: string): SongFile {
 }
 
 const ENTRIES = [
-  { repertoireId: 'rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
-  { repertoireId: 'rep-2', songId: 'song-rep-2', title: 'Faroeste Caboclo', artist: null },
+  { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
+  { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-rep-2', title: 'Faroeste Caboclo', artist: null },
 ]
 
 function makeActions(): OfflineDownloadActions {

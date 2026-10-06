@@ -68,14 +68,30 @@ const ALBUM_LOOKUP_SQL = `
  * (song_id, album_id, label)` — a null label is the common case, and a plain
  * unique would let two unlabelled versions of one album both insert.
  *
- * Nothing reads the version's id yet (no screen is version-addressed until the
- * part that makes them so), so there is no `RETURNING` and no read-back here:
- * an id nobody consumes would be a statement issued for the reader's comfort.
+ * `RETURNING id` since RH-125: `playlist_songs` names a version, so the Spotify
+ * import's caller needs the id rather than re-deriving it from the song. Empty
+ * exactly when a concurrent caller won the index, which {@link lookupVersion}
+ * then reads — the same pair of statements the album above uses.
  */
 const VERSION_INSERT_SQL = `
     INSERT INTO song_versions (song_id, album_id, label, duration_seconds, key)
     VALUES ($1, $2, $3, $4, $5)
     ON CONFLICT DO NOTHING
+    RETURNING id
+  `
+
+/**
+ * Mirrors `uq_song_versions_identity` exactly. Both nullable columns are
+ * compared with `IS NOT DISTINCT FROM`, because that index is declared
+ * `NULLS NOT DISTINCT`: plain `=` would never match the common unlabelled,
+ * album-less row that the insert above had just refused as a duplicate.
+ */
+const VERSION_LOOKUP_SQL = `
+    SELECT id FROM song_versions
+    WHERE song_id = $1
+      AND album_id IS NOT DISTINCT FROM $2
+      AND label IS NOT DISTINCT FROM $3
+    LIMIT 1
   `
 
 /** The `albums` row for `input`, or null when it carries no album name. */
@@ -101,38 +117,47 @@ async function upsertAlbum(input: SongIdentityInput, db: Queryable): Promise<str
 }
 
 /**
- * Records the release and the recording for a catalog row just resolved.
+ * Records the release and the recording for a catalog row just resolved, and
+ * answers **the version's id** (RH-125) so no caller has to re-derive it from
+ * the song.
  *
  * `song.label` is the right half of the same parse whose left half became
  * `songs.title`, so the suffix the title no longer carries is not lost — it
  * becomes this version's label.
  *
  * Idempotent: calling it twice for the same track leaves one `albums` row and
- * one `song_versions` row.
+ * one `song_versions` row, and answers the same id both times.
  */
 export async function upsertAlbumAndVersion(
   song: ResolvedSongIdentity,
   input: SongIdentityInput,
   db: Queryable = pool,
-): Promise<void> {
+): Promise<string> {
   const albumId = await upsertAlbum(input, db)
+  const params = [song.id, albumId, song.label, input.duration_seconds ?? null, input.standard_key ?? null]
 
-  await db.query<never>(VERSION_INSERT_SQL, [
-    song.id,
-    albumId,
-    song.label,
-    input.duration_seconds ?? null,
-    input.standard_key ?? null,
-  ])
+  const inserted = await db.query<{ id: string }>(VERSION_INSERT_SQL, params)
+  const row = inserted.rows[0]
+  if (row) return row.id
+
+  // The insert was a no-op, so the row was already there — either from an
+  // earlier import of the same track or from a concurrent caller. Reading it
+  // back is what lets the playlist entry point at a real recording.
+  const found = await db.query<{ id: string }>(VERSION_LOOKUP_SQL, params.slice(0, 3))
+  const existing = found.rows[0]
+  if (!existing) throw new Error('Failed to resolve the song version just written')
+  return existing.id
 }
 
 /**
  * RH-124 — the representative-version sort, spelled once.
  *
- * Several paths hold a song id and need a version: the manual add, the song
- * picker, the playlist-side ensure, and the playlist read whose
- * `playlist_songs` row is still song-keyed (RH-125 re-keys it). They all pick
- * the same version, by this ordering: `album_type = 'album'` first, then the
+ * Several paths hold a song id and need a version: the manual add, the catalog
+ * search that feeds the song picker's collapsed cards, and
+ * `getPersonalEntryForSong`'s "does this song sit in *my* repertoire?". The
+ * playlist reads no longer do — RH-125 gave `playlist_songs` its own
+ * `version_id`, which deleted both laterals there. They all pick the same
+ * version, by this ordering: `album_type = 'album'` first, then the
  * earliest `albums.release_date`, then the earliest `song_versions.created_at`,
  * then `id`. The last two make it **total**, so two runs cannot disagree —
  * which is the whole point. It is a sort, never a stored column.

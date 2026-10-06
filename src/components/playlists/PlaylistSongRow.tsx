@@ -17,15 +17,18 @@ import type { PlaylistSong, Repertoire, SongStatus } from "@/types/database";
  * every row and the playlist's own tag bar.
  */
 export interface PlaylistSongHandlers {
-  /** RH-102: the tap names the status it wants, up or down. */
-  onStatusChange: (songId: string, status: SongStatus) => Promise<void>;
-  onRemoveSong: (songId: string) => Promise<void>;
+  /**
+   * RH-102: the tap names the status it wants, up or down. RH-125: the subject
+   * is the entry's `version_id`, which is what the repertoire map is keyed by.
+   */
+  onStatusChange: (versionId: string, status: SongStatus) => Promise<void>;
+  onRemoveSong: (versionId: string) => Promise<void>;
   tagEditor: TagEditorController;
 }
 
 export interface PlaylistSongRowProps extends PlaylistSongHandlers {
   playlistSong: PlaylistSong;
-  /** The owner's repertoire entry for this song, when they have one. */
+  /** The owner's repertoire entry for this version, when they have one. */
   entry?: Repertoire;
   playlistId: string;
   /** The band being browsed, or `null` in personal context. */
@@ -55,10 +58,10 @@ export function PlaylistSongRow({
             href={`/songs/${entry.id}/fast-view?returnTo=/playlists/${playlistId}${bandId ? `&bandId=${bandId}` : ''}`}
             className="flex-1 flex items-center gap-3 min-w-0"
           >
-            <PlaylistSongIdentity song={ps.song} linked />
+            <PlaylistSongIdentity song={ps.song} label={ps.label} linked />
           </Link>
         ) : (
-          <PlaylistSongIdentity song={ps.song} linked={false} />
+          <PlaylistSongIdentity song={ps.song} label={ps.label} linked={false} />
         )}
         {ps.song?.duration_seconds != null && (
           <span className="text-xs text-gray-400 shrink-0 tabular-nums">
@@ -74,14 +77,14 @@ export function PlaylistSongRow({
           status={entry?.status ?? "unknown"}
           readOnly={Boolean(bandId)}
           onChange={(next) => {
-            onStatusChange(ps.song_id, next).catch(console.error);
+            onStatusChange(ps.version_id, next).catch(console.error);
           }}
         />
         {/* Remove */}
         <button
           type="button"
           onClick={() => {
-            onRemoveSong(ps.song_id).catch(console.error);
+            onRemoveSong(ps.version_id).catch(console.error);
           }}
           aria-label={`Remove ${ps.song?.title ?? "song"} from playlist`}
           className="shrink-0 p-1 rounded text-gray-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors"
@@ -104,7 +107,7 @@ export function PlaylistSongRow({
 
       {/* Tags row — the same markup the playlist's own tag bar renders */}
       <TagEditRow
-        subject={ps.song_id}
+        subject={ps.version_id}
         tags={entry?.tags ?? []}
         editor={tagEditor}
         addLabel="Add tag"

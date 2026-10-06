@@ -32,14 +32,15 @@ beforeEach(() => {
   refresh.mockClear()
 })
 
-function song(songId: string, position: number, title: string): PlaylistSong {
+/** Keyed by the **version** it names (RH-125); the song id is derived. */
+function song(versionId: string, position: number, title: string): PlaylistSong {
   return {
-    id: `ps-${songId}`,
+    id: `ps-${versionId}`,
     playlist_id: 'pl-1',
-    song_id: songId,
+    version_id: versionId,
     position,
     song: {
-      id: songId,
+      id: `song-of-${versionId}`,
       title,
       artist: 'RH71 Artist',
     } as PlaylistSong['song'],
@@ -49,7 +50,6 @@ function song(songId: string, position: number, title: string): PlaylistSong {
 const PERSONAL_OWNER = { user_id: 'u1', band_id: null }
 
 const BLANK_ENTRY = {
-  version_id: 'version-1',
   key: null,
   tuning: null,
   map: null,
@@ -70,8 +70,15 @@ const BLANK_PLAYLIST = {
   tags: [],
 } as const
 
-function entry(songId: string, overrides: Partial<Repertoire> = {}): Repertoire {
-  return { ...PERSONAL_OWNER, ...BLANK_ENTRY, id: `rep-${songId}`, song_id: songId, ...overrides }
+function entry(versionId: string, overrides: Partial<Repertoire> = {}): Repertoire {
+  return {
+    ...PERSONAL_OWNER,
+    ...BLANK_ENTRY,
+    id: `rep-${versionId}`,
+    song_id: `song-of-${versionId}`,
+    version_id: versionId,
+    ...overrides,
+  }
 }
 
 function playlist(overrides: Partial<Playlist> = {}): Playlist {

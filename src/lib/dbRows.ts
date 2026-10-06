@@ -42,23 +42,36 @@ export interface PlaylistAccessRow {
   band_id: string | null
 }
 
-/** `SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist FROM playlist_songs ps JOIN ...` */
+/**
+ * `getPlaylistDetailsWithEntries`' projection (RH-125):
+ * `SELECT ps.position, o.id AS repertoire_id, ps.version_id, v.song_id, s.title, s.artist
+ *    FROM playlist_songs ps JOIN song_versions v … LEFT JOIN <owner table> o …`.
+ *
+ * `repertoire_id` is nullable because the owner table is `LEFT JOIN`ed: an entry
+ * whose owner holds no row is information, not an error, and it is returned
+ * rather than dropped. `version_id` is the entry's identity and is never null.
+ */
 export interface PlaylistEntryRow {
   position: number
-  repertoire_id: string
+  repertoire_id: string | null
+  version_id: string
   song_id: string
   title: string
   artist: string
 }
 
-/** `SELECT song_id FROM playlist_songs WHERE playlist_id = $1` */
-export interface PlaylistSongIdRow {
-  song_id: string
+/** `SELECT version_id FROM playlist_songs WHERE playlist_id = $1` */
+export interface PlaylistVersionIdRow {
+  version_id: string
 }
 
-/** `SELECT ps.song_id, ps.position, s.links FROM playlist_songs ps JOIN songs s ...` */
-export interface PlaylistSongLinksRow {
-  song_id: string
+/**
+ * `SELECT ps.version_id, ps.position, s.links FROM playlist_songs ps
+ *    JOIN song_versions v ON v.id = ps.version_id JOIN songs s ON s.id = v.song_id …`
+ * — the Spotify push's URL source.
+ */
+export interface PlaylistVersionLinksRow {
+  version_id: string
   position: number
   links: SongLink[] | null
 }

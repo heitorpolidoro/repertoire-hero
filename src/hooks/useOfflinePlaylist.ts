@@ -98,6 +98,12 @@ function messageOf(error: unknown): string {
  * An entry whose repertoire row cannot be read is skipped rather than failing
  * the download: it is a row the caller may not read in this owner context, and
  * Fast View could not show it online either.
+ *
+ * Since RH-125 an entry may carry **no** repertoire row id at all — the setlist
+ * read returns every entry of the playlist, held or not — and that is skipped
+ * by the same `continue`, before the round trip rather than after it. Which is
+ * what keeps `OfflineSongSnapshot.repertoireId` non-null: the entries that
+ * reach the snapshot are exactly the ones that survived this loop.
  */
 async function gatherSongs(
   actions: OfflineDownloadActions,
@@ -106,6 +112,7 @@ async function gatherSongs(
 ): Promise<OfflineSongInput[]> {
   const songs: OfflineSongInput[] = []
   for (const entry of entries) {
+    if (!entry.repertoireId) continue
     const repertoire = await actions.getSongEntry(entry.repertoireId, bandId)
     if (!repertoire) continue
     // The song id, never `entry.repertoireId`: in band context that is the

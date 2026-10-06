@@ -46,14 +46,15 @@ afterEach(cleanup)
 
 const TITLES = ['Blue Moon', 'Red Sun', 'Green Sky']
 
+/** Keyed by the **version** it names (RH-125); the song id is derived. */
 function song(index: number): PlaylistSong {
   return {
     id: `ps-s${index + 1}`,
     playlist_id: 'pl-1',
-    song_id: `s${index + 1}`,
+    version_id: `s${index + 1}`,
     position: index + 1,
     song: {
-      id: `s${index + 1}`,
+      id: `song-of-s${index + 1}`,
       title: TITLES[index],
       artist: 'RH-103 Artist',
       album: null,
@@ -68,13 +69,13 @@ function song(index: number): PlaylistSong {
 
 const SONGS = [song(0), song(1), song(2)]
 
-function entry(songId: string, tags: string[] = []): Repertoire {
+function entry(versionId: string, tags: string[] = []): Repertoire {
   return {
-    id: `rep-${songId}`,
+    id: `rep-${versionId}`,
     user_id: 'u1',
     band_id: null,
-    song_id: songId,
-    version_id: 'version-1',
+    song_id: `song-of-${versionId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -107,7 +108,7 @@ function listProps(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSong
   return {
     songs: SONGS,
     filteredSongs: SONGS,
-    repertoireMap: new Map(SONGS.map((ps) => [ps.song_id, entry(ps.song_id, ['encore'])])),
+    repertoireMap: new Map(SONGS.map((ps) => [ps.version_id, entry(ps.version_id, ['encore'])])),
     playlistId: 'pl-1',
     bandId: null,
     activeTagFilter: null,
@@ -400,7 +401,7 @@ function renderIsland(options: { canReorder?: boolean; playlist?: Playlist } = {
   render(
     <PlaylistDetailView
       playlist={options.playlist ?? playlist()}
-      repertoire={SONGS.map((ps) => entry(ps.song_id, ['encore']))}
+      repertoire={SONGS.map((ps) => entry(ps.version_id, ['encore']))}
       currentUserId="u1"
       canReorder={options.canReorder ?? true}
       actions={DETAIL_ACTIONS}

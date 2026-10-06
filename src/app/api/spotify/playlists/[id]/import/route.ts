@@ -16,10 +16,10 @@ import type { Playlist } from '@/types/database'
 //
 // Flow:
 //  1. Fetch all Spotify tracks
-//  2. Find-or-create each in songs
-//  3. Find-or-create each in repertoire
+//  2. Find-or-create each in songs (and its album and version)
+//  3. Find-or-create the owner's hold on each version
 //  4. Create a local playlist with spotify_playlist_id set
-//  5. Add all songs to playlist_songs
+//  5. Add all versions to playlist_songs
 //  6. Optionally mark sync_with_spotify and last_synced_at
 //
 // [id] is a SPOTIFY playlist id — there is no local playlist yet, this route
@@ -78,13 +78,17 @@ export async function POST(
     const tracks = await fetchAllSpotifyTracks(spotifyPlaylistId, accessToken)
 
     // --- Steps 2 & 3: find-or-create songs and repertoire entries ---
-    const songIds: string[] = []
+    //
+    // Version ids since RH-125: two tracks that resolve to two versions of one
+    // song — a studio take and a remaster — are two entries, which the old
+    // `(playlist_id, song_id)` unique refused outright.
+    const versionIds: string[] = []
     const owner = bandId ? { bandId } : { userId: userId }
 
     for (const track of tracks) {
-      const songId = await findOrCreateSong(track)
-      await ensureInRepertoire(songId, owner)
-      songIds.push(songId)
+      const { versionId } = await findOrCreateSong(track)
+      await ensureInRepertoire(versionId, owner)
+      versionIds.push(versionId)
     }
 
     // --- Step 4: create the local playlist ---
@@ -106,9 +110,9 @@ export async function POST(
     ])
     const playlist = playlistRes.rows[0]
 
-    // --- Step 5: add songs to playlist_songs ---
-    if (songIds.length > 0) {
-      const { sql, values } = buildPlaylistSongsInsert(playlist.id, songIds)
+    // --- Step 5: add the versions to playlist_songs ---
+    if (versionIds.length > 0) {
+      const { sql, values } = buildPlaylistSongsInsert(playlist.id, versionIds)
       await query<never>(sql, values)
     }
 

@@ -232,7 +232,16 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
       songs: [
         {
           repertoireId,
-          entry: { repertoireId, songId: repertoireId, title: songTitle, artist: 'RH80 Artist' },
+          // RH-125: the entry names a version, and `repertoireId` is nullable
+          // on the type — non-null here, because a captured song always has
+          // one (`gatherSongs` skips the entries that do not).
+          entry: {
+            repertoireId,
+            versionId: 'version-1',
+            songId: repertoireId,
+            title: songTitle,
+            artist: 'RH80 Artist',
+          },
           repertoire: {
             id: repertoireId,
             user_id: null,

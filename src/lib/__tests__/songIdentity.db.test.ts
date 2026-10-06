@@ -8,7 +8,15 @@
  *     same `0008` high-water mark, so whichever landed second had to renumber,
  *     and a prefix in a test would have broken on that renumber. It is executed
  *     against seeded duplicates inside a transaction that is always rolled back,
- *     then executed a second time to prove idempotence.
+ *     then executed a second time to prove idempotence. The replay happens in a
+ *     **throwaway `rh95_<token>` schema** (`legacyCatalogReplayDdl`), first on
+ *     the transaction's `search_path`: seeding duplicates means taking
+ *     `uq_songs_artist_title` off `songs`, and doing that in `public` locked a
+ *     table almost every other suite reads, in an order no ordinary reader
+ *     uses. That cycle is what made unrelated suites fail with
+ *     `deadlock detected`; the schema takes this replay out of the lock graph
+ *     entirely, so it needs no advisory lock either. Nothing in the migration
+ *     file notices — every name in it is unqualified.
  *  2. the rule itself: album out of the key, artist in it, both UI paths
  *     converging on one row, in both orders.
  *  3. what only the database can enforce — the unique index under concurrency,
@@ -30,13 +38,11 @@ import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
 import {
   LEGACY_CATALOG_TABLE,
-  LEGACY_REPERTOIRE_DDL,
+  legacyCatalogReplayDdl,
   LEGACY_REPERTOIRE_TABLE,
-  LEGACY_TABS_DDL,
   LEGACY_TABS_TABLE,
   createTestUser,
   deleteTestUser,
-  lockMigrationReplay,
 } from './test-helpers'
 import type { SongLink } from '@/types/database'
 
@@ -160,15 +166,8 @@ const ROLLBACK = 'RH-95 migration scenario rollback'
 async function runMergeScenario(): Promise<MergeScenario> {
   const migrationSql = unifyMigrationSql()
   const sfx = token()
+  const schema = `rh95_${token()}`
   let scenario: MergeScenario | undefined
-
-  const seedUser = async (client: { query: typeof query }, label: string) => {
-    const id = randomUUID()
-    const email = `rh95-${label}-${sfx}@example.com`
-    await client.query('INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, true)', [id, label, email])
-    await client.query('INSERT INTO profiles (id, email, full_name) VALUES ($1, $2, $3)', [id, email, label])
-    return id
-  }
 
   const insertId = async (client: { query: typeof query }, sql: string, params: unknown[]) =>
     (await client.query<{ id: string }>(sql, params)).rows[0].id
@@ -208,23 +207,26 @@ async function runMergeScenario(): Promise<MergeScenario> {
   })
 
   await withTransaction(async (client) => {
-    // First statement, before any DDL: shared with the other replay suites.
-    await lockMigrationReplay(client)
+    // The whole pre-RH-122 catalog neighbourhood, in a schema of its own:
+    // `songs`, the `playlist_songs` shape `0009`'s steps 8-11 collapse and
+    // renumber, and the owner-row and tabs tables RH-124 and RH-123 dropped and
+    // whose rows steps 4-6 re-point. `test-helpers.ts` is the one place any of
+    // them is spelled (RH-123 ER5, RH-124 ER5). Rolled back with everything
+    // else.
+    await client.query(legacyCatalogReplayDdl(schema))
+    await client.query(`SET LOCAL search_path = ${schema}, public`)
 
-    // The index the migration creates has to be gone before duplicates can be
-    // seeded — `npm run db:migrate` has already run it in this database.
-    await client.query('DROP INDEX IF EXISTS uq_songs_artist_title')
+    // No `DROP INDEX` is needed or wanted: this schema's `songs` is created
+    // without `uq_songs_artist_title`, which is exactly the state duplicates
+    // can be seeded in, and the migration's own last statement is what creates
+    // it. Issuing the drop here would be actively harmful — an unqualified
+    // index name resolves along the `search_path`, so with none in this schema
+    // it would find and drop **`public`'s** (see `legacyCatalogReplayDdl`).
 
-    // RH-123 dropped the table `0009` re-points tab rows in, and RH-124
-    // dropped the owner-row table both of them hang off, so the replay needs
-    // both back — the tabs table's foreign key names the latter. Inside this
-    // transaction only, and rolled back with everything else;
-    // `test-helpers.ts` is the one place either is spelled.
-    await client.query(LEGACY_REPERTOIRE_DDL)
-    await client.query(LEGACY_TABS_DDL)
-
-    const userId = await seedUser(client, 'owner')
-    const otherUserId = await seedUser(client, 'second')
+    // Synthetic owners: the replay schema's `repertoire` carries no foreign key
+    // to `profiles`, and nothing `0009` issues joins an owner table.
+    const userId = randomUUID()
+    const otherUserId = randomUUID()
 
     // The keeper is the oldest row and the emptiest one; the duplicate differs
     // in case and whitespace only, which is exactly what the index folds.
@@ -277,12 +279,10 @@ async function runMergeScenario(): Promise<MergeScenario> {
       [repB, `Tab ${sfx}`, 'http://blob/tab.pdf'],
     )
 
-    // ER3: one playlist holding both rows of the group, keeper first.
-    const playlistId = await insertId(
-      client,
-      'INSERT INTO playlists (user_id, name) VALUES ($1, $2) RETURNING id',
-      [userId, `RH95 Playlist ${sfx}`],
-    )
+    // ER3: one playlist holding both rows of the group, keeper first. The id is
+    // synthetic — the replay schema's `playlist_songs` deliberately carries no
+    // foreign key to `playlists` (see `legacyPlaylistSongsDdl`).
+    const playlistId = randomUUID()
     for (const [songId, position] of [[keeperId, 1], [otherId, 2], [dupId, 3]] as const) {
       await client.query('INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, $3)', [
         playlistId,
@@ -481,24 +481,30 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     const artist = `Manual First Artist ${sfx}`
     const entry = await createAndAddSong({ userId }, { title, artist })
 
-    const songId = await findOrCreateSong(
+    // RH-125: the resolver answers both ids now, because the playlist entry is
+    // written with the version.
+    const { songId, versionId } = await findOrCreateSong(
       spotifyTrack({ title, artist, spotifyUrl: 'https://open.spotify.com/track/manual-first' }),
     )
 
     expect(songId).toBe(entry.song_id)
+    expect(versionId).toEqual(expect.any(String))
     expect(await catalogRows(title)).toHaveLength(1)
   })
 
   it('ER7 — the Spotify path then the manual path converge on one row', async () => {
     const title = `Spotify First ${sfx}`
     const artist = `Spotify First Artist ${sfx}`
-    const songId = await findOrCreateSong(
+    const { songId, versionId } = await findOrCreateSong(
       spotifyTrack({ title, artist, spotifyUrl: 'https://open.spotify.com/track/spotify-first' }),
     )
 
     const entry = await createAndAddSong({ userId }, { title, artist })
 
     expect(entry.song_id).toBe(songId)
+    // The owner's hold lands on the version the Spotify path recorded: one
+    // catalog row, one version, one hold.
+    expect(entry.version_id).toBe(versionId)
     expect(await catalogRows(title)).toHaveLength(1)
   })
 
@@ -507,7 +513,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     const artist = `Michael Jackson ${sfx}`
     const entry = await createAndAddSong({ userId }, { title, artist })
 
-    const songId = await findOrCreateSong(
+    const { songId } = await findOrCreateSong(
       spotifyTrack({
         title,
         // What `primarySpotifyArtist` hands the sync for ["Michael Jackson", "Akon"].

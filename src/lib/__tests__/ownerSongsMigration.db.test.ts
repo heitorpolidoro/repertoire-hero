@@ -14,9 +14,47 @@
  *     DDL transactional), the file is executed against seeded rows, the
  *     assertions are taken, and the transaction is **always** rolled back. The
  *     shared database never leaves its migrated shape. The legacy shape itself
- *     comes from `LEGACY_REPERTOIRE_DDL` / `LEGACY_REPERTOIRE_TABLE` in
+ *     comes from `legacyCatalogReplayDdl` / `LEGACY_REPERTOIRE_TABLE` in
  *     `test-helpers.ts`, the one place the dropped table is named under `src/`
  *     (ER5).
+ *
+ * WHERE THE REPLAY HAPPENS, AND WHY IT MOVED (RH-129)
+ *
+ * In a **throwaway `rh124_<token>` schema**, built by `legacyCatalogReplayDdl`
+ * and first on the transaction's `search_path`, so every unqualified name in
+ * the migration file resolves inside it and nothing in `public` is touched.
+ *
+ * It used to rebuild the legacy shape in `public`, which meant dropping
+ * `public.user_songs`, `public.band_songs` and `public.orphaned_repertoire_rows`
+ * to get back to the pre-migration state. That is the deadlock: both owner
+ * tables carry foreign keys to `profiles`, `bands` and `song_versions`, so
+ * `DROP TABLE user_songs` needs ACCESS EXCLUSIVE on the *referenced* relations
+ * too, and an ordinary suite holding AccessShare on `songs` / `song_versions`
+ * and then asking for RowExclusive is taking the same relations the other way
+ * round. Postgres breaks the cycle by killing one transaction at random, which
+ * reads as an unrelated suite failing with `deadlock detected`. Measured at 2
+ * occurrences in 24 full runs, in this file and `songFilesMigration`, *with*
+ * the advisory lock those two shared — the lock serialised them against each
+ * other, and the other party in the cycle was never the other replay. The
+ * schema removes the shared relation instead, so there is no lock to order and
+ * none to take: see the note in `test-helpers.ts` where that lock used to be.
+ *
+ * TWO CONSEQUENCES OF THE MOVE, BOTH LOAD-BEARING
+ *
+ *  - `migrations/0014` has to run in the schema **first**. Step 2 of this
+ *    migration calls `migrate_catalog_to_versions()` and step 5 reads `albums`
+ *    and `song_versions`; a throwaway schema carries none of the three, and
+ *    borrowing `public`'s function would write RH-124's rows into `public`'s
+ *    tables. `catalogVersionsMigration.db.test.ts` runs `0014` in its own
+ *    replay schema for the same reason.
+ *  - `0014` issues an **unqualified** `DROP INDEX IF EXISTS
+ *    uq_songs_artist_title`, and an unqualified index name resolves along the
+ *    `search_path`. With no such index in the replay schema that statement
+ *    finds and drops **`public`'s**, silently removing the live catalog's
+ *    identity key for every other worker — verified empirically, not inferred.
+ *    So the scenario creates that index in the schema before running `0014`,
+ *    exactly as `catalogVersionsMigration` does, and
+ *    `publicIdentityIndexes` below asserts `public`'s own copy survived.
  *
  * It is this task's only guard on its one irreversible act — every musician's
  * status, tags, key, lyrics and practice date crossing from one table into two,
@@ -39,7 +77,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { withTransaction, type Queryable } from '@/lib/db'
-import { LEGACY_REPERTOIRE_DDL, LEGACY_REPERTOIRE_TABLE, lockMigrationReplay } from './test-helpers'
+import {
+  legacyCatalogReplayDdl,
+  LEGACY_REPERTOIRE_TABLE,
+  LEGACY_TABS_TABLE,
+  migrationSqlBySuffix,
+  ownerStubsDdl,
+} from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
@@ -47,6 +91,16 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const MIGRATIONS_DIR = path.join(REPO_ROOT, 'migrations')
 /** The stable half of the migration's name; the four-digit prefix may move. */
 const MIGRATION_SUFFIX = '_split_repertoire_owner_songs.sql'
+
+/**
+ * The prerequisite migration, by suffix for the same reason: it installs
+ * `migrate_catalog_to_versions()`, `albums` and `song_versions`, which the
+ * replay schema has none of and this migration's steps 2 and 5 all need.
+ */
+const CATALOG_VERSIONS_SUFFIX = '_add_albums_and_song_versions.sql'
+
+/** The catalog identity index — see the header on why it is created by hand. */
+const SONGS_UNIQUE = 'uq_songs_artist_title'
 
 function migrationFileNames(): string[] {
   return fs.readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(MIGRATION_SUFFIX))
@@ -87,6 +141,12 @@ interface MigrationScenario {
   legacyTableSurvives: boolean
   userSongsColumns: string[]
   bandSongsColumns: string[]
+  /**
+   * `public`'s own `uq_songs_artist_title`, read while the replay is still
+   * live. Guards trap 1 from the file header: `0014`'s unqualified
+   * `DROP INDEX IF EXISTS` must have hit the replay schema's copy, not this one.
+   */
+  publicIdentityIndexes: string[]
 }
 
 const ROLLBACK = 'RH-124 split migration scenario rollback'
@@ -102,34 +162,67 @@ async function insertId(client: Queryable, sql: string, params: unknown[]): Prom
 async function runMigrationScenario(): Promise<MigrationScenario> {
   const sql = migrationSql()
   const token = randomUUID().replace(/-/g, '').slice(0, 12)
+  const schema = `rh124_${token}`
   let scenario: MigrationScenario | undefined
 
   await withTransaction(async (client) => {
-    // First statement, before any DDL: the four replay suites share one
-    // advisory lock so they cannot deadlock on the same table names.
-    await lockMigrationReplay(client)
+    // The pre-migration shape, in a schema of its own: `songs` and the
+    // owner-row table RH-124 dropped. `test-helpers.ts` is the one place that
+    // table is named under `src/` (ER5).
+    //
+    // No `DROP TABLE user_songs` / `band_songs` / `orphaned_repertoire_rows` is
+    // needed or wanted any more: this schema has none of the three, and the
+    // migration's own `CREATE TABLE IF NOT EXISTS` resolves for creation in the
+    // first schema on the `search_path`, so it creates them *here* even though
+    // `public` holds all three names. Issuing those drops was the deadlock (see
+    // the file header).
+    //
+    // `ownerStubsDdl` is what keeps the migration's own foreign keys inside the
+    // schema: `user_songs.user_id REFERENCES profiles(id)` and
+    // `band_songs.band_id REFERENCES bands(id)` are unqualified, and without
+    // local tables they would resolve to `public`'s and take
+    // SHARE ROW EXCLUSIVE on two tables every other worker inserts into.
+    await client.query(legacyCatalogReplayDdl(schema))
+    await client.query(ownerStubsDdl(schema))
+    await client.query(`SET LOCAL search_path = ${schema}, public`)
 
-    // Back to the pre-migration shape: the two owner tables and the ledger are
-    // already there, and the source table is not.
-    await client.query('DROP TABLE IF EXISTS user_songs')
-    await client.query('DROP TABLE IF EXISTS band_songs')
-    await client.query('DROP TABLE IF EXISTS orphaned_repertoire_rows')
-    await client.query(LEGACY_REPERTOIRE_DDL)
-
-    const userId = randomUUID()
-    const email = `rh124-${token}@example.com`
+    // Trap 1 (file header): `0014` below issues an unqualified
+    // `DROP INDEX IF EXISTS uq_songs_artist_title`. With no such index in this
+    // schema the statement resolves along the `search_path` and drops
+    // **`public`'s**. Creating it here is also the state `0014` really runs
+    // against in production.
     await client.query(
-      'INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, true)',
-      [userId, 'RH-124 Owner', email],
+      `CREATE UNIQUE INDEX ${SONGS_UNIQUE} ON ${schema}.songs (lower(btrim(artist)), lower(btrim(title)))`,
     )
-    await client.query('INSERT INTO profiles (id, email, full_name) VALUES ($1, $2, $3)', [
-      userId,
-      email,
-      'RH-124 Owner',
-    ])
-    const bandId = await insertId(client, 'INSERT INTO bands (name) VALUES ($1) RETURNING id', [
-      `RH-124 Band ${token}`,
-    ])
+
+    // The prerequisite, over an **empty** `songs`: `0014` ends by calling its
+    // own backfill, so running it before anything is seeded keeps that call a
+    // no-op and leaves every fixture below authored by hand. What this buys is
+    // `migrate_catalog_to_versions()`, `albums` and `song_versions`, all three
+    // inside this schema.
+    await client.query(migrationSqlBySuffix(CATALOG_VERSIONS_SUFFIX))
+
+    // `0015` ran between `0014` and this migration in production, and what it
+    // did that matters here is drop the legacy tabs table. The replay schema
+    // gets that table from `legacyCatalogReplayDdl` (the other three replays
+    // need it), and its foreign key into the owner-row table is the one object
+    // that still depends on it — so step 6's `DROP TABLE repertoire` fails with
+    // `other objects depend on it` unless the tabs table goes first, exactly as
+    // it had already gone on a real database. Dropped **after** `0014`, because
+    // `0014`'s collapse branch names it, and **schema-qualified**, because an
+    // unqualified drop of a live application table is the whole class of
+    // statement this conversion removes.
+    await client.query(`DROP TABLE ${schema}.${LEGACY_TABS_TABLE}`)
+
+    // Synthetic owners, registered in the schema's stubs so step 5's inserts
+    // satisfy their foreign keys. No `"user"` row and no real `profiles` /
+    // `bands` row: nothing the migration issues reads a column of any of them,
+    // and seeding them in `public` would put this replay back in the lock graph
+    // it just left.
+    const userId = randomUUID()
+    const bandId = randomUUID()
+    await client.query('INSERT INTO profiles (id) VALUES ($1)', [userId])
+    await client.query('INSERT INTO bands (id) VALUES ($1)', [bandId])
 
     // ---- four catalog songs, each a different shape of the version pick ----
     const song = async (label: string) =>
@@ -235,24 +328,43 @@ async function runMigrationScenario(): Promise<MigrationScenario> {
       [bandId],
     )
     const orphans = await client.query<{ reason: string; row_json: Record<string, unknown> }>(
-      'SELECT reason, row_json FROM orphaned_repertoire_rows ORDER BY reason',
+      // Schema-qualified on purpose: unqualified, this would fall through to
+      // `public.orphaned_repertoire_rows` if the migration's own `CREATE TABLE
+      // IF NOT EXISTS` were ever removed, and fail against an empty live table
+      // with a message pointing nowhere.
+      `SELECT reason, row_json FROM ${schema}.orphaned_repertoire_rows ORDER BY reason`,
       [],
     )
+    // These three used to name `public` and now name the replay schema. They
+    // are re-pointed rather than dropped: against `public` they would now be
+    // vacuous — the two owner tables are whatever `npm run db:migrate` left and
+    // `public.repertoire` has been gone since RH-124 — so they would pass
+    // without the migration having run at all. Read inside the schema they
+    // still assert what they were written to assert: the column set this file
+    // creates, and that its last statement dropped the source table.
     const legacy = await client.query<{ present: boolean }>(
       `SELECT EXISTS (
          SELECT 1 FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_name = $1
+          WHERE table_schema = $1 AND table_name = $2
        ) AS present`,
-      [LEGACY_REPERTOIRE_TABLE],
+      [schema, LEGACY_REPERTOIRE_TABLE],
     )
     const columns = async (table: string) =>
       (
         await client.query<{ column_name: string }>(
           `SELECT column_name FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = $1 ORDER BY column_name`,
-          [table],
+            WHERE table_schema = $1 AND table_name = $2 ORDER BY column_name`,
+          [schema, table],
         )
       ).rows.map((row) => row.column_name)
+
+    // Trap 1, asserted rather than assumed, and from inside the transaction:
+    // `public`'s identity index must still be there after `0014` ran with this
+    // schema first on the `search_path`.
+    const publicIdentity = await client.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`,
+      [SONGS_UNIQUE],
+    )
 
     scenario = {
       seededCount: Number(seeded.rows[0].n),
@@ -264,6 +376,7 @@ async function runMigrationScenario(): Promise<MigrationScenario> {
       legacyTableSurvives: legacy.rows[0].present,
       userSongsColumns: await columns('user_songs'),
       bandSongsColumns: await columns('band_songs'),
+      publicIdentityIndexes: publicIdentity.rows.map((row) => row.indexname),
     }
 
     throw new Error(ROLLBACK)
@@ -339,6 +452,15 @@ describe.skipIf(!RUN_DB_TESTS)('the split-repertoire migration (RH-124 ER1–ER6
 
   it('drops the source table (ER5)', () => {
     expect(scenario.legacyTableSurvives).toBe(false)
+  })
+
+  it("leaves public's own uq_songs_artist_title standing (RH-129)", () => {
+    // `0014` runs inside the replay schema and drops that index by an
+    // unqualified name. Verified empirically: with no copy in the replay schema
+    // the statement resolves along the `search_path` and takes `public`'s, so a
+    // replay that forgot to create one would silently remove the live catalog's
+    // identity key for every other worker in the run.
+    expect(scenario.publicIdentityIndexes).toEqual([SONGS_UNIQUE])
   })
 
   it('archives the ownerless row whole, with a reason, rather than losing it (ER6)', () => {

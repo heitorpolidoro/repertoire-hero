@@ -11,7 +11,7 @@
 
 import { pool, withTransaction, type Queryable } from '@/lib/db'
 import { primarySpotifyArtist, resolveOrCreateSongIdentity } from '@/lib/songIdentity'
-import { representativeVersionSubquery, upsertAlbumAndVersion } from '@/lib/songVersions'
+import { upsertAlbumAndVersion } from '@/lib/songVersions'
 
 export interface SpotifyRawTrack {
   spotifyTrackId: string
@@ -96,6 +96,13 @@ export async function fetchAllSpotifyTracks(
 // `upsertAlbumAndVersion` records the release under the raw album name (the
 // name stripper is gone) and the recording under that label.
 //
+// RH-125: it answers **both** ids, because `playlist_songs` names a version
+// now. Returning only the song id would make every caller re-derive the version
+// through the representative-version ordering — which is exactly the pick this
+// path does not want: two takes of one song differ by album or label, resolve
+// to two `song_versions` rows under RH-122's identity, and must stay two
+// entries in the setlist. The representative pick would collapse them to one.
+//
 // The whole import of one track is one `withTransaction` (ER10): the catalog
 // row, its album, its version and the link append either all land or none do.
 // Without it each helper would default to `pool`, which hands out a different
@@ -105,7 +112,13 @@ export async function fetchAllSpotifyTracks(
 // `transactionAtomicity.db.test.ts` has no bearing on that; it is the trigger
 // test in `catalogVersions.db.test.ts` that pins it.
 // ---------------------------------------------------------------------------
-export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> {
+export interface ResolvedSpotifySong {
+  songId: string
+  /** `song_versions.id` — what the playlist entry is written with. */
+  versionId: string
+}
+
+export async function findOrCreateSong(track: SpotifyRawTrack): Promise<ResolvedSpotifySong> {
   const spotifyLink = { label: track.title.trim(), url: track.spotifyUrl }
 
   // One input object, read by both the resolver and the version upsert, so the
@@ -121,7 +134,7 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> 
 
   return withTransaction(async (client) => {
     const song = await resolveOrCreateSongIdentity(input, client)
-    await upsertAlbumAndVersion(song, input, client)
+    const versionId = await upsertAlbumAndVersion(song, input, client)
 
     if (!song.created && !song.links.some((l) => l.url === track.spotifyUrl)) {
       await client.query<never>('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [
@@ -130,13 +143,17 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> 
       ])
     }
 
-    return song.id
+    return { songId: song.id, versionId }
   })
 }
 
 // ---------------------------------------------------------------------------
-// Ensures the song is in the owner's repertoire, against that song's
-// representative version. Safe to call multiple times.
+// Ensures the owner holds the **version** the caller resolved. Safe to call
+// multiple times.
+//
+// RH-125: it takes the version id rather than a song id, so the
+// representative-version pick that used to stand here is gone. That pick was
+// wrong for this path anyway — see `findOrCreateSong` above.
 //
 // Set-based on purpose (RH-36, finding F19): the previous shape ran a lookup
 // and possibly an insert per band member — 3 + 2N statements per track, inside
@@ -147,9 +164,10 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> 
 // 23505 leaves the transaction aborted, so every later statement fails with
 // 25P02.
 //
-// No "does this song have a version?" guard is needed here, unlike in the two
-// song-keyed add paths: both callers reach this through `findOrCreateSong`,
-// which always upserts the album and the version first.
+// No "does this song have a version?" guard is needed here, unlike in the
+// song-keyed add path in `@/lib/ownerSongs`: both callers reach this through
+// `findOrCreateSong`, which always upserts the album and the version first and
+// hands back that version's id.
 //
 // **Who may call this is decided by the caller, not here** (RH-124): it takes a
 // resolved owner and no caller id, so there is nothing for it to authorize
@@ -164,49 +182,84 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<string> 
 // of a caller's transaction.
 // ---------------------------------------------------------------------------
 export async function ensureInRepertoire(
-  songId: string,
+  versionId: string,
   owner: { userId?: string; bandId?: string },
   db: Queryable = pool,
 ): Promise<void> {
-  const version = representativeVersionSubquery('$2')
   if (owner.bandId) {
     await db.query<never>(
       `INSERT INTO band_songs (band_id, version_id, status)
-       SELECT $1, ${version}, 'unknown' ON CONFLICT DO NOTHING`,
-      [owner.bandId, songId],
+       VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING`,
+      [owner.bandId, versionId],
     )
     await db.query<never>(
       `INSERT INTO user_songs (user_id, version_id, status)
-       SELECT bm.user_id, ${representativeVersionSubquery('$1')}, 'unknown'
+       SELECT bm.user_id, $1, 'unknown'
        FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING`,
-      [songId, owner.bandId],
+      [versionId, owner.bandId],
     )
   } else if (owner.userId) {
     await db.query<never>(
       `INSERT INTO user_songs (user_id, version_id, status)
-       SELECT $1, ${version}, 'unknown' ON CONFLICT DO NOTHING`,
-      [owner.userId, songId],
+       VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING`,
+      [owner.userId, versionId],
     )
   }
 }
 
 // ---------------------------------------------------------------------------
-// Builds the positional bulk insert of playlist songs: ($1, $2, $3), ($4, …
-// Positions are 1-based and follow the order of `songIds`.
+// The pull's dedup, **by version** (RH-125) — the single implementation.
+//
+// Two Spotify tracks that resolve to two versions of one song are two entries
+// and both are kept, in the order the playlist gave them: that is what the
+// re-key buys, because the old `uq_playlist_song (playlist_id, song_id)`
+// refused the second one outright and failed the whole sync. The *same* track
+// twice resolves to the *same* version and must contribute one entry, because
+// `uq_playlist_song_version` refuses the repeat and `buildPlaylistSongsInsert`
+// deliberately carries no `ON CONFLICT` clause to absorb it.
+//
+// It lives here rather than inline in the sync route because `src/app/api/**`
+// is outside the coverage gate (AGENTS.md: "Extract the decisions out of a
+// component ... and unit-test those instead"). A copy of this loop written into
+// a test asserts only itself: deleting the route's dedup entirely used to leave
+// the suite green.
+// ---------------------------------------------------------------------------
+export function dedupeVersionIds(versionIds: string[]): string[] {
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const versionId of versionIds) {
+    if (seen.has(versionId)) continue
+    seen.add(versionId)
+    ordered.push(versionId)
+  }
+  return ordered
+}
+
+// ---------------------------------------------------------------------------
+// Builds the positional bulk insert of playlist entries: ($1, $2, $3), ($4, …
+// Positions are 1-based and follow the order of `versionIds` (RH-125: versions,
+// not songs).
+//
+// **It stays a bare positional insert with no `ON CONFLICT` clause.** An
+// arbiter here would silently skip a duplicate row and leave a `position` gap
+// behind it, and a duplicate add would stop raising — and there is nothing for
+// one to absorb: the sync route `DELETE`s every row of the playlist inside the
+// same transaction before re-inserting, and the import route creates the
+// playlist a statement earlier.
 // ---------------------------------------------------------------------------
 export function buildPlaylistSongsInsert(
   playlistId: string,
-  songIds: string[]
+  versionIds: string[]
 ): { sql: string; values: unknown[] } {
   const valueClauses: string[] = []
   const values: unknown[] = []
   let index = 1
-  for (let i = 0; i < songIds.length; i++) {
+  for (let i = 0; i < versionIds.length; i++) {
     valueClauses.push(`($${index++}, $${index++}, $${index++})`)
-    values.push(playlistId, songIds[i], i + 1)
+    values.push(playlistId, versionIds[i], i + 1)
   }
   const sql = `
-        INSERT INTO playlist_songs (playlist_id, song_id, position)
+        INSERT INTO playlist_songs (playlist_id, version_id, position)
         VALUES ${valueClauses.join(', ')}
       `
   return { sql, values }

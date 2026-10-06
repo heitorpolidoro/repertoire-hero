@@ -13,7 +13,12 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
-import { createTestUser, deleteTestUser, seedOwnerSong } from '@/lib/__tests__/test-helpers'
+import {
+  createTestUser,
+  deleteTestUser,
+  representativeVersionId,
+  seedOwnerSong,
+} from '@/lib/__tests__/test-helpers'
 import { query, withTransaction } from '@/lib/db'
 import { getSongEntry, updateSong } from '@/lib/ownerSongs'
 import { reviewSongEdit } from '@/lib/moderation'
@@ -21,9 +26,13 @@ import { addSongToPlaylist, removeSongFromPlaylist } from '@/lib/playlists'
 import type { Repertoire } from '@/types/database'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
-/** The position-computing insert `addSongToPlaylist` runs, verbatim. */
+/**
+ * The position-computing insert `addSongToPlaylist` runs, verbatim. RH-125:
+ * `$2` is a `song_versions.id`, and there is no `ON CONFLICT` clause — the
+ * insert is positional, so an arbiter would leave a gap behind a skipped row.
+ */
 const POSITION_INSERT = `
-  INSERT INTO playlist_songs (playlist_id, song_id, position)
+  INSERT INTO playlist_songs (playlist_id, version_id, position)
   SELECT $1, $2, COALESCE(MAX(position), 0) + 1 FROM playlist_songs WHERE playlist_id = $1
 `
 
@@ -54,6 +63,8 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
   let editId: string
   let playlistId: string
   const extraSongIds: string[] = []
+  /** The representative version of each of the four, in the same order. */
+  const extraVersionIds: string[] = []
 
   /** Triggers installed by the test currently running, dropped in afterEach. */
   const installedTriggers: Array<{ name: string; table: string }> = []
@@ -118,6 +129,9 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
         [`RH-36 Extra ${label} ${suffix}`, 'RH-36 Artist'],
       )
       extraSongIds.push(extra.id as string)
+      // RH-125: both playlist writes take a version, so each song's
+      // representative one is resolved here, once.
+      extraVersionIds.push(await representativeVersionId(extra.id as string))
     }
   })
 
@@ -199,7 +213,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
   }, 10000)
 
   it('assigns MAX(position) + 1 so a removal does not produce a duplicate position', async () => {
-    const [a, b, c, d] = extraSongIds
+    const [a, b, c, d] = extraVersionIds
 
     await addSongToPlaylist(playlistId, userId, a)
     await addSongToPlaylist(playlistId, userId, b)
@@ -222,7 +236,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
       [userId, `RH-36 Concurrent ${suffix}`],
     )
     const concurrentPlaylistId = fresh.id as string
-    const [songA, songB] = extraSongIds
+    const [versionA, versionB] = extraVersionIds
 
     const firstInserted = deferred()
     const releaseFirst = deferred()
@@ -230,7 +244,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
 
     // (1) A takes position 1 and holds its transaction open.
     const first = withTransaction(async (client) => {
-      await client.query(POSITION_INSERT, [concurrentPlaylistId, songA])
+      await client.query(POSITION_INSERT, [concurrentPlaylistId, versionA])
       firstInserted.resolve()
       await releaseFirst.promise
     })
@@ -242,7 +256,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     const second = withTransaction(async (client) => {
       const pid = await client.query('SELECT pg_backend_pid() AS pid')
       secondPid.resolve(Number(pid.rows[0].pid))
-      await client.query(POSITION_INSERT, [concurrentPlaylistId, songB])
+      await client.query(POSITION_INSERT, [concurrentPlaylistId, versionB])
     })
     // Attached early so a rejection before the assertion is never unhandled.
     const secondOutcome = second.then(
@@ -278,10 +292,10 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     expect((error as Error).message).toContain('uq_playlist_song_position')
 
     const rows = await query(
-      'SELECT song_id, position FROM playlist_songs WHERE playlist_id = $1',
+      'SELECT version_id, position FROM playlist_songs WHERE playlist_id = $1',
       [concurrentPlaylistId],
     )
-    expect(rows.rows).toEqual([{ song_id: songA, position: 1 }])
+    expect(rows.rows).toEqual([{ version_id: versionA, position: 1 }])
 
     await query('DELETE FROM playlists WHERE id = $1', [concurrentPlaylistId])
   }, 20000)

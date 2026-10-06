@@ -50,7 +50,7 @@ describe('upsertAlbumAndVersion', () => {
   it('upserts the album under the primary artist and the raw album name', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion(SONG, INPUT)
 
@@ -69,21 +69,25 @@ describe('upsertAlbumAndVersion', () => {
   it('writes the version label from the right half of the one parse (ER9)', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
-    await upsertAlbumAndVersion(SONG, INPUT)
+    const versionId = await upsertAlbumAndVersion(SONG, INPUT)
 
     const [versionSql, versionValues] = mockedQuery.mock.calls[1]
     expect(versionSql).toContain('INSERT INTO song_versions')
     expect(versionSql).toContain('ON CONFLICT DO NOTHING')
+    // RH-125: the insert returns the id, because the playlist entry is written
+    // with it and no caller may re-derive it from the song.
+    expect(versionSql).toContain('RETURNING id')
     expect(versionValues).toEqual(['song-1', 'album-1', '2011 Remaster', 294, 'Bm'])
+    expect(versionId).toBe('version-1')
   })
 
   it('reads back the album a concurrent caller inserted when the insert does nothing', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-raced' }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion(SONG, INPUT)
 
@@ -102,7 +106,7 @@ describe('upsertAlbumAndVersion', () => {
   })
 
   it('writes a version with a null album_id when the track carries no album', async () => {
-    mockedQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 })
+    mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion({ ...SONG, label: null }, { title: 'Bare', artist: 'Nobody' })
 
@@ -113,7 +117,7 @@ describe('upsertAlbumAndVersion', () => {
   })
 
   it('treats a blank album name as no album at all', async () => {
-    mockedQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 })
+    mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion(SONG, { ...INPUT, album: '   ' })
 
@@ -125,15 +129,53 @@ describe('upsertAlbumAndVersion', () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion(SONG, INPUT)
 
     expect(mockedQuery.mock.calls[2][1][1]).toBeNull()
   })
 
+  /**
+   * RH-125 — the version's own read-back, the mirror of the album's above.
+   *
+   * `ON CONFLICT DO NOTHING` returns no row when the version is already there,
+   * which is the common case on a re-import. The id still has to be answered,
+   * because `playlist_songs` is written with it — so the lookup runs, and it
+   * compares both nullable columns with `IS NOT DISTINCT FROM`, because
+   * `uq_song_versions_identity` is declared `NULLS NOT DISTINCT` and plain `=`
+   * would never match the common unlabelled, album-less row.
+   */
+  it('reads the version back when the insert was a no-op, matching nulls as equal', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 'version-existing' }], rowCount: 1 })
+
+    const versionId = await upsertAlbumAndVersion(SONG, INPUT)
+
+    const [lookupSql, lookupValues] = mockedQuery.mock.calls[2]
+    expect(lookupSql).toContain('FROM song_versions')
+    expect(lookupSql).toContain('album_id IS NOT DISTINCT FROM $2')
+    expect(lookupSql).toContain('label IS NOT DISTINCT FROM $3')
+    expect(lookupValues).toEqual(['song-1', 'album-1', '2011 Remaster'])
+    expect(versionId).toBe('version-existing')
+  })
+
+  it('throws rather than answering an id it could not resolve', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+
+    await expect(upsertAlbumAndVersion(SONG, INPUT)).rejects.toThrow(
+      'Failed to resolve the song version just written',
+    )
+  })
+
   it('runs on the client it is given, so it joins the caller transaction', async () => {
     const client = { query: vi.fn().mockResolvedValue({ rows: [{ id: 'album-1' }], rowCount: 1 }) }
+    // Both statements answer a row, so neither read-back runs.
 
     await upsertAlbumAndVersion(SONG, INPUT, client)
 

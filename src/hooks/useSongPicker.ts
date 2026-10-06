@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { logger } from '@/lib/logger'
 import { searchSpotify, type SpotifyTrack } from '@/lib/spotify'
 import {
-  findRepertoireSongIdByTrack,
+  findRepertoireVersionIdByTrack,
+  heldPickerVersionId,
   isAlreadyInRepertoireError,
   pickerCatalogKeys,
   shouldSearchPicker,
@@ -12,7 +13,13 @@ import {
   withoutPickerRowError,
   type SongPickerController,
 } from '@/lib/songPicker'
-import type { Song, Playlist, PlaylistSong, Repertoire, SongLink } from '@/types/database'
+import type {
+  CatalogSearchResult,
+  Playlist,
+  PlaylistSong,
+  Repertoire,
+  SongLink,
+} from '@/types/database'
 
 /** How long the picker waits after the last keystroke before it searches. */
 const PICKER_DEBOUNCE_MS = 500
@@ -36,10 +43,12 @@ export interface PickerSongInput {
  * it directly and no injection is needed.
  */
 export interface SongPickerActions {
-  searchCatalog: (query: string) => Promise<Song[]>
+  /** Each result carries its representative version id (RH-125). */
+  searchCatalog: (query: string) => Promise<CatalogSearchResult[]>
   addToRepertoire: (songId: string) => Promise<Repertoire>
   createAndAddSong: (data: PickerSongInput) => Promise<Repertoire>
-  addSongToPlaylist: (playlistId: string, songId: string) => Promise<void>
+  /** RH-125: the playlist entry is a version. */
+  addSongToPlaylist: (playlistId: string, versionId: string) => Promise<void>
   getPlaylistWithSongs: (playlistId: string) => Promise<Playlist | null>
 }
 
@@ -48,9 +57,9 @@ export interface UseSongPickerOptions {
   playlistId: string
   /** Required, never defaulted — see `src/app/songPickerActions.ts` (F21). */
   actions: SongPickerActions
-  /** The owner's repertoire, keyed by song id. Owned by the page. */
+  /** The owner's repertoire, keyed by `version_id` (RH-125). Owned by the page. */
   repertoire: ReadonlyMap<string, Repertoire>
-  /** The playlist's current songs — catalog rows already in it are hidden. */
+  /** The playlist's current entries — versions already in it are hidden. */
   songs: PlaylistSong[]
   /** The page's `setSongs`: an add reloads the playlist and reports it here. */
   onSongsChanged: (songs: PlaylistSong[]) => void
@@ -77,7 +86,7 @@ export function useSongPicker({
   afterAdd,
 }: UseSongPickerOptions): SongPickerController {
   const [query, setQuery] = useState('')
-  const [catalogResults, setCatalogResults] = useState<Song[]>([])
+  const [catalogResults, setCatalogResults] = useState<CatalogSearchResult[]>([])
   const [spotifyResults, setSpotifyResults] = useState<SpotifyTrack[]>([])
   const [loading, setLoading] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
@@ -98,7 +107,7 @@ export function useSongPicker({
       setLoading(true)
       try {
         const [catalog, spotify] = await Promise.all([
-          actions.searchCatalog(next).catch(() => [] as Song[]),
+          actions.searchCatalog(next).catch(() => [] as CatalogSearchResult[]),
           searchSpotify(next).catch(() => [] as SpotifyTrack[]),
         ])
         // A slower earlier query must not overwrite the answer to this one.
@@ -128,10 +137,10 @@ export function useSongPicker({
     }
   }, [query, runSearch])
 
-  const playlistSongIds = useMemo(() => new Set(songs.map((ps) => ps.song_id)), [songs])
+  const playlistVersionIds = useMemo(() => new Set(songs.map((ps) => ps.version_id)), [songs])
   const visibleCatalog = useMemo(
-    () => visiblePickerCatalog(catalogResults, playlistSongIds),
-    [catalogResults, playlistSongIds],
+    () => visiblePickerCatalog(catalogResults, playlistVersionIds),
+    [catalogResults, playlistVersionIds],
   )
   const catalogKeys = useMemo(() => pickerCatalogKeys(visibleCatalog), [visibleCatalog])
   const visibleSpotify = useMemo(
@@ -139,10 +148,10 @@ export function useSongPicker({
     [spotifyResults, catalogKeys],
   )
 
-  /** Add a song the repertoire already holds, then refresh the playlist. */
-  const addSongIdToPlaylist = useCallback(
-    async (songId: string) => {
-      await actions.addSongToPlaylist(playlistId, songId)
+  /** Add a version the repertoire already holds, then refresh the playlist. */
+  const addVersionToPlaylist = useCallback(
+    async (versionId: string) => {
+      await actions.addSongToPlaylist(playlistId, versionId)
       const updated = await actions.getPlaylistWithSongs(playlistId)
       onSongsChanged(updated?.songs ?? [])
       await afterAdd()
@@ -150,8 +159,8 @@ export function useSongPicker({
     [actions, playlistId, onSongsChanged, afterAdd],
   )
 
-  /** The song id a Spotify row resolves to, creating the song when it is new. */
-  const resolveTrackId = useCallback(
+  /** The version a Spotify row resolves to, creating the song when it is new. */
+  const resolveTrackVersionId = useCallback(
     async (track: SpotifyTrack): Promise<string> => {
       try {
         const created = await actions.createAndAddSong({
@@ -161,10 +170,10 @@ export function useSongPicker({
           cover_url: track.albumArt ?? undefined,
           links: [{ label: 'Spotify', url: track.spotifyUrl }],
         })
-        return created.song_id
+        return created.version_id
       } catch (error) {
         if (!isAlreadyInRepertoireError(error)) throw error
-        const existing = findRepertoireSongIdByTrack([...repertoire.values()], track)
+        const existing = findRepertoireVersionIdByTrack([...repertoire.values()], track)
         if (!existing) throw error
         return existing
       }
@@ -173,19 +182,24 @@ export function useSongPicker({
   )
 
   const addCatalogSong = useCallback(
-    async (song: Song) => {
+    async (song: CatalogSearchResult) => {
       setAddingId(song.id)
       setRowErrors((prev) => withoutPickerRowError(prev, song.id))
       try {
-        if (!repertoire.has(song.id)) await actions.addToRepertoire(song.id)
-        await addSongIdToPlaylist(song.id)
+        // The card carries the representative version the search computed, so
+        // the version added is the one the row named. The repertoire write is
+        // what resolves it when the owner holds no row for it yet — and what
+        // gives a catalog row with no version at all its first one.
+        const held = heldPickerVersionId(song, repertoire)
+        const versionId = held ?? (await actions.addToRepertoire(song.id)).version_id
+        await addVersionToPlaylist(versionId)
       } catch (error) {
         setRowErrors((prev) => withPickerRowError(prev, song.id, error))
       } finally {
         setAddingId(null)
       }
     },
-    [actions, addSongIdToPlaylist, repertoire],
+    [actions, addVersionToPlaylist, repertoire],
   )
 
   const addSpotifyTrack = useCallback(
@@ -193,15 +207,15 @@ export function useSongPicker({
       setAddingId(track.id)
       setRowErrors((prev) => withoutPickerRowError(prev, track.id))
       try {
-        const songId = await resolveTrackId(track)
-        await addSongIdToPlaylist(songId)
+        const versionId = await resolveTrackVersionId(track)
+        await addVersionToPlaylist(versionId)
       } catch (error) {
         setRowErrors((prev) => withPickerRowError(prev, track.id, error))
       } finally {
         setAddingId(null)
       }
     },
-    [addSongIdToPlaylist, resolveTrackId],
+    [addVersionToPlaylist, resolveTrackVersionId],
   )
 
   const changeQuery = useCallback((next: string) => setQuery(next), [])

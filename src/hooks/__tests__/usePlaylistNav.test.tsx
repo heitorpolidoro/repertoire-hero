@@ -7,9 +7,9 @@ import { SLIDE_OUT_MS, type PlaylistEntry } from '@/lib/playlistNav'
 afterEach(cleanup)
 
 const ENTRIES: PlaylistEntry[] = [
-  { repertoireId: 'rep-1', songId: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' },
-  { repertoireId: 'rep-2', songId: 'song-2', title: 'Rosanna', artist: 'Toto' },
-  { repertoireId: 'rep-3', songId: 'song-3', title: 'Untitled', artist: null },
+  { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' },
+  { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-2', title: 'Rosanna', artist: 'Toto' },
+  { repertoireId: 'rep-3', versionId: 'v-rep-3', songId: 'song-3', title: 'Untitled', artist: null },
 ]
 
 type ActionSpies = { [K in keyof PlaylistNavActions]: Mock }

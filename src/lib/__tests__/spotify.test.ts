@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
-import { OWNER_SONG_FROM, createTestUserWithGoTrue, deleteTestUserWithGoTrue, seedOwnerSong } from './test-helpers'
+import { OWNER_SONG_FROM, createTestUserWithGoTrue, deleteTestUserWithGoTrue, representativeVersionId, representativeVersionIds, seedOwnerSong } from './test-helpers'
 import { query } from '@/lib/db'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -546,10 +546,10 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       localPlaylistId = playlist.rows[0].id
       createdPlaylists.push(localPlaylistId)
 
-      // Add only Song A initially to local playlist
+      // Add only Song A initially — its representative version (RH-125)
       await query(
-        'INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, 1)',
-        [localPlaylistId, songIdA],
+        'INSERT INTO playlist_songs (playlist_id, version_id, position) VALUES ($1, $2, 1)',
+        [localPlaylistId, await representativeVersionId(songIdA)],
       )
 
       // Add both to User A's repertoire. Keyed by a version since RH-124, so
@@ -578,9 +578,9 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       expect(data.added).toBe(1)
       expect(data.removed).toBe(1)
 
-      // Verify playlist contents: should now have only Song B
+      // Only Song B — reached through the version the entry names (RH-125)
       const localSongs = await query<{ song_id: string }>(
-        'SELECT song_id FROM playlist_songs WHERE playlist_id = $1',
+        'SELECT v.song_id FROM playlist_songs ps JOIN song_versions v ON v.id = ps.version_id WHERE ps.playlist_id = $1',
         [localPlaylistId],
       )
       expect(localSongs.rows).toHaveLength(1)
@@ -623,11 +623,11 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       const bulkSongIds = insertedSongs.rows.map((r) => r.id)
       createdSongs.push(...bulkSongIds)
 
-      // Add to playlist_songs in bulk
+      // Add to playlist_songs in bulk — versions, not songs, since RH-125
       await query(
-        `INSERT INTO playlist_songs (playlist_id, song_id, position)
-         SELECT $1, s, ordinality FROM unnest($2::uuid[]) WITH ORDINALITY AS t(s, ordinality)`,
-        [largePlaylistId, bulkSongIds],
+        `INSERT INTO playlist_songs (playlist_id, version_id, position)
+         SELECT $1, v, ordinality FROM unnest($2::uuid[]) WITH ORDINALITY AS t(v, ordinality)`,
+        [largePlaylistId, await representativeVersionIds(bulkSongIds)],
       )
 
       // Monitor fetch calls to verify batching.

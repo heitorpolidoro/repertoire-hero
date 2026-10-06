@@ -196,12 +196,41 @@ export interface BandMember {
   >;
 }
 
+/**
+ * One ordered entry of a playlist: a **version**, not a song (RH-125).
+ *
+ * `song_id` is gone — `playlist_songs.version_id` is what the row carries, and
+ * paired with the playlist's own owner it is the unique key of `user_songs` /
+ * `band_songs`, which is what lets the page find the owner's hold in one index
+ * hit. `label` is the version's own (`"2011 Remaster"`), so a setlist holding
+ * two takes of one song reads as two distinguishable rows.
+ *
+ * `song.duration_seconds` is the **version's** duration where it has one and the
+ * song's otherwise; nothing else on `song` is version-aware.
+ */
 export interface PlaylistSong {
   id: string;
   playlist_id: string;
-  song_id: string;
+  /** `song_versions.id` — the recording this entry names. */
+  version_id: string;
   position: number;
+  /** The version's label, or null for an unlabelled recording. */
+  label?: string | null;
   song?: Song;
+}
+
+/**
+ * A catalog row as the song search answers it (RH-125): the shared `songs` row
+ * plus the id of its **representative version**, so a collapsed picker card can
+ * add exactly that version without computing an ordering of its own.
+ *
+ * `version_id` is nullable because a `songs` row written outside the version
+ * upsert — `scripts/seed-catalog.sql` does — has no `song_versions` row until
+ * `ensureSongHasVersion` gives it one. A null means "ask the repertoire write
+ * for the version", never "this song cannot be added".
+ */
+export interface CatalogSearchResult extends Song {
+  version_id: string | null;
 }
 
 export interface SpotifyPlaylist {

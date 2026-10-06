@@ -24,7 +24,12 @@ vi.mock('@/lib/logger', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
-import { OWNER_SONG_FROM, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import {
+  OWNER_SONG_FROM,
+  createTestUser,
+  deleteTestUser,
+  representativeVersionId,
+} from '@/lib/__tests__/test-helpers'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { createBand } from '@/lib/bands'
@@ -72,6 +77,8 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
   let playlistId: string
   let bandPlaylistId: string
   let songOneId: string
+  /** RH-125: the representative version of `songOneId`. */
+  let versionOneId: string
 
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
@@ -85,7 +92,7 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
 
   const playlistEntries = async (id: string) => {
     const res = await query(
-      'SELECT song_id, position FROM playlist_songs WHERE playlist_id = $1 ORDER BY position',
+      'SELECT version_id, position FROM playlist_songs WHERE playlist_id = $1 ORDER BY position',
       [id],
     )
     return res.rows
@@ -143,9 +150,11 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
       [userAId, `RH-35 Personal Playlist ${suffix}`],
     )
     playlistId = personal.rows[0].id as string
-    await query('INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, 1)', [
+    // RH-125: a playlist entry names a version.
+    versionOneId = await representativeVersionId(songOneId)
+    await query('INSERT INTO playlist_songs (playlist_id, version_id, position) VALUES ($1, $2, 1)', [
       playlistId,
-      songOneId,
+      versionOneId,
     ])
 
     const bandPlaylist = await query(
@@ -213,7 +222,7 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
 
       expect(await playlistEntries(playlistId)).toEqual(entriesBefore)
       expect(entriesBefore).toHaveLength(1)
-      expect(entriesBefore[0]).toEqual({ song_id: songOneId, position: 1 })
+      expect(entriesBefore[0]).toEqual({ version_id: versionOneId, position: 1 })
       expect(await playlistStamps(playlistId)).toEqual(stampsBefore)
       expect(
         await countRows('SELECT count(*)::int AS count FROM playlist_songs WHERE playlist_id = $1', [
@@ -316,7 +325,11 @@ describe.skipIf(!RUN_DB_TESTS)('spotify playlist routes refuse foreign resources
       const entries = await playlistEntries(playlistId)
       expect(entries).toHaveLength(1)
       expect(entries[0].position).toBe(1)
-      const song = await query('SELECT title FROM songs WHERE id = $1', [entries[0].song_id])
+      // RH-125: the entry names a version, so the title is one join away.
+      const song = await query(
+        `SELECT s.title FROM song_versions v JOIN songs s ON s.id = v.song_id WHERE v.id = $1`,
+        [entries[0].version_id],
+      )
       expect(song.rows[0].title).toBe(TRACK_TITLE)
 
       const stampsAfter = await playlistStamps(playlistId)

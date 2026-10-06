@@ -289,8 +289,10 @@ export async function getSongEntry(owner: RepertoireOwner, repertoireId: string)
  * song sit in *my* repertoire?". Keyed by `(song_id, user_id)` and not by a
  * version, so the representative-version ordering is applied to the rows the
  * user **actually holds**, through a lateral; that preserves the
- * one-row-per-song answer the caller expects. RH-125 deletes the lateral once
- * `playlist_songs` carries a `version_id`.
+ * one-row-per-song answer the caller expects. **The lateral stays**: RH-125
+ * deleted the two in the *playlist* reads, whose rows carry a `version_id` now,
+ * but this caller holds a `songs.id` — Fast View and the offline snapshot are
+ * still owner-row-addressed, and re-addressing them (RH-109) is what deletes it.
  */
 export async function getPersonalEntryForSong(songId: string, userId: string): Promise<Repertoire | null> {
   const sql = `

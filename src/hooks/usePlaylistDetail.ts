@@ -41,7 +41,8 @@ import type { Playlist, PlaylistSong, Repertoire, SongStatus } from '@/types/dat
 export interface PlaylistDetailActions {
   updatePlaylist(id: string, data: { name?: string; tags?: string[] }): Promise<void>
   deletePlaylist(id: string): Promise<void>
-  removeSongFromPlaylist(playlistId: string, songId: string): Promise<void>
+  /** RH-125: removal is by `(playlist_id, version_id)`. */
+  removeSongFromPlaylist(playlistId: string, versionId: string): Promise<void>
   updateSongStatus(entryId: string, status: SongStatus, bandId?: string | null): Promise<void>
   updateSongTags(entryId: string, tags: string[], bandId?: string | null): Promise<void>
   /** RH-103: `orderedIds` are `playlist_songs.id`s in their intended order. */
@@ -84,8 +85,9 @@ export interface PlaylistDetailController {
   picker: SongPickerController
   playlistTagEditor: TagEditorController
   songTagEditor: TagEditorController
-  removeSong: (songId: string) => Promise<void>
-  changeStatus: (songId: string, status: SongStatus) => Promise<void>
+  /** Both are keyed by `version_id` (RH-125), the id a playlist entry names. */
+  removeSong: (versionId: string) => Promise<void>
+  changeStatus: (versionId: string, status: SongStatus) => Promise<void>
   /**
    * RH-103 — true while the list is in reorder mode. Never true while a filter
    * is active: the visible list would be a subset, so "the row above" on screen
@@ -96,7 +98,7 @@ export interface PlaylistDetailController {
   reordering: boolean
   setReordering: (on: boolean) => void
   /** One place up or down; writes nothing at the ends (`movePlaylistSong`). */
-  moveSong: (songId: string, direction: 'up' | 'down') => Promise<void>
+  moveSong: (versionId: string, direction: 'up' | 'down') => Promise<void>
   /** The drag's commit, given the full permuted `playlist_songs.id` order. */
   reorderSongs: (orderedIds: string[]) => Promise<void>
   rename: () => Promise<void>
@@ -129,7 +131,7 @@ interface ReorderCommandDeps {
  * replaces were.
  */
 function reorderCommands(deps: ReorderCommandDeps): {
-  moveSong: (songId: string, direction: 'up' | 'down') => Promise<void>
+  moveSong: (versionId: string, direction: 'up' | 'down') => Promise<void>
   reorderSongs: (orderedIds: string[]) => Promise<void>
 } {
   const { playlistId, songs, actions, record, setError, pushIfNeeded, onRefresh } = deps
@@ -152,8 +154,8 @@ function reorderCommands(deps: ReorderCommandDeps): {
   return {
     // Computed against the whole playlist, never the filtered view, so a move
     // is always a move in the playlist.
-    moveSong: async (songId, direction) => {
-      const move = movePlaylistSong(songs, songId, direction)
+    moveSong: async (versionId, direction) => {
+      const move = movePlaylistSong(songs, versionId, direction)
       if (!move.moved) return
       await commitOrder(move.orderedIds)
     },
@@ -247,23 +249,23 @@ export function usePlaylistDetail({
     afterAdd: sync.pushIfNeeded,
   })
 
-  const removeSong = async (songId: string) => {
+  const removeSong = async (versionId: string) => {
     setError(null)
-    record({ type: 'remove-song', songId })
+    record({ type: 'remove-song', versionId })
     try {
-      await actions.removeSongFromPlaylist(playlist.id, songId)
+      await actions.removeSongFromPlaylist(playlist.id, versionId)
       await sync.pushIfNeeded()
       onRefresh()
     } catch (err) {
-      record({ type: 'restore-song', songId })
+      record({ type: 'restore-song', versionId })
       setError(err instanceof Error ? err.message : 'Failed to remove song')
     }
   }
 
-  const changeStatus = async (songId: string, status: SongStatus) => {
-    const change = setSongStatus(repertoireMap, songId, status)
+  const changeStatus = async (versionId: string, status: SongStatus) => {
+    const change = setSongStatus(repertoireMap, versionId, status)
     if (!change) return
-    record({ type: 'repertoire-entry', songId, entry: change.updated })
+    record({ type: 'repertoire-entry', versionId, entry: change.updated })
     try {
       await actions.updateSongStatus(change.entry.id, change.status, bandId)
       onRefresh()
@@ -272,7 +274,7 @@ export function usePlaylistDetail({
       // backwards — the one asymmetry the two tag editors below do not share,
       // and since RH-102 a tap can move the status either way, so there is no
       // backwards status to compute at all.
-      record({ type: 'repertoire-entry', songId, entry: change.entry })
+      record({ type: 'repertoire-entry', versionId, entry: change.entry })
       setError(err instanceof Error ? err.message : 'Failed to update status')
     }
   }
@@ -326,15 +328,17 @@ export function usePlaylistDetail({
     removeFailureMessage: 'Failed to update tags',
   })
 
+  // Keyed by `version_id` (RH-125): the subject each row hands the editor is
+  // the version its entry names.
   const songTagEditor = useTagEditor({
-    readTags: songId => repertoireMap.get(songId)?.tags ?? null,
-    applyTags: (songId, tags) => {
-      const entry = repertoireMap.get(songId)
-      if (entry) record({ type: 'repertoire-entry', songId, entry: { ...entry, tags } })
+    readTags: versionId => repertoireMap.get(versionId)?.tags ?? null,
+    applyTags: (versionId, tags) => {
+      const entry = repertoireMap.get(versionId)
+      if (entry) record({ type: 'repertoire-entry', versionId, entry: { ...entry, tags } })
     },
-    saveTags: async (songId, tags) => {
-      // Unreachable without an entry: `readTags` reports `null` for that song.
-      const entry = repertoireMap.get(songId)
+    saveTags: async (versionId, tags) => {
+      // Unreachable without an entry: `readTags` reports `null` for it.
+      const entry = repertoireMap.get(versionId)
       if (!entry) return
       await actions.updateSongTags(entry.id, tags, bandId)
       onRefresh()

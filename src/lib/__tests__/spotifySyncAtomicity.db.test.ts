@@ -22,7 +22,12 @@ import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { getRequiredUserId } from '@/lib/auth-session'
-import { OWNER_SONG_FROM, createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
+import {
+  OWNER_SONG_FROM,
+  createTestUser,
+  deleteTestUser,
+  representativeVersionId,
+} from '@/lib/__tests__/test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const TRACK_TITLE = 'RH-36 Track'
@@ -55,6 +60,8 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
   let bandPlaylistId: string
   let songOneId: string
   let songTwoId: string
+  let versionOneId: string
+  let versionTwoId: string
 
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
@@ -115,9 +122,13 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
       [ownerId, `RH-36 Personal Playlist ${suffix}`],
     )
     playlistId = personal.id as string
+    // RH-125: a playlist entry names a version, so each song's representative
+    // one is resolved first.
+    versionOneId = await representativeVersionId(songOneId)
+    versionTwoId = await representativeVersionId(songTwoId)
     await query(
-      'INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, 1), ($1, $3, 2)',
-      [playlistId, songOneId, songTwoId],
+      'INSERT INTO playlist_songs (playlist_id, version_id, position) VALUES ($1, $2, 1), ($1, $3, 2)',
+      [playlistId, versionOneId, versionTwoId],
     )
 
     const bandPlaylist = await one(
@@ -180,12 +191,12 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     // The DELETE that precedes the re-insert is rolled back with it, so the
     // playlist still holds exactly what it held before the sync.
     const rows = await query(
-      'SELECT song_id, position FROM playlist_songs WHERE playlist_id = $1 ORDER BY position',
+      'SELECT version_id, position FROM playlist_songs WHERE playlist_id = $1 ORDER BY position',
       [playlistId],
     )
     expect(rows.rows).toEqual([
-      { song_id: songOneId, position: 1 },
-      { song_id: songTwoId, position: 2 },
+      { version_id: versionOneId, position: 1 },
+      { version_id: versionTwoId, position: 2 },
     ])
 
     const playlist = await one('SELECT last_synced_at FROM playlists WHERE id = $1', [playlistId])

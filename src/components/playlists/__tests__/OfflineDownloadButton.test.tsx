@@ -21,8 +21,8 @@ import type { Repertoire, SongFile } from '@/types/database'
 afterEach(cleanup)
 
 const ENTRIES = [
-  { repertoireId: 'rep-1', songId: 'song-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
-  { repertoireId: 'rep-2', songId: 'song-2', title: 'Faroeste Caboclo', artist: null },
+  { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
+  { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-2', title: 'Faroeste Caboclo', artist: null },
 ]
 
 function repertoire(id: string): Repertoire {

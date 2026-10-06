@@ -72,7 +72,12 @@ const eslintConfig = defineConfig([
   // so both now sit inside the base budget of 4 and the overrides had to go
   // rather than be lowered. 17 entries to 15.
   { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/import/route.ts"], rules: { complexity: ["error", 21] } },
-  { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 26], "max-depth": ["error", 5] } },
+  // RH-125 code review lowered this one 26 -> 25: the pull's dedup moved into
+  // `dedupeVersionIds` in `src/lib/spotifyPlaylistSync.ts`, where a unit test
+  // can reach it (`src/app/api/**` is outside the coverage gate), and the `if
+  // (!seenSpotifyVersions.has(...))` branch it took with it is the one the
+  // route no longer spends.
+  { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 25], "max-depth": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/app/bands/\\[id\\]/page.tsx"], rules: { complexity: ["error", 29], "max-lines-per-function": ["error", 453], "max-lines": ["error", 473] } },
   { name: "complexity-budget/override", files: ["src/app/join/\\[code\\]/page.tsx"], rules: { "max-lines-per-function": ["error", 249] } },
   { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 663] } },
@@ -110,7 +115,11 @@ const eslintConfig = defineConfig([
   // it from 505 to 483, RH-96 to 473, RH-97 to 471, RH-121 to 470 and RH-122 to
   // 465.)
   { name: "complexity-budget/override", files: ["src/lib/__tests__/edge_cases.test.ts"], rules: { complexity: ["error", 32] } },
-  { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 17] } },
+  // RH-125 lowered this one 17 -> 16. The mock dispatcher gained a branch for
+  // the version upsert, which answers its own id now, and paid for it twice
+  // over by collapsing the three `||`-joined transaction-keyword comparisons
+  // into one regex.
+  { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 16] } },
   { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 678] } },
   // END:complexity-budget-overrides
   // Override default ignores of eslint-config-next.

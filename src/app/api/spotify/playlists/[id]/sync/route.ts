@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, withTransaction } from '@/lib/db'
-import type { PlaylistSongIdRow, PlaylistSongLinksRow } from '@/lib/dbRows'
+import type { PlaylistVersionIdRow, PlaylistVersionLinksRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 import { resolveSpotifyRouteAccess, resolveWritablePlaylist } from '@/lib/spotifyRouteAuth'
 import {
@@ -8,6 +8,7 @@ import {
   findOrCreateSong,
   ensureInRepertoire,
   buildPlaylistSongsInsert,
+  dedupeVersionIds,
 } from '@/lib/spotifyPlaylistSync'
 
 // ---------------------------------------------------------------------------
@@ -49,8 +50,10 @@ export async function POST(
     // The row itself came from the guard; only the Spotify link is still needed.
     const linkRes = await query<{ spotify_playlist_id: string | null }>('SELECT spotify_playlist_id FROM playlists WHERE id = $1', [localPlaylistId])
 
-    // Fetch existing songs in the playlist
-    const songsRes = await query<PlaylistSongIdRow>('SELECT song_id FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
+    // Fetch the entries already in the playlist. Version ids since RH-125: two
+    // takes of one song are two entries, so comparing songs would report the
+    // second one as both already present and newly added.
+    const songsRes = await query<PlaylistVersionIdRow>('SELECT version_id FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
     const localEntries = songsRes.rows
 
     if (!linkRes.rows[0].spotify_playlist_id) {
@@ -69,27 +72,30 @@ export async function POST(
 
       const owner = playlist.band_id ? { bandId: playlist.band_id } : { userId: userId }
 
-      const existingSongIds = new Set(localEntries.map((e) => e.song_id))
-      const spotifySongIdsInOrder: string[] = []
-      const seenSpotifySongs = new Set<string>()
+      const existingVersionIds = new Set(localEntries.map((e) => e.version_id))
+      const resolvedVersionIds: string[] = []
 
       for (const track of spotifyTracks) {
-        const songId = await findOrCreateSong(track)
-        await ensureInRepertoire(songId, owner)
-        if (!seenSpotifySongs.has(songId)) {
-          seenSpotifySongs.add(songId)
-          spotifySongIdsInOrder.push(songId)
-        }
+        const { versionId } = await findOrCreateSong(track)
+        await ensureInRepertoire(versionId, owner)
+        resolvedVersionIds.push(versionId)
       }
 
+      // Deduplicated by version, so a playlist holding the studio take and the
+      // live take of one song keeps both — re-syncing the same track resolves
+      // to the version already there and adds nothing. The rule itself lives in
+      // `dedupeVersionIds`, which is where it is unit-tested.
+      const spotifyVersionIdsInOrder = dedupeVersionIds(resolvedVersionIds)
+      const seenSpotifyVersions = new Set(spotifyVersionIdsInOrder)
+
       // Count added and removed for response summary
-      for (const songId of spotifySongIdsInOrder) {
-        if (!existingSongIds.has(songId)) {
+      for (const versionId of spotifyVersionIdsInOrder) {
+        if (!existingVersionIds.has(versionId)) {
           added++
         }
       }
       for (const entry of localEntries) {
-        if (!seenSpotifySongs.has(entry.song_id)) {
+        if (!seenSpotifyVersions.has(entry.version_id)) {
           removed++
         }
       }
@@ -103,17 +109,20 @@ export async function POST(
       await withTransaction(async (client) => {
         await client.query<never>('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
 
-        if (spotifySongIdsInOrder.length > 0) {
-          const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifySongIdsInOrder)
+        if (spotifyVersionIdsInOrder.length > 0) {
+          const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifyVersionIdsInOrder)
           await client.query<never>(sql, values)
         }
       })
     } else {
       // Push local playlist to Spotify
-      const playlistSongsRes = await query<PlaylistSongLinksRow>(`
-        SELECT ps.song_id, ps.position, s.links
+      // The links live on the shared catalog row, so the push reaches them
+      // through the version the entry names (RH-125).
+      const playlistSongsRes = await query<PlaylistVersionLinksRow>(`
+        SELECT ps.version_id, ps.position, s.links
         FROM playlist_songs ps
-        JOIN songs s ON ps.song_id = s.id
+        JOIN song_versions v ON v.id = ps.version_id
+        JOIN songs s ON s.id = v.song_id
         WHERE ps.playlist_id = $1
         ORDER BY ps.position ASC
       `, [localPlaylistId])

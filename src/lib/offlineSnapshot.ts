@@ -77,8 +77,18 @@ import type { Repertoire, SongFile } from '@/types/database'
  * itself, so there is nothing to recompute from a v3 record: it is discarded,
  * and `listOfflinePlaylists` purges it so the playlist reads as not downloaded
  * rather than as a copy Fast View then contradicts.
+ *
+ * 4 -> 5 (RH-125): `playlist_songs` names a version, so the stored
+ * `entry: PlaylistEntry` changed shape — it gained a required
+ * `versionId: string` and its `repertoireId` became nullable. A v4 record reads
+ * back with `entry.versionId === undefined` under a type that says `string`,
+ * and `isSongSnapshot` would not notice: it validates `entry` only as
+ * `isRecord`. The bump is what discards those records instead, through the one
+ * `schemaVersion !==` check in `readValidSnapshot`, on this module's own
+ * v1 -> v2 precedent — an indicator that might be wrong is worse than no
+ * offline copy.
  */
-export const OFFLINE_SCHEMA_VERSION = 4
+export const OFFLINE_SCHEMA_VERSION = 5
 
 /** One file PDF, as stored: the row's fields plus where its bytes live and how many. */
 export interface OfflineTabSnapshot {
@@ -110,6 +120,10 @@ export interface OfflineSongSnapshot {
    * RH-124, never a `repertoire` row's — and the `getSongEntry` lookup key. The
    * *file* lookup key is `repertoire.song_id` instead (RH-123) — see the module
    * docblock on why the two coexist.
+   *
+   * **Non-null, though `PlaylistEntry.repertoireId` is nullable since RH-125**:
+   * `gatherSongs` skips an entry that carries none, so the entries that reach a
+   * snapshot are exactly the ones that have an address.
    */
   repertoireId: string
   entry: PlaylistEntry
@@ -195,7 +209,9 @@ export function buildOfflineSnapshot(input: BuildOfflineSnapshotInput): OfflineS
     bandId: input.bandId,
     savedAt: input.savedAt,
     songs: input.songs.map((song) => ({
-      repertoireId: song.entry.repertoireId,
+      // `repertoire.id`, not `entry.repertoireId`: the two are the same row,
+      // and this one is non-null by type since RH-125 made the entry's nullable.
+      repertoireId: song.repertoire.id,
       entry: song.entry,
       repertoire: song.repertoire,
       personalRepertoire: song.personalRepertoire,

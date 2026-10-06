@@ -82,7 +82,7 @@ function buildOne(): OfflineSnapshot {
     savedAt: '2026-09-20T18:04:00.000Z',
     songs: [
       {
-        entry: { repertoireId: 'rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
+        entry: { repertoireId: 'rep-1', versionId: 'version-of-rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
         repertoire: repertoire('rep-1'),
         personalRepertoire: { ...repertoire('personal-1'), band_id: null, user_id: 'user-1', song_id: 'song-of-rep-1', lyrics: 'my cues' },
         tabs: [
@@ -91,7 +91,7 @@ function buildOne(): OfflineSnapshot {
         ],
       },
       {
-        entry: { repertoireId: 'rep-2', songId: 'song-of-rep-2', title: 'Faroeste', artist: null },
+        entry: { repertoireId: 'rep-2', versionId: 'version-of-rep-2', songId: 'song-of-rep-2', title: 'Faroeste', artist: null },
         repertoire: repertoire('rep-2'),
         personalRepertoire: null,
         tabs: [],
@@ -103,9 +103,11 @@ function buildOne(): OfflineSnapshot {
 describe('buildOfflineSnapshot', () => {
   // RH-83 ER10 took it to 2 (`personalRepertoire`); RH-123 ER9 to 3 (a file
   // entry keyed by `songId`); RH-124 ER17 to 4 (a resolved owner row, off
-  // `user_songs` / `band_songs`, in place of a `repertoire` row).
-  it('is at schema version 4, one above what RH-123 left', () => {
-    expect(OFFLINE_SCHEMA_VERSION).toBe(4)
+  // `user_songs` / `band_songs`, in place of a `repertoire` row); RH-125 ER17
+  // to 5, because the stored `entry` gained a required `versionId` and its
+  // `repertoireId` became nullable.
+  it('is at schema version 5, one above what RH-124 left', () => {
+    expect(OFFLINE_SCHEMA_VERSION).toBe(5)
   })
 
   /**
@@ -257,15 +259,42 @@ describe('readValidSnapshot', () => {
   })
 
   /**
-   * ER17 — a snapshot written under the previous version is rejected. The shape
-   * still validates (`isSongSnapshot` checks structure, not the row's columns),
-   * which is exactly why the version number has to do the work: without the
-   * bump a v3 record would be read back and Fast View would show an empty key
-   * line offline against a filled one online.
+   * RH-125 ER17 — a snapshot written under the previous version is rejected,
+   * and one written under the new value is accepted.
+   *
+   * The shape still validates (`isSongSnapshot` checks structure, not the
+   * entry's fields), which is exactly why the version number has to do the
+   * work: a v4 record carries `entry.versionId === undefined` under a type that
+   * says `string`, and `isRecord` would wave it through.
    */
+  it('accepts a snapshot written under the new schema version (ER17)', () => {
+    const current = buildOne()
+
+    expect(current.schemaVersion).toBe(5)
+    expect(readValidSnapshot(current)).toEqual(current)
+  })
+
   it('rejects a snapshot written under the previous schema version (ER17)', () => {
     const current = buildOne()
-    const v3 = { ...current, schemaVersion: OFFLINE_SCHEMA_VERSION - 1 }
+    const v4 = { ...current, schemaVersion: OFFLINE_SCHEMA_VERSION - 1 }
+
+    expect(readValidSnapshot(v4)).toBeNull()
+    // Specifically the v4 *entry* shape, not only the version number: a v4
+    // record's entry carries no `versionId` at all.
+    const v4Entry: Record<string, unknown> = { ...current.songs[0].entry }
+    delete v4Entry.versionId
+    expect(
+      readValidSnapshot({
+        ...current,
+        schemaVersion: 4,
+        songs: [{ ...current.songs[0], entry: v4Entry }],
+      }),
+    ).toBeNull()
+  })
+
+  it('rejects a v3 snapshot too, for the version RH-124 bumped (ER17)', () => {
+    const current = buildOne()
+    const v3 = { ...current, schemaVersion: 3 }
 
     expect(readValidSnapshot(v3)).toBeNull()
   })

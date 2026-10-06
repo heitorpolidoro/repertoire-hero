@@ -53,7 +53,7 @@ function saveInput(playlistId: string, tabIds: string[]): SaveOfflinePlaylistInp
     savedAt: '2026-09-20T18:04:00.000Z',
     songs: [
       {
-        entry: { repertoireId: 'rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
+        entry: { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
         repertoire: repertoire('rep-1'),
         personalRepertoire: { ...repertoire('personal-1'), band_id: null, user_id: 'user-1', lyrics: 'my cues' },
         tabs: tabIds.map((tabId) => tabRow(tabId, 'rep-1')),

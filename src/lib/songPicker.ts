@@ -14,7 +14,7 @@
  */
 
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { Song, Repertoire } from '@/types/database'
+import type { CatalogSearchResult, Repertoire } from '@/types/database'
 
 /** Shortest query the picker will search for, counted after trimming. */
 export const MIN_PICKER_QUERY_LENGTH = 2
@@ -36,12 +36,37 @@ export function shouldSearchPicker(query: string): boolean {
   return query.trim().length >= MIN_PICKER_QUERY_LENGTH
 }
 
-/** Catalog results minus the songs the playlist already holds. */
+/**
+ * Catalog results minus the **versions** the playlist already holds (RH-125).
+ *
+ * A collapsed card carries the representative version the search read already
+ * computed, so the comparison is version against version — the picker computes
+ * no ordering of its own. A card whose song has no version yet cannot be in any
+ * playlist, so it is always offered.
+ */
 export function visiblePickerCatalog(
-  results: readonly Song[],
-  playlistSongIds: ReadonlySet<string>,
-): Song[] {
-  return results.filter((song) => !playlistSongIds.has(song.id))
+  results: readonly CatalogSearchResult[],
+  playlistVersionIds: ReadonlySet<string>,
+): CatalogSearchResult[] {
+  return results.filter((song) => !song.version_id || !playlistVersionIds.has(song.version_id))
+}
+
+/**
+ * The version a collapsed catalog card adds, or `null` when the repertoire
+ * write has to resolve it first.
+ *
+ * Non-null exactly when the card names a version the owner already holds: that
+ * is the one case where no `addToRepertoire` round trip is needed, and it is
+ * the condition the picker used to express as `repertoire.has(song.id)`. A card
+ * with no version at all also answers `null` — `addSongToRepertoire` is what
+ * gives such a song its first `song_versions` row.
+ */
+export function heldPickerVersionId(
+  song: CatalogSearchResult,
+  repertoire: ReadonlyMap<string, Repertoire>,
+): string | null {
+  const versionId = song.version_id
+  return versionId && repertoire.has(versionId) ? versionId : null
 }
 
 /**
@@ -96,14 +121,20 @@ export function isAlreadyInRepertoireError(error: unknown): boolean {
   return error instanceof Error && error.message.includes(ALREADY_IN_REPERTOIRE)
 }
 
-/** The repertoire song id for a track, matched on title and artist, or `null`. */
-export function findRepertoireSongIdByTrack(
+/**
+ * The **version id** the owner already holds for a track, matched on title and
+ * artist, or `null` (RH-125).
+ *
+ * Which version it is follows from the owner's own row: the match is on the
+ * catalog song, and the row the owner holds for it names exactly one version.
+ */
+export function findRepertoireVersionIdByTrack(
   entries: readonly Repertoire[],
   track: PickerTrackName,
 ): string | null {
   const wanted = pickerDedupKey(track)
   const existing = entries.find((rep) => rep.song && pickerDedupKey(rep.song) === wanted)
-  return existing?.song_id ?? null
+  return existing?.version_id ?? null
 }
 
 /**
@@ -120,14 +151,14 @@ export interface SongPickerController {
   addingId: string | null
   /** Per-row failure messages, keyed by row id. */
   rowErrors: Record<string, string>
-  /** Catalog matches not already in the playlist. */
-  catalogResults: Song[]
+  /** Catalog matches not already in the playlist, each naming a version. */
+  catalogResults: CatalogSearchResult[]
   /** Spotify matches the catalog rows do not already cover. */
   spotifyResults: SpotifyTrack[]
   /** Type into the search box; the search itself is debounced. */
   changeQuery: (query: string) => void
   /** Add a catalog row. Never rejects — a failure lands in `rowErrors`. */
-  addCatalogSong: (song: Song) => Promise<void>
+  addCatalogSong: (song: CatalogSearchResult) => Promise<void>
   /** Add a Spotify row. Never rejects — a failure lands in `rowErrors`. */
   addSpotifyTrack: (track: SpotifyTrack) => Promise<void>
 }

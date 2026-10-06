@@ -16,14 +16,15 @@ import type { PlaylistSong, Repertoire, SongStatus } from '@/types/database'
 
 afterEach(cleanup)
 
-function playlistSong(songId: string, duration: number | null = null): PlaylistSong {
+/** Keyed by the **version** it names (RH-125); the song id is derived. */
+function playlistSong(versionId: string, duration: number | null = null): PlaylistSong {
   return {
-    id: `ps-${songId}`,
+    id: `ps-${versionId}`,
     playlist_id: 'playlist-1',
-    song_id: songId,
+    version_id: versionId,
     position: 0,
     song: {
-      id: songId,
+      id: `song-of-${versionId}`,
       title: 'Kashmir',
       artist: 'Led Zeppelin',
       album: 'Physical Graffiti',
@@ -36,16 +37,17 @@ function playlistSong(songId: string, duration: number | null = null): PlaylistS
   }
 }
 
+/** Keyed by `version_id`, which is what `summarisePlaylistMastery` reads. */
 function repertoireOf(statuses: Record<string, SongStatus>): Map<string, Repertoire> {
   return new Map(
-    Object.entries(statuses).map(([songId, status]) => [
-      songId,
+    Object.entries(statuses).map(([versionId, status]) => [
+      versionId,
       {
-        id: `rep-${songId}`,
+        id: `rep-${versionId}`,
         user_id: 'user-1',
         band_id: null,
-        song_id: songId,
-        version_id: 'version-1',
+        song_id: `song-of-${versionId}`,
+        version_id: versionId,
         key: null,
         tuning: null,
         map: null,

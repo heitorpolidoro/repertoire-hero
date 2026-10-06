@@ -15,16 +15,16 @@ import {
 } from '../playlistNav'
 
 const ENTRIES: PlaylistEntry[] = [
-  { repertoireId: 'rep-1', songId: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' },
-  { repertoireId: 'rep-2', songId: 'song-2', title: 'Rosanna', artist: 'Toto' },
-  { repertoireId: 'rep-3', songId: 'song-3', title: 'Untitled', artist: null },
+  { repertoireId: 'rep-1', versionId: 'v-1', songId: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' },
+  { repertoireId: 'rep-2', versionId: 'v-2', songId: 'song-2', title: 'Rosanna', artist: 'Toto' },
+  { repertoireId: 'rep-3', versionId: 'v-3', songId: 'song-3', title: 'Untitled', artist: null },
 ]
 
 const MAIN_CLASSES =
   'min-h-screen px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out '
 
 function navAt(index: number): PlaylistNav {
-  const nav = computePlaylistNav(ENTRIES, ENTRIES[index].repertoireId, 'pl-1', 'Gig')
+  const nav = computePlaylistNav(ENTRIES, ENTRIES[index].repertoireId!, 'pl-1', 'Gig')
   if (!nav) throw new Error('fixture entry is not in the fixture playlist')
   return nav
 }
@@ -216,5 +216,53 @@ describe('backTarget', () => {
     expect(backTarget('/playlists/pl-1')).toEqual({ kind: 'push', href: '/playlists/pl-1' })
     expect(backTarget(null)).toEqual({ kind: 'back' })
     expect(backTarget('')).toEqual({ kind: 'back' })
+  })
+})
+
+/**
+ * RH-125 ER12 — an entry the owner holds no repertoire row for.
+ *
+ * The setlist read `LEFT JOIN`s the owner table now, so every entry of the
+ * playlist is in the list whether or not the owner holds it, and an entry that
+ * carries no `repertoireId` has no Fast View address yet (RH-109 is what gives
+ * it one). Three things follow, and all three are asserted: the nav for the
+ * current song is still non-null — losing one entry used to collapse the whole
+ * setlist — `position` and `total` count **every** entry, and prev/next step
+ * over the unaddressable one rather than stopping at it.
+ */
+describe('computePlaylistNav with an unaddressable entry (RH-125 ER12)', () => {
+  /** Second of four has no owner row; the current song is the first. */
+  const GAPPED: PlaylistEntry[] = [
+    { repertoireId: 'rep-1', versionId: 'v-1', songId: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' },
+    { repertoireId: null, versionId: 'v-2', songId: 'song-2', title: 'Rosanna', artist: 'Toto' },
+    { repertoireId: 'rep-3', versionId: 'v-3', songId: 'song-3', title: 'Hold the Line', artist: 'Toto' },
+    { repertoireId: null, versionId: 'v-4', songId: 'song-4', title: 'Africa', artist: 'Toto' },
+  ]
+
+  it('still answers for the current entry, and counts every entry', () => {
+    const nav = computePlaylistNav(GAPPED, 'rep-1', 'pl-1', 'Gig')
+
+    expect(nav).not.toBeNull()
+    expect(nav).toMatchObject({ position: 1, total: 4 })
+  })
+
+  it('names the nearest neighbour with a non-null repertoireId as next', () => {
+    // `v-2` sits between them and is skipped: a gap must not block the rest of
+    // the setlist.
+    expect(computePlaylistNav(GAPPED, 'rep-1', 'pl-1', 'Gig')?.nextId).toBe('rep-3')
+  })
+
+  it('names the nearest addressable neighbour as previous, and null past the end', () => {
+    const atThird = computePlaylistNav(GAPPED, 'rep-3', 'pl-1', 'Gig')
+
+    expect(atThird).toMatchObject({ prevId: 'rep-1', position: 3, total: 4 })
+    // Only `v-4` is left after it, and it has no address — so there is no next.
+    expect(atThird?.nextId).toBeNull()
+  })
+
+  it('never matches an unaddressable entry as the current one', () => {
+    // The route param is an owner row id, so this cannot happen in the app;
+    // asserted so a future `?? ''` cannot make a null match the empty string.
+    expect(computePlaylistNav(GAPPED, '', 'pl-1', 'Gig')).toBeNull()
   })
 })

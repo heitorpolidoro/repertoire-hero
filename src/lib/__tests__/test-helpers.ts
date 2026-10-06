@@ -147,37 +147,104 @@ export function formatViolations(violations: SourceViolation[]): string[] {
  *  - `songFilesMigration.db.test.ts` and `songIdentity.db.test.ts` replay
  *    migrations (`0015`, `0009`) whose statements touch rows of this table;
  *  - `catalogVersionsMigration.db.test.ts` replays `0014`, which did too.
+ *
+ * **All four now rebuild it in a throwaway schema** ({@link legacyCatalogReplayDdl}),
+ * so none of them holds a lock on anything in `public`. See the note below on
+ * the advisory lock that arrangement retired.
  */
 export const LEGACY_REPERTOIRE_TABLE = ['reper', 'toire'].join('')
 
-/**
- * The advisory-lock key every migration-replay suite takes before it rebuilds a
- * legacy shape.
+/*
+ * THE MIGRATION-REPLAY ADVISORY LOCK IS GONE, AND NOTHING REPLACED IT.
  *
- * Four suites now do that — `ownerSongsMigration`, `songFilesMigration`,
- * `songIdentity` and `catalogVersionsMigration` — and vitest runs files in
- * parallel workers against one database. Each one `DROP`s and `CREATE`s the
- * same handful of table names inside its own transaction, in a different order,
- * which is a lock-ordering cycle: Postgres resolves it by killing one of them
- * with `deadlock detected`, at random, which reads as a flaky suite rather than
- * as contention.
+ * There used to be a `lockMigrationReplay(client)` here, taking a
+ * transaction-scoped `pg_advisory_xact_lock(124_0016)` as the first statement
+ * of any replay scenario that rebuilt a legacy shape **in `public`**. It was
+ * removed rather than kept-but-unused, because by the end of RH-129 it guarded
+ * nothing: its last two callers, `ownerSongsMigration` and `songFilesMigration`,
+ * moved onto {@link legacyCatalogReplayDdl}'s throwaway schema, which is where
+ * `songIdentity` and `catalogVersionsMigration` already were.
  *
- * A transaction-scoped advisory lock serialises the four instead. It is
- * released by `COMMIT` or `ROLLBACK` with no `unlock` call, so there is nothing
- * to leak if a scenario throws — and these scenarios always throw, that being
- * how they roll back.
+ * It is recorded here rather than deleted silently because the lock's *failure*
+ * is the useful part of the history. It serialised the replay suites against
+ * **each other** only. The deadlocks were never between two replays; they were
+ * between one replay and an ordinary suite, which takes no advisory lock and
+ * cannot be made to. Measured after the first two suites moved, the remaining
+ * two still deadlocked in 2 of 24 full runs (~8%) — with the lock held — on the
+ * cycle an unqualified `DROP TABLE song_files` / `DROP TABLE user_songs` closes:
+ * the drop needs ACCESS EXCLUSIVE on the *referenced* `songs` and
+ * `song_versions` as well, while any ordinary suite holding AccessShare on
+ * `songs` and then asking for RowExclusive is waiting the other way round.
+ *
+ * So the fix is not a bigger lock, it is no shared table: a replay that owns
+ * every relation it drops is not in the lock graph at all. Two things that were
+ * tried and are worse, for the next person who reaches for them:
+ *
+ *  - promoting the advisory lock to `LOCK TABLE songs, global_song_edits IN
+ *    ACCESS EXCLUSIVE MODE` serialises every `songs` reader in the suite behind
+ *    each replay, and made unrelated atomicity tests time out;
+ *  - serialising the files (`fileParallelism: false`, a `poolOptions` carve-out,
+ *    `--no-threads`) hides the cycle instead of removing it, and pays for it in
+ *    wall-clock on every run forever.
+ *
+ * A new replay suite therefore takes no lock. It builds a schema and puts it
+ * first on the transaction's `search_path`.
  */
-const MIGRATION_REPLAY_LOCK = 124_0016
-
-/** Minimal shape of what `withTransaction` hands its callback. */
-type LockClient = { query: (sql: string, params?: unknown[]) => Promise<unknown> }
 
 /**
- * Takes {@link MIGRATION_REPLAY_LOCK} for the rest of `client`'s transaction.
- * Call it as the **first** statement of a replay scenario, before any DDL.
+ * The two owner tables a replayed migration's foreign keys point at, as empty
+ * **stubs** inside a throwaway replay schema.
+ *
+ * `migrations/0015` declares `song_files.user_id REFERENCES profiles(id)`, and
+ * `migrations/0016` declares `user_songs.user_id REFERENCES profiles(id)` and
+ * `band_songs.band_id REFERENCES bands(id)`. Those names are unqualified, so in
+ * a replay schema they resolve along the `search_path` — and with no local
+ * table they would land on **`public`'s**, which is the one thing the replay
+ * schema exists to avoid: declaring a foreign key takes `SHARE ROW EXCLUSIVE`
+ * on the referenced table, and that conflicts with the `ROW EXCLUSIVE` every
+ * other worker's `INSERT INTO profiles` holds.
+ *
+ * `id` is the only column, because an FK target is all these are for: no
+ * statement in either migration selects a column of `profiles` or `bands`. A
+ * scenario inserts the synthetic owner uuids it needs — the replay schema's
+ * `repertoire` carries no owner key of its own (see {@link legacyRepertoireDdl}),
+ * so those uuids are invented, and nothing can tell them from real ones.
+ *
+ * Both tables are created even by a scenario that needs one, so that a caller
+ * does not have to know which foreign keys the file it replays happens to
+ * declare; an unused empty table in a schema that is rolled back costs nothing.
+ *
+ * `schema` is written by the calling suite from a hex token, never by a user.
  */
-export async function lockMigrationReplay(client: LockClient): Promise<void> {
-  await client.query('SELECT pg_advisory_xact_lock($1)', [MIGRATION_REPLAY_LOCK])
+export function ownerStubsDdl(schema: string): string {
+  return `
+    CREATE TABLE ${schema}.profiles (id uuid PRIMARY KEY);
+    CREATE TABLE ${schema}.bands    (id uuid PRIMARY KEY);
+  `
+}
+
+/**
+ * One migration file's text, resolved off disk by its name **suffix**.
+ *
+ * Never by a four-digit prefix: several approved specs are written against the
+ * same high-water mark, so whichever lands second renumbers, and a prefix
+ * written into a test would break on that renumber.
+ *
+ * This exists for the *prerequisite* case — a suite that has to run a migration
+ * other than its own subject, because the throwaway schema it replays into does
+ * not carry what that earlier file installed. `ownerSongsMigration` is the one
+ * caller today: `migrations/0016` calls `migrate_catalog_to_versions()` and
+ * writes into `albums` / `song_versions`, all three of which `migrations/0014`
+ * creates. A suite's own subject file stays resolved locally, because the "there
+ * is exactly one of me" assertion is part of what that suite tests.
+ */
+export function migrationSqlBySuffix(suffix: string): string {
+  const dir = path.join(REPO_ROOT, 'migrations')
+  const names = fs.readdirSync(dir).filter((name) => name.endsWith(suffix))
+  if (names.length !== 1) {
+    throw new Error(`expected exactly one *${suffix} migration, found ${names.length}`)
+  }
+  return fs.readFileSync(path.join(dir, names[0]), 'utf8')
 }
 
 /**
@@ -191,37 +258,63 @@ export async function lockMigrationReplay(client: LockClient): Promise<void> {
  *
  * `IF NOT EXISTS` so a suite may call it without first asking whether the split
  * migration has been applied to the database it is running against.
+ *
+ * **There are no owner foreign keys, and `schema` is required** (RH-129). There
+ * is no `profiles` and no `bands` in a throwaway replay schema to point at, and
+ * declaring the keys against the real ones would take a `SHARE ROW EXCLUSIVE`
+ * lock on two tables every other worker writes — the whole reason every replay
+ * moved out of `public`. A replay-schema row therefore carries a synthetic
+ * owner uuid, which no statement any replayed migration issues can tell from a
+ * real one: none of them joins an owner table. (A replayed migration that
+ * declares such a key *itself* is served by {@link ownerStubsDdl}, inside the
+ * same schema.) `song_id`'s key is kept, pointed at the `songs` of the same
+ * schema — `migrations/0009` step 12 and `0014`'s collapse both
+ * `DELETE FROM songs`, so the `ON DELETE CASCADE` is what makes "re-pointed,
+ * not lost" an assertion rather than an accident.
+ *
+ * This took a `schema = 'public'` default and a `schema === 'public'` branch
+ * that added the owner keys, for the two suites that rebuilt the legacy shape
+ * in `public`. Both moved to throwaway schemas, and the default is not kept as
+ * a convenience: rebuilding this table in `public` is precisely the thing that
+ * deadlocked, so the parameter is required and the branch is gone.
+ *
+ * `schema` is written by the calling suite from a hex token, never by a user.
  */
-export const LEGACY_REPERTOIRE_DDL = `
-  CREATE TABLE IF NOT EXISTS ${LEGACY_REPERTOIRE_TABLE} (
-      id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id        uuid        REFERENCES profiles(id) ON DELETE CASCADE,
-      band_id        uuid        REFERENCES bands(id)    ON DELETE CASCADE,
-      song_id        uuid        NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
-      personal_key   text,
-      status         song_status NOT NULL DEFAULT 'unknown',
-      tags           text[]      NOT NULL DEFAULT '{}',
-      last_practiced timestamptz,
-      lyrics         text,
-      CONSTRAINT check_${LEGACY_REPERTOIRE_TABLE}_owner_exclusive CHECK (
-          (user_id IS NOT NULL AND band_id IS NULL) OR
-          (user_id IS NULL     AND band_id IS NOT NULL)
-      )
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS uq_${LEGACY_REPERTOIRE_TABLE}_user_song
-      ON ${LEGACY_REPERTOIRE_TABLE} (user_id, song_id) WHERE user_id IS NOT NULL;
-  CREATE UNIQUE INDEX IF NOT EXISTS uq_${LEGACY_REPERTOIRE_TABLE}_band_song
-      ON ${LEGACY_REPERTOIRE_TABLE} (band_id, song_id) WHERE band_id IS NOT NULL;
-  CREATE INDEX IF NOT EXISTS idx_${LEGACY_REPERTOIRE_TABLE}_user_id
-      ON ${LEGACY_REPERTOIRE_TABLE} (user_id);
-  CREATE INDEX IF NOT EXISTS idx_${LEGACY_REPERTOIRE_TABLE}_band_id
-      ON ${LEGACY_REPERTOIRE_TABLE} (band_id);
-  CREATE INDEX IF NOT EXISTS idx_${LEGACY_REPERTOIRE_TABLE}_song_id
-      ON ${LEGACY_REPERTOIRE_TABLE} (song_id);
-`
+export function legacyRepertoireDdl(schema: string): string {
+  const table = `${schema}.${LEGACY_REPERTOIRE_TABLE}`
+  return `
+    CREATE TABLE IF NOT EXISTS ${table} (
+        id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id        uuid,
+        band_id        uuid,
+        song_id        uuid        NOT NULL REFERENCES ${schema}.songs(id) ON DELETE CASCADE,
+        personal_key   text,
+        status         song_status NOT NULL DEFAULT 'unknown',
+        tags           text[]      NOT NULL DEFAULT '{}',
+        last_practiced timestamptz,
+        lyrics         text,
+        CONSTRAINT check_${LEGACY_REPERTOIRE_TABLE}_owner_exclusive CHECK (
+            (user_id IS NOT NULL AND band_id IS NULL) OR
+            (user_id IS NULL     AND band_id IS NOT NULL)
+        )
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_${LEGACY_REPERTOIRE_TABLE}_user_song
+        ON ${table} (user_id, song_id) WHERE user_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_${LEGACY_REPERTOIRE_TABLE}_band_song
+        ON ${table} (band_id, song_id) WHERE band_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_${LEGACY_REPERTOIRE_TABLE}_user_id ON ${table} (user_id);
+    CREATE INDEX IF NOT EXISTS idx_${LEGACY_REPERTOIRE_TABLE}_band_id ON ${table} (band_id);
+    CREATE INDEX IF NOT EXISTS idx_${LEGACY_REPERTOIRE_TABLE}_song_id ON ${table} (song_id);
+  `
+}
+
+// `LEGACY_REPERTOIRE_DDL`, the `public`-schema form of the above, used to live
+// here. RH-129 removed it with its last caller: nothing rebuilds this table in
+// `public` any more, and leaving a ready-made constant that does would invite
+// the deadlock straight back in.
 
 // ---------------------------------------------------------------------------
-// RH-123 — the dropped tabs table, for the three suites that replay a
+// RH-123 — the dropped tabs table, for the four suites that replay a
 // migration predating its removal.
 // ---------------------------------------------------------------------------
 
@@ -231,17 +324,20 @@ export const LEGACY_REPERTOIRE_DDL = `
  * `LEGACY_CATALOG_TABLE` above.
  *
  * RH-123 replaced the table with `song_files` keyed by `(user_id, song_id)` and
- * requires (ER5) that the old identifier appear nowhere under `src/`. Three
- * suites genuinely need it anyway, and all three for the same reason: they
+ * requires (ER5) that the old identifier appear nowhere under `src/`. Four
+ * suites genuinely need it anyway, and all four for the same reason: they
  * replay a migration file whose statements predate the removal, inside a
- * transaction they always roll back.
+ * throwaway schema and a transaction they always roll back.
  *
  *  - `songFilesMigration.db.test.ts` rebuilds the legacy shape so it can
  *    execute the drop migration itself;
  *  - `songIdentity.db.test.ts` replays `migrations/0009`, which re-points the
  *    losers' tab rows while collapsing duplicate catalog rows;
  *  - `catalogVersionsMigration.db.test.ts` calls `migrate_catalog_to_versions()`
- *    from `migrations/0014`, which does the same.
+ *    from `migrations/0014`, which does the same;
+ *  - `ownerSongsMigration.db.test.ts` runs `0014` as a prerequisite, so it gets
+ *    the table from `legacyCatalogReplayDdl` and drops it again — by its
+ *    qualified name — to stand in for the `0015` that ran in between.
  *
  * Spelling it once, here, keeps that unavoidable exception in a single
  * reviewable place instead of scattering a grep-defeating trick through the
@@ -258,18 +354,37 @@ export const LEGACY_TABS_TABLE = [LEGACY_REPERTOIRE_TABLE, 'tabs'].join('_')
  *
  * `IF NOT EXISTS` so a suite may call it without first asking whether the drop
  * migration has been applied to the database it is running against.
+ *
+ * The `repertoire_id` key stays `ON DELETE CASCADE`: it is what makes "the
+ * re-point happens *before* the loser is deleted" testable at all. Without it a
+ * migration that deleted first would leave a dangling tab row and the assertion
+ * would still pass.
+ *
+ * `schema` is required (RH-129), for the same reason as
+ * {@link legacyRepertoireDdl}: it carried a `'public'` default for the one suite
+ * that rebuilt this table there, that suite now owns a schema, and a default
+ * pointing back at `public` is a deadlock waiting to be re-adopted. It is
+ * written by the calling suite from a hex token, never by a user.
  */
-export const LEGACY_TABS_DDL = `
-  CREATE TABLE IF NOT EXISTS ${LEGACY_TABS_TABLE} (
-      id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-      repertoire_id  uuid        NOT NULL REFERENCES ${LEGACY_REPERTOIRE_TABLE}(id) ON DELETE CASCADE,
-      title          text        NOT NULL,
-      file_url       text        NOT NULL,
-      created_at     timestamptz NOT NULL DEFAULT now(),
-      annotations    jsonb       NOT NULL DEFAULT '{}'::jsonb
-  );
-  CREATE INDEX IF NOT EXISTS idx_${LEGACY_TABS_TABLE}_repertoire_id ON ${LEGACY_TABS_TABLE} (repertoire_id);
-`
+export function legacyTabsDdl(schema: string): string {
+  const table = `${schema}.${LEGACY_TABS_TABLE}`
+  return `
+    CREATE TABLE IF NOT EXISTS ${table} (
+        id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+        repertoire_id  uuid        NOT NULL
+                       REFERENCES ${schema}.${LEGACY_REPERTOIRE_TABLE}(id) ON DELETE CASCADE,
+        title          text        NOT NULL,
+        file_url       text        NOT NULL,
+        created_at     timestamptz NOT NULL DEFAULT now(),
+        annotations    jsonb       NOT NULL DEFAULT '{}'::jsonb
+    );
+    CREATE INDEX IF NOT EXISTS idx_${LEGACY_TABS_TABLE}_repertoire_id ON ${table} (repertoire_id);
+  `
+}
+
+// `LEGACY_TABS_DDL`, the `public`-schema form of the above, used to live here.
+// RH-129 removed it with its last caller, for the reason given where
+// `LEGACY_REPERTOIRE_DDL` used to be.
 
 /**
  * The owner-row tables joined back to the song, for the suites that assert on a
@@ -284,6 +399,173 @@ export const OWNER_SONG_FROM = {
   user: 'user_songs o JOIN song_versions v ON v.id = o.version_id',
   band: 'band_songs o JOIN song_versions v ON v.id = o.version_id',
 } as const
+
+/**
+ * The representative version of `songId`, ensuring the song has one first —
+ * what a suite that holds only a song id needs since RH-125 made the playlist
+ * entry and both playlist writes version-keyed.
+ *
+ * The ordering is `representativeVersionSubquery`'s, the one place it exists,
+ * so a suite seeding a playlist entry by hand lands on the same version
+ * `addSongToPlaylist` would have been given by the picker.
+ */
+export async function representativeVersionId(songId: string): Promise<string> {
+  await ensureSongHasVersion(songId)
+  const res = await query<{ id: string }>(
+    `SELECT ${representativeVersionSubquery('$1')} AS id`,
+    [songId],
+  )
+  const id = res.rows[0]?.id
+  if (!id) throw new Error(`no song_versions row for song ${songId}`)
+  return id
+}
+
+/**
+ * The representative version of each of `songIds`, in the same order, ensuring
+ * every song has one first — the bulk form of {@link representativeVersionId},
+ * for the suites that seed a hundred-odd playlist entries at once.
+ */
+export async function representativeVersionIds(songIds: string[]): Promise<string[]> {
+  const versionIds: string[] = []
+  for (const songId of songIds) versionIds.push(await representativeVersionId(songId))
+  return versionIds
+}
+
+/**
+ * The pre-RH-125 shape of `playlist_songs`: keyed by `song_id`, with
+ * `uq_playlist_song` and the deferrable position unique `migrations/0012` left.
+ *
+ * Three suites need it, each replaying a migration whose statements predate the
+ * re-key, inside a transaction they always roll back:
+ *
+ *  - `playlistSongsVersionMigration.db.test.ts` rebuilds the legacy shape so it
+ *    can execute the re-key migration itself;
+ *  - `songIdentity.db.test.ts` replays `migrations/0009`, which collapses
+ *    duplicate catalog rows' playlist entries and renumbers their positions;
+ *  - `catalogVersionsMigration.db.test.ts` calls
+ *    `migrate_catalog_to_versions()` from `migrations/0014`, whose collapse
+ *    branch re-points `playlist_songs.song_id` (that branch is unreachable on a
+ *    migrated database, because `uq_songs_artist_title` leaves no duplicate
+ *    group — the suite seeds one on purpose).
+ *
+ * It **drops and recreates** rather than altering, so the table a replay sees
+ * is empty and its conservation counts are its own.
+ *
+ * **`schema` is required, and no caller may pass `public`.** In `public` the
+ * `DROP TABLE` takes an ACCESS EXCLUSIVE lock on a table every other vitest
+ * worker is reading, which was not merely slow: a replay also has to touch
+ * `songs` (and, since RH-125, `song_versions`), while every ordinary playlist
+ * read locks `playlist_songs` **before** them — the range table of
+ * `getPlaylistWithSongs` is `playlists, playlist_songs, song_versions, songs`,
+ * and `getPlaylistDetailsWithEntries` starts at `playlist_songs` outright. Two
+ * transactions taking the same tables in opposite orders is a cycle, and
+ * Postgres resolves a cycle by killing one of them at random, which surfaces as
+ * an unrelated suite failing with `deadlock detected`.
+ *
+ * The hand-maintained ordering rule that used to live here — take the
+ * migration-replay advisory lock first, then call this before any other lock —
+ * narrowed the window without closing it, because that lock serialised the
+ * replay suites against each other and not against the ordinary suites running
+ * in parallel. RH-129 removed it (see the note where it used to be, above).
+ * Every caller now owns a throwaway schema instead
+ * ({@link legacyCatalogReplayDdl}, or the one
+ * `playlistSongsVersionMigration.db.test.ts` builds), so none of these tables
+ * is shared with another worker at all and there is no order left to get wrong.
+ *
+ * The two foreign keys the real table carries are **deliberately omitted**. No
+ * replay asserts on them, and declaring them would make this `CREATE TABLE`
+ * take a `SHARE ROW EXCLUSIVE` lock on `playlists` and `songs` too — and in a
+ * replay schema there is no `playlists` to point at.
+ *
+ * `schema` is written by the calling suite from a hex token, never by a user.
+ */
+export function legacyPlaylistSongsDdl(schema: string): string {
+  return `
+    DROP TABLE IF EXISTS ${schema}.playlist_songs;
+    CREATE TABLE ${schema}.playlist_songs (
+        id          uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
+        playlist_id uuid    NOT NULL,
+        song_id     uuid    NOT NULL,
+        position    integer NOT NULL DEFAULT 0,
+        CONSTRAINT uq_playlist_song UNIQUE (playlist_id, song_id),
+        CONSTRAINT uq_playlist_song_position
+            UNIQUE (playlist_id, position) DEFERRABLE INITIALLY IMMEDIATE
+    );
+    CREATE INDEX idx_playlist_songs_playlist_id ON ${schema}.playlist_songs (playlist_id);
+  `
+}
+
+/**
+ * The whole pre-RH-122 catalog neighbourhood, in a **throwaway schema** — what
+ * all four migration-replay suites build instead of rebuilding it in `public`:
+ * `songIdentity` (`migrations/0009`), `catalogVersionsMigration` (`0014`),
+ * `songFilesMigration` (`0015`) and `ownerSongsMigration` (`0016`, which runs
+ * `0014` first for the function and tables it needs). The last two moved here in
+ * RH-129; before that they rebuilt their legacy shape in `public` and dropped
+ * live tables to do it, which is the deadlock described below under a different
+ * pair of table names.
+ *
+ * WHY A THROWAWAY SCHEMA
+ *
+ * The first two files collapse duplicate catalog rows, so both have to seed
+ * duplicates, so both have to take `uq_songs_artist_title` off `songs` — an
+ * ACCESS EXCLUSIVE lock on the table almost every other suite reads — and both
+ * then
+ * touch `playlist_songs`, `repertoire` and `song_versions` in an order no
+ * ordinary reader uses. `song_versions` is where it bites hardest since RH-125:
+ * `representativeVersionId` in this very file calls `ensureSongHasVersion`,
+ * whose `INSERT ... ON CONFLICT DO NOTHING` performs a speculative insertion
+ * that *waits* on a conflicting in-progress one, and seven suites now do that —
+ * one of them ~100 times in a loop. A replay holding `songs` while those wait
+ * on `song_versions` is a lock cycle, and the deadlock Postgres breaks it with
+ * lands on whichever transaction it picks.
+ *
+ * Nothing in either migration file notices the move: every name in them is
+ * unqualified, so putting `schema` first on the transaction's `search_path`
+ * resolves all of them inside it. `public` stays on the path behind it for the
+ * extension functions (`gen_random_uuid`) and the `song_status` enum.
+ *
+ * **One hazard the move introduces, and the reason the index note below
+ * matters.** An unqualified `DROP INDEX IF EXISTS x` resolves along the
+ * `search_path` too: if the replay schema has no index called `x`, the
+ * statement finds and drops **`public`'s**. Both files issue exactly that for
+ * `uq_songs_artist_title`, so a suite that lets the migration run against this
+ * schema must either create that index here first (`migrations/0014`, which
+ * drops and recreates it) or never issue the statement at all
+ * (`migrations/0009`, which only creates it at the end). It is deliberately
+ * **not** created here: which of the two a suite needs is the suite's own
+ * decision, and getting it silently wrong would corrupt the live schema.
+ *
+ * `schema` is written by the calling suite from a hex token, never by a user.
+ */
+export function legacyCatalogReplayDdl(schema: string): string {
+  return `
+    CREATE SCHEMA ${schema};
+    CREATE TABLE ${schema}.songs (
+        id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+        title            text        NOT NULL,
+        artist           text        NOT NULL,
+        album            text,
+        standard_key     text,
+        cover_url        text,
+        duration_seconds integer,
+        links            jsonb       NOT NULL DEFAULT '[]'::jsonb,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        updated_at       timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE ${schema}.global_song_edits (
+        id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+        song_id       uuid        NOT NULL REFERENCES ${schema}.songs(id) ON DELETE CASCADE,
+        requested_by  uuid        NOT NULL,
+        proposed_data jsonb       NOT NULL,
+        status        text        NOT NULL DEFAULT 'pending',
+        created_at    timestamptz NOT NULL DEFAULT now()
+    );
+    ${legacyPlaylistSongsDdl(schema)}
+    ${legacyRepertoireDdl(schema)}
+    ${legacyTabsDdl(schema)}
+  `
+}
 
 /**
  * Seeds one owner's hold on `songId`'s representative version and returns the

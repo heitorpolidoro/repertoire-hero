@@ -25,7 +25,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { query } from '@/lib/db'
 import { createBand } from '@/lib/bands'
 import { addSongToPlaylist, reorderPlaylistSongs } from '@/lib/playlists'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser, representativeVersionId } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
@@ -38,6 +38,8 @@ describe.skipIf(!RUN_DB_TESTS)('reorderPlaylistSongs (real database)', () => {
   let playlistId: string
   let bandPlaylistId: string
   const songIds: string[] = []
+  /** Their representative versions, in the same order (RH-125). */
+  const versionIds: string[] = []
 
   /** `playlist_songs.id`s of a playlist, in position order. */
   const rowIds = async (id: string): Promise<string[]> => {
@@ -75,6 +77,9 @@ describe.skipIf(!RUN_DB_TESTS)('reorderPlaylistSongs (real database)', () => {
         [`RH-103 Song ${label} ${suffix}`, 'RH-103 Artist'],
       )
       songIds.push(res.rows[0].id)
+      // RH-125: both playlist writes take a version, and a hand-inserted
+      // catalog row has none until `ensureSongHasVersion` gives it one.
+      versionIds.push(await representativeVersionId(res.rows[0].id))
     }
 
     const personal = await query<{ id: string }>(
@@ -89,12 +94,12 @@ describe.skipIf(!RUN_DB_TESTS)('reorderPlaylistSongs (real database)', () => {
     )
     bandPlaylistId = band.rows[0].id
 
-    for (const songId of songIds) {
-      await addSongToPlaylist(playlistId, ownerId, songId)
+    for (const versionId of versionIds) {
+      await addSongToPlaylist(playlistId, ownerId, versionId)
     }
     // Two rows are enough for the band cases: they only ever swap.
-    for (const songId of songIds.slice(0, 2)) {
-      await addSongToPlaylist(bandPlaylistId, ownerId, songId)
+    for (const versionId of versionIds.slice(0, 2)) {
+      await addSongToPlaylist(bandPlaylistId, ownerId, versionId)
     }
   })
 

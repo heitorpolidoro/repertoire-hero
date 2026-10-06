@@ -17,9 +17,15 @@
  * One playlist entry as the setlist UI needs it. Structurally identical to
  * `PlaylistEntrySummary` in `src/lib/playlists.ts`, redeclared here so this
  * client-safe module never pulls the `pg` pool into the browser bundle.
+ *
+ * `versionId` is the entry's identity and is always non-null (RH-125).
+ * `repertoireId` is the owner's row **if there is one**, and it is also the Fast
+ * View address — re-addressing Fast View by version is RH-109 — so a null means
+ * "this entry has nowhere to navigate to yet", not "this entry is broken".
  */
 export interface PlaylistEntry {
-  repertoireId: string
+  repertoireId: string | null
+  versionId: string
   songId: string
   title: string
   artist: string | null
@@ -54,7 +60,33 @@ export function playlistIdFromReturnTo(returnTo: string | null): string | null {
   return match ? match[1] : null
 }
 
-/** null when `entries` is empty or `currentRepertoireId` is not in it. */
+/**
+ * The nearest entry **with a Fast View address** on one side of `index`, or
+ * `null` at that end of the setlist.
+ *
+ * An entry whose owner holds no repertoire row has no address yet (RH-125), and
+ * a gap like that must not block the rest of the list: prev/next step over it
+ * rather than stopping at it. `position` and `total` are unaffected — they count
+ * every entry, so the indicator matches the list the drawer draws.
+ */
+function nearestAddressable(entries: PlaylistEntry[], index: number, step: -1 | 1): string | null {
+  for (let at = index + step; at >= 0 && at < entries.length; at += step) {
+    const id = entries[at].repertoireId
+    if (id) return id
+  }
+  return null
+}
+
+/**
+ * null when `entries` is empty or `currentRepertoireId` is not in it.
+ *
+ * Matching is still by `repertoireId`, because the Fast View route param *is*
+ * an owner row id (re-addressing it by version is RH-109), so an entry that can
+ * be current always has a non-null one. What changed with RH-125 is that the
+ * entry can no longer be *absent* from the list — the read `LEFT JOIN`s the
+ * owner table — so the collapse-to-null mode is gone for a reason unrelated to
+ * the matching key.
+ */
 export function computePlaylistNav(
   entries: PlaylistEntry[],
   currentRepertoireId: string,
@@ -65,8 +97,8 @@ export function computePlaylistNav(
   if (index === -1) return null
 
   return {
-    prevId: index > 0 ? entries[index - 1].repertoireId : null,
-    nextId: index < entries.length - 1 ? entries[index + 1].repertoireId : null,
+    prevId: nearestAddressable(entries, index, -1),
+    nextId: nearestAddressable(entries, index, 1),
     position: index + 1,
     total: entries.length,
     playlistId,

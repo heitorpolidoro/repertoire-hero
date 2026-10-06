@@ -7,9 +7,9 @@
  * retained, idempotent `migrate_catalog_to_versions()` — so this file can
  * insert legacy-shaped rows and call it again.
  *
- * Two scenarios, both inside a transaction that is always rolled back (Postgres
- * DDL is transactional, so not even the dropped index leaks into the next
- * test):
+ * Three scenarios, each inside a transaction that is always rolled back
+ * (Postgres DDL is transactional, so not even the schema it creates leaks into
+ * the next test):
  *
  *  - the **whole migration file** replayed over two rows whose titles differ
  *    only by a `" - "` suffix. That is the order assertion: the rewrite turns
@@ -18,6 +18,28 @@
  *    the `UPDATE`;
  *  - the **function alone**, called twice over legacy-shaped rows, for the
  *    backfill counts, the idempotence, and the collapse's re-pointing.
+ *
+ * WHERE THE REPLAY HAPPENS, AND WHY IT MOVED
+ *
+ * In a **throwaway `rh122_<token>` schema**, built by `legacyCatalogReplayDdl`
+ * and first on the transaction's `search_path`, so every unqualified name in
+ * the file resolves inside it and nothing in `public` is touched. It used to
+ * rebuild the legacy shape in `public` and take the shared-table locks that
+ * implies — `songs` ACCESS EXCLUSIVE for the `DROP INDEX`, `playlist_songs`
+ * ACCESS EXCLUSIVE for the re-created legacy table — while the rest of the
+ * suite read those tables in parallel, in a different order. That is a lock
+ * cycle, Postgres breaks a cycle by killing a transaction at random, and the
+ * result was unrelated suites failing with `deadlock detected`. An advisory
+ * lock only serialised the replay suites against each other, not against the
+ * ordinary ones, which is why RH-129 moved the last two holdouts
+ * (`songFilesMigration`, `ownerSongsMigration`) into schemas of their own and
+ * removed that lock outright. See `legacyCatalogReplayDdl` for the full
+ * reasoning, and the note in `test-helpers.ts` where the lock used to be.
+ *
+ * Because the replay schema has no `migrate_catalog_to_versions()` of its own,
+ * each scenario executes the **migration file** to get one, rather than
+ * borrowing `public`'s — which is strictly closer to what
+ * `scripts/migrate.mjs` does anyway.
  *
  * The migration is resolved off disk by its name **suffix**, never by a
  * hardcoded `0014`: several approved specs were written against the same
@@ -33,13 +55,11 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { query, withTransaction } from '@/lib/db'
+import { withTransaction, type Queryable } from '@/lib/db'
 import {
-  LEGACY_REPERTOIRE_DDL,
   LEGACY_REPERTOIRE_TABLE,
-  LEGACY_TABS_DDL,
   LEGACY_TABS_TABLE,
-  lockMigrationReplay,
+  legacyCatalogReplayDdl,
 } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -76,21 +96,37 @@ function token(): string {
   return randomUUID().replace(/-/g, '').slice(0, 12)
 }
 
-/** Narrow enough for the scenario bodies; `withTransaction` hands a real client. */
-type Client = { query: typeof query }
-
 /** Rolls a scenario back; the sentinel is how `withTransaction` undoes it. */
 const ROLLBACK = 'RH-122 migration scenario rollback'
 
-async function inRolledBackTransaction<T>(body: (client: Client) => Promise<T>): Promise<T> {
+/**
+ * Runs `body` against a fresh throwaway schema, inside one transaction that is
+ * always rolled back. The schema is first on the `search_path`, so every
+ * unqualified name — in the scenario bodies and in the migration file they
+ * execute — resolves inside it; `public` stays behind it for `gen_random_uuid`
+ * and the `song_status` enum.
+ *
+ * The identity index is created **here**, before anything else runs, for the
+ * hazard `legacyCatalogReplayDdl` spells out: `migrations/0014` issues
+ * `DROP INDEX IF EXISTS uq_songs_artist_title` with an unqualified name, and an
+ * unqualified index name resolves along the `search_path` — with none in this
+ * schema the statement would find and drop **`public`'s**, silently removing
+ * the live catalog's identity key for every other worker. Creating it here also
+ * matches the state the migration actually runs against in production.
+ */
+async function inReplaySchema<T>(body: (client: Queryable, schema: string) => Promise<T>): Promise<T> {
+  const schema = `rh122_${token()}`
   let result: T | undefined
   let captured = false
 
   await withTransaction(async (client) => {
-    // First statement, before any DDL: the four migration-replay suites share
-    // one advisory lock so they cannot deadlock on the same table names.
-    await lockMigrationReplay(client)
-    result = await body(client)
+    await client.query(legacyCatalogReplayDdl(schema))
+    await client.query(`SET LOCAL search_path = ${schema}, public`)
+    await client.query(
+      `CREATE UNIQUE INDEX ${SONGS_UNIQUE} ON ${schema}.songs (lower(btrim(artist)), lower(btrim(title)))`,
+    )
+
+    result = await body(client, schema)
     captured = true
     throw new Error(ROLLBACK)
   }).catch((error: unknown) => {
@@ -101,9 +137,18 @@ async function inRolledBackTransaction<T>(body: (client: Client) => Promise<T>):
   return result as T
 }
 
-async function count(client: Client, sql: string, params: unknown[]): Promise<number> {
+async function count(client: Queryable, sql: string, params: unknown[]): Promise<number> {
   const res = await client.query<{ n: string }>(sql, params)
   return Number(res.rows[0].n)
+}
+
+/** The identity index as it stands in `schema` — read inside the transaction. */
+async function identityIndexes(client: Queryable, schema: string): Promise<string[]> {
+  const res = await client.query<{ indexname: string }>(
+    `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname = $2`,
+    [schema, SONGS_UNIQUE],
+  )
+  return res.rows.map((r) => r.indexname)
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +217,7 @@ describe('the albums-and-song-versions migration file (RH-122 ER1, ER11, ER14)',
 describe.skipIf(!RUN_DB_TESTS)('replaying the migration over colliding titles (ER11)', () => {
   let surviving: number
   let titles: string[]
+  let indexesAfter: string[]
 
   beforeAll(async () => {
     const sfx = token()
@@ -179,15 +225,10 @@ describe.skipIf(!RUN_DB_TESTS)('replaying the migration over colliding titles (E
     const plain = `Collide Song ${sfx}`
     const sql = migrationSql()
 
-    const outcome = await inRolledBackTransaction(async (client) => {
-      // RH-123 dropped the table the migration's collapse re-points tab rows
-      // in, and RH-124 dropped the owner-row table its foreign key names, so
-      // the replay needs both back (see `test-helpers.ts`).
-      await client.query(LEGACY_REPERTOIRE_DDL)
-      await client.query(LEGACY_TABS_DDL)
-
-      // Both rows are legal today — the titles differ. The rewrite is what
-      // makes them the same, which is why the index has to come off first.
+    const outcome = await inReplaySchema(async (client, schema) => {
+      // Both rows are legal today — the titles differ, and the identity index
+      // `inReplaySchema` created is live. The rewrite is what makes them the
+      // same, which is why the file has to take the index off first.
       await client.query(
         `INSERT INTO songs (title, artist, created_at)
          VALUES ($1, $2, now() - interval '2 days')`,
@@ -211,11 +252,13 @@ describe.skipIf(!RUN_DB_TESTS)('replaying the migration over colliding titles (E
             artist,
           ])
         ).rows.map((r) => r.title),
+        indexesAfter: await identityIndexes(client, schema),
       }
     })
 
     surviving = outcome.surviving
     titles = outcome.titles
+    indexesAfter = outcome.indexesAfter
   })
 
   it('completes with no error and leaves one songs row', () => {
@@ -228,14 +271,11 @@ describe.skipIf(!RUN_DB_TESTS)('replaying the migration over colliding titles (E
     expect(titles[0]).toMatch(/^Collide Song /)
   })
 
-  it('puts the unique index back, so the collapse is not a one-way door', async () => {
-    // Asserted outside the rolled-back transaction: the real migration already
-    // created it, and the scenario must not have left it dropped.
-    const res = await query<{ indexname: string }>(
-      `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`,
-      [SONGS_UNIQUE],
-    )
-    expect(res.rows.map((r) => r.indexname)).toEqual([SONGS_UNIQUE])
+  it('puts the unique index back, so the collapse is not a one-way door', () => {
+    // Read inside the transaction, in the replay schema: the file's last
+    // statement must have recreated what its fifth took off. Asserting this
+    // against `public` would be vacuous now — nothing here touches `public`.
+    expect(indexesAfter).toEqual([SONGS_UNIQUE])
   })
 })
 
@@ -258,7 +298,13 @@ describe.skipIf(!RUN_DB_TESTS)('the backfill, on legacy-shaped rows (ER12)', () 
     const sfx = token()
     const joined = `Michael Jackson, Akon ${sfx}`
 
-    outcome = await inRolledBackTransaction(async (client) => {
+    outcome = await inReplaySchema(async (client) => {
+      // The replay schema has no `migrate_catalog_to_versions()` until the file
+      // installs one, and no `albums` / `song_versions` for it to write into.
+      // It runs here over an empty `songs`, so the backfill below is the first
+      // one that sees a row.
+      await client.query(migrationSql())
+
       // Four legacy rows: two sharing an album in different case, one whose
       // artist is a pre-RH-95 joined credit string, one with no album at all.
       const rows: Array<[string, string, string | null, string | null]> = [
@@ -383,6 +429,13 @@ interface CollapseOutcome {
   playlistSongIds: string[]
   editSongIds: string[]
   versionLabels: Array<string | null>
+  /**
+   * `public`'s own `uq_songs_artist_title`, read while the replay transaction is
+   * still live. This scenario drops that index by an **unqualified** name twice
+   * over — once inside `migrationSql()` and once explicitly below — so it is the
+   * one place in this file that can reach past its own schema.
+   */
+  publicIdentityIndexes: string[]
 }
 
 describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
@@ -394,30 +447,18 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
     const artist = `Merge Artist ${sfx}`
     const plain = `Merge Song ${sfx}`
 
-    const result = await inRolledBackTransaction(async (client) => {
-      // The index has to come off before two rows that the rewrite makes
-      // duplicates can be seeded at all.
+    const result = await inReplaySchema(async (client) => {
+      // The file installs `migrate_catalog_to_versions()`, `albums` and
+      // `song_versions` in this schema (and recreates the identity index on its
+      // way out) — then the index has to come off again, because two rows the
+      // rewrite will make duplicates cannot be seeded under it.
+      await client.query(migrationSql())
       await client.query(`DROP INDEX IF EXISTS ${SONGS_UNIQUE}`)
 
-      // RH-123 dropped the table `migrate_catalog_to_versions()` re-points tab
-      // rows in, and RH-124 dropped the owner-row table both hang off, so this
-      // replay needs both back. Inside this transaction only, and rolled back
-      // with everything else; `test-helpers.ts` is the one place either is
-      // spelled (RH-123 ER5, RH-124 ER5).
-      await client.query(LEGACY_REPERTOIRE_DDL)
-      await client.query(LEGACY_TABS_DDL)
-
+      // A synthetic owner: the replay schema's `repertoire` carries no foreign
+      // key to `profiles` (see `legacyRepertoireDdl`), and nothing the collapse
+      // issues joins an owner table, so there is no row to seed in `public`.
       const userId = randomUUID()
-      const email = `rh122-merge-${sfx}@test.local`
-      await client.query(
-        'INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, true)',
-        [userId, 'Merge Owner', email],
-      )
-      await client.query('INSERT INTO profiles (id, email, full_name) VALUES ($1, $2, $3)', [
-        userId,
-        email,
-        'Merge Owner',
-      ])
 
       const insertSong = async (title: string, ageDays: number, album: string | null) =>
         (
@@ -458,12 +499,10 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
         [loserRep, `Tab ${sfx}`, 'http://blob/tab.pdf'],
       )
 
-      const playlistId = (
-        await client.query<{ id: string }>(
-          'INSERT INTO playlists (user_id, name) VALUES ($1, $2) RETURNING id',
-          [userId, `Merge Playlist ${sfx}`],
-        )
-      ).rows[0].id
+      // A synthetic playlist id, for the same reason as the owner: the replay
+      // schema's `playlist_songs` deliberately carries no foreign key to
+      // `playlists` (see `legacyPlaylistSongsDdl`).
+      const playlistId = randomUUID()
       // Both rows in one playlist: `uq_playlist_song` makes the re-point a
       // duplicate, so the loser's entry goes and the keeper's position stands.
       for (const [songId, position] of [
@@ -529,6 +568,16 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
               [keeper],
             )
           ).rows.map((r) => r.label),
+          // Read from *inside* the transaction on purpose: DDL is transactional
+          // in Postgres, so a `public` index this replay dropped would be
+          // restored by the rollback and a read afterwards would see nothing
+          // wrong — while every concurrent worker in the run saw it missing.
+          publicIdentityIndexes: (
+            await client.query<{ indexname: string }>(
+              `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`,
+              [SONGS_UNIQUE],
+            )
+          ).rows.map((r) => r.indexname),
         },
       }
     })
@@ -539,6 +588,16 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
 
   it('leaves one songs row for the artist', () => {
     expect(outcome.survivingSongs).toBe(1)
+  })
+
+  it("leaves public's own uq_songs_artist_title standing", () => {
+    // An unqualified index name resolves along the `search_path`, so a replay
+    // schema that held no copy of this index would have its `DROP INDEX IF
+    // EXISTS` find and drop **`public`'s** — silently removing the live
+    // catalog's identity key for every other worker in the run. Verified
+    // empirically, not inferred. `inReplaySchema` creates the index in the
+    // schema first, and this asserts that is what got dropped.
+    expect(outcome.publicIdentityIndexes).toEqual([SONGS_UNIQUE])
   })
 
   it('keeps the survivor repertoire row untouched — not merged, not maxed, not unioned', () => {

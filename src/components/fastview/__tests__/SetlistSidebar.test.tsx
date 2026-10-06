@@ -7,9 +7,9 @@ import { computePlaylistNav, type PlaylistEntry } from '@/lib/playlistNav'
 afterEach(cleanup)
 
 const COLUMN_SONGS: PlaylistEntry[] = [
-  { repertoireId: 'sb-1', songId: 'tune-1', title: 'Dazed and Confused', artist: 'Led Zeppelin' },
-  { repertoireId: 'sb-2', songId: 'tune-2', title: 'Europa', artist: 'Santana' },
-  { repertoireId: 'sb-3', songId: 'tune-3', title: 'Freebird', artist: null },
+  { repertoireId: 'sb-1', versionId: 'v-sb-1', songId: 'tune-1', title: 'Dazed and Confused', artist: 'Led Zeppelin' },
+  { repertoireId: 'sb-2', versionId: 'v-sb-2', songId: 'tune-2', title: 'Europa', artist: 'Santana' },
+  { repertoireId: 'sb-3', versionId: 'v-sb-3', songId: 'tune-3', title: 'Freebird', artist: null },
 ]
 
 const NAV = computePlaylistNav(COLUMN_SONGS, 'sb-2', 'pl-sidebar', 'Sunday matinee')

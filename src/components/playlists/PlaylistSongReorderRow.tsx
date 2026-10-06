@@ -21,7 +21,7 @@ export interface PlaylistSongReorderRowProps {
   /** Bound on the handle only — see `usePlaylistReorderDrag`. */
   handleProps: PlaylistReorderHandleProps;
   /** The one-place move; the list binds the controller's `moveSong`. */
-  onMove: (songId: string, direction: "up" | "down") => Promise<void>;
+  onMove: (versionId: string, direction: "up" | "down") => Promise<void>;
 }
 
 /**
@@ -93,7 +93,7 @@ export function PlaylistSongReorderRow({
         </svg>
       </button>
 
-      <PlaylistSongIdentity song={ps.song} linked={false} />
+      <PlaylistSongIdentity song={ps.song} label={ps.label} linked={false} />
 
       <PlaylistReorderControls
         title={title}
@@ -103,7 +103,7 @@ export function PlaylistSongReorderRow({
           // The controller owns the failure: it rolls the order back and fills
           // the error banner, so nothing is left here but the rejection a
           // caller must not drop.
-          onMove(ps.song_id, direction).catch((cause: unknown) =>
+          onMove(ps.version_id, direction).catch((cause: unknown) =>
             logger.error("Playlist reorder move failed", cause),
           );
         }}

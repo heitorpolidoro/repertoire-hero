@@ -10,9 +10,9 @@ import { computePlaylistNav, type PlaylistEntry } from '@/lib/playlistNav'
 afterEach(cleanup)
 
 const TRACKS: PlaylistEntry[] = [
-  { repertoireId: 'ct-1', songId: 'trk-1', title: 'Gimme Shelter', artist: 'The Rolling Stones' },
-  { repertoireId: 'ct-2', songId: 'trk-2', title: 'Hey Joe', artist: 'Jimi Hendrix' },
-  { repertoireId: 'ct-3', songId: 'trk-3', title: 'Immigrant Song', artist: null },
+  { repertoireId: 'ct-1', versionId: 'v-ct-1', songId: 'trk-1', title: 'Gimme Shelter', artist: 'The Rolling Stones' },
+  { repertoireId: 'ct-2', versionId: 'v-ct-2', songId: 'trk-2', title: 'Hey Joe', artist: 'Jimi Hendrix' },
+  { repertoireId: 'ct-3', versionId: 'v-ct-3', songId: 'trk-3', title: 'Immigrant Song', artist: null },
 ]
 
 function navAt(index: number) {

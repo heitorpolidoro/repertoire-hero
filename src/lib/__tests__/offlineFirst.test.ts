@@ -45,7 +45,13 @@ function repertoire(id: string, overrides: Partial<Repertoire> = {}): Repertoire
 }
 
 function entry(repertoireId: string, title: string): PlaylistEntry {
-  return { repertoireId, songId: `song-${repertoireId}`, title, artist: 'Artist' }
+  return {
+    repertoireId,
+    versionId: `v-${repertoireId}`,
+    songId: `song-${repertoireId}`,
+    title,
+    artist: 'Artist',
+  }
 }
 
 function tab(id: string, songId: string, createdAt: string): SongFile {

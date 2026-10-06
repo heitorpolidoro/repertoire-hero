@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { OWNER_SONG_FROM, createTestUser, deleteTestUser, seedOwnerSong } from './test-helpers'
+import {
+  OWNER_SONG_FROM,
+  createTestUser,
+  deleteTestUser,
+  representativeVersionId,
+  seedOwnerSong,
+} from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const skip = !RUN_DB_TESTS
@@ -143,22 +149,25 @@ describe.skipIf(skip)('playlists integration tests', () => {
     const playlist = await createPlaylist(userAId, { name: `Songs Playlist ${suffix}` })
     createdPlaylists.push(playlist.id)
 
-    // 3. Add song to playlist
-    await addSongToPlaylist(playlist.id, userAId, songId)
+    // 3. Add the song's representative version to the playlist. RH-125: both
+    //    writes take a version, so the caller resolves one first — the picker
+    //    gets it from the search read, this suite from the shared helper.
+    const versionId = await representativeVersionId(songId)
+    await addSongToPlaylist(playlist.id, userAId, versionId)
 
     // Verify song is added
     const playlistWithSongs = await getPlaylistWithSongs(playlist.id, userAId)
     expect(playlistWithSongs).not.toBeNull()
     expect(playlistWithSongs!.songs).toBeDefined()
     expect(playlistWithSongs!.songs!.length).toBe(1)
-    expect(playlistWithSongs!.songs![0].song_id).toBe(songId)
+    expect(playlistWithSongs!.songs![0].version_id).toBe(versionId)
     expect(playlistWithSongs!.songs![0].position).toBe(1)
     expect(playlistWithSongs!.songs![0].song).toBeDefined()
     expect(playlistWithSongs!.songs![0].song!.title).toBe(songTitle)
     expect(playlistWithSongs!.songs![0].song!.duration_seconds).toBe(240)
 
-    // 4. Remove song from playlist
-    await removeSongFromPlaylist(playlist.id, userAId, songId)
+    // 4. Remove the version from the playlist
+    await removeSongFromPlaylist(playlist.id, userAId, versionId)
 
     // Verify song is removed
     const playlistEmpty = await getPlaylistWithSongs(playlist.id, userAId)
@@ -229,8 +238,9 @@ describe.skipIf(skip)('playlists integration tests', () => {
     const songId = songInsert.rows[0].id
     createdSongs.push(songId)
 
-    // 5. User A adds the song to the band playlist
-    await addSongToPlaylist(playlistId, userAId, songId)
+    // 5. User A adds the song's representative version to the band playlist
+    const versionId = await representativeVersionId(songId)
+    await addSongToPlaylist(playlistId, userAId, versionId)
 
     // 6. Verify that:
     // A. The song was added to the band repertoire
@@ -265,7 +275,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(playlistWithSongs).not.toBeNull()
     expect(playlistWithSongs!.songs).toBeDefined()
     expect(playlistWithSongs!.songs!.length).toBe(1)
-    expect(playlistWithSongs!.songs![0].song_id).toBe(songId)
+    expect(playlistWithSongs!.songs![0].version_id).toBe(versionId)
   })
 
   /**
@@ -306,7 +316,8 @@ describe.skipIf(skip)('playlists integration tests', () => {
     const songId = song.rows[0].id
     createdSongs.push(songId)
 
-    await expect(addSongToPlaylist(playlistId, userBId, songId)).rejects.toThrow(
+    const gateVersionId = await representativeVersionId(songId)
+    await expect(addSongToPlaylist(playlistId, userBId, gateVersionId)).rejects.toThrow(
       'Access denied: band admin required',
     )
 
@@ -319,7 +330,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(entries.rows).toHaveLength(0)
 
     // The same call as the band's admin succeeds, and produces both rows.
-    await addSongToPlaylist(playlistId, userAId, songId)
+    await addSongToPlaylist(playlistId, userAId, gateVersionId)
     expect(
       (
         await query(
@@ -350,6 +361,8 @@ describe.skipIf(skip)('playlists integration tests', () => {
     let foreignBandId: string
     let firstSongId: string
     let secondSongId: string
+    let firstVersionId: string
+    let secondVersionId: string
 
     const insertSong = async (title: string, artist: string): Promise<string> => {
       const res = await query(
@@ -384,15 +397,20 @@ describe.skipIf(skip)('playlists integration tests', () => {
       bandPlaylistId = band.rows[0].id as string
       createdPlaylists.push(bandPlaylistId)
 
+      // RH-125: a playlist entry names a version, so each seeded entry carries
+      // the song's representative version id.
+      firstVersionId = await representativeVersionId(firstSongId)
+      secondVersionId = await representativeVersionId(secondSongId)
+
       // Deliberately inserted out of order: the read must sort by position.
-      for (const [playlistId, songId, position] of [
-        [personalPlaylistId, secondSongId, 2],
-        [personalPlaylistId, firstSongId, 1],
-        [bandPlaylistId, firstSongId, 1],
+      for (const [playlistId, versionId, position] of [
+        [personalPlaylistId, secondVersionId, 2],
+        [personalPlaylistId, firstVersionId, 1],
+        [bandPlaylistId, firstVersionId, 1],
       ] as const) {
         await query(
-          'INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, $3)',
-          [playlistId, songId, position],
+          'INSERT INTO playlist_songs (playlist_id, version_id, position) VALUES ($1, $2, $3)',
+          [playlistId, versionId, position],
         )
       }
 
@@ -409,8 +427,11 @@ describe.skipIf(skip)('playlists integration tests', () => {
 
       expect(details.name).toBe(`RH-45 Personal Detail ${suffix}`)
       expect(details.entries.map((e) => e.songId)).toEqual([firstSongId, secondSongId])
+      // RH-125: the entry carries the version it names, always non-null.
+      expect(details.entries.map((e) => e.versionId)).toEqual([firstVersionId, secondVersionId])
       expect(details.entries[0]).toEqual({
         repertoireId: expect.any(String),
+        versionId: firstVersionId,
         songId: firstSongId,
         title: `RH-45 Detail One ${suffix}`,
         artist: 'Detail Artist',

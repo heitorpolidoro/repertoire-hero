@@ -13,7 +13,12 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 
 vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 
-import { createTestUser, deleteTestUser, seedOwnerSong } from '@/lib/__tests__/test-helpers'
+import {
+  createTestUser,
+  deleteTestUser,
+  representativeVersionId,
+  seedOwnerSong,
+} from '@/lib/__tests__/test-helpers'
 import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
 import {
   updatePlaylistAction,
@@ -38,6 +43,9 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
   let bandPlaylistId: string
   let songOneId: string
   let songTwoId: string
+  /** RH-125: both playlist writes take a `song_versions.id`. */
+  let versionOneId: string
+  let versionTwoId: string
 
   const playlistFields = async () => {
     const res = await query('SELECT name, description, tags FROM playlists WHERE id = $1', [playlistId])
@@ -61,15 +69,17 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
 
     songOneId = await createTestSong(`RH-34 Playlist Song One ${suffix}`)
     songTwoId = await createTestSong(`RH-34 Playlist Song Two ${suffix}`)
+    versionOneId = await representativeVersionId(songOneId)
+    versionTwoId = await representativeVersionId(songTwoId)
 
     const personal = await query(
       'INSERT INTO playlists (user_id, name, description) VALUES ($1, $2, $3) RETURNING id',
       [userAId, `RH-34 Personal Playlist ${suffix}`, 'authz fixture'],
     )
     playlistId = personal.rows[0].id as string
-    await query('INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ($1, $2, 1)', [
+    await query('INSERT INTO playlist_songs (playlist_id, version_id, position) VALUES ($1, $2, 1)', [
       playlistId,
-      songOneId,
+      versionOneId,
     ])
     await seedOwnerSong({ userId: userAId }, songOneId)
 
@@ -96,8 +106,8 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
     it.each([
       ['updatePlaylistAction', () => updatePlaylistAction(playlistId, { name: 'Hijacked', tags: ['x'] })],
       ['deletePlaylistAction', () => deletePlaylistAction(playlistId)],
-      ['removeSongFromPlaylistAction', () => removeSongFromPlaylistAction(playlistId, songOneId)],
-      ['addSongToPlaylistAction', () => addSongToPlaylistAction(playlistId, songTwoId)],
+      ['removeSongFromPlaylistAction', () => removeSongFromPlaylistAction(playlistId, versionOneId)],
+      ['addSongToPlaylistAction', () => addSongToPlaylistAction(playlistId, versionTwoId)],
     ])('%s is refused', async (_label, run) => {
       const fieldsBefore = await playlistFields()
       const countBefore = await songCount()
@@ -135,7 +145,7 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
       const playlist = await getPlaylistWithSongsAction(playlistId)
       expect(playlist).not.toBeNull()
       expect(playlist!.id).toBe(playlistId)
-      expect(playlist!.songs!.map((s) => s.song_id)).toEqual([songOneId])
+      expect(playlist!.songs!.map((s) => s.version_id)).toEqual([versionOneId])
 
       const details = await getPlaylistDetailsWithEntriesAction(playlistId, null)
       expect(details.name).toBe(`RH-34 Personal Playlist ${suffix}`)
@@ -155,10 +165,10 @@ describe.skipIf(!RUN_DB_TESTS)('playlist actions refuse non-owners (real databas
     it('the owner adds and removes a song', async () => {
       asUser(userAId)
 
-      await addSongToPlaylistAction(playlistId, songTwoId)
+      await addSongToPlaylistAction(playlistId, versionTwoId)
       expect(await songCount()).toBe(2)
 
-      await removeSongFromPlaylistAction(playlistId, songTwoId)
+      await removeSongFromPlaylistAction(playlistId, versionTwoId)
       expect(await songCount()).toBe(1)
     })
 

@@ -46,14 +46,15 @@ export async function deletePlaylistAction(id: string): Promise<void> {
   return deletePlaylist(id, userId)
 }
 
-export async function addSongToPlaylistAction(playlistId: string, songId: string): Promise<void> {
+/** RH-125: a playlist entry names a version, so both writes take one. */
+export async function addSongToPlaylistAction(playlistId: string, versionId: string): Promise<void> {
   const userId = await getRequiredUserId()
-  return addSongToPlaylist(playlistId, userId, songId)
+  return addSongToPlaylist(playlistId, userId, versionId)
 }
 
-export async function removeSongFromPlaylistAction(playlistId: string, songId: string): Promise<void> {
+export async function removeSongFromPlaylistAction(playlistId: string, versionId: string): Promise<void> {
   const userId = await getRequiredUserId()
-  return removeSongFromPlaylist(playlistId, userId, songId)
+  return removeSongFromPlaylist(playlistId, userId, versionId)
 }
 
 /**

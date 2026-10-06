@@ -85,12 +85,12 @@ beforeEach(() => {
   vi.mocked(query).mockImplementation(async (sql: string, params?: any[]) => {
     const normalizedSql = sql.toLowerCase();
 
-    // Support transaction commands without throwing
-    if (
-      normalizedSql.trim() === "begin" ||
-      normalizedSql.trim() === "commit" ||
-      normalizedSql.trim() === "rollback"
-    ) {
+    // Support transaction commands without throwing. One regex rather than
+    // three `===` comparisons joined by `||`: each `||` costs this dispatcher a
+    // point of cyclomatic complexity, and the file's override is a ratchet that
+    // may only shrink, so the saving is what pays for the branch RH-125 adds
+    // below — and then some (17 -> 16).
+    if (/^(begin|commit|rollback)$/.test(normalizedSql.trim())) {
       return { rowCount: 0, rows: [] };
     }
 
@@ -143,10 +143,24 @@ beforeEach(() => {
     // 3c. the RH-122 album and version upserts. `createAndAddSong` issues them
     // right after the catalog resolution and before the repertoire insert, so
     // without a branch here they would fall through to the default and every
-    // createAndAddSong case below would fail on the wrong statement. They are
-    // `ON CONFLICT DO NOTHING`, so an empty result is their normal answer.
-    if (/(insert into (albums|song_versions))|(from albums)/.test(normalizedSql)) {
+    // createAndAddSong case below would fail on the wrong statement. The album
+    // half is `ON CONFLICT DO NOTHING` and an empty result is its normal answer
+    // — the version is then written album-less, which the nullable column
+    // allows.
+    if (/(insert into albums)|(from albums)/.test(normalizedSql)) {
       return { rowCount: 0, rows: [] };
+    }
+
+    // 3d. the version upsert answers its own id since RH-125: the playlist
+    // entry is written with it, so `upsertAlbumAndVersion` throws rather than
+    // returning an id it could not resolve. An empty result here would make
+    // every `createAndAddSong` case below fail on that throw instead of on the
+    // condition it is about.
+    // Anchored on the upsert's own two statements, not on `song_versions`
+    // anywhere: the owner-row insert below reaches that table too, through the
+    // representative-version subquery, and a looser pattern would swallow it.
+    if (/(insert into song_versions)|(select id from song_versions)/.test(normalizedSql)) {
+      return { rowCount: 1, rows: [{ id: "mock-version-id" }] };
     }
 
     // 4. owner-row insert

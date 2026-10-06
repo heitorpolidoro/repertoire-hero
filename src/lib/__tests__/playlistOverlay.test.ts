@@ -23,17 +23,22 @@ import {
 } from '@/lib/playlistOverlay'
 import type { Playlist, PlaylistSong, Repertoire } from '@/types/database'
 
-function song(songId: string, position: number): PlaylistSong {
-  return { id: `ps-${songId}`, playlist_id: 'pl-1', song_id: songId, position }
+/**
+ * One playlist entry, keyed by the **version** it names (RH-125). `song_id` is
+ * derived rather than equal, so a list keyed by the song id cannot pass for one
+ * keyed by the version.
+ */
+function song(versionId: string, position: number): PlaylistSong {
+  return { id: `ps-${versionId}`, playlist_id: 'pl-1', version_id: versionId, position }
 }
 
-function entry(songId: string, overrides: Partial<Repertoire> = {}): Repertoire {
+function entry(versionId: string, overrides: Partial<Repertoire> = {}): Repertoire {
   return {
-    id: `rep-${songId}`,
+    id: `rep-${versionId}`,
     user_id: 'u1',
     band_id: null,
-    song_id: songId,
-    version_id: 'version-1',
+    song_id: `song-of-${versionId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -110,10 +115,10 @@ describe('playlistOverlay (RH-71)', () => {
     const view = applyDetailOverlay(
       playlist(),
       REPERTOIRE,
-      overlayOf({ type: 'remove-song', songId: 's2' }),
+      overlayOf({ type: 'remove-song', versionId: 's2' }),
     )
 
-    expect(view.songs.map((ps) => ps.song_id)).toEqual(['s1'])
+    expect(view.songs.map((ps) => ps.version_id)).toEqual(['s1'])
   })
 
   it('restores a song that was removed and then put back', () => {
@@ -121,28 +126,28 @@ describe('playlistOverlay (RH-71)', () => {
       playlist(),
       REPERTOIRE,
       overlayOf(
-        { type: 'remove-song', songId: 's2' },
-        { type: 'restore-song', songId: 's2' },
+        { type: 'remove-song', versionId: 's2' },
+        { type: 'restore-song', versionId: 's2' },
       ),
     )
 
-    expect(view.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(view.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
 
     // A removal that succeeded is not permanent either: the same page session
     // can put the song back through the add-song picker, which reports the list
     // it reloaded, and the entry that hid the row has to go with it — otherwise
     // the add lands in the database and stays invisible until a full load, and
-    // the second attempt is a silent no-op (`ON CONFLICT DO NOTHING`).
+    // the second attempt raises on `uq_playlist_song_version` (RH-125 §2).
     const readded = applyDetailOverlay(
       playlist(),
       REPERTOIRE,
       overlayOf(
-        { type: 'remove-song', songId: 's2' },
+        { type: 'remove-song', versionId: 's2' },
         { type: 'songs-reported', songs: [song('s1', 1), song('s2', 2)] },
       ),
     )
 
-    expect(readded.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(readded.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
 
     // A Spotify pull rewrites the server list wholesale and reports no list of
     // its own, so it drops the whole removed set rather than part of it: a song
@@ -150,10 +155,10 @@ describe('playlistOverlay (RH-71)', () => {
     const pulled = applyDetailOverlay(
       playlist(),
       REPERTOIRE,
-      overlayOf({ type: 'remove-song', songId: 's2' }, { type: 'songs-pulled' }),
+      overlayOf({ type: 'remove-song', versionId: 's2' }, { type: 'songs-pulled' }),
     )
 
-    expect(pulled.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(pulled.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
 
     // A report that does not carry the removed song leaves it hidden: that is
     // the optimistic window of a removal whose write has not landed yet.
@@ -161,12 +166,12 @@ describe('playlistOverlay (RH-71)', () => {
       playlist(),
       REPERTOIRE,
       overlayOf(
-        { type: 'remove-song', songId: 's2' },
+        { type: 'remove-song', versionId: 's2' },
         { type: 'songs-reported', songs: [song('s1', 1), song('s3', 3)] },
       ),
     )
 
-    expect(stillRemoved.songs.map((ps) => ps.song_id)).toEqual(['s1', 's3'])
+    expect(stillRemoved.songs.map((ps) => ps.version_id)).toEqual(['s1', 's3'])
   })
 
   it('appends a song the picker reported and the server does not carry yet', () => {
@@ -177,18 +182,18 @@ describe('playlistOverlay (RH-71)', () => {
       overlayOf({ type: 'songs-reported', songs: reported }),
     )
 
-    expect(view.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2', 's3'])
+    expect(view.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2', 's3'])
   })
 
   it('appends no duplicate for a song the server already carries', () => {
     const view = applyDetailOverlay(
       playlist(),
       REPERTOIRE,
-      // The picker reports the whole list it reloaded, matched by `song_id`.
+      // The picker reports the whole list it reloaded, matched by `version_id`.
       overlayOf({ type: 'songs-reported', songs: [song('s1', 1), song('s2', 2)] }),
     )
 
-    expect(view.songs.map((ps) => ps.song_id)).toEqual(['s1', 's2'])
+    expect(view.songs.map((ps) => ps.version_id)).toEqual(['s1', 's2'])
   })
 
   it('keeps the server order of the songs it does not touch', () => {
@@ -199,15 +204,15 @@ describe('playlistOverlay (RH-71)', () => {
       overlayOf({ type: 'songs-reported', songs: [song('s3', 9), song('s1', 2)] }),
     )
 
-    expect(view.songs.map((ps) => ps.song_id)).toEqual(['s2', 's1', 's3'])
+    expect(view.songs.map((ps) => ps.version_id)).toEqual(['s2', 's1', 's3'])
   })
 
-  it('overrides a repertoire entry by song id and leaves the rest of the map alone', () => {
+  it('overrides a repertoire entry by version id and leaves the rest of the map alone', () => {
     const edited = entry('s1', { status: 'learning', tags: ['solo'] })
     const view = applyDetailOverlay(
       playlist(),
       REPERTOIRE,
-      overlayOf({ type: 'repertoire-entry', songId: 's1', entry: edited }),
+      overlayOf({ type: 'repertoire-entry', versionId: 's1', entry: edited }),
     )
 
     expect(view.repertoireMap.get('s1')).toEqual(edited)
@@ -232,9 +237,9 @@ describe('playlistOverlay (RH-71)', () => {
     const overlay = overlayOf(
       { type: 'rename', name: 'Gig night' },
       { type: 'playlist-tags', tags: ['live'] },
-      { type: 'remove-song', songId: 's2' },
+      { type: 'remove-song', versionId: 's2' },
       { type: 'songs-reported', songs: [song('s1', 1), song('s3', 3)] },
-      { type: 'repertoire-entry', songId: 's1', entry: mastered },
+      { type: 'repertoire-entry', versionId: 's1', entry: mastered },
     )
 
     expect(applyDetailOverlay(settled, [mastered], overlay)).toEqual(
@@ -311,5 +316,46 @@ describe('playlistOverlay song positions (RH-103)', () => {
 
     expect(order(view.songs)).toEqual(['ps-s3', 'ps-s1', 'ps-s2'])
     expect(view.songs.find((ps) => ps.id === 'ps-s2')?.position).toBe(2)
+  })
+})
+
+/**
+ * RH-125 ER11 — the overlay is keyed by version id, and the field is named for
+ * it.
+ *
+ * `removedSongIds` became `removedVersionIds`: two lists keyed by different ids
+ * under the same name is the bug the re-key exists to prevent, so the rename is
+ * part of the change rather than a tidy-up, and it is asserted rather than
+ * described.
+ */
+describe('playlistOverlay keyed by version id (RH-125 ER11)', () => {
+  it('names the removed set removedVersionIds and records version ids in it', () => {
+    const overlay = overlayOf({ type: 'remove-song', versionId: 's2' })
+
+    expect(overlay.removedVersionIds).toEqual(['s2'])
+    expect(Object.keys(EMPTY_PLAYLIST_OVERLAY)).toContain('removedVersionIds')
+    expect(Object.keys(EMPTY_PLAYLIST_OVERLAY)).not.toContain('removedSongIds')
+  })
+
+  it('builds the repertoire map from version_id, so a song-keyed lookup misses', () => {
+    const view = applyDetailOverlay(playlist(), REPERTOIRE, EMPTY_PLAYLIST_OVERLAY)
+
+    expect([...view.repertoireMap.keys()]).toEqual(['s1', 's2'])
+    // The same rows' song ids are *not* keys: `song-of-s1` is what `entry()`
+    // derives, and nothing in the map answers to it.
+    expect(view.repertoireMap.get('song-of-s1')).toBeUndefined()
+  })
+
+  it('hides exactly the entry whose version was removed, not its sibling take', () => {
+    // Two versions of one song, as RH-125 allows in one playlist. Removing one
+    // must not hide the other — which a song-keyed removal would.
+    const server = playlist({ songs: [song('studio', 1), song('live', 2)] })
+    const view = applyDetailOverlay(
+      server,
+      REPERTOIRE,
+      overlayOf({ type: 'remove-song', versionId: 'studio' }),
+    )
+
+    expect(view.songs.map((ps) => ps.version_id)).toEqual(['live'])
   })
 })

@@ -1,6 +1,7 @@
 import { query } from "@/lib/db"
 import type { BandMemberRoleRow, JoinBandByInviteRow } from '@/lib/dbRows'
 import { logger } from "@/lib/logger"
+import { PLAYLIST_CARD_ENTRIES_JSON } from "@/lib/playlistSql"
 import { buildUpdateSet } from "@/lib/sqlUpdate"
 import type { Band, BandMember, Playlist } from "@/types/database"
 
@@ -234,16 +235,7 @@ export async function getBandPlaylists(
   userId: string,
 ): Promise<Playlist[]> {
   const sql = `
-    SELECT p.*,
-           COALESCE(
-             (SELECT json_agg(json_build_object(
-               'id', ps.id,
-               'song', json_build_object('duration_seconds', s.duration_seconds)
-             ))
-              FROM playlist_songs ps
-              JOIN songs s ON ps.song_id = s.id
-              WHERE ps.playlist_id = p.id
-             ), '[]'::json) as songs
+    SELECT p.*, ${PLAYLIST_CARD_ENTRIES_JSON} as songs
     FROM playlists p
     WHERE p.band_id = $1
       AND EXISTS (

@@ -7,9 +7,9 @@ import { computePlaylistNav, type PlaylistEntry } from '@/lib/playlistNav'
 afterEach(cleanup)
 
 const SHEET_ENTRIES: PlaylistEntry[] = [
-  { repertoireId: 'dr-a', songId: 'sng-a', title: 'Africa', artist: 'Toto' },
-  { repertoireId: 'dr-b', songId: 'sng-b', title: 'Bohemian Rhapsody', artist: 'Queen' },
-  { repertoireId: 'dr-c', songId: 'sng-c', title: 'Coda', artist: null },
+  { repertoireId: 'dr-a', versionId: 'v-dr-a', songId: 'sng-a', title: 'Africa', artist: 'Toto' },
+  { repertoireId: 'dr-b', versionId: 'v-dr-b', songId: 'sng-b', title: 'Bohemian Rhapsody', artist: 'Queen' },
+  { repertoireId: 'dr-c', versionId: 'v-dr-c', songId: 'sng-c', title: 'Coda', artist: null },
 ]
 
 const NAV = computePlaylistNav(SHEET_ENTRIES, 'dr-b', 'pl-drawer', 'Saturday gig')
