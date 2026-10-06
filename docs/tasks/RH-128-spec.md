@@ -3,6 +3,38 @@
 Part 1 of 2 from the RH-104 split. Part 2 (RH-128) opens the picker to images and
 renders them in the stage; this part is deliberately invisible to the user.
 
+## Drift corrections (re-read against the tree at `03e60f0`)
+
+This spec was approved **before RH-123 landed**, and five of its statements no longer
+describe the tree. They are corrected in place below; this list exists so a reviewer can
+see what moved and why, rather than diffing two specs.
+
+1. **`repertoire_tabs` is gone — the table is `song_files`.** RH-123
+   (`migrations/0015_song_files.sql`) re-keyed it from a repertoire row to
+   `(user_id, song_id)`. Confirmed columns today: `id, user_id, song_id, title, file_url,
+   annotations, created_at`. Every mention of the old name below now reads `song_files`.
+2. **The type is `SongFile`, not `RepertoireTab`** (`src/types/database.ts:229`).
+3. **The authorization call is `ensureOwnEntry(userId, songId)`**, a local helper at
+   `src/app/actions/tabs.ts:49` — not `assertRepertoireAccess`. The *ordering* claim is
+   unchanged and still binding: it precedes any byte work or blob call.
+4. **The migration prefix is not `0009`.** The highest present is `0016`, and RH-125 is
+   taking `0017`, so **re-read the directory at implementation time** and take the next free
+   number. Never skip one: `migrationsSingleSource.test.ts` requires prefixes unique and
+   contiguous from `0001`.
+5. **`createTab` may NOT take a fifth positional parameter — this was a hard blocker.** The
+   earlier draft said "`createTab` reaches five parameters, which the file's existing pinned
+   `max-params: 5` override already permits". RH-123 **deleted** that override
+   (`eslint.config.mjs:69-73`: "`src/lib/tabs.ts` and `src/hooks/useTabLibrary.ts` each
+   carried `max-params: 5`; every function in both lost a parameter … so both now sit inside
+   the base budget of 4 and the overrides had to go"). `createTab` today takes exactly four
+   (`userId, songId, title, fileUrl`) — at the global ceiling — and the ratchet may **only
+   shrink**, so the override cannot come back. See §"The `createTab` signature" for the
+   resolution.
+
+`sharp` was re-verified and ER1's premise still holds: `package-lock.json:13019` carries
+`node_modules/sharp` at **0.35.4** as an optional dependency of `next`, it is installed, and
+it encodes and reads metadata correctly in this environment.
+
 ## Scope
 
 `uploadTabAction` stops being validate-and-forward and becomes decode-and-re-encode on
@@ -11,7 +43,7 @@ today, plus JPEG/PNG/WebP), and for an image it decodes the pixels, **bakes the 
 rotation into them**, strips all metadata, downscales to a bounded longest edge and a
 bounded byte length, and re-encodes. The blob upload's `contentType` becomes the content
 type of what was actually produced, and that content type is stored on the row via a new
-column on `repertoire_tabs`.
+column on `song_files`.
 
 Why the rotation is baked rather than left to the EXIF flag — this is the decision the
 implementation must not get wrong. `normalizePoint` cancels the native dimensions out, so
@@ -79,7 +111,42 @@ Not covered: the upload picker, which **stays PDF-only** — see Out of Scope.
   final extension reflects (`.pdf`/`.jpg`/`.png`/`.webp`, replacing the picked file's
   extension on the sanitized name), and what is written to the new row column.
 - **The 10MB input ceiling and its message are unchanged**, and so is the authorization
-  order: `assertRepertoireAccess` still precedes any byte work or blob call.
+  order: `ensureOwnEntry(userId, songId)` (`src/app/actions/tabs.ts:49`) still precedes any
+  byte work or blob call. A failure there refuses the upload with nothing written, where a
+  failure after it would leave an orphaned blob object behind — which is the whole reason
+  `abandoned_blobs` exists.
+
+### The `createTab` signature
+
+`createTab` must carry the content type, but it is already at the global `max-params: 4`
+ceiling and its override is gone for good (Drift correction 5). A fifth positional parameter
+would fail `src/lib/__tests__/complexityBudget.test.ts`, and adding an override back is
+forbidden — the ratchet may only shrink, and it is currently at 14 entries against
+`MAX_OVERRIDES = 17`.
+
+**So `createTab` takes a single payload object**, which is the convention AGENTS.md already
+names for a parsed-and-narrowed input shape (`<Subject>Payload`, as in `SongEditPayload` at
+`src/lib/songEditPayload.ts:19` and `BandUpdatePayload` at `src/lib/bandAdminState.ts:33`):
+
+```ts
+export interface CreateSongFilePayload {
+  userId: string
+  songId: string
+  title: string
+  fileUrl: string
+  contentType: string
+}
+
+export async function createTab(payload: CreateSongFilePayload): Promise<SongFile>
+```
+
+The interface lives beside `createTab` in `src/lib/tabs.ts` — it is an argument shape for one
+function, not app vocabulary (so not `src/types/database.ts`) and not a SQL projection (so
+not `dbRows.ts`). This drops the function to **one** parameter, leaving headroom for RH-128
+rather than consuming the last slot. The single call site
+(`src/app/actions/tabs.ts:102`) and the two test call sites
+(`src/lib/__tests__/tabs.test.ts:66,154`) are updated to the object form; this is a
+mechanical change at three places, not a refactor.
 
 ### Files touched
 
@@ -96,21 +163,21 @@ Not covered: the upload picker, which **stays PDF-only** — see Out of Scope.
   it imports nothing from `@/app` (F21).
 - `src/app/actions/tabs.ts` — `uploadTabAction` sniffs, prepares, uploads with the derived
   `contentType` and path, and passes the content type to `createTab`.
-- `src/lib/tabs.ts` — `createTab` takes the content type and inserts it; every `SELECT`
-  list on `repertoire_tabs` (`createTab` RETURNING, `listTabs`) returns `content_type`.
-  `createTab` reaches five parameters, which the file's existing pinned `max-params: 5`
-  override already permits — do not raise it, and add no new override.
-- `src/types/database.ts` — `RepertoireTab` gains `content_type?: string`, optional for the
+- `src/lib/tabs.ts` — `createTab` takes a `CreateSongFilePayload` object (§"The `createTab`
+  signature") carrying the content type, and inserts it; every `SELECT` list on `song_files`
+  (`createTab` RETURNING, `listTabs`) returns `content_type`. Add no override and raise none.
+- `src/types/database.ts` — `SongFile` gains `content_type?: string`, optional for the
   same reason `annotations` is: it is present on every row read through `src/lib/tabs.ts`,
   and absent only from offline snapshots and fixtures written before this task, where
   `application/pdf` is the correct reading of an absent value.
-- `migrations/NNNN_add_tab_content_type.sql` *(new)* — `ALTER TABLE repertoire_tabs ADD
+- `migrations/NNNN_add_song_file_content_type.sql` *(new)* — `ALTER TABLE song_files ADD
   COLUMN IF NOT EXISTS content_type text NOT NULL DEFAULT 'application/pdf'`, plus a
   `COMMENT ON COLUMN` recording that the default is honest history (every pre-existing row
   is a PDF), not a guess. **Numbering:** one above the highest prefix present in
-  `migrations/` at implementation time — expected `0009`, but several approved specs also
-  expect `0009`, so resolve it by looking, and never skip a number
-  (`migrationsSingleSource.test.ts` requires prefixes unique and contiguous from `0001`).
+  `migrations/` at implementation time — `0016` is the highest landed and RH-125 is taking
+  `0017`, so resolve it by looking rather than trusting any number quoted here, and never
+  skip a number (`migrationsSingleSource.test.ts` requires prefixes unique and contiguous
+  from `0001`).
 - `src/lib/__tests__/fileIngest.test.ts` *(new)*, `src/app/actions/__tests__/tabs.test.ts`,
   `src/lib/__tests__/tabs.test.ts`, `src/components/fastview/__tests__/TabUploadForm.test.tsx`
   — tests below.
@@ -166,7 +233,7 @@ that a PDF's stored bytes are byte-identical to the input.
 - [ ] ER9 — a unit test asserts a PDF upload stores bytes byte-identical to the input (no
       re-encode path touches PDFs).
 - [ ] ER10 — the SQL migration whose prefix is the highest in `migrations/` adds a
-      content-type column to `repertoire_tabs` with `NOT NULL DEFAULT 'application/pdf'`,
+      content-type column to `song_files` with `NOT NULL DEFAULT 'application/pdf'`,
       `uploadTabAction` writes the stored file's content type into it through
       `createTab`, and `listTabs`/`createTab` return it; the file name is never asserted
       literally. `src/lib/__tests__/migrationsSingleSource.test.ts` passes, confirming
@@ -174,17 +241,28 @@ that a PDF's stored bytes are byte-identical to the input.
 - [ ] ER11 — the upload picker's `accept` attribute still admits PDFs only: a test asserts
       `accept === 'application/pdf'` on the file input and that no image MIME type or image
       file extension appears anywhere in `src/components/fastview/TabUploadForm.tsx`.
-- [ ] ER12 — `npm run lint` and `npm test` both pass, with no new entry in the
-      `complexity-budget-overrides` block and no existing ceiling raised, and
-      `npm run test:coverage` stays above the configured thresholds.
+- [ ] ER12 — `npm test` passes and `npm run test:coverage` stays above the configured
+      thresholds (statements 80, branches 65, functions 78, lines 80), with no new entry in
+      the `complexity-budget-overrides` block and no existing ceiling raised. `npm run lint`
+      adds **nothing** to its pre-existing baseline of 8 errors and 12 warnings across 12
+      untouched files (tracked as RH-129) — that baseline makes `npm run lint` exit 1 today,
+      so the gate is "no new finding attributable to this change", not "exit 0".
+- [ ] ER13 — `createTab` takes a single `CreateSongFilePayload` object rather than a fifth
+      positional parameter: `src/lib/__tests__/complexityBudget.test.ts` passes with **no**
+      `max-params` override for `src/lib/tabs.ts` and no new entry in the
+      `complexity-budget-overrides` block, and the three existing call sites
+      (`src/app/actions/tabs.ts`, `src/lib/__tests__/tabs.test.ts` ×2) use the object form.
 
 ## Out of Scope
 
 - **Opening the picker to images and rendering them** — RH-128. Until it lands, no image
   can be chosen through the UI, so this task can never put an unrenderable file in front of
   a user. That is the point of doing it first; hold the line.
-- **`song_files` and the `(user_id, song_id)` key** — RH-123. This runs on the current
-  `repertoire_tabs` and keeps the `repertoire_id` ownership path untouched.
+- **Re-keying the table to `(user_id, song_id)`** — that was **RH-123, which has landed**
+  (`migrations/0015_song_files.sql`). This task therefore runs on `song_files` as it now
+  stands and changes no ownership path: it adds one column and touches no key. The earlier
+  draft's "This runs on the current `repertoire_tabs`" is withdrawn — that table no longer
+  exists (Drift correction 1).
 - A manual rotate control, HEIC/AVIF input, server-side thumbnails, and migrating or
   re-processing files already stored.
 - Offline-snapshot or service-worker handling of the new content type.
