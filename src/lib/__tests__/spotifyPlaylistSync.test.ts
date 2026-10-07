@@ -176,7 +176,10 @@ describe('findOrCreateSong', () => {
   it('inserts the split title and trimmed artist for a new song', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'song-new' }], rowCount: 1 })
+      // RH-136 — the create path's links are `song_links` rows now, written by
+      // `resolveOrCreateSongIdentity` right after the `songs` insert returns.
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
@@ -189,7 +192,8 @@ describe('findOrCreateSong', () => {
     // carries the artist predicate and no album one, and the insert seeds the
     // row rather than this module doing it itself.
     const [lookupSql, lookupValues] = mockedQuery.mock.calls[0]
-    expect(lookupSql).toContain('SELECT id, links FROM songs')
+    expect(lookupSql).toContain('FROM songs s')
+    expect(lookupSql).toContain('FROM song_links sl')
     expect(lookupValues).toEqual(['Song Name', 'Artist A'])
 
     // The bind list starts at the title: RH-121 dropped the catalog's
@@ -202,17 +206,31 @@ describe('findOrCreateSong', () => {
     expect(insertValues[2]).toBe('Album (Deluxe Edition)')
     expect(insertValues[5]).toBe(185)
     expect(insertValues[4]).toBe('http://art')
-    expect(JSON.parse(insertValues[6] as string)).toEqual([
-      { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },
+    // RH-136 — `links` left the `songs` column list; the Spotify link is a
+    // `song_links` row, inserted by the next statement. This pins the
+    // single-source design, not a regression: the retained `songs.links`
+    // column is kept current by the reverse bridge trigger in
+    // `migrations/0019_song_links.sql`, which fires off that row insert, so the
+    // Spotify push still finds the url. Nothing here needs deleting to make
+    // the push work.
+    expect(insertValues).toHaveLength(6)
+
+    const [linksSql, linksValues] = mockedQuery.mock.calls[2]
+    expect(linksSql).toContain('INSERT INTO song_links')
+    expect(linksSql).toContain('ON CONFLICT (song_id, url) DO NOTHING')
+    expect(linksValues).toEqual([
+      'song-new',
+      'https://open.spotify.com/track/t1',
+      'Song Name - 2018 Remaster',
     ])
 
     // ER9 — the two halves of the one parse reach the two different keys: the
     // left half is the `songs` title above, the right half this version label.
-    const [albumSql, albumValues] = mockedQuery.mock.calls[2]
+    const [albumSql, albumValues] = mockedQuery.mock.calls[3]
     expect(albumSql).toContain('INSERT INTO albums')
     expect(albumValues).toEqual(['Artist A', 'Album (Deluxe Edition)', 'http://art'])
 
-    const [versionSql, versionValues] = mockedQuery.mock.calls[3]
+    const [versionSql, versionValues] = mockedQuery.mock.calls[4]
     expect(versionSql).toContain('INSERT INTO song_versions')
     expect(versionValues).toEqual(['song-new', 'album-1', '2018 Remaster', 185, null])
   })
@@ -220,14 +238,18 @@ describe('findOrCreateSong', () => {
   it('does not append the Spotify link to a row it just created', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'song-new' }], rowCount: 1 })
+      // RH-136 — the create path's links are `song_links` rows now, written by
+      // `resolveOrCreateSongIdentity` right after the `songs` insert returns.
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await findOrCreateSong(rawTrack)
 
-    // The lookup, the insert and the two upserts — no link `UPDATE songs`.
-    expect(mockedQuery).toHaveBeenCalledTimes(4)
+    // The lookup, the `songs` insert, the `song_links` insert and the two
+    // upserts — no link `UPDATE songs`.
+    expect(mockedQuery).toHaveBeenCalledTimes(5)
     const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
     expect(statements.some((sql) => /UPDATE\s+songs/i.test(sql))).toBe(false)
   })
@@ -235,7 +257,10 @@ describe('findOrCreateSong', () => {
   it('never persists a songs title that still carries the separator (ER9)', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({ rows: [{ id: 'song-new', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'song-new' }], rowCount: 1 })
+      // RH-136 — the create path's links are `song_links` rows now, written by
+      // `resolveOrCreateSongIdentity` right after the `songs` insert returns.
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 

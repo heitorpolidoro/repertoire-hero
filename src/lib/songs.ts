@@ -9,7 +9,7 @@
  * owner row is one musician's or one band's.
  */
 
-import { query, type Queryable } from '@/lib/db'
+import { query, withTransaction, type Queryable } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitSongEdit } from '@/lib/moderation'
@@ -19,7 +19,8 @@ import {
   representativeVersionSubquery,
   upsertAlbumAndVersion,
 } from '@/lib/songVersions'
-import { splitCatalogUpdate } from '@/lib/catalogFields'
+import { splitCatalogUpdate, type CatalogFill } from '@/lib/catalogFields'
+import { dedupeLinksByUrl, songLinkInsertRows } from '@/lib/songLinksSql'
 import type { CatalogSearchResult, Song, SongLink, SongStatus, RefusedCatalogField } from '@/types/database'
 
 /**
@@ -123,30 +124,92 @@ export async function applyCatalogFill(
   const songRes = await client.query<Song>('SELECT * FROM songs WHERE id = $1 FOR UPDATE', [songId])
   if (songRes.rowCount === 0) throw new Error('Song entry not found')
 
+  // The fill-or-refuse decision is taken against the links the catalog really
+  // holds — `song_links` rows, not the retained `songs.links` column, which this
+  // writer stopped maintaining in RH-136 (`SELECT *` above still returns it, and
+  // overriding it here is what keeps `isCatalogFieldEmpty` off a stale array).
+  // `FOR UPDATE` on the `songs` row does not lock these rows; it still
+  // serialises two concurrent fills of the same song, which is all it ever
+  // bought.
+  const current = await client.query<SongLink>(
+    'SELECT label, url, provider FROM song_links WHERE song_id = $1 ORDER BY position, created_at, id',
+    [songId],
+  )
+
   // Shared catalog: this edit may only fill columns that are currently empty
   // (see `splitCatalogUpdate`). The rest come back as `refused` instead of
   // being silently dropped, and their route is `CorrectionModal` —
   // docs/use-cases.md § "Suggest a correction to the catalog".
-  const { fill, refused } = splitCatalogUpdate(songRes.rows[0], {
-    title: data.title,
-    artist: data.artist,
-    album: data.album ?? null,
-    standard_key: data.key,
-    cover_url: data.cover_url ?? null,
-    duration_seconds: data.duration_seconds ?? null,
-    links: data.links,
-  })
+  const { fill, refused } = splitCatalogUpdate(
+    { ...songRes.rows[0], links: current.rows },
+    {
+      title: data.title,
+      artist: data.artist,
+      album: data.album ?? null,
+      standard_key: data.key,
+      cover_url: data.cover_url ?? null,
+      duration_seconds: data.duration_seconds ?? null,
+      links: data.links,
+    },
+  )
 
-  if (fill.length > 0) {
+  const linksFill = fill.find((f) => f.column === 'links')
+  const columnFills = fill.filter((f) => f.column !== 'links')
+  if (linksFill) await fillSongLinks(songId, linksFill, client)
+
+  // Run whenever a column was filled **or** links were written: a links change
+  // bumping the catalog row's timestamp is the existing convention (RH-101) and
+  // `catalogTimestamp.db.test.ts` asserts it.
+  if (columnFills.length > 0 || linksFill) {
     // Column names come from `CATALOG_COLUMNS`, never from the caller.
-    const setList = fill.map((f, i) => `${f.column} = $${i + 1}${f.cast}`).join(', ')
+    const clauses = columnFills.map((f, i) => `${f.column} = $${i + 1}${f.cast}`)
+    // `'updated_at = now()'` is appended to the clause array **inline inside the
+    // interpolation**, so the join supplies the comma and an empty `clauses` —
+    // reachable now that `links` is partitioned out — still yields valid SQL
+    // rather than an empty SET list and a 42601. The literal must stay between
+    // the statement's verb and its WHERE in the source text:
+    // `catalogTimestampGuard`'s scan is textual.
     await client.query<never>(
-      `UPDATE songs SET ${setList}, updated_at = now() WHERE id = $${fill.length + 1}`,
-      [...fill.map((f) => f.value), songId],
+      `UPDATE songs SET ${[...clauses, 'updated_at = now()'].join(', ')} WHERE id = $${columnFills.length + 1}`,
+      [...columnFills.map((f) => f.value), songId],
     )
   }
 
   return refused
+}
+
+/**
+ * The `links` entry of a fill, applied row-wise to `song_links`.
+ *
+ * The conflict policy below is `DO NOTHING`, and deliberately **not**
+ * `DO UPDATE`:
+ * this writer fills what is empty and *refuses* what is set, so overwriting an
+ * existing row's label here would be exactly the silent catalog overwrite the
+ * refusal model exists to prevent. No re-assertion of `position` either, for
+ * the same reason — `DO NOTHING` leaves an existing row entirely alone.
+ *
+ * `dedupeLinksByUrl` is what keeps this statement off 23505. It is the one
+ * writer whose failure costs a musician the **whole** song-form save: it runs on
+ * `updateSong`'s shared transaction (`@/lib/ownerSongs`), so an aborted
+ * statement takes the owner-row write with it.
+ *
+ * `fillFor` hands the entry back already `JSON.stringify`-ed with
+ * `cast: '::jsonb'`, so it is parsed back into a `SongLink[]` here.
+ */
+async function fillSongLinks(
+  songId: string,
+  linksFill: CatalogFill,
+  client: Queryable,
+): Promise<void> {
+  const proposed = JSON.parse(String(linksFill.value)) as SongLink[]
+  const rows = songLinkInsertRows(songId, dedupeLinksByUrl(proposed))
+  if (rows.count === 0) return
+  await client.query<never>(
+    `INSERT INTO song_links (song_id, url, label, position)
+     VALUES ${rows.values}
+     ON CONFLICT (song_id, url) DO NOTHING`,
+    rows.params,
+  )
 }
 
 /** What the manual add form submits about the song itself. */
@@ -195,7 +258,7 @@ export async function applySongLinkUpdate(
 ): Promise<{ success: true; pending?: true }> {
   let songRes
   try {
-    songRes = await query<{ links: SongLink[] | null }>('SELECT links FROM songs WHERE id = $1', [songId])
+    songRes = await query<{ id: string }>('SELECT id FROM songs WHERE id = $1', [songId])
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update song links', err, { songId })
@@ -205,6 +268,11 @@ export async function applySongLinkUpdate(
   // Outside the wrapper (convention L1a): the UI shows this message verbatim.
   if (songRes.rowCount === 0) throw new Error('Song entry not found')
 
+  // BEFORE the transaction, and it must stay that way: this loop issues one
+  // *outbound HTTP request* per blank-labelled link, to a host a musician chose.
+  // Holding a Postgres transaction open across an arbitrary network round trip
+  // pins a connection from the pool and holds the `songs` row's locks for the
+  // fetcher's timeout, once per link.
   const processedLinks = await Promise.all(
     links.map(async (l) => {
       if (!l.label || !l.label.trim()) {
@@ -215,25 +283,67 @@ export async function applySongLinkUpdate(
     })
   )
 
-  const currentLinks = songRes.rows[0].links ?? []
-  const submittedUrls = new Set(processedLinks.map((l) => l.url))
-  const isAdditive = currentLinks.every((l) => submittedUrls.has(l.url))
-
-  if (!isAdditive) {
-    await submitSongEdit(userId, songId, { links: processedLinks })
-    return { success: true, pending: true }
-  }
-
+  let pending: boolean
   try {
-    await query<never>('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [
-      JSON.stringify(processedLinks),
-      songId,
-    ])
+    // The `song_links` read, the upsert and the timestamp bump are one
+    // transaction — the only sanctioned way to group them.
+    pending = await withTransaction(async (client) => {
+      const current = await client.query<{ url: string }>(
+        'SELECT url FROM song_links WHERE song_id = $1',
+        [songId],
+      )
+      const submittedUrls = new Set(processedLinks.map((l) => l.url))
+      if (!current.rows.every((l) => submittedUrls.has(l.url))) return true
+
+      await upsertSongLinks(songId, processedLinks, client)
+      // No variable clause list remains at this writer: `links` left the column,
+      // so the statement degenerates to a bare timestamp bump.
+      await client.query<never>('UPDATE songs SET updated_at = now() WHERE id = $1', [songId])
+      return false
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update song links', err, { songId })
     throw new Error(`Failed to update song links: ${err.message}`)
   }
 
+  if (pending) {
+    // Removing or rewriting an existing link is a correction to data everyone
+    // else sees, so it goes to the moderation queue and writes nothing.
+    await submitSongEdit(userId, songId, { links: processedLinks })
+    return { success: true, pending: true }
+  }
+
   return { success: true }
+}
+
+/**
+ * The additive submission, upserted into `song_links`.
+ *
+ * The conflict policy below re-asserts both the label and the position,
+ * because the whole-array column rewrite it replaces rewrote labels **and
+ * order** too, and both must survive. The position clause is load-bearing,
+ * not decorative: the bridge trigger leaves
+ * gaps on purpose, so a survivor that kept an earlier statement's number would
+ * end up **tied** with the freshly inserted row, and the canonical
+ * `ORDER BY position, created_at, id` would break that tie on a random uuid.
+ *
+ * `dedupeLinksByUrl` is what keeps the `DO UPDATE` off `21000 ON CONFLICT DO
+ * UPDATE command cannot affect row a second time`, which a duplicate url
+ * submitted through the song form would otherwise raise — and nothing between
+ * the editor and here rejects one.
+ */
+async function upsertSongLinks(
+  songId: string,
+  links: SongLink[],
+  client: Queryable,
+): Promise<void> {
+  const rows = songLinkInsertRows(songId, dedupeLinksByUrl(links))
+  if (rows.count === 0) return
+  await client.query<never>(
+    `INSERT INTO song_links (song_id, url, label, position)
+     VALUES ${rows.values}
+     ON CONFLICT (song_id, url) DO UPDATE SET label = EXCLUDED.label, position = EXCLUDED.position`,
+    rows.params,
+  )
 }

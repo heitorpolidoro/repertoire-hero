@@ -18,6 +18,8 @@
  * otherwise, so a mastery summary's total time does not go blank.
  */
 
+import { songLinksJson } from '@/lib/songLinksSql'
+
 /**
  * The per-entry json both playlist-card reads aggregate: enough to count the
  * entries and sum their playing time, and nothing else. Correlated on `p.id`,
@@ -63,7 +65,7 @@ export const PLAYLIST_DETAIL_ENTRIES_JSON = `
              'standard_key', s.standard_key,
              'cover_url', s.cover_url,
              'duration_seconds', COALESCE(v.duration_seconds, s.duration_seconds),
-             'links', s.links,
+             'links', ${songLinksJson('s')},
              'created_at', s.created_at
            )
          ) ORDER BY ps.position ASC)

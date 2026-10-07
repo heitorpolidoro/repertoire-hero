@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { SONG_LINKS_CANONICAL_ORDER, createTestUser, deleteTestUser } from './test-helpers'
 
 // RH-45 — `applySongLinkUpdate` auto-labels a blank link label through
 // `fetchUrlTitle`; the network is never touched from a test.
@@ -93,7 +93,8 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(entry.song!.standard_key).toBe(songData.standard_key)
     expect(entry.song!.cover_url).toBe(songData.cover_url)
     expect(entry.song!.duration_seconds).toBe(songData.duration_seconds)
-    expect(entry.song!.links).toEqual(songData.links)
+    // `provider` is derived by the schema from the url (RH-136).
+    expect(entry.song!.links).toEqual([{ ...songData.links[0], provider: 'youtube' }])
 
     // Track the created song ID for cleanup
     createdSongIds.add(entry.song_id)
@@ -377,7 +378,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(updated!.song!.standard_key).toBe(updateData.key)
     expect(updated!.song!.cover_url).toBe(updateData.cover_url)
     expect(updated!.song!.duration_seconds).toBe(updateData.duration_seconds)
-    expect(updated!.song!.links).toEqual(updateData.links)
+    expect(updated!.song!.links).toEqual([{ ...updateData.links[0], provider: 'spotify' }])
   })
 
   // -------------------------------------------------------------------------
@@ -474,9 +475,19 @@ describe.skipIf(skip)('songs service integration tests', () => {
       return entry.song_id
     }
 
+    /**
+     * The song's links as the catalog really holds them since RH-136:
+     * `song_links` rows in the canonical order. `provider` is dropped here so
+     * each test still states a plain `{label, url}` — it is asserted on its own
+     * in `songLinksTable.db.test.ts`.
+     */
     const catalogLinks = async (songId: string): Promise<SongLink[]> => {
-      const res = await query('SELECT links FROM songs WHERE id = $1', [songId])
-      return res.rows[0].links as SongLink[]
+      const res = await query<{ label: string; url: string }>(
+        `SELECT label, url FROM song_links WHERE song_id = $1
+          ${SONG_LINKS_CANONICAL_ORDER}`,
+        [songId],
+      )
+      return res.rows.map((row) => ({ label: row.label, url: row.url }))
     }
 
     const pendingEdits = async (songId: string) => {

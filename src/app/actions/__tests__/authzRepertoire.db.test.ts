@@ -15,7 +15,13 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import { asUser, countRows, createTestSong, RUN_DB_TESTS } from './authzFixtures'
-import { OWNER_SONG_FROM, createTestUser, deleteTestUser, seedOwnerSong } from '@/lib/__tests__/test-helpers'
+import {
+  OWNER_SONG_FROM,
+  SONG_LINKS_CANONICAL_ORDER,
+  createTestUser,
+  deleteTestUser,
+  seedOwnerSong,
+} from '@/lib/__tests__/test-helpers'
 import { createBand } from '@/lib/bands'
 import { query } from '@/lib/db'
 import {
@@ -69,10 +75,20 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       [bandId, songId],
     )
 
-  /** The catalog links of song S, as stored — text so the comparison is exact. */
+  /**
+   * The catalog links of song S, as stored — a json text so the comparison
+   * stays exact. Since RH-136 a link is a `song_links` row, so this reads the
+   * table in the canonical order rather than the retained `songs.links` column,
+   * which no writer on this path maintains any more.
+   */
   const catalogLinks = async (): Promise<string> => {
-    const res = await query('SELECT links::text AS links FROM songs WHERE id = $1', [catalogSongId])
-    return res.rows[0].links as string
+    const res = await query<{ links: string }>(
+      `SELECT COALESCE(jsonb_agg(jsonb_build_object('label', label, 'url', url)
+                ${SONG_LINKS_CANONICAL_ORDER}), '[]'::jsonb)::text AS links
+         FROM song_links WHERE song_id = $1`,
+      [catalogSongId],
+    )
+    return res.rows[0].links
   }
 
   const editCount = () =>

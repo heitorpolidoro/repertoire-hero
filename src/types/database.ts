@@ -5,9 +5,24 @@ export type SongStatus =
   | "polishing"
   | "mastered";
 
+/**
+ * Which service a link points at, as the **schema** derives it from the url
+ * (RH-136, `song_links.provider` is `GENERATED ALWAYS AS ... STORED`). One
+ * definition, in the database, so no TypeScript writer can disagree with the
+ * backfill and no row can hold a wrong provider. A fourth value is a migration.
+ */
+export type SongLinkProvider = "spotify" | "youtube" | "other";
+
 export interface SongLink {
   label: string;
   url: string;
+  /**
+   * Optional on purpose: `SongLink` is constructed as a bare `{label, url}`
+   * literal in five places, and this task only adds to the type — nothing is
+   * removed, so no reader loses a field. Absent on a link that has not been
+   * read back from `song_links`.
+   */
+  provider?: SongLinkProvider;
 }
 
 export interface Song {

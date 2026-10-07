@@ -29,6 +29,7 @@
 
 import { pool, type Queryable } from '@/lib/db'
 import type { SongLinksRow } from '@/lib/dbRows'
+import { dedupeLinksByUrl, songLinkInsertRows, songLinksJson } from '@/lib/songLinksSql'
 import { splitSongTitle } from '@/lib/songTitle'
 import type { SongLink } from '@/types/database'
 
@@ -115,7 +116,7 @@ export function songIdentityOf(title: string, artist: string): SongIdentity {
  * row" for a row the insert below then cannot create.
  */
 const LOOKUP_SQL = `
-    SELECT id, links FROM songs
+    SELECT s.id, ${songLinksJson('s')} AS links FROM songs s
     WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))
     LIMIT 1
   `
@@ -125,13 +126,51 @@ const LOOKUP_SQL = `
  * without naming it — and never a caught 23505: inside a transaction a caught
  * 23505 leaves the transaction aborted, so every later statement fails with
  * 25P02 (AGENTS.md §Transactions).
+ *
+ * RH-136 took `links` out of the column list and out of `RETURNING`: a link is
+ * a `song_links` row now, written by {@link insertCreatedSongLinks} right after
+ * this statement returns the row it created.
  */
 const INSERT_SQL = `
-    INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds, links)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds)
+    VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT DO NOTHING
-    RETURNING id, links
+    RETURNING id
   `
+
+/**
+ * The create path's links, as `song_links` rows in input order.
+ *
+ * The conflict policy below is `DO NOTHING`, because a create has nothing to
+ * overwrite: the only conflict reachable is a concurrent writer or the bridge
+ * trigger, and either row already carries the same url. Not `DO UPDATE`, so no
+ * re-assertion of `position` belongs here — `DO NOTHING` leaves an existing
+ * row entirely alone, which is what *refuse rather than overwrite* means at this
+ * writer.
+ *
+ * `dedupeLinksByUrl` is mandatory rather than defensive: an input array holding
+ * the same url twice would raise 23505 and abort the **caller's** transaction,
+ * the trap {@link INSERT_SQL} already documents for itself.
+ *
+ * Returns the deduplicated array, which is what the caller reports as the
+ * created row's links — the rows that were just written.
+ */
+async function insertCreatedSongLinks(
+  songId: string,
+  links: SongLink[],
+  db: Queryable,
+): Promise<SongLink[]> {
+  const deduped = dedupeLinksByUrl(links)
+  const rows = songLinkInsertRows(songId, deduped)
+  if (rows.count === 0) return deduped
+  await db.query<never>(
+    `INSERT INTO song_links (song_id, url, label, position)
+     VALUES ${rows.values}
+     ON CONFLICT (song_id, url) DO NOTHING`,
+    rows.params,
+  )
+  return deduped
+}
 
 async function lookupSongIdentity(
   identity: SongIdentity,
@@ -161,7 +200,7 @@ export async function resolveOrCreateSongIdentity(
   const existing = await lookupSongIdentity(identity, db)
   if (existing) return existing
 
-  const inserted = await db.query<SongLinksRow>(INSERT_SQL, [
+  const inserted = await db.query<{ id: string }>(INSERT_SQL, [
     identity.title,
     identity.artist,
     // Raw, only trimmed: RH-122 deleted the album-name stripper because
@@ -171,10 +210,16 @@ export async function resolveOrCreateSongIdentity(
     input.standard_key ?? null,
     input.cover_url ?? null,
     input.duration_seconds ?? null,
-    JSON.stringify(input.links ?? []),
   ])
   const row = inserted.rows[0]
-  if (row) return { id: row.id, links: row.links ?? [], created: true, label: identity.label }
+  if (row) {
+    // Only when the insert actually returned a row: its own `ON CONFLICT DO
+    // NOTHING` returns none when a concurrent caller won
+    // `uq_songs_artist_title`, and the re-lookup below is a *found* row, which
+    // writes nothing.
+    const links = await insertCreatedSongLinks(row.id, input.links ?? [], db)
+    return { id: row.id, links, created: true, label: identity.label }
+  }
 
   // A concurrent caller won the unique index, so the insert above was a no-op
   // instead of a 23505. Their row is committed by the time the wait ends.

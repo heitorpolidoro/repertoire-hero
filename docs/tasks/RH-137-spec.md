@@ -260,7 +260,34 @@ so.
 The four `songs.links` statements this task *does* own — `songIdentity.ts`'s
 `INSERT_SQL`, `applySongLinkUpdate`'s `UPDATE`, `applyCatalogFill`'s `links`
 fill and `reviewSongEdit`'s `links` clause — all stop writing the column, so the
-trigger never fires for them and there is no dual write.
+forward trigger never fires for them.
+
+**AMENDED IN REVIEW ROUND 1: a second, reverse trigger is required, and the
+"there is no dual write" sentence this paragraph used to end with was wrong.**
+It was written under the premise below ("Deferring the DROP costs a musician
+nothing today"), which RH-135 (`5d602f7`, the commit immediately preceding this
+work) had already falsified. The Spotify push reads `songs.links` and, since
+RH-135, matches a track by its **url** rather than by a label no writer
+produces — so the push really works, and with all four owned writers off the
+column every song touched after this migration would push an empty `uris` list
+and answer HTTP 200 with `{added: 0}`. Measured, with only the forward trigger:
+`spotifyPushUris.db.test.ts` reports `3 failed`, each `expected { added: +0 }
+to deeply equal { added: 2 }`.
+
+The migration therefore also creates `mirror_column_on_song_links_write`, an
+`AFTER INSERT OR UPDATE OR DELETE` trigger on `song_links` that recomputes
+`songs.links` from the rows in canonical order. It covers all four writers with
+one statement, keeps the TypeScript writers single-source, and is dropped
+alongside the forward bridge by the dropping task. It is created **after** the
+backfill, so the backfill still leaves the column byte-identical (ER4).
+
+The alternative considered and rejected — keeping `links` in `INSERT_SQL`'s
+column list and letting the forward trigger mirror it — covers only the create
+path. Measured: it takes `spotifyPushUris.db.test.ts` from `3 failed` to
+`2 failed | 2 passed`, the two failures being the Fast View editor
+(`applySongLinkUpdate`) and the song form (`applyCatalogFill`), each pushing
+`{added: 1}` where 2 tracks were expected — a push that silently sends half a
+playlist.
 
 ### The column stays, and why
 
@@ -302,6 +329,22 @@ artist and album only. But after RH-138's `DROP COLUMN links` the field becomes
 `npx tsc --noEmit` cannot see — the same class of invisible break as (1)–(3)
 above. **RH-138 must either migrate `searchSongs` onto the aggregate or remove
 `links` from `CatalogSearchResult`**, and its spec must say which.
+
+**AMENDED IN REVIEW ROUND 1 — THE PARAGRAPH BELOW IS FALSE AS WRITTEN.** It
+describes the push as it stood *before* RH-135 (`5d602f7`): `sync/route.ts` no
+longer matches `l.label === 'spotify'`, it calls `spotifyTrackUriFromLinks` and
+matches on the url's host, so the push is a live reader of `songs.links` that
+works. Deferring the DROP therefore costs a musician the whole push unless the
+column is kept current, which is why the reverse bridge trigger above exists.
+The paragraph is retained only as the record of a premise this task
+falsified. **It does not explain why `src/lib/__tests__/spotify.test.ts` needs
+no edit** — an earlier wording claimed that, and it was wrong: the three
+fixtures it cited seed the labels `'Sync Song A'`, `'Sync Song B'` and the
+song's own title, and `grep` finds no fixture anywhere in `src/` seeding
+`label: 'spotify'`. The real reason that file needs no edit, measured in code
+review round 2, is that it seeds `songs.links` directly in SQL, the forward
+bridge mirrors that into `song_links`, and the push matches by url through
+`spotifyTrackUriFromLinks` — so the file passes unchanged, at 678 lines.
 
 **Deferring the DROP costs a musician nothing today.** The `songs.links` write
 the retained column still serves is the Spotify one, and the only *read* keyed
@@ -828,7 +871,7 @@ arrived.
 - [ ] **ER8** Both behaviour suites exist and both run clean: `src/lib/__tests__/songLinksTable.db.test.ts` and `src/lib/__tests__/songLinksBridge.db.test.ts` are present, and each of `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/songLinksTable.db.test.ts` and `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/songLinksBridge.db.test.ts` exits 0 reporting **0 failed AND 0 skipped**. Neither file exceeds 800 lines (`wc -l` on each is `<= 800`), and neither appears in `eslint.config.mjs` (see ER24).
 - [ ] **ER9** In `songLinksTable.db.test.ts`: for a song whose `songs.links` column is deliberately left `'[]'::jsonb` while `song_links` holds two rows, all three migrated reads return both links — `getPlaylistWithSongs` (through `PLAYLIST_DETAIL_ENTRIES_JSON`), **`getRepertoire`** (`src/lib/ownerSongs.ts:78`, through `ownerSongRows`' `SONG_JSON` and `LEVELS`) and `getPendingSongEdits` (through `moderation.ts`'s projection) — each with the stored `label`, `url` and `provider`, in `position` order.
 - [ ] **ER10** `grep -rn "'links', s.links" src --include='*.ts' --include='*.tsx'` returns **0** matches (it returns 3 today: `src/lib/playlistSql.ts:66`, `src/lib/ownerSongRows.ts:62`, `src/lib/moderation.ts:61`), and the links aggregate SQL is spelled in exactly one production file, `src/lib/songLinksSql.ts`.
-- [ ] **ER11** Additive round trip, **asserted on read order rather than on raw `position` numbers**: starting from a song whose `song_links` rows were produced by the bridge trigger and therefore carry a **gap** (url `u1` at `position` 1 and url `u2` at `position` 3 — construct it exactly as ER17 does, by inserting the song with `links` = `[u1]` and then updating it to `[u1, u2]`), submitting `[u1, u2, u3]` through `applySongLinkUpdate` returns `{success: true}` with no `pending`, inserts one `song_links` row for `u3` with the submitted label, leaves `u1`'s and `u2`'s `song_links.id` unchanged, leaves `songs.links` unmodified, and — the discriminating assertion — **reading that song's `song_links` with `ORDER BY position, created_at, id` returns exactly `[u1, u2, u3]`, the submitted array's url order, with the new url last**, and `u3`'s `position` is **strictly greater** than every other row's for that song. Measured: with the mandated `ON CONFLICT (song_id, url) DO UPDATE SET label = EXCLUDED.label, position = EXCLUDED.position` the positions become 1, 2, 3 and both assertions hold; with `DO UPDATE SET label` alone the survivors keep 1 and 3 while `u3` is given 3, so `u3` is **tied** with `u2`, "strictly greater" is false, and the canonical order breaks the tie on a random uuid.
+- [ ] **ER11** Additive round trip, **asserted on read order rather than on raw `position` numbers**: starting from a song whose `song_links` rows were produced by the bridge trigger and therefore carry a **gap** (url `u1` at `position` 1 and url `u2` at `position` 3 — construct it exactly as ER17 does, by inserting the song with `links` = `[u1]` and then updating it to `[u1, u2]`), submitting `[u1, u2, u3]` through `applySongLinkUpdate` returns `{success: true}` with no `pending`, inserts one `song_links` row for `u3` with the submitted label, leaves `u1`'s and `u2`'s `song_links.id` unchanged, **leaves `songs.links` holding exactly the submitted set `[u1, u2, u3]` in canonical read order** (AMENDED in review round 1 — this clause read "leaves `songs.links` unmodified", which the reverse bridge trigger makes false by design: the Spotify push reads that column and an unmodified one makes it send zero uris), and — the discriminating assertion — **reading that song's `song_links` with `ORDER BY position, created_at, id` returns exactly `[u1, u2, u3]`, the submitted array's url order, with the new url last**, and `u3`'s `position` is **strictly greater** than every other row's for that song. Measured: with the mandated `ON CONFLICT (song_id, url) DO UPDATE SET label = EXCLUDED.label, position = EXCLUDED.position` the positions become 1, 2, 3 and both assertions hold; with `DO UPDATE SET label` alone the survivors keep 1 and 3 while `u3` is given 3, so `u3` is **tied** with `u2`, "strictly greater" is false, and the canonical order breaks the tie on a random uuid.
 - [ ] **ER12** Label rewrite preserved **and a duplicated url does not abort the write**, both through `applySongLinkUpdate`: (a) submitting the same urls with a changed label on one of them is still additive and the stored `label` for that url changes; (b) submitting an array that holds the **same url twice under two different labels** returns `{success: true}` with no `pending`, leaves exactly **one** `song_links` row for that url carrying the **first** occurrence's label, and raises neither 23505 nor 21000. (b) fails against the naive implementation: `ON CONFLICT (song_id, url) DO UPDATE SET label = …` without the dedupe raises `21000 ON CONFLICT DO UPDATE command cannot affect row a second time` (measured), and a bare insert raises `23505`.
 - [ ] **ER13** Non-additive round trip: submitting an array with one existing url removed returns `{success: true, pending: true}`, inserts a `global_song_edits` row, and changes neither the `song_links` row count nor any row's `id`.
 - [ ] **ER14** In `songLinksBridge.db.test.ts`: approving a links correction through `reviewSongEdit` applies it as a replace-set: the removed url's `song_links` row is gone, each surviving url keeps the same `song_links.id` it had before, and the edit row's status is `approved`. Asserted also for (a) a correction proposing **only** `links`, which must not produce a SQL syntax error (42601) and must still bump `songs.updated_at`; (b) an approved array holding the **same url twice under two different labels**, which completes without 23505 or 21000, leaves exactly one row for that url carrying the first occurrence's label, and still sets the edit's status to `approved` — `parseLinks` (`src/lib/songEditPayload.ts:98-103`) admits such an array, so this case is reachable from the correction modal; (c) an approved **empty** links array, which leaves that song zero `song_links` rows; and (d) — **the case that proves `reviewSongEdit` really has authority over order** — a song whose `song_links` holds three urls `[uA, uB, uC]` in that canonical order, against which an approved array **reorders two surviving urls and drops the third**, `[uC, uA]`: after the approval, reading that song's `song_links` with `ORDER BY position, created_at, id` returns exactly `[uC, uA]` — the approved array's url order, not the pre-approval order — `uB`'s row is gone, and `uA`'s and `uC`'s `song_links.id` are both unchanged. Measured on the dev database: with the mandated `ON CONFLICT (song_id, url) DO UPDATE SET label = EXCLUDED.label, position = EXCLUDED.position` the read order is `[uC, uA]`; with `DO UPDATE SET label` alone it stays `[uA, uC]` and the approved reorder is silently discarded while every other assertion in this ER still passes — which is why (d) is not optional.

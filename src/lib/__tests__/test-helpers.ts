@@ -401,6 +401,19 @@ export const OWNER_SONG_FROM = {
 } as const
 
 /**
+ * The canonical read order of a song's `song_links` rows, spelled once for the
+ * suites that read the table directly (RH-136).
+ *
+ * Production has exactly one spelling of it, in `songLinksJson`
+ * (`src/lib/songLinksSql.ts`), and a test reading the rows by hand must agree
+ * with it: `(created_at, id)` alone scrambles any two rows written by the same
+ * statement, since they share one `now()` and break the tie on a random uuid.
+ * Spelled as a fragment rather than as a whole query because the three callers
+ * project different columns — one of them as `jsonb` text.
+ */
+export const SONG_LINKS_CANONICAL_ORDER = 'ORDER BY position, created_at, id'
+
+/**
  * The representative version of `songId`, ensuring the song has one first —
  * what a suite that holds only a song id needs since RH-125 made the playlist
  * entry and both playlist writes version-keyed.

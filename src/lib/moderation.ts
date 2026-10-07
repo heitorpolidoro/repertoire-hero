@@ -1,7 +1,71 @@
-import { query, withTransaction } from '@/lib/db'
+import { query, withTransaction, type Queryable } from '@/lib/db'
 import { parseSongEditPayload } from '@/lib/songEditPayload'
 import { logger } from '@/lib/logger'
+import { dedupeLinksByUrl, songLinkInsertRows, songLinksJson } from '@/lib/songLinksSql'
 import type { SongEdit, SongLink } from '@/types/database'
+
+/**
+ * The `links` entry of a parsed payload, or `undefined` when the edit proposes
+ * no links at all — which is **not** the same as proposing an empty array, the
+ * "remove every link" instruction ER14(c) requires to work.
+ *
+ * A file-local reader rather than two lines inside `reviewSongEdit`, because
+ * that function measures 14 against a base `complexity` ceiling of 15 and
+ * `eslint.config.mjs`'s override list is shrink-only (ER24): a ternary spent
+ * here would have nowhere to go.
+ *
+ * Narrowed by `Array.isArray` rather than by an `as SongLink[]` cast:
+ * `parseSongEditPayload` does guarantee the shape today, but a cast would
+ * survive that guarantee changing and this value is handed straight to a
+ * writer.
+ */
+function approvedLinksOf(
+  entries: Array<[string, string | number | null | SongLink[]]>,
+): SongLink[] | undefined {
+  const entry = entries.find(([column]) => column === 'links')?.[1]
+  return Array.isArray(entry) ? entry : undefined
+}
+
+/**
+ * An approved links array, applied to `song_links` as a **replace-set**.
+ *
+ * An approved correction is authoritative over the whole set, labels and order
+ * included, so this is `DELETE` then upsert rather than a fill:
+ *
+ *  - the `DELETE` runs first, which is what lets a surviving url keep its
+ *    `song_links.id`; an approved **empty** array deletes every row, since
+ *    `url <> ALL('{}')` holds for all of them;
+ *  - the insert's conflict policy re-asserts both the label and the position.
+ *    That position clause is the
+ *    whole reason this writer has authority over order: a correction that keeps
+ *    every url and only moves two of them produces a `DELETE` that removes
+ *    nothing and an insert that conflicts on every row, so with `DO UPDATE SET
+ *    label` alone *nothing at all* is written and the approved reorder is
+ *    discarded without an error while the edit's status still flips to
+ *    `approved`.
+ *
+ * `dedupeLinksByUrl` is what keeps that `DO UPDATE` off `21000`; `parseLinks`
+ * admits a duplicated url and does not supply it.
+ */
+async function applyApprovedSongLinks(
+  client: Queryable,
+  songId: string,
+  links: SongLink[],
+): Promise<void> {
+  const deduped = dedupeLinksByUrl(links)
+  await client.query<never>(
+    'DELETE FROM song_links WHERE song_id = $1 AND url <> ALL($2::text[])',
+    [songId, deduped.map((l) => l.url)],
+  )
+  const rows = songLinkInsertRows(songId, deduped)
+  if (rows.count === 0) return
+  await client.query<never>(
+    `INSERT INTO song_links (song_id, url, label, position)
+     VALUES ${rows.values}
+     ON CONFLICT (song_id, url) DO UPDATE SET label = EXCLUDED.label, position = EXCLUDED.position`,
+    rows.params,
+  )
+}
 
 export async function submitSongEdit(
   userId: string,
@@ -58,7 +122,7 @@ export async function getPendingSongEdits(
                'standard_key', s.standard_key,
                'cover_url', s.cover_url,
                'duration_seconds', s.duration_seconds,
-               'links', s.links,
+               'links', ${songLinksJson('s')},
                'created_at', s.created_at
              ) as song,
              json_build_object(
@@ -128,7 +192,12 @@ export async function reviewSongEdit(
     const payload = parseSongEditPayload(edit.proposed_data)
     // The payload only ever holds the seven `songs` column names, in column
     // order, so interpolating a key as a SQL identifier is safe here.
-    const fields: Array<[string, string | number | null | SongLink[]]> = Object.entries(payload)
+    const entries: Array<[string, string | number | null | SongLink[]]> = Object.entries(payload)
+    // `links` is partitioned out **before** the loop, not after: the loop
+    // numbers each placeholder from `values.length + 1`, so removing a clause
+    // afterwards would mean renumbering every surviving one.
+    const approvedLinks = approvedLinksOf(entries)
+    const fields = entries.filter(([column]) => column !== 'links')
     const setClauses: string[] = []
     const values: (string | number | null)[] = []
 
@@ -140,16 +209,28 @@ export async function reviewSongEdit(
     // Applying the edit and marking it reviewed are one unit: a catalog rewrite
     // whose edit stays `pending` gets applied twice by the next admin.
     return await withTransaction(async (client) => {
-      // The validator guarantees at least one proposed column, so the SET list
-      // is never empty.
       values.push(edit.song_id)
-      // `updated_at` belongs to the template, never to `setClauses`: that array
-      // is the narrowed set of columns a submitted edit may propose, and the
-      // timestamp is not one of them (RH-101).
-      const updateSongSql = `UPDATE songs SET ${setClauses.join(
-        ', '
-      )}, updated_at = now() WHERE id = $${values.length}`
+      // The timestamp clause is appended to the proposed-column clauses
+      // **inline inside the template's interpolation**, so the join supplies the
+      // comma. That is what makes an edit proposing only `links` — whose clause
+      // is partitioned out above, leaving none — produce valid SQL instead of
+      // an empty SET list and a 42601. The literal must stay between the
+      // statement's verb and its WHERE in the *source text*, because
+      // `catalogTimestampGuard`'s scan is textual, not a SQL parse.
+      //
+      // `setClauses` itself is still only the narrowed set of columns a
+      // submitted edit may propose, and `updated_at` is still not one of them
+      // (RH-101) — what changed is where the clause is concatenated, not who may
+      // propose it.
+      const updateSongSql = `UPDATE songs SET ${[...setClauses, 'updated_at = now()'].join(', ')} WHERE id = $${values.length}`
       await client.query<never>(updateSongSql, values)
+
+      // `!== undefined`, not a truthiness test: an **approved empty array** is
+      // a real instruction — "remove every link" — and `[]` being truthy in
+      // JavaScript is too invisible a thing for that case to depend on.
+      if (approvedLinks !== undefined) {
+        await applyApprovedSongLinks(client, edit.song_id, approvedLinks)
+      }
 
       const updateEditSql = `
         UPDATE global_song_edits

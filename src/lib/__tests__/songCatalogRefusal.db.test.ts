@@ -15,12 +15,19 @@ import { query } from '@/lib/db'
 import { addSongToRepertoire, updateSong } from '@/lib/ownerSongs'
 import type { SongUpdateInput } from '@/lib/songs'
 import type { Repertoire, SongLink } from '@/types/database'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { SONG_LINKS_CANONICAL_ORDER, createTestUser, deleteTestUser } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
 const YOUTUBE: SongLink = { label: 'YouTube', url: 'https://youtu.be/rh97' }
 const CHORDS: SongLink = { label: 'Chords', url: 'https://chords.test/rh97' }
+
+/**
+ * The same two links as `song_links` hands them back: `provider` is derived by
+ * the schema (RH-136), so every link read through the catalog carries one.
+ */
+const YOUTUBE_STORED: SongLink = { ...YOUTUBE, provider: 'youtube' }
+const CHORDS_STORED: SongLink = { ...CHORDS, provider: 'other' }
 
 describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (real database)', () => {
   const suffix = Date.now()
@@ -65,6 +72,20 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
     )
     createdSongIds.push(res.rows[0].id)
     return addSongToRepertoire({ userId }, res.rows[0].id)
+  }
+
+  /**
+   * The song's links as the catalog really holds them: `song_links` rows in the
+   * canonical order, not the retained `songs.links` column (RH-136 — no writer
+   * in this path maintains the column any more).
+   */
+  const catalogLinks = async (songId: string): Promise<SongLink[]> => {
+    const res = await query<SongLink>(
+      `SELECT label, url, provider FROM song_links
+        WHERE song_id = $1 ${SONG_LINKS_CANONICAL_ORDER}`,
+      [songId],
+    )
+    return res.rows
   }
 
   const catalogRow = async (songId: string) => {
@@ -188,9 +209,9 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       input(populated, { links: [YOUTUBE, CHORDS] }),
     )
 
-    expect((await catalogRow(populated.song_id)).links).toEqual([YOUTUBE])
+    expect(await catalogLinks(populated.song_id)).toEqual([YOUTUBE_STORED])
     expect(refusal.refused).toEqual([
-      { column: 'links', current: [YOUTUBE], proposed: [YOUTUBE, CHORDS] },
+      { column: 'links', current: [YOUTUBE_STORED], proposed: [YOUTUBE, CHORDS] },
     ])
 
     const empty = await makeEntry({ links: [] })
@@ -200,7 +221,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       input(empty, { links: [YOUTUBE, CHORDS] }),
     )
 
-    expect((await catalogRow(empty.song_id)).links).toEqual([YOUTUBE, CHORDS])
+    expect(await catalogLinks(empty.song_id)).toEqual([YOUTUBE_STORED, CHORDS_STORED])
     expect(accepted.refused).toEqual([])
   })
 

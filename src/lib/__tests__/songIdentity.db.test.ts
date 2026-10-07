@@ -473,7 +473,10 @@ describe.skipIf(!RUN_DB_TESTS)('the song identity rule (RH-95)', () => {
     expect(second.song?.standard_key).toBe('C')
     expect(second.song?.cover_url).toBe('http://first-cover')
     expect(second.song?.duration_seconds).toBe(100)
-    expect(second.song?.links).toEqual([{ label: 'First', url: 'http://first' }])
+    // `provider` is derived by the schema from the url (RH-136).
+    expect(second.song?.links).toEqual([
+      { label: 'First', url: 'http://first', provider: 'other' },
+    ])
   })
 
   it('ER7 — the manual path then the Spotify path converge on one row', async () => {

@@ -23,6 +23,7 @@ import {
   type ResolvedSongFields,
 } from '@/lib/songResolution'
 import type { OwnerSongLevelsRow } from '@/lib/dbRows'
+import { songLinksJson } from '@/lib/songLinksSql'
 import type { Repertoire, ResolvedSongEntry, SongMap, SongStatus } from '@/types/database'
 
 /** Which hat the caller is wearing: their own, or a band's. */
@@ -59,7 +60,7 @@ const SONG_JSON = `json_build_object(
              'id', s.id, 'title', s.title, 'artist', s.artist,
              'album', s.album, 'standard_key', s.standard_key,
              'cover_url', s.cover_url, 'duration_seconds', s.duration_seconds,
-             'links', s.links, 'created_at', s.created_at
+             'links', ${songLinksJson('s')}, 'created_at', s.created_at
            ) AS song`
 
 /**

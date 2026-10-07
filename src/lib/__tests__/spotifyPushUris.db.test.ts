@@ -8,10 +8,15 @@
  * exact label into a `songs.links` SQL fixture themselves — the test supplied
  * the input in the one form the reader wanted.
  *
- * So this suite never writes a links column by hand. Every song it pushes is
- * created through a **real write path** — `findOrCreateSong` (the Spotify pull)
- * or `createAndAddSong` (the song picker, `src/hooks/useSongPicker.ts:197`) —
- * and the assertion is on the outbound `PUT .../tracks` body.
+ * So this suite never writes a links column by hand. Every song it pushes gets
+ * its link through a **real write path**, and the assertion is on the outbound
+ * `PUT .../tracks` body. RH-136 moved a link out of the `songs.links` column
+ * and into `song_links` rows while this route still reads the column, so the
+ * suite now covers **all three** paths by which a Spotify url reaches a song,
+ * because each one would have gone silently empty on its own:
+ * `findOrCreateSong` (the Spotify pull), `createAndAddSong` (the song picker,
+ * `src/hooks/useSongPicker.ts:197`) and `applySongLinkUpdate` (the Fast View
+ * link editor).
  *
  * Only the session, the Spotify token and `fetch` are mocked, as in
  * `spotifySyncAtomicity.db.test.ts`; everything else is the real handler
@@ -28,8 +33,9 @@ vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: 
 
 import { POST as syncPOST } from '@/app/api/spotify/playlists/[id]/sync/route'
 import { query } from '@/lib/db'
-import { createAndAddSong } from '@/lib/ownerSongs'
+import { createAndAddSong, updateSong } from '@/lib/ownerSongs'
 import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
+import { applySongLinkUpdate } from '@/lib/songs'
 import { getSpotifyAccessToken } from '@/lib/spotifyAuth'
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
@@ -43,6 +49,10 @@ const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 /** The two track ids whose URIs must reach Spotify, and the ignored third. */
 const TRACK_ID_A = 'rh135pulledtrackaaa'
 const TRACK_ID_B = 'rh135pickedtrackbbb'
+/** Added through the Fast View link editor, the third write path (RH-136). */
+const TRACK_ID_D = 'rh136fastviewtrackd'
+/** Added through the song form's catalog fill, the fourth writer (RH-136). */
+const TRACK_ID_E = 'rh136songformtracke'
 
 const SPOTIFY_PLAYLIST_ID = 'rh135-spotify-playlist'
 
@@ -57,12 +67,16 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify push (real database, real write path
   const TITLE_A = `RH-135 Pulled Song ${suffix}`
   const TITLE_B = `RH-135 Picked Song ${suffix}`
   const TITLE_C = `RH-135 Lyrics Only Song ${suffix}`
+  const TITLE_D = `RH-136 Fast View Song ${suffix}`
+  const TITLE_E = `RH-136 Song Form Song ${suffix}`
   const ARTIST = `RH-135 Artist ${suffix}`
 
   let ownerId: string
   let versionAId: string
   let versionBId: string
   let versionCId: string
+  let versionDId: string
+  let versionEId: string
   const createdSongIds: string[] = []
   const createdPlaylistIds: string[] = []
 
@@ -140,6 +154,41 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify push (real database, real write path
     )
     createdSongIds.push(songC.song_id)
     versionCId = await representativeVersionId(songC.song_id)
+
+    // Song D — the Fast View add-link path (`applySongLinkUpdate`), the third
+    // and last way a Spotify url reaches a song. It is here because RH-136
+    // moved the links write off `songs.links` while the push route still reads
+    // that column, and only the reverse bridge trigger
+    // (`migrations/0019_song_links.sql`) keeps this path pushable. Without it
+    // this song's `uris` entry is missing and the push answers 200 with
+    // `{added: 1}` — success, having pushed one track of two.
+    const songD = await createAndAddSong(
+      { userId: ownerId },
+      { title: TITLE_D, artist: ARTIST, album: 'RH-135 Album D' },
+    )
+    createdSongIds.push(songD.song_id)
+    versionDId = await representativeVersionId(songD.song_id)
+    await applySongLinkUpdate(ownerId, songD.song_id, [
+      { label: 'Fast View Added', url: `https://open.spotify.com/track/${TRACK_ID_D}` },
+    ])
+
+    // Song E — the song form's write path (`updateSong` -> `applyCatalogFill`),
+    // the fourth and last links writer. Created with no links, so the proposed
+    // link is a *fill* rather than a refused overwrite.
+    const songE = await createAndAddSong(
+      { userId: ownerId },
+      { title: TITLE_E, artist: ARTIST, album: 'RH-135 Album E' },
+    )
+    createdSongIds.push(songE.song_id)
+    versionEId = await representativeVersionId(songE.song_id)
+    await updateSong({ userId: ownerId }, songE, {
+      title: TITLE_E,
+      artist: ARTIST,
+      key: null,
+      status: songE.status,
+      tags: [],
+      links: [{ label: 'Song Form Added', url: `https://open.spotify.com/track/${TRACK_ID_E}` }],
+    })
   })
 
   beforeEach(() => {
@@ -221,5 +270,41 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify push (real database, real write path
     )
     expect(put).toBeDefined()
     expect(put!.body.uris).toEqual([`spotify:track:${TRACK_ID_A}`, `spotify:track:${TRACK_ID_B}`])
+  })
+
+  it('sends the track URI of a link added through the Fast View editor', async () => {
+    const playlistId = await seedPlaylist(`RH-136 Push Playlist Fast View ${suffix}`, [
+      versionAId,
+      versionDId,
+    ])
+
+    const response = await callPush(playlistId)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ added: 2, removed: 0 })
+
+    const put = putCalls.find((call) =>
+      call.url.includes(`https://api.spotify.com/v1/playlists/${SPOTIFY_PLAYLIST_ID}/tracks`),
+    )
+    expect(put).toBeDefined()
+    expect(put!.body.uris).toEqual([`spotify:track:${TRACK_ID_A}`, `spotify:track:${TRACK_ID_D}`])
+  })
+
+  it('sends the track URI of a link filled in through the song form', async () => {
+    const playlistId = await seedPlaylist(`RH-136 Push Playlist Song Form ${suffix}`, [
+      versionAId,
+      versionEId,
+    ])
+
+    const response = await callPush(playlistId)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ added: 2, removed: 0 })
+
+    const put = putCalls.find((call) =>
+      call.url.includes(`https://api.spotify.com/v1/playlists/${SPOTIFY_PLAYLIST_ID}/tracks`),
+    )
+    expect(put).toBeDefined()
+    expect(put!.body.uris).toEqual([`spotify:track:${TRACK_ID_A}`, `spotify:track:${TRACK_ID_E}`])
   })
 })
