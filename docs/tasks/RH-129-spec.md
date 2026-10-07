@@ -2,9 +2,38 @@
 
 Part 2 of 2 from the RH-104 split. Part 1 (RH-127, spec `docs/tasks/RH-128-spec.md`)
 made the server ingest images — sniffed, rotated upright, stripped, downscaled, with the
-produced content type stored on `repertoire_tabs.content_type` — and deliberately left the
+produced content type stored on `song_files.content_type` — and deliberately left the
 upload picker PDF-only so nothing unrenderable could reach a user. This task opens that
 gate and makes an image readable and annotatable.
+
+## Drift corrections (re-read against the tree at `afbe242`)
+
+This spec was approved before RH-123 and RH-127 landed. Six of its statements no longer
+describe the tree; they are corrected in place below. This list exists so a reviewer can
+see what moved rather than diff two specs.
+
+1. **`repertoire_tabs` is gone — the table is `song_files`**, re-keyed from a repertoire
+   row to `(user_id, song_id)` by RH-123 (`migrations/0015_song_files.sql`). The type is
+   `SongFile` (`src/types/database.ts`). Every mention below now reads `song_files`.
+2. **The offline conversion function is `offlineTabToSongFile`**, not
+   `offlineTabToRepertoireTab` — renamed by RH-123. It is exported from
+   `src/lib/offlineSnapshot.ts:229` and returns a `SongFile`.
+3. **`OFFLINE_SCHEMA_VERSION` is 5, not 2.** The *reasoning* is unchanged and still
+   binding: snapshots already on disk predate image upload and are PDFs, so an absent
+   `contentType` reading as `application/pdf` is a fact rather than a guess, and the
+   version must **not** be bumped — discarding those snapshots would cost a musician a
+   downloaded setlist for nothing.
+4. **The content-type column was added by RH-127 on `song_files`**
+   (`migrations/0018_add_song_file_content_type.sql`, `NOT NULL DEFAULT
+   'application/pdf'`). "No migration" still holds: this task reads that column.
+5. **`TabDrawingStage.tsx`'s override is `max-lines-per-function: 743`, not 750**, and
+   `src/lib/strokeRenderer.ts` already exists — RH-99's extraction landed.
+6. **`TabDrawingStage.tsx` sits at exactly 815 lines against a `max-lines: 815` ceiling.**
+   This is a hard blocker, not a note: the next line added to that file fails
+   `src/lib/__tests__/complexityBudget.test.ts`, and the override list is a ratchet that
+   may only shrink, so the ceiling cannot be raised. ER5's extraction of the page surface
+   is therefore not optional cleanup — it is what buys the headroom this task needs, and
+   it must land before anything is added to that file.
 
 ## Scope
 
@@ -81,7 +110,7 @@ bottom centre; drawing on shows the toolbar"). See *Out of Scope* for why, and t
   control row, or the row renders with only the indicator in it; either is acceptable, an
   image tab that can be annotated with no visible save state is not.
 - **Offline.** `OfflineTabSnapshot` gains `contentType`, filled from the row at download
-  time and read back by `offlineTabToRepertoireTab` as `content_type`. An absent value
+  time and read back by `offlineTabToSongFile` as `content_type`. An absent value
   reads as `application/pdf`, so **`OFFLINE_SCHEMA_VERSION` is not bumped** — every v2
   snapshot already on disk predates image upload and is a PDF, so the fallback is a fact
   rather than a guess, and discarding those snapshots would cost a musician a downloaded
@@ -116,7 +145,7 @@ bottom centre; drawing on shows the toolbar"). See *Out of Scope* for why, and t
   type; `TabLibraryController` gains `activeTabContentType`.
 - `src/lib/offlineSnapshot.ts` — `OfflineTabSnapshot.contentType`, written by
   `toTabSnapshot`, validated as an optional string by `isTabSnapshot`, read back by
-  `offlineTabToRepertoireTab`.
+  `offlineTabToSongFile`.
 - `src/i18n/dictionaries/en.json`, `src/i18n/dictionaries/pt-BR.json` — `landing.f5Title`,
   `landing.f5Desc`.
 - `eslint.config.mjs` — the `TabDrawingStage.tsx` override lowered to the file's new actual
@@ -128,11 +157,12 @@ bottom centre; drawing on shows the toolbar"). See *Out of Scope* for why, and t
   `.../TabUploadForm.test.tsx` (RH-127's PDF-only assertion inverted here),
   `src/lib/__tests__/offlineSnapshot.test.ts`, `src/lib/__tests__/landingCopy.test.ts`.
 
-**No migration.** RH-127 added `repertoire_tabs.content_type`; this task reads it.
+**No migration.** RH-127 added `song_files.content_type`
+(`migrations/0018_add_song_file_content_type.sql`); this task reads it.
 
 **The budget, measured.** `src/components/tabs/TabDrawingStage.tsx` is pinned at
-`complexity: 21`, `max-lines-per-function: 757`, `max-lines: 819`, and RH-99 lowers that to
-815/750 by extracting `drawPath` into `src/lib/strokeRenderer.ts`. The ratchet may only
+`complexity: 21`, `max-lines-per-function: 743`, `max-lines: 815` (RH-99 already extracted `drawPath`
+into `src/lib/strokeRenderer.ts`), and the file is at **exactly 815 lines**. The ratchet may only
 shrink, so this task cannot add a renderer branch to that file — it extracts, and the
 override is then set to the file's **actual** new worst numbers. Do not trust any literal
 in this spec or in RH-99's: run the lint and read them off the failure.
@@ -163,7 +193,7 @@ one node test for `tabRenderer` and the offline snapshot round trip.
   back to itself within rounding tolerance, and that the normalized value is independent of
   the render width (two widths, same normalized stroke).
 - The offline snapshot: an image tab round-trips its content type through
-  `buildOfflineSnapshot` → `readValidSnapshot` → `offlineTabToRepertoireTab`, and a
+  `buildOfflineSnapshot` → `readValidSnapshot` → `offlineTabToSongFile`, and a
   snapshot written without the field still validates and reads back as
   `application/pdf`.
 - `accept` on the file input contains `application/pdf` and the three image types.
@@ -200,7 +230,7 @@ one node test for `tabRenderer` and the offline snapshot round trip.
       that the normalized value is identical at two different render widths.
 - [ ] ER7 — an image tab's content type survives the offline round trip: a test puts an
       image tab through `buildOfflineSnapshot`, `readValidSnapshot` and
-      `offlineTabToRepertoireTab` and gets the image content type back, and a snapshot
+      `offlineTabToSongFile` and gets the image content type back, and a snapshot
       whose tabs carry no content type still validates and reads back as
       `application/pdf`, with `OFFLINE_SCHEMA_VERSION` unchanged.
 - [ ] ER8 — an image tab renders from the cache while the browser is offline: a test mounts
@@ -241,5 +271,6 @@ one node test for `tabRenderer` and the offline snapshot round trip.
   this task is already shrinking under a ratchet. Doing both at once would make one review
   of two unrelated regressions. It should be its own task, after this one.
 - A manual rotate control, HEIC/AVIF input, thumbnails, multi-image "pages" for one tab.
-- `song_files` and the `(user_id, song_id)` key (RH-123) — this runs on `repertoire_tabs`.
+- Re-keying the table to `(user_id, song_id)` — that was **RH-123, which has landed**.
+  This task runs on `song_files` as it now stands and changes no ownership path.
 - Re-processing or re-typing files uploaded before RH-127.
