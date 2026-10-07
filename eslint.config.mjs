@@ -79,7 +79,16 @@ const eslintConfig = defineConfig([
   // can reach it (`src/app/api/**` is outside the coverage gate), and the `if
   // (!seenSpotifyVersions.has(...))` branch it took with it is the one the
   // route no longer spends.
-  { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 25], "max-depth": ["error", 5] } },
+  //
+  // RH-135 lowered it again, 25 -> 22. The push loop used to pick a song's
+  // Spotify link by label and then dig the track id out of its url, spending
+  // three branches on it: the `links?.find(...)` optional chain, `if
+  // (spotifyLink?.url)` and `if (match)`. All three moved into
+  // `spotifyTrackUriFromLinks` (`src/lib/spotifyTrackUri.ts`), where a unit
+  // test can reach them — `src/app/api/**` is outside the coverage gate — and
+  // the loop is left with one `if (uri)`. `max-depth` stays at 5: the
+  // shallower loop body was never the file's deepest block.
+  { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 22], "max-depth": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/app/bands/\\[id\\]/page.tsx"], rules: { complexity: ["error", 29], "max-lines-per-function": ["error", 453], "max-lines": ["error", 473] } },
   { name: "complexity-budget/override", files: ["src/app/join/\\[code\\]/page.tsx"], rules: { "max-lines-per-function": ["error", 249] } },
   { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 615] } },

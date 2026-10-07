@@ -10,6 +10,7 @@ import {
   buildPlaylistSongsInsert,
   dedupeVersionIds,
 } from '@/lib/spotifyPlaylistSync'
+import { spotifyTrackUriFromLinks } from '@/lib/spotifyTrackUri'
 
 // ---------------------------------------------------------------------------
 // POST /api/spotify/playlists/[id]/sync
@@ -130,15 +131,14 @@ export async function POST(
 
       const uris: string[] = []
 
+      // By URL host, never by label (RH-135): this loop used to pick the
+      // first link whose label equalled the lowercase word "spotify", which no
+      // writer in `src/` produces, so every push sent an empty track list and
+      // reported success. A song with no Spotify track link contributes
+      // nothing and does not fail the push.
       for (const ps of playlistSongs) {
-        const links = ps.links
-        const spotifyLink = links?.find((l) => l.label === 'spotify')
-        if (spotifyLink?.url) {
-          const match = spotifyLink.url.match(/track\/([A-Za-z0-9]+)/)
-          if (match) {
-            uris.push(`spotify:track:${match[1]}`)
-          }
-        }
+        const uri = spotifyTrackUriFromLinks(ps.links)
+        if (uri) uris.push(uri)
       }
 
       if (uris.length > 0) {

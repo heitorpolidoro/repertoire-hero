@@ -504,7 +504,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
           'Sync Song A',
           'Sync Artist A',
           'Album A',
-          JSON.stringify([{ label: 'spotify', url: 'https://open.spotify.com/track/spotify-track-a' }]),
+          JSON.stringify([{ label: 'Sync Song A', url: 'https://open.spotify.com/track/spotify-track-a' }]),
         ],
       )
       songIdA = songA.rows[0].id
@@ -517,7 +517,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
           'Sync Song B',
           'Sync Artist B',
           'Album B',
-          JSON.stringify([{ label: 'spotify', url: 'https://open.spotify.com/track/spotify-track-b' }]),
+          JSON.stringify([{ label: 'Sync Song B', url: 'https://open.spotify.com/track/spotify-track-b' }]),
         ],
       )
       songIdB = songB.rows[0].id
@@ -608,8 +608,8 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
       // Create 105 mock songs in songs in bulk to avoid DB overhead
       const bulkTitles = Array.from({ length: 105 }, (_, i) => `Bulk Song ${i}`)
-      const bulkLinks = bulkTitles.map((_, i) =>
-        JSON.stringify([{ label: 'spotify', url: `https://open.spotify.com/track/bulktrackid${i}` }]),
+      const bulkLinks = bulkTitles.map((title, i) =>
+        JSON.stringify([{ label: title, url: `https://open.spotify.com/track/bulktrackid${i}` }]),
       )
 
       const insertedSongs = await query<{ id: string }>(
