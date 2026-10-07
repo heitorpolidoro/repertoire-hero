@@ -286,8 +286,15 @@ playlist's current contents and changes on every add. `useSongPicker` composes t
 `songs` — which is also what keeps a successful add from re-issuing the search.
 
 `withoutHeldVersions` drops any candidate whose `versionId` is in the set, and then drops any row
-left with no candidates. This is existing behaviour (`visiblePickerCatalog` /
+that **had** candidates and lost them all. This is existing behaviour (`visiblePickerCatalog` /
 `visiblePickerSpotify`), not the similarity filtering `docs/plans/repertoire-rework.md` forbids.
+
+**Drift correction (2026-10-07).** The clause above read "drops any row left with no candidates",
+which deletes §2a's version-less catalog row — the row that arrives with `versions: []` and that
+HEAD's `visiblePickerCatalog` offers unconditionally, because a song with no version cannot be in
+any playlist. The filter therefore keys on whether the row *lost* its candidates, not on whether it
+has none: `row.versions.length > 0 && kept.length === 0` is the drop condition. ER18's four cases
+are unaffected (each starts from a row with at least one candidate); ER12's row survives.
 
 #### 4. Spotify-only rows, and what a pick writes
 
@@ -459,8 +466,21 @@ the app for; the grouped card is RH-112's. No dictionary change.
 
 ### Files touched
 
+- `src/lib/songTitle.ts` — **drift correction (2026-10-07), not in the approved file list.** It
+  gains `songIdentityKey(title, artist)`, the lowercased-split-title-then-artist group key of §1,
+  and that is where the key has to live. ER1 allows `songSearchMerge.ts` to import **only**
+  `@/lib/songTitle` and types, while ER13 needs the identical key inside `songPicker.ts` for the
+  re-pointed `findRepertoireVersionIdByTrack`. Any other home forces either a second copy of the
+  rule — the exact defect §1 argues against — or an import ER1 forbids. `songTitle.ts` already is
+  "the one parse of an incoming song title", has no imports at all and is client-safe, so both
+  modules import the one definition from it.
 - `src/lib/songSearchMerge.ts` — **new.** The whole merge, pure and client-safe: imports only
-  `@/lib/songTitle` and types. Exports `mergeSongSearchResults`, `withoutHeldVersions` and the
+  `@/lib/songTitle` and types. **Budget note for RH-112 (2026-10-07):** it lands at **394 of the
+  base 400 `max-lines`**, with no override, and the first draft was 427 — the prose was compressed
+  twice rather than an entry being added, because the ratchet may only shrink. RH-112 has six
+  lines of headroom here. The companion `src/lib/__tests__/songSearchMerge.test.ts` lands at
+  **784 of the test budget's 800**, with the three source-tree guards (ER1, ER23, ER24, plus
+  ER25's) split into `src/lib/__tests__/songSearchMergeGuards.test.ts` for exactly that reason. Exports `mergeSongSearchResults`, `withoutHeldVersions` and the
   `SongSearchRow` / `SearchVersionCandidate` types. Split into small internal functions so none
   needs a complexity override.
 - `src/lib/songs.ts` — `searchSongs` gains the `versions` aggregate column; predicate, order and
@@ -486,13 +506,18 @@ the app for; the grouped card is RH-112's. No dictionary change.
   needs a live Postgres; skips without `RUN_DB_TESTS`).
 - `src/hooks/__tests__/useSongPicker.test.tsx` — re-pointed at `results` / `addRow`, plus the
   degradation and `rawTitle` cases.
-- `src/components/playlists/__tests__/SongPicker.test.tsx`,
-  `src/components/playlists/__tests__/PickerRow.test.tsx` (if present; otherwise the assertions
-  land in the former) — the one-row-per-song case and the new props.
+- `src/components/playlists/__tests__/SongPicker.test.tsx` — the one-row-per-song case and the new
+  props. **Drift correction (2026-10-07):** `src/components/playlists/__tests__/PickerRow.test.tsx`
+  does **not** exist in the tree, so the conditional resolves and every assertion lands here.
 - `src/components/playlists/__tests__/PlaylistDetailView.test.tsx`,
   `src/components/playlists/__tests__/playlistReorder.test.tsx`,
   `src/hooks/__tests__/usePlaylistDetail.test.tsx` — their `searchCatalog` mocks keep compiling
-  against the widened `CatalogSearchResult`.
+  against the widened `CatalogSearchResult`. **Drift correction (2026-10-07):** all three mock
+  `searchCatalog` as `vi.fn().mockResolvedValue([])`, so the widening costs them nothing — but
+  `usePlaylistDetail.test.tsx:318` *calls* `result.current.picker.addCatalogSong({ id: 's3' } as
+  Song)`, which ER25 deletes. That one call is re-pointed at `addRow` with a §2a row
+  (`songId: 's3'`, `versions: []`), which takes the same catalog branch and keeps the test's
+  `addSongToPlaylist('pl-1', 's3')` assertion intact. The other two files need no edit.
 - `docs/use-cases.md` — the *Search for a song* "Open" bullet moves to "Decided" (ER27).
 - `docs/tasks/RH-109-mock.html` — **new.**
 - `package.json` — version bump per AGENTS.md §Version Bumping Rule.

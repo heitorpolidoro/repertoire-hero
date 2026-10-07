@@ -2,11 +2,14 @@
 /**
  * RH-67 — the add-song picker's controller.
  *
- * The pure decisions are covered directly in `src/lib/__tests__/songPicker.test.ts`.
- * What only a hook test can prove is the timing and the wiring: that nothing is
- * searched below two characters, that the search fires once 500 ms after the
- * last keystroke, that an out-of-order response is discarded, and that each add
- * path calls exactly the actions it should and never rejects.
+ * The pure decisions are covered directly in `src/lib/__tests__/songPicker.test.ts`
+ * and `src/lib/__tests__/songSearchMerge.test.ts`. What only a hook test can
+ * prove is the timing and the wiring: that nothing is searched below two
+ * characters, that the search fires once 500 ms after the last keystroke, that
+ * an out-of-order response is discarded, and — the RH-108 deliverable end to
+ * end — that the two searches actually reach **one** merge rather than being
+ * merged separately and concatenated. No test of the pure function or of the
+ * panel in isolation can make that assertion.
  *
  * `searchSpotify` is the one transport the hook imports rather than receives
  * (it is a client `fetch` in `src/lib`, not a Server Action), so it is mocked at
@@ -20,7 +23,14 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongPicker, type SongPickerActions, type UseSongPickerOptions } from '@/hooks/useSongPicker'
 import { searchSpotify } from '@/lib/spotify'
 import type { SpotifyTrack } from '@/lib/spotify'
-import type { CatalogSearchResult, Song, PlaylistSong, Repertoire } from '@/types/database'
+import type { SearchVersionCandidate, SongSearchRow } from '@/lib/songSearchMerge'
+import type {
+  CatalogSearchResult,
+  CatalogVersionOption,
+  Song,
+  PlaylistSong,
+  Repertoire,
+} from '@/types/database'
 
 vi.mock('@/lib/spotify', () => ({ searchSpotify: vi.fn() }))
 
@@ -57,6 +67,54 @@ function track(id: string, title: string, artist = 'Led Zeppelin'): SpotifyTrack
     spotifyUrl: `https://open.spotify.com/track/${id}`,
     previewUrl: null,
     albumArt: 'https://img.example/cover.jpg',
+    albumType: null,
+    releaseDate: null,
+  }
+}
+
+function versionOption(
+  overrides: Partial<CatalogVersionOption> & Pick<CatalogVersionOption, 'versionId'>,
+): CatalogVersionOption {
+  return {
+    label: null,
+    durationSeconds: null,
+    createdAt: null,
+    albumName: 'IV',
+    albumType: null,
+    albumCoverUrl: null,
+    releaseDate: null,
+    ...overrides,
+  }
+}
+
+function candidate(overrides: Partial<SearchVersionCandidate> = {}): SearchVersionCandidate {
+  return {
+    versionId: null,
+    spotifyTrackId: null,
+    rawTitle: 'Kashmir',
+    albumName: null,
+    albumType: null,
+    releaseDate: null,
+    label: null,
+    durationSeconds: null,
+    createdAt: null,
+    coverUrl: null,
+    spotifyUrl: null,
+    ...overrides,
+  }
+}
+
+/** One merged row, as `mergeSongSearchResults` would have produced it. */
+function pickerRow(overrides: Partial<SongSearchRow> = {}): SongSearchRow {
+  return {
+    id: 'kashmir|led zeppelin',
+    title: 'Kashmir',
+    artist: 'Led Zeppelin',
+    coverUrl: null,
+    album: 'IV',
+    songId: 'song-1',
+    versions: [candidate({ versionId: 'v-song-1' })],
+    ...overrides,
   }
 }
 
@@ -66,7 +124,11 @@ function track(id: string, title: string, artist = 'Led Zeppelin'): SpotifyTrack
  * interchangeable in an assertion.
  */
 function result_(id: string, title: string, artist = 'Led Zeppelin'): CatalogSearchResult {
-  return { ...song(id, title, artist), version_id: `v-${id}` }
+  return {
+    ...song(id, title, artist),
+    version_id: `v-${id}`,
+    versions: [versionOption({ versionId: `v-${id}` })],
+  }
 }
 
 /** One playlist entry, naming the version its song's card would add. */
@@ -176,9 +238,9 @@ describe('useSongPicker', () => {
     expect(actions.searchCatalog).toHaveBeenCalledWith('kash')
   })
 
-  it('queries the catalog and Spotify in parallel and exposes both lists', async () => {
+  it('queries the catalog and Spotify in parallel and exposes one merged list', async () => {
     const actions = makeActions()
-    actions.searchCatalog.mockResolvedValue([song('song-1', 'Kashmir')])
+    actions.searchCatalog.mockResolvedValue([result_('song-1', 'Kashmir')])
     searchSpotifyMock.mockResolvedValue([track('sp-1', 'Rock and Roll')])
     const { result } = setup({ actions })
 
@@ -187,18 +249,85 @@ describe('useSongPicker', () => {
 
     expect(actions.searchCatalog).toHaveBeenCalledWith('kash')
     expect(searchSpotifyMock).toHaveBeenCalledWith('kash')
-    expect(result.current.catalogResults.map((item) => item.id)).toEqual(['song-1'])
-    expect(result.current.spotifyResults.map((item) => item.id)).toEqual(['sp-1'])
+    // Catalog-backed row first, reproducing HEAD's catalog-before-Spotify order.
+    expect(result.current.results.map((row) => row.id)).toEqual([
+      'kashmir|led zeppelin',
+      'rock and roll|led zeppelin',
+    ])
     expect(result.current.loading).toBe(false)
+  })
+
+  /**
+   * RH-108 ER4 — the deliverable, end to end.
+   *
+   * An implementation that merged each source separately and concatenated the
+   * two arrays would report two rows here, which is exactly HEAD's defect.
+   */
+  it('collapses a catalog hit and a suffixed Spotify hit into one row (ER4)', async () => {
+    const actions = makeActions()
+    actions.searchCatalog.mockResolvedValue([
+      {
+        ...song('song-1', 'Bad', 'Michael Jackson'),
+        version_id: 'v-1',
+        versions: [versionOption({ versionId: 'v-1', albumName: 'Bad' })],
+      },
+    ])
+    searchSpotifyMock.mockResolvedValue([
+      { ...track('sp-aaa', 'Bad - Remaster 2012', 'Michael Jackson'), album: 'Bad' },
+    ])
+    const { result } = setup({ actions })
+
+    act(() => result.current.changeQuery('bad'))
+    await advance(500)
+
+    expect(result.current.results).toHaveLength(1)
+    const [row] = result.current.results
+    expect(row.title).toBe('Bad')
+    expect(row.versions.map((c) => c.versionId)).toContain('v-1')
+    expect(row.versions.map((c) => c.spotifyTrackId)).toContain('sp-aaa')
+  })
+
+  /**
+   * The same wiring, one step further: when both sources describe the same
+   * *recording* the row carries **one** candidate holding both ids. Otherwise
+   * RH-112's expanded card lists the recording twice and the add path has two
+   * ways to reach one `song_versions` row.
+   */
+  it('collapses one recording described by both sources into one candidate (ER4)', async () => {
+    const actions = makeActions()
+    actions.searchCatalog.mockResolvedValue([
+      {
+        ...song('song-1', 'Bad', 'Michael Jackson'),
+        version_id: 'v-1',
+        versions: [
+          versionOption({ versionId: 'v-1', albumName: 'Bad', label: 'Remaster 2012' }),
+        ],
+      },
+    ])
+    searchSpotifyMock.mockResolvedValue([
+      { ...track('sp-aaa', 'Bad - Remaster 2012', 'Michael Jackson'), album: 'Bad' },
+    ])
+    const { result } = setup({ actions })
+
+    act(() => result.current.changeQuery('bad'))
+    await advance(500)
+
+    expect(result.current.results).toHaveLength(1)
+    expect(result.current.results[0].versions).toHaveLength(1)
+    expect(result.current.results[0].versions[0]).toMatchObject({
+      versionId: 'v-1',
+      spotifyTrackId: 'sp-aaa',
+    })
   })
 
   it('keeps the results of the latest query when an earlier search resolves last', async () => {
     const actions = makeActions()
-    let resolveFirst: (songs: Song[]) => void = () => {}
-    let resolveSecond: (songs: Song[]) => void = () => {}
+    type Rows = CatalogSearchResult[]
+    let resolveFirst: (songs: Rows) => void = () => {}
+    let resolveSecond: (songs: Rows) => void = () => {}
     actions.searchCatalog
-      .mockImplementationOnce(() => new Promise<Song[]>((resolve) => { resolveFirst = resolve }))
-      .mockImplementationOnce(() => new Promise<Song[]>((resolve) => { resolveSecond = resolve }))
+      .mockImplementationOnce(() => new Promise<Rows>((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise<Rows>((resolve) => { resolveSecond = resolve }))
     const { result } = setup({ actions })
 
     act(() => result.current.changeQuery('old'))
@@ -208,32 +337,31 @@ describe('useSongPicker', () => {
     expect(actions.searchCatalog).toHaveBeenCalledTimes(2)
 
     await act(async () => {
-      resolveSecond([song('song-new', 'Kashmir')])
+      resolveSecond([result_('song-new', 'Kashmir')])
     })
     await settle()
     await act(async () => {
-      resolveFirst([song('song-old', 'Black Dog')])
+      resolveFirst([result_('song-old', 'Black Dog')])
     })
     await settle()
 
-    expect(result.current.catalogResults.map((item) => item.id)).toEqual(['song-new'])
+    expect(result.current.results.map((row) => row.title)).toEqual(['Kashmir'])
   })
 
-  it('clears both result lists when the query falls back below two characters', async () => {
+  it('clears the result list when the query falls back below two characters', async () => {
     const actions = makeActions()
-    actions.searchCatalog.mockResolvedValue([song('song-1', 'Kashmir')])
+    actions.searchCatalog.mockResolvedValue([result_('song-1', 'Kashmir')])
     searchSpotifyMock.mockResolvedValue([track('sp-1', 'Rock and Roll')])
     const { result } = setup({ actions })
 
     act(() => result.current.changeQuery('kash'))
     await advance(500)
-    expect(result.current.catalogResults).toHaveLength(1)
+    expect(result.current.results).toHaveLength(2)
 
     act(() => result.current.changeQuery('k'))
     await advance(500)
 
-    expect(result.current.catalogResults).toEqual([])
-    expect(result.current.spotifyResults).toEqual([])
+    expect(result.current.results).toEqual([])
   })
 
   it('hides a catalog result already in the playlist', async () => {
@@ -248,22 +376,11 @@ describe('useSongPicker', () => {
     act(() => result.current.changeQuery('kash'))
     await advance(500)
 
-    expect(result.current.catalogResults.map((item) => item.id)).toEqual(['song-2'])
+    expect(result.current.results.map((row) => row.songId)).toEqual(['song-2'])
   })
 
-  it('hides a Spotify track the catalog already covers', async () => {
-    const actions = makeActions()
-    actions.searchCatalog.mockResolvedValue([result_('song-1', 'Kashmir')])
-    searchSpotifyMock.mockResolvedValue([track('sp-1', 'KASHMIR'), track('sp-2', 'Rock and Roll')])
-    const { result } = setup({ actions })
 
-    act(() => result.current.changeQuery('kash'))
-    await advance(500)
-
-    expect(result.current.spotifyResults.map((item) => item.id)).toEqual(['sp-2'])
-  })
-
-  it('leaves the catalog list empty when the catalog search rejects', async () => {
+  it('returns a Spotify-only list when the catalog search rejects (ER20)', async () => {
     const actions = makeActions()
     actions.searchCatalog.mockRejectedValue(new Error('catalog down'))
     searchSpotifyMock.mockResolvedValue([track('sp-1', 'Rock and Roll')])
@@ -272,12 +389,32 @@ describe('useSongPicker', () => {
     act(() => result.current.changeQuery('kash'))
     await advance(500)
 
-    expect(result.current.catalogResults).toEqual([])
-    expect(result.current.spotifyResults.map((item) => item.id)).toEqual(['sp-1'])
+    expect(result.current.results).toHaveLength(1)
+    expect(result.current.results[0].versions[0].spotifyTrackId).toBe('sp-1')
+    expect(result.current.rowErrors).toEqual({})
     expect(result.current.loading).toBe(false)
   })
 
-  it('adds a catalog song already in the repertoire straight to the playlist', async () => {
+  it('returns a complete catalog-only list when the Spotify search rejects (ER20)', async () => {
+    const actions = makeActions()
+    actions.searchCatalog.mockResolvedValue([
+      result_('song-1', 'Kashmir'),
+      result_('song-2', 'Black Dog'),
+    ])
+    searchSpotifyMock.mockRejectedValue(new Error('spotify down'))
+    const { result } = setup({ actions })
+
+    act(() => result.current.changeQuery('kash'))
+    await advance(500)
+
+    // An unconfigured deployment and a user with no Spotify connection both
+    // land here; the route uses app-level client credentials, so the
+    // connection is irrelevant to search by construction.
+    expect(result.current.results.map((row) => row.songId)).toEqual(['song-2', 'song-1'])
+    expect(result.current.rowErrors).toEqual({})
+  })
+
+  it('adds a catalog row already in the repertoire straight to the playlist', async () => {
     const actions = makeActions()
     actions.getPlaylistWithSongs.mockResolvedValue({ songs: [playlistSong('song-1')] })
     // The repertoire map is keyed by `version_id` (RH-125).
@@ -287,7 +424,7 @@ describe('useSongPicker', () => {
     })
 
     await act(async () => {
-      await result.current.addCatalogSong(result_('song-1', 'Kashmir'))
+      await result.current.addRow(pickerRow())
     })
 
     // RH-125 ER13/ER14 — the card's own version goes to the playlist, and the
@@ -301,12 +438,12 @@ describe('useSongPicker', () => {
     expect(result.current.addingId).toBeNull()
   })
 
-  it('adds a catalog song missing from the repertoire to the repertoire first', async () => {
+  it('adds a catalog row missing from the repertoire to the repertoire first (ER11)', async () => {
     const actions = makeActions()
     const { result } = setup({ actions })
 
     await act(async () => {
-      await result.current.addCatalogSong(result_('song-1', 'Kashmir'))
+      await result.current.addRow(pickerRow())
     })
 
     // `addToRepertoire` takes the **song** — it is what resolves the version —
@@ -316,27 +453,132 @@ describe('useSongPicker', () => {
     expect(actions.addToRepertoire.mock.invocationCallOrder[0]).toBeLessThan(
       actions.addSongToPlaylist.mock.invocationCallOrder[0],
     )
+    expect(actions.createAndAddSong).not.toHaveBeenCalled()
     expect(result.current.rowErrors).toEqual({})
   })
 
-  it('creates a Spotify track as a song and adds it to the playlist', async () => {
+  it('takes the catalog branch for a candidate carrying both provider ids (ER11)', async () => {
+    const actions = makeActions()
+    const { result } = setup({ actions })
+    const collapsed = pickerRow({
+      versions: [candidate({ versionId: 'v-song-1', spotifyTrackId: 'sp-aaa' })],
+    })
+
+    await act(async () => {
+      await result.current.addRow(collapsed)
+    })
+
+    // The recording already exists locally, which is the point of collapsing.
+    // Taking the Spotify branch would push an existing song back through
+    // `resolveOrCreateSongIdentity` on every add — a write path.
+    expect(actions.createAndAddSong).not.toHaveBeenCalled()
+    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-1')
+  })
+
+  it('adds a version-less catalog row through the repertoire, creating nothing (ER12)', async () => {
+    const actions = makeActions()
+    actions.addToRepertoire.mockResolvedValue(entry('song-3'))
+    const { result } = setup({ actions })
+    const seeded = pickerRow({
+      id: 'kashmir|led zeppelin',
+      songId: 'song-3',
+      versions: [],
+    })
+
+    await act(async () => {
+      await result.current.addRow(seeded)
+    })
+
+    // `scripts/seed-catalog.sql` writes `songs` rows and never
+    // `song_versions`; `addSongToRepertoire` is what gives such a song its
+    // first version. This case is checked before anything reads `versions[0]`.
+    expect(actions.addToRepertoire).toHaveBeenCalledWith('song-3')
+    expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-3')
+    expect(actions.createAndAddSong).not.toHaveBeenCalled()
+    expect(result.current.rowErrors).toEqual({})
+  })
+
+  it('records an error rather than throwing for a row with neither a version nor a song', async () => {
+    const actions = makeActions()
+    const { result } = setup({ actions })
+
+    await act(async () => {
+      await result.current.addRow(pickerRow({ songId: null, versions: [] }))
+    })
+
+    expect(actions.addToRepertoire).not.toHaveBeenCalled()
+    expect(actions.createAndAddSong).not.toHaveBeenCalled()
+    expect(result.current.rowErrors['kashmir|led zeppelin']).toBeTruthy()
+  })
+
+  /**
+   * RH-108 ER9 — all five arguments, as literal values.
+   *
+   * `title` is the **unsplit** `rawTitle` and not the row's display title:
+   * `splitSongTitle` runs inside `resolveOrCreateSongIdentity` and hands the
+   * right half to `upsertAlbumAndVersion` as `song_versions.label`, so the
+   * display title would write `label: null` for `"Bad - Remaster 2012"` —
+   * precisely the stripping RH-122 existed to stop. `links` is the only reason
+   * `spotifyUrl` is on the candidate at all; dropping it loses the Spotify URL
+   * on every song the picker creates.
+   */
+  it('threads all five createAndAddSong arguments on the Spotify branch (ER9)', async () => {
     const actions = makeActions()
     actions.createAndAddSong.mockResolvedValue(entry('song-9'))
     const { result } = setup({ actions })
-    const spotifyTrack = track('sp-9', 'Kashmir')
+    const row = pickerRow({
+      id: 'bad|michael jackson',
+      title: 'Bad',
+      artist: 'Michael Jackson',
+      versions: [
+        candidate({
+          spotifyTrackId: 'sp-aaa',
+          rawTitle: 'Bad - Remaster 2012',
+          albumName: 'Bad',
+          coverUrl: 'https://img/bad.jpg',
+          spotifyUrl: 'https://open.spotify.com/track/sp-aaa',
+        }),
+      ],
+    })
 
     await act(async () => {
-      await result.current.addSpotifyTrack(spotifyTrack)
+      await result.current.addRow(row)
     })
 
+    expect(actions.createAndAddSong).toHaveBeenCalledTimes(1)
     expect(actions.createAndAddSong).toHaveBeenCalledWith({
-      title: 'Kashmir',
-      artist: 'Led Zeppelin',
-      album: 'IV',
-      cover_url: 'https://img.example/cover.jpg',
-      links: [{ label: 'Spotify', url: spotifyTrack.spotifyUrl }],
+      title: 'Bad - Remaster 2012',
+      artist: 'Michael Jackson',
+      album: 'Bad',
+      cover_url: 'https://img/bad.jpg',
+      links: [{ label: 'Spotify', url: 'https://open.spotify.com/track/sp-aaa' }],
     })
     expect(actions.addSongToPlaylist).toHaveBeenCalledWith(PLAYLIST_ID, 'v-song-9')
+  })
+
+  it('passes undefined, never null, for an absent album or cover', async () => {
+    const actions = makeActions()
+    actions.createAndAddSong.mockResolvedValue(entry('song-9'))
+    const { result } = setup({ actions })
+
+    await act(async () => {
+      await result.current.addRow(
+        pickerRow({
+          songId: null,
+          versions: [
+            candidate({
+              spotifyTrackId: 'sp-aaa',
+              rawTitle: 'Kashmir',
+              spotifyUrl: 'https://open.spotify.com/track/sp-aaa',
+            }),
+          ],
+        }),
+      )
+    })
+
+    const payload = actions.createAndAddSong.mock.calls[0][0]
+    expect(payload.album).toBeUndefined()
+    expect(payload.cover_url).toBeUndefined()
   })
 
   it('reuses the existing repertoire entry when the create reports the song is already in the repertoire', async () => {
@@ -348,7 +590,20 @@ describe('useSongPicker', () => {
     })
 
     await act(async () => {
-      await result.current.addSpotifyTrack(track('sp-7', 'KASHMIR', 'LED ZEPPELIN'))
+      await result.current.addRow(
+        pickerRow({
+          id: 'kashmir|led zeppelin',
+          songId: null,
+          artist: 'LED ZEPPELIN',
+          versions: [
+            candidate({
+              spotifyTrackId: 'sp-7',
+              rawTitle: 'KASHMIR - Remaster',
+              spotifyUrl: 'https://open.spotify.com/track/sp-7',
+            }),
+          ],
+        }),
+      )
     })
 
     // The recovery reads the **version** the owner already holds for that song.
@@ -357,11 +612,26 @@ describe('useSongPicker', () => {
 
     // ...and with no entry to reuse, the create's own error is what the row shows.
     await act(async () => {
-      await result.current.addSpotifyTrack(track('sp-8', 'Black Dog'))
+      await result.current.addRow(
+        pickerRow({
+          id: 'black dog|led zeppelin',
+          songId: null,
+          title: 'Black Dog',
+          versions: [
+            candidate({
+              spotifyTrackId: 'sp-8',
+              rawTitle: 'Black Dog',
+              spotifyUrl: 'https://open.spotify.com/track/sp-8',
+            }),
+          ],
+        }),
+      )
     })
 
     expect(actions.addSongToPlaylist).toHaveBeenCalledTimes(1)
-    expect(result.current.rowErrors).toEqual({ 'sp-8': 'Song is already in your repertoire' })
+    expect(result.current.rowErrors).toEqual({
+      'black dog|led zeppelin': 'Song is already in your repertoire',
+    })
   })
 
   it('records a per-row error when an add fails and clears it on the next attempt', async () => {
@@ -371,17 +641,19 @@ describe('useSongPicker', () => {
 
     let settled = false
     await act(async () => {
-      await result.current.addCatalogSong(song('song-1', 'Kashmir')).then(() => {
+      await result.current.addRow(pickerRow()).then(() => {
         settled = true
       })
     })
 
     expect(settled).toBe(true)
-    expect(result.current.rowErrors).toEqual({ 'song-1': 'Playlist is locked' })
+    // The error is keyed by the **row** id, so a catalog hit and a Spotify hit
+    // for one song now share one slot instead of having two.
+    expect(result.current.rowErrors).toEqual({ 'kashmir|led zeppelin': 'Playlist is locked' })
     expect(result.current.addingId).toBeNull()
 
     await act(async () => {
-      await result.current.addCatalogSong(song('song-1', 'Kashmir'))
+      await result.current.addRow(pickerRow())
     })
 
     expect(result.current.rowErrors).toEqual({})

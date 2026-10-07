@@ -5,14 +5,17 @@ import {
   findRepertoireVersionIdByTrack,
   heldPickerVersionId,
   isAlreadyInRepertoireError,
-  pickerCatalogKeys,
   shouldSearchPicker,
-  visiblePickerCatalog,
-  visiblePickerSpotify,
   withPickerRowError,
   withoutPickerRowError,
   type SongPickerController,
 } from '@/lib/songPicker'
+import {
+  mergeSongSearchResults,
+  withoutHeldVersions,
+  type SearchVersionCandidate,
+  type SongSearchRow,
+} from '@/lib/songSearchMerge'
 import type {
   CatalogSearchResult,
   Playlist,
@@ -70,12 +73,19 @@ export interface UseSongPickerOptions {
 /**
  * RH-67 — the playlist add-song picker's controller: the query and its 500 ms
  * debounce, the parallel catalog + Spotify search with its stale-response
- * guard, the deduplicated result lists and the two add commands.
+ * guard, the merged result list and the add command.
  *
- * Both add commands settle rather than reject: a failure from the repertoire
- * write, the playlist write, the reload or the auto-push is recorded under that
- * row's id in `rowErrors` and cleared when the row is tried again, so one bad
- * result leaves the rest of the panel usable.
+ * RH-108 made the two lists one and the two add commands one. The search
+ * effect feeds both responses to `mergeSongSearchResults`, which is what
+ * collapses a catalog row and a Spotify row for the same song into a single
+ * row — merging each source separately and concatenating would reproduce the
+ * defect exactly. The playlist filter stays a `useMemo` of its own, keyed on
+ * `songs`, so a successful add re-filters without re-issuing the search.
+ *
+ * `addRow` settles rather than rejects: a failure from the repertoire write,
+ * the playlist write, the reload or the auto-push is recorded under that row's
+ * id in `rowErrors` and cleared when the row is tried again, so one bad result
+ * leaves the rest of the panel usable.
  */
 export function useSongPicker({
   playlistId,
@@ -86,8 +96,7 @@ export function useSongPicker({
   afterAdd,
 }: UseSongPickerOptions): SongPickerController {
   const [query, setQuery] = useState('')
-  const [catalogResults, setCatalogResults] = useState<CatalogSearchResult[]>([])
-  const [spotifyResults, setSpotifyResults] = useState<SpotifyTrack[]>([])
+  const [merged, setMerged] = useState<SongSearchRow[]>([])
   const [loading, setLoading] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
@@ -99,8 +108,7 @@ export function useSongPicker({
     async (next: string) => {
       latestQuery.current = next
       if (!shouldSearchPicker(next)) {
-        setCatalogResults([])
-        setSpotifyResults([])
+        setMerged([])
         setLoading(false)
         return
       }
@@ -112,8 +120,10 @@ export function useSongPicker({
         ])
         // A slower earlier query must not overwrite the answer to this one.
         if (latestQuery.current !== next) return
-        setCatalogResults(catalog)
-        setSpotifyResults(spotify)
+        // One merge over both responses — the `.catch(() => [])` on each half
+        // is what makes a Spotify outage a complete catalog-only list rather
+        // than an empty panel, and the reverse.
+        setMerged(mergeSongSearchResults(catalog, spotify))
       } finally {
         if (latestQuery.current === next) setLoading(false)
       }
@@ -138,14 +148,9 @@ export function useSongPicker({
   }, [query, runSearch])
 
   const playlistVersionIds = useMemo(() => new Set(songs.map((ps) => ps.version_id)), [songs])
-  const visibleCatalog = useMemo(
-    () => visiblePickerCatalog(catalogResults, playlistVersionIds),
-    [catalogResults, playlistVersionIds],
-  )
-  const catalogKeys = useMemo(() => pickerCatalogKeys(visibleCatalog), [visibleCatalog])
-  const visibleSpotify = useMemo(
-    () => visiblePickerSpotify(spotifyResults, catalogKeys),
-    [spotifyResults, catalogKeys],
+  const results = useMemo(
+    () => withoutHeldVersions(merged, playlistVersionIds),
+    [merged, playlistVersionIds],
   )
 
   /** Add a version the repertoire already holds, then refresh the playlist. */
@@ -159,21 +164,45 @@ export function useSongPicker({
     [actions, playlistId, onSongsChanged, afterAdd],
   )
 
-  /** The version a Spotify row resolves to, creating the song when it is new. */
+  /**
+   * The version a **catalog** row resolves to. Nothing is created: the row
+   * already names a local recording, or a local song whose first version the
+   * repertoire write produces.
+   */
+  const resolveCatalogVersionId = useCallback(
+    async (row: SongSearchRow): Promise<string> => {
+      const held = heldPickerVersionId(row, repertoire)
+      if (held) return held
+      if (!row.songId) throw new Error('This result cannot be added')
+      return (await actions.addToRepertoire(row.songId)).version_id
+    },
+    [actions, repertoire],
+  )
+
+  /** The version a **Spotify** candidate resolves to, creating the song when new. */
   const resolveTrackVersionId = useCallback(
-    async (track: SpotifyTrack): Promise<string> => {
+    async (row: SongSearchRow, pick: SearchVersionCandidate): Promise<string> => {
       try {
         const created = await actions.createAndAddSong({
-          title: track.title,
-          artist: track.artist,
-          album: track.album ?? undefined,
-          cover_url: track.albumArt ?? undefined,
-          links: [{ label: 'Spotify', url: track.spotifyUrl }],
+          // The **unsplit** source title: `resolveOrCreateSongIdentity` splits
+          // it and `upsertAlbumAndVersion` stores the right half as
+          // `song_versions.label`. The row's display title would write a null
+          // label for `"Bad - Remaster 2012"` (RH-122).
+          title: pick.rawTitle,
+          artist: row.artist,
+          album: pick.albumName ?? undefined,
+          cover_url: pick.coverUrl ?? undefined,
+          // The only reason `spotifyUrl` is on the candidate: without it every
+          // song created from a Spotify row loses its Spotify URL.
+          links: pick.spotifyUrl ? [{ label: 'Spotify', url: pick.spotifyUrl }] : [],
         })
         return created.version_id
       } catch (error) {
         if (!isAlreadyInRepertoireError(error)) throw error
-        const existing = findRepertoireVersionIdByTrack([...repertoire.values()], track)
+        const existing = findRepertoireVersionIdByTrack([...repertoire.values()], {
+          title: pick.rawTitle,
+          artist: row.artist,
+        })
         if (!existing) throw error
         return existing
       }
@@ -181,54 +210,41 @@ export function useSongPicker({
     [actions, repertoire],
   )
 
-  const addCatalogSong = useCallback(
-    async (song: CatalogSearchResult) => {
-      setAddingId(song.id)
-      setRowErrors((prev) => withoutPickerRowError(prev, song.id))
-      try {
-        // The card carries the representative version the search computed, so
-        // the version added is the one the row named. The repertoire write is
-        // what resolves it when the owner holds no row for it yet — and what
-        // gives a catalog row with no version at all its first one.
-        const held = heldPickerVersionId(song, repertoire)
-        const versionId = held ?? (await actions.addToRepertoire(song.id)).version_id
-        await addVersionToPlaylist(versionId)
-      } catch (error) {
-        setRowErrors((prev) => withPickerRowError(prev, song.id, error))
-      } finally {
-        setAddingId(null)
-      }
+  /**
+   * Dispatches on the representative candidate's **derived** source, after the
+   * one guard the version-less catalog row requires.
+   *
+   * The empty check comes first, so nothing evaluates `versions[0]` on an
+   * empty array. A candidate carrying both ids is a *catalog* candidate and
+   * takes the cheap branch, which is the point of collapsing: the recording
+   * already exists locally, so nothing needs creating.
+   */
+  const resolveRowVersionId = useCallback(
+    async (row: SongSearchRow): Promise<string> => {
+      const pick = row.versions[0]
+      if (!pick || pick.versionId !== null) return resolveCatalogVersionId(row)
+      return resolveTrackVersionId(row, pick)
     },
-    [actions, addVersionToPlaylist, repertoire],
+    [resolveCatalogVersionId, resolveTrackVersionId],
   )
 
-  const addSpotifyTrack = useCallback(
-    async (track: SpotifyTrack) => {
-      setAddingId(track.id)
-      setRowErrors((prev) => withoutPickerRowError(prev, track.id))
+  const addRow = useCallback(
+    async (row: SongSearchRow) => {
+      setAddingId(row.id)
+      setRowErrors((prev) => withoutPickerRowError(prev, row.id))
       try {
-        const versionId = await resolveTrackVersionId(track)
+        const versionId = await resolveRowVersionId(row)
         await addVersionToPlaylist(versionId)
       } catch (error) {
-        setRowErrors((prev) => withPickerRowError(prev, track.id, error))
+        setRowErrors((prev) => withPickerRowError(prev, row.id, error))
       } finally {
         setAddingId(null)
       }
     },
-    [addVersionToPlaylist, resolveTrackVersionId],
+    [addVersionToPlaylist, resolveRowVersionId],
   )
 
   const changeQuery = useCallback((next: string) => setQuery(next), [])
 
-  return {
-    query,
-    loading,
-    addingId,
-    rowErrors,
-    catalogResults: visibleCatalog,
-    spotifyResults: visibleSpotify,
-    changeQuery,
-    addCatalogSong,
-    addSpotifyTrack,
-  }
+  return { query, loading, addingId, rowErrors, results, changeQuery, addRow }
 }

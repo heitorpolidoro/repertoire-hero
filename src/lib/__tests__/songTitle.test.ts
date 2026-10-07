@@ -12,9 +12,19 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { splitSongTitle } from '../songTitle'
+import { songIdentityKey, splitSongTitle } from '../songTitle'
 
 describe('splitSongTitle', () => {
+  it('splits the picker row that used to duplicate (RH-108 ER10)', () => {
+    // The literal string from the defect: before RH-108 the picker keyed on the
+    // raw title, so this row and a plain `Bad` row never matched and the song
+    // occupied two rows. The label half is what reaches `song_versions.label`.
+    expect(splitSongTitle('Bad - Remaster 2012')).toEqual({
+      title: 'Bad',
+      label: 'Remaster 2012',
+    })
+  })
+
   it('splits a remaster suffix into title and label (ER7)', () => {
     expect(splitSongTitle('Still Of The Night - 2018 Remaster')).toEqual({
       title: 'Still Of The Night',
@@ -84,5 +94,32 @@ describe('splitSongTitle', () => {
 
   it('keeps a bare separator as its own title rather than emptying it', () => {
     expect(splitSongTitle('-')).toEqual({ title: '-', label: null })
+  })
+})
+
+/**
+ * RH-108 — the group key the add-song picker collapses rows by.
+ *
+ * It is the split title and the artist, both lowercased and trimmed, and it is
+ * spelled here rather than in `songSearchMerge.ts` because two modules need the
+ * identical key: the merge that groups the search response, and
+ * `findRepertoireVersionIdByTrack`'s recovery lookup in `songPicker.ts`.
+ */
+describe('songIdentityKey', () => {
+  it('keys on the split title, so a suffixed Spotify title lands on the catalog song', () => {
+    expect(songIdentityKey('Bad - Remaster 2012', 'Michael Jackson')).toBe('bad|michael jackson')
+    expect(songIdentityKey('Bad', 'Michael Jackson')).toBe('bad|michael jackson')
+  })
+
+  it('lowercases and trims both halves', () => {
+    expect(songIdentityKey('  BAD  ', '  Michael JACKSON ')).toBe('bad|michael jackson')
+  })
+
+  it('keeps two different artists apart', () => {
+    expect(songIdentityKey('Bad', 'U2')).not.toBe(songIdentityKey('Bad', 'Michael Jackson'))
+  })
+
+  it('does not re-reduce a credit list — the artist arrives already reduced', () => {
+    expect(songIdentityKey('September', 'Earth, Wind & Fire')).toBe('september|earth, wind & fire')
   })
 })

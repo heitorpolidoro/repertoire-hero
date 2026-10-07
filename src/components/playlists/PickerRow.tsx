@@ -13,6 +13,13 @@ export interface PickerRowProps {
   title: string;
   artist: string;
   album?: string | null;
+  /**
+   * The representative recording's release year, rendered beside the album
+   * (RH-108). The album and the year are what actually distinguish two rows of
+   * one song — `Bad`, `Bad (Remastered)` 1987, `Bad (Remastered)` 2025 — and
+   * RH-112's version list leads with the same pair.
+   */
+  year?: string | null;
   adding: boolean;
   error?: string;
   onAdd: () => void;
@@ -23,10 +30,12 @@ export function PickerRow({
   title,
   artist,
   album,
+  year,
   adding,
   error,
   onAdd,
 }: PickerRowProps) {
+  const albumLine = [album, year].filter(Boolean).join(" · ");
   return (
     <li className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
       {coverUrl ? (
@@ -47,8 +56,8 @@ export function PickerRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm text-gray-900 truncate">{title}</p>
         <p className="text-xs text-gray-500 truncate">{artist}</p>
-        {album && (
-          <p className="text-xs text-gray-400 italic truncate">{album}</p>
+        {albumLine && (
+          <p className="text-xs text-gray-400 italic truncate">{albumLine}</p>
         )}
       </div>
       <div className="shrink-0 flex flex-col items-end gap-0.5">

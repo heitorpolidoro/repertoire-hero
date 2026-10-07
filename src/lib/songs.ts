@@ -14,9 +14,36 @@ import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitSongEdit } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
-import { representativeVersionSubquery, upsertAlbumAndVersion } from '@/lib/songVersions'
+import {
+  representativeVersionOrder,
+  representativeVersionSubquery,
+  upsertAlbumAndVersion,
+} from '@/lib/songVersions'
 import { splitCatalogUpdate } from '@/lib/catalogFields'
 import type { CatalogSearchResult, Song, SongLink, SongStatus, RefusedCatalogField } from '@/types/database'
+
+/**
+ * Every version of `s.id`, in representative order, as a json array (RH-108).
+ *
+ * `COALESCE(..., '[]'::json)` is what makes a version-less `songs` row answer
+ * an empty array rather than null: `json_agg` over no rows is null, and that
+ * row still has to render in the picker.
+ */
+const SONG_VERSIONS_AGGREGATE = `COALESCE((
+             SELECT json_agg(json_build_object(
+                      'versionId', v.id,
+                      'label', v.label,
+                      'durationSeconds', v.duration_seconds,
+                      'createdAt', v.created_at,
+                      'albumName', a.name,
+                      'albumType', a.album_type,
+                      'albumCoverUrl', a.cover_url,
+                      'releaseDate', to_char(a.release_date, 'YYYY-MM-DD')
+                    ) ORDER BY ${representativeVersionOrder('v', 'a')})
+               FROM song_versions v
+               LEFT JOIN albums a ON a.id = v.album_id
+              WHERE v.song_id = s.id
+           ), '[]'::json)`
 
 /**
  * Catalog matches for the picker's query, each carrying the id of its
@@ -27,12 +54,28 @@ import type { CatalogSearchResult, Song, SongLink, SongStatus, RefusedCatalogFie
  * exists, and it answers `null` for a `songs` row that has no version yet —
  * which `scripts/seed-catalog.sql` can produce. The caller treats a null as
  * "let the repertoire write resolve it", never as "unavailable".
+ *
+ * RH-108 adds the `versions` aggregate: the **full ordered list** of each
+ * song's versions, so the picker can collapse a catalog row and a Spotify row
+ * for one song into one row carrying every recording either source offered.
+ * `version_id` stays, so nothing outside the picker has to change.
+ *
+ * Three things about the aggregate are load-bearing. The join onto `albums` is
+ * a `LEFT JOIN` — `song_versions.album_id` is nullable on purpose, and an
+ * inner join would silently drop every album-less version
+ * (`ownerSongsGuards.test.ts`). `release_date` is rendered as `YYYY-MM-DD`
+ * text rather than left to the driver's date handling, because the picker's
+ * candidate ordering compares it as a string against Spotify's shorter `YYYY`
+ * and `YYYY-MM` prefixes. And the `LIMIT 20` still counts **songs**: limiting
+ * versions first and grouping after would drop whole songs from the results
+ * depending on how many versions the earlier ones happened to have.
  */
 export async function searchSongs(queryStr: string): Promise<CatalogSearchResult[]> {
   const trimmed = queryStr.trim()
   if (!trimmed) return []
   const sql = `
-    SELECT s.*, ${representativeVersionSubquery('s.id')} AS version_id
+    SELECT s.*, ${representativeVersionSubquery('s.id')} AS version_id,
+           ${SONG_VERSIONS_AGGREGATE} AS versions
     FROM songs s
     WHERE s.title ILIKE $1 OR s.artist ILIKE $1
     ORDER BY s.title ASC

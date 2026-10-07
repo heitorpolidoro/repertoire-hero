@@ -8,13 +8,21 @@
  * the repertoire already holds. They are decisions, not plumbing, so they live
  * here — no React, no fetch, no `pg` — and `useSongPicker` composes them.
  *
+ * RH-108 moved the grouping half out. `pickerDedupKey`, `pickerCatalogKeys`,
+ * `visiblePickerSpotify` and `visiblePickerCatalog` are gone: the first keyed
+ * on the **raw** title, which is why one song drew two rows, and
+ * `src/lib/songSearchMerge.ts` subsumes all four. What stays here is what was
+ * never about grouping — the query gate, the error map, and the two halves of
+ * the recovery catch.
+ *
  * `SongPickerController` is declared here too, next to `SongStatusController`
  * in `songStatus.ts`, so `src/components/playlists` can type the panel without
  * importing `src/hooks`.
  */
 
-import type { SpotifyTrack } from '@/lib/spotify'
-import type { CatalogSearchResult, Repertoire } from '@/types/database'
+import { songIdentityKey } from '@/lib/songTitle'
+import type { SongSearchRow } from '@/lib/songSearchMerge'
+import type { Repertoire } from '@/types/database'
 
 /** Shortest query the picker will search for, counted after trimming. */
 export const MIN_PICKER_QUERY_LENGTH = 2
@@ -37,57 +45,21 @@ export function shouldSearchPicker(query: string): boolean {
 }
 
 /**
- * Catalog results minus the **versions** the playlist already holds (RH-125).
+ * The version a merged row adds, or `null` when the repertoire write has to
+ * resolve it first (RH-108, re-pointed from RH-125's collapsed card).
  *
- * A collapsed card carries the representative version the search read already
- * computed, so the comparison is version against version — the picker computes
- * no ordering of its own. A card whose song has no version yet cannot be in any
- * playlist, so it is always offered.
- */
-export function visiblePickerCatalog(
-  results: readonly CatalogSearchResult[],
-  playlistVersionIds: ReadonlySet<string>,
-): CatalogSearchResult[] {
-  return results.filter((song) => !song.version_id || !playlistVersionIds.has(song.version_id))
-}
-
-/**
- * The version a collapsed catalog card adds, or `null` when the repertoire
- * write has to resolve it first.
- *
- * Non-null exactly when the card names a version the owner already holds: that
- * is the one case where no `addToRepertoire` round trip is needed, and it is
- * the condition the picker used to express as `repertoire.has(song.id)`. A card
- * with no version at all also answers `null` — `addSongToRepertoire` is what
- * gives such a song its first `song_versions` row.
+ * Non-null exactly when the row's **representative candidate** names a version
+ * the owner already holds: that is the one case where no `addToRepertoire`
+ * round trip is needed. A row whose representative candidate is a Spotify one,
+ * and a version-less catalog row, both answer `null` — `addSongToRepertoire`
+ * is what gives such a song its first `song_versions` row.
  */
 export function heldPickerVersionId(
-  song: CatalogSearchResult,
+  row: SongSearchRow,
   repertoire: ReadonlyMap<string, Repertoire>,
 ): string | null {
-  const versionId = song.version_id
+  const versionId = row.versions[0]?.versionId ?? null
   return versionId && repertoire.has(versionId) ? versionId : null
-}
-
-/**
- * The identity a catalog song and a Spotify track are compared by. Lowercased,
- * because the two sources spell the same release differently often enough.
- */
-export function pickerDedupKey(song: PickerTrackName): string {
-  return `${song.title.toLowerCase()}|${song.artist.toLowerCase()}`
-}
-
-/** One dedup key per song — the set `visiblePickerSpotify` filters against. */
-export function pickerCatalogKeys(songs: readonly PickerTrackName[]): Set<string> {
-  return new Set(songs.map(pickerDedupKey))
-}
-
-/** Spotify results minus the tracks the visible catalog rows already cover. */
-export function visiblePickerSpotify(
-  tracks: readonly SpotifyTrack[],
-  catalogKeys: ReadonlySet<string>,
-): SpotifyTrack[] {
-  return tracks.filter((track) => !catalogKeys.has(pickerDedupKey(track)))
 }
 
 /**
@@ -122,43 +94,58 @@ export function isAlreadyInRepertoireError(error: unknown): boolean {
 }
 
 /**
- * The **version id** the owner already holds for a track, matched on title and
- * artist, or `null` (RH-125).
+ * The **version id** the owner already holds for a track, matched on the
+ * split-title identity key, or `null` (RH-125, re-keyed by RH-108).
  *
- * Which version it is follows from the owner's own row: the match is on the
- * catalog song, and the row the owner holds for it names exactly one version.
+ * This is the recovery path when `createAndAddSong` throws `already in your
+ * repertoire`, and re-keying it is a fix: at HEAD it compared the **raw**
+ * title, so adding Spotify's `"Bad - Remaster 2012"` matched the held entry's
+ * `"Bad"` never, and the user saw the raw error instead of the row being
+ * added. The recovery was dead for every suffixed Spotify title.
+ *
+ * Two consequences, both accepted. It will newly recover a held entry for the
+ * *song* when the user asked for a particular *recording*, so the version
+ * added may not be the one the row named — strictly better than a visible
+ * error, and the pre-existing shape of this function. And post-RH-125 an owner
+ * may hold several versions of one song, so the pick is made deterministic by
+ * taking the **lowest** version id rather than whichever the array listed
+ * first.
  */
 export function findRepertoireVersionIdByTrack(
   entries: readonly Repertoire[],
   track: PickerTrackName,
 ): string | null {
-  const wanted = pickerDedupKey(track)
-  const existing = entries.find((rep) => rep.song && pickerDedupKey(rep.song) === wanted)
-  return existing?.version_id ?? null
+  const wanted = songIdentityKey(track.title, track.artist)
+  let lowest: string | null = null
+  for (const rep of entries) {
+    if (!rep.song || songIdentityKey(rep.song.title, rep.song.artist) !== wanted) continue
+    if (rep.version_id && (lowest === null || rep.version_id < lowest)) lowest = rep.version_id
+  }
+  return lowest
 }
 
 /**
- * Everything `useSongPicker` exposes: the panel's data plus the intents a click
- * expresses. No raw setter (RH-64) — `catalogResults` and `spotifyResults` are
- * already filtered and deduped, so the panel holds no decision of its own.
+ * Everything `useSongPicker` exposes: the panel's data plus the intent a click
+ * expresses. No raw setter (RH-64) — `results` is already merged, collapsed,
+ * ordered and filtered, so the panel holds no decision of its own.
+ *
+ * One list and one command since RH-108. The two of each they replace were
+ * what made a catalog row and a Spotify row for the same song two rows with
+ * two ids, and therefore two independent `rowErrors` slots.
  */
 export interface SongPickerController {
   /** What the search box shows. */
   query: string
   /** A search is in flight for the current query. */
   loading: boolean
-  /** Row id currently being added, or `null`. */
+  /** Row id currently being added, or `null`. Keyed by `SongSearchRow.id`. */
   addingId: string | null
-  /** Per-row failure messages, keyed by row id. */
+  /** Per-row failure messages, keyed by `SongSearchRow.id`. */
   rowErrors: Record<string, string>
-  /** Catalog matches not already in the playlist, each naming a version. */
-  catalogResults: CatalogSearchResult[]
-  /** Spotify matches the catalog rows do not already cover. */
-  spotifyResults: SpotifyTrack[]
+  /** One row per song, each carrying every recording both sources offered. */
+  results: SongSearchRow[]
   /** Type into the search box; the search itself is debounced. */
   changeQuery: (query: string) => void
-  /** Add a catalog row. Never rejects — a failure lands in `rowErrors`. */
-  addCatalogSong: (song: CatalogSearchResult) => Promise<void>
-  /** Add a Spotify row. Never rejects — a failure lands in `rowErrors`. */
-  addSpotifyTrack: (track: SpotifyTrack) => Promise<void>
+  /** Add a row. Never rejects — a failure lands in `rowErrors`. */
+  addRow: (row: SongSearchRow) => Promise<void>
 }

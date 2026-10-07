@@ -20,34 +20,38 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { SongPicker } from '@/components/playlists/SongPicker'
 import { SongPickerToggle } from '@/components/playlists/SongPickerToggle'
 import type { SongPickerController } from '@/lib/songPicker'
-import type { SpotifyTrack } from '@/lib/spotify'
-import type { Song } from '@/types/database'
+import type { SearchVersionCandidate, SongSearchRow } from '@/lib/songSearchMerge'
 
 afterEach(cleanup)
 
-function song(id: string, title: string): Song {
+function candidate(overrides: Partial<SearchVersionCandidate> = {}): SearchVersionCandidate {
   return {
-    id,
-    title,
-    artist: 'Led Zeppelin',
-    album: 'IV',
-    standard_key: null,
-    cover_url: null,
-    duration_seconds: null,
-    links: [],
-    created_at: '2026-01-01T00:00:00.000Z',
+    versionId: null,
+    spotifyTrackId: null,
+    rawTitle: 'Kashmir',
+    albumName: 'IV',
+    albumType: null,
+    releaseDate: null,
+    label: null,
+    durationSeconds: null,
+    createdAt: null,
+    coverUrl: null,
+    spotifyUrl: null,
+    ...overrides,
   }
 }
 
-function track(id: string, title: string): SpotifyTrack {
+/** One merged row, keyed by its group key exactly as the merge produces it. */
+function row(id: string, title: string, overrides: Partial<SongSearchRow> = {}): SongSearchRow {
   return {
     id,
     title,
     artist: 'Led Zeppelin',
+    coverUrl: null,
     album: 'IV',
-    spotifyUrl: `https://open.spotify.com/track/${id}`,
-    previewUrl: null,
-    albumArt: null,
+    songId: `song-${id}`,
+    versions: [candidate({ versionId: `v-${id}`, rawTitle: title })],
+    ...overrides,
   }
 }
 
@@ -57,11 +61,9 @@ function controller(overrides: Partial<SongPickerController> = {}): SongPickerCo
     loading: false,
     addingId: null,
     rowErrors: {},
-    catalogResults: [],
-    spotifyResults: [],
+    results: [],
     changeQuery: vi.fn(),
-    addCatalogSong: vi.fn().mockResolvedValue(undefined),
-    addSpotifyTrack: vi.fn().mockResolvedValue(undefined),
+    addRow: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -104,55 +106,131 @@ describe('SongPicker', () => {
     expect(within(resultList()).queryByText('No results')).toBeNull()
   })
 
-  it('renders the no-results state when both result lists are empty', () => {
+  it('renders the no-results state when the merged list is empty', () => {
     render(<SongPicker picker={controller({ query: 'kash' })} />)
 
     expect(within(resultList()).getByText('No results')).toBeDefined()
   })
 
-  it('renders one list item per catalog result and per Spotify result', () => {
+  it('renders one list item per merged row', () => {
     render(
       <SongPicker
         picker={controller({
           query: 'kash',
-          catalogResults: [song('song-1', 'Kashmir')],
-          spotifyResults: [track('sp-1', 'Rock and Roll'), track('sp-2', 'Black Dog')],
+          results: [
+            row('kashmir|led zeppelin', 'Kashmir'),
+            row('rock and roll|led zeppelin', 'Rock and Roll'),
+            row('black dog|led zeppelin', 'Black Dog'),
+          ],
         })}
       />,
     )
 
     const rows = within(resultList()).getAllByRole('listitem')
     expect(rows).toHaveLength(3)
-    expect(rows.map((row) => row.textContent)).toEqual([
+    expect(rows.map((item) => item.textContent)).toEqual([
       expect.stringContaining('Kashmir'),
       expect.stringContaining('Rock and Roll'),
       expect.stringContaining('Black Dog'),
     ])
-    for (const row of rows) {
-      expect(within(row).getByRole('button', { name: 'Add' })).toBeDefined()
+    for (const item of rows) {
+      expect(within(item).getByRole('button', { name: 'Add' })).toBeDefined()
     }
   })
 
-  it('calls the controller add command for the clicked catalog row', () => {
-    const picker = controller({ query: 'kash', catalogResults: [song('song-1', 'Kashmir')] })
-    render(<SongPicker picker={picker} />)
+  /**
+   * RH-108 ER5 — the panel draws **one** row for a song both sources know.
+   *
+   * At HEAD the same two search hits produced two listitems and two `Add`
+   * buttons, adjacent and near-identical, with nothing saying which to press.
+   */
+  it('renders exactly one listitem and one Add button for a merged row (ER5)', () => {
+    const merged = row('bad|michael jackson', 'Bad', {
+      artist: 'Michael Jackson',
+      songId: 'song-1',
+      versions: [
+        candidate({
+          versionId: 'v-1',
+          spotifyTrackId: 'sp-aaa',
+          rawTitle: 'Bad',
+          albumName: 'Bad',
+          spotifyUrl: 'https://open.spotify.com/track/sp-aaa',
+        }),
+      ],
+    })
 
-    const row = within(resultList()).getByRole('listitem')
-    fireEvent.click(within(row).getByRole('button', { name: 'Add' }))
+    render(<SongPicker picker={controller({ query: 'bad', results: [merged] })} />)
 
-    expect(picker.addCatalogSong).toHaveBeenCalledWith(song('song-1', 'Kashmir'))
-    expect(picker.addSpotifyTrack).not.toHaveBeenCalled()
+    expect(within(resultList()).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(resultList()).getAllByRole('button', { name: 'Add' })).toHaveLength(1)
   })
 
-  it('calls the controller add command for the clicked Spotify row', () => {
-    const picker = controller({ query: 'kash', spotifyResults: [track('sp-1', 'Rock and Roll')] })
+  it('calls addRow with the clicked row', () => {
+    const merged = row('kashmir|led zeppelin', 'Kashmir')
+    const picker = controller({ query: 'kash', results: [merged] })
     render(<SongPicker picker={picker} />)
 
-    const row = within(resultList()).getByRole('listitem')
-    fireEvent.click(within(row).getByRole('button', { name: 'Add' }))
+    const item = within(resultList()).getByRole('listitem')
+    fireEvent.click(within(item).getByRole('button', { name: 'Add' }))
 
-    expect(picker.addSpotifyTrack).toHaveBeenCalledWith(track('sp-1', 'Rock and Roll'))
-    expect(picker.addCatalogSong).not.toHaveBeenCalled()
+    expect(picker.addRow).toHaveBeenCalledWith(merged)
+  })
+
+  /**
+   * RH-108 ER24 — the album line carries the year, and nothing else is added.
+   *
+   * The operator's answer to this task's open question is **B**: no "in
+   * catalog" tag and no affordance distinguishing a catalog-backed row from a
+   * Spotify-only one. The information is internal — it makes no difference to
+   * a musician whether the app already knew the song — and a new affordance on
+   * the row belongs with RH-112's card.
+   */
+  it("renders the representative candidate's year beside the album (ER24)", () => {
+    const merged = row('bad|michael jackson', 'Bad', {
+      album: 'Bad',
+      versions: [
+        candidate({ versionId: 'v-1', albumName: 'Bad', releaseDate: '1987-08-31' }),
+      ],
+    })
+
+    render(<SongPicker picker={controller({ query: 'bad', results: [merged] })} />)
+
+    const item = within(resultList()).getByRole('listitem')
+    expect(item.textContent).toContain('Bad')
+    expect(item.textContent).toContain('1987')
+  })
+
+  it('renders no year when the representative candidate has no release date', () => {
+    const merged = row('kashmir|led zeppelin', 'Kashmir')
+
+    render(<SongPicker picker={controller({ query: 'kash', results: [merged] })} />)
+
+    const item = within(resultList()).getByRole('listitem')
+    expect(item.textContent).toContain('IV')
+    expect(item.textContent).not.toContain('·')
+  })
+
+  it('draws a catalog-backed row and a Spotify-only row with the same elements (ER24)', () => {
+    const catalogRow = row('bad|michael jackson', 'Bad', {
+      versions: [candidate({ versionId: 'v-1', albumName: 'Bad' })],
+    })
+    const spotifyRow = row('thriller|michael jackson', 'Thriller', {
+      songId: null,
+      versions: [candidate({ spotifyTrackId: 'sp-aaa', albumName: 'Bad' })],
+    })
+
+    render(
+      <SongPicker picker={controller({ query: 'bad', results: [catalogRow, spotifyRow] })} />,
+    )
+
+    const [catalogItem, spotifyItem] = within(resultList()).getAllByRole('listitem')
+    const shape = (el: HTMLElement) =>
+      [...el.querySelectorAll('*')].map((node) => node.tagName).join(',')
+    // Identical element shapes: no badge, no tag, no extra line on either. The
+    // literal a catalog affordance would carry is asserted absent from the
+    // whole of `src/components/` by `songSearchMergeGuards.test.ts`, which is
+    // why it is not spelled here.
+    expect(shape(spotifyItem)).toBe(shape(catalogItem))
   })
 
   it("disables the Add button of the row being added and shows that row's error", () => {
@@ -160,9 +238,12 @@ describe('SongPicker', () => {
       <SongPicker
         picker={controller({
           query: 'kash',
-          addingId: 'song-1',
-          rowErrors: { 'song-1': 'Playlist is locked' },
-          catalogResults: [song('song-1', 'Kashmir'), song('song-2', 'Black Dog')],
+          addingId: 'kashmir|led zeppelin',
+          rowErrors: { 'kashmir|led zeppelin': 'Playlist is locked' },
+          results: [
+            row('kashmir|led zeppelin', 'Kashmir'),
+            row('black dog|led zeppelin', 'Black Dog'),
+          ],
         })}
       />,
     )

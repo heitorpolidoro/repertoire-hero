@@ -19,6 +19,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { query } from '@/lib/db'
 import { createAndAddSong } from '@/lib/ownerSongs'
+import { searchSongs } from '@/lib/songs'
 import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
 import { splitSongTitle } from '@/lib/songTitle'
@@ -549,5 +550,131 @@ describe.skipIf(!RUN_DB_TESTS)('the import of one track is atomic (RH-122)', () 
     expect(await countOf('songs', 'artist = $1', [artist])).toBe(0)
     expect(await countOf('albums', 'artist = $1', [artist])).toBe(0)
     expect(await countOf('song_versions', 'label = $1', [label])).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// RH-108 ER22 — the `versions` aggregate `searchSongs` answers with.
+//
+// Only a real Postgres can settle these: the ordering is `ORDER BY` inside a
+// `json_agg`, the album-less case is whether a `LEFT JOIN` was written, and
+// `releaseDate` arriving as `YYYY-MM-DD` text rather than as whatever the
+// driver makes of a `date` is a rendering the database performs.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!RUN_DB_TESTS)('searchSongs — the version aggregate (RH-108 ER22)', () => {
+  const sfx = token()
+  const artist = `Aggregate Artist ${sfx}`
+
+  async function insertAlbum(
+    name: string,
+    albumType: string,
+    releaseDate: string | null,
+    coverUrl: string | null = null,
+  ): Promise<string> {
+    const res = await query<{ id: string }>(
+      `INSERT INTO albums (artist, name, album_type, release_date, cover_url)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [artist, name, albumType, releaseDate, coverUrl],
+    )
+    return res.rows[0].id
+  }
+
+  async function insertSong(title: string): Promise<string> {
+    const res = await query<{ id: string }>(
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
+      [title, artist],
+    )
+    return res.rows[0].id
+  }
+
+  async function insertVersion(
+    songId: string,
+    albumId: string | null,
+    label: string | null,
+  ): Promise<string> {
+    const res = await query<{ id: string }>(
+      'INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, $2, $3) RETURNING id',
+      [songId, albumId, label],
+    )
+    return res.rows[0].id
+  }
+
+  afterAll(async () => {
+    await cleanCatalog(sfx)
+  })
+
+  it('orders the versions by representativeVersionOrder and keeps the album-less one', async () => {
+    const title = `Ordered ${sfx}`
+    const songId = await insertSong(title)
+    const albumId = await insertAlbum(`Studio ${sfx}`, 'album', '1987-08-31', 'http://cover')
+    const singleId = await insertAlbum(`Single ${sfx}`, 'single', '1980-01-01')
+
+    // Inserted worst-first, so a query that returned insertion order fails.
+    const singleVersion = await insertVersion(songId, singleId, 'Single Edit')
+    const orphanVersion = await insertVersion(songId, null, 'Unknown Release')
+    const albumVersion = await insertVersion(songId, albumId, null)
+
+    const [song] = await searchSongs(title)
+
+    // `album_type = 'album'` first, then the single and the album-less version,
+    // which tie on every album column and fall to `created_at` then `id`.
+    expect(song.versions.map((v) => v.versionId)).toEqual([
+      albumVersion,
+      singleVersion,
+      orphanVersion,
+    ])
+    // The album-less version is **present**: an inner join would drop it.
+    const orphan = song.versions[2]
+    expect(orphan.albumName).toBeNull()
+    expect(orphan.albumType).toBeNull()
+    expect(orphan.releaseDate).toBeNull()
+    expect(orphan.label).toBe('Unknown Release')
+  })
+
+  it('renders releaseDate as a YYYY-MM-DD string and carries the album fields', async () => {
+    const title = `Dated ${sfx}`
+    const songId = await insertSong(title)
+    const albumId = await insertAlbum(`Bad ${sfx}`, 'album', '1987-08-31', 'http://art')
+    await insertVersion(songId, albumId, 'Remaster 2012')
+
+    const [song] = await searchSongs(title)
+
+    expect(song.versions).toHaveLength(1)
+    expect(song.versions[0].releaseDate).toBe('1987-08-31')
+    expect(song.versions[0].albumName).toBe(`Bad ${sfx}`)
+    expect(song.versions[0].albumType).toBe('album')
+    expect(song.versions[0].albumCoverUrl).toBe('http://art')
+    expect(typeof song.versions[0].createdAt).toBe('string')
+  })
+
+  it('answers an empty array for a song with no version, and still reports the song', async () => {
+    const title = `Versionless ${sfx}`
+    const songId = await insertSong(title)
+
+    const [song] = await searchSongs(title)
+
+    // The seeded-catalog case: `scripts/seed-catalog.sql` writes `songs` rows
+    // and never `song_versions`. The row is still offered by the picker.
+    expect(song.id).toBe(songId)
+    expect(song.versions).toEqual([])
+    expect(song.version_id).toBeNull()
+  })
+
+  it('still applies LIMIT 20 to songs, not to versions', async () => {
+    const title = `Limited ${sfx}`
+    const albumId = await insertAlbum(`Limit Album ${sfx}`, 'album', '1990-01-01')
+    for (let n = 0; n < 21; n += 1) {
+      const songId = await insertSong(`${title} ${n}`)
+      await insertVersion(songId, albumId, `Take ${n}`)
+      await insertVersion(songId, null, `Alt ${n}`)
+    }
+
+    const rows = await searchSongs(title)
+
+    // 21 songs with two versions each: a version-counting limit would answer
+    // ten songs, not twenty.
+    expect(rows).toHaveLength(20)
+    expect(rows.every((r) => r.versions.length === 2)).toBe(true)
   })
 })

@@ -597,7 +597,7 @@ already exists and already hides the drawing controls — it just does not hide 
 **Steps**
 
 1. query the catalog and Spotify in parallel, debounced
-2. merge both into one list, grouped by `(lower(artist), lower(sanitized title))`
+2. merge both into one list, grouped by `(lower(split title), lower(artist))`
 3. each group is one card, showing one representative version
 4. expanding a card lists every version it has
 
@@ -632,14 +632,26 @@ is right there in the response and wins.
   have.
 - Manual entry sits alongside the results, always, not behind an empty one. See *Add a
   song to the repertoire*.
+- **Two candidates for one recording collapse by album name and label** (RH-108). A row
+  names a song; a candidate inside it names a recording, and its key is
+  `(lower(trim(album name)), lower(trim(label)))`, with a null and an empty string
+  normalising to the same thing. A catalog candidate's label is `song_versions.label`; a
+  Spotify candidate's is the right half of the same `" - "` split whose left half produced
+  the row's group key — one parse, both keys.
 
-**Open**
-- Not a decision but an unverified assumption: collapsing a catalog row and a Spotify row
-  for one version compares them by `(album, label)`, and the catalog holds an `album_id`
-  while Spotify hands back the album's **name** as text. The comparison is therefore
-  name-based, and names vary in spelling — "Bad" against "Bad (Remastered)". When they
-  differ the two rows do not collapse and the same version appears twice in an expanded
-  card. Only real data settles how often that happens.
+  This was recorded as an unverified assumption, and it is now the rule. The catalog holds
+  an `album_id` while Spotify hands back the album's **name** as text, so the comparison
+  is name-based and names vary in spelling — "Bad" against "Bad (Remastered)". When they
+  differ the two candidates do not collapse. **That costs one extra candidate and loses
+  nothing:** the row keeps every candidate both sources offered, each still pressable,
+  each still carrying its own album, year and label; the only visible effect is one extra
+  line in an expanded card. Nothing is hidden and nothing is written, which is why the
+  missed merge is the error this chooses — a false merge in the *write* path has no delete
+  path to undo it.
+
+  **No fuzzy name matching is performed.** Matching is exact equality after lowercasing
+  and trimming: no similarity score, no edit distance, no vocabulary of special words.
+  Title similarity and typo tolerance belong to ranking (RH-113), not to this collapse.
 
 ---
 

@@ -1,3 +1,7 @@
+/**
+ * One track as `/api/spotify/search` projects it. Declared **once** (RH-108):
+ * the route used to carry an identical copy, which nothing imported.
+ */
 export interface SpotifyTrack {
   id: string
   title: string
@@ -6,6 +10,18 @@ export interface SpotifyTrack {
   spotifyUrl: string
   previewUrl: string | null
   albumArt: string | null
+  /**
+   * `albums.album_type`'s Spotify counterpart — `album`, `single` or
+   * `compilation` — and the album's release date as Spotify reports it, which
+   * may be a `YYYY` or `YYYY-MM` prefix rather than a full date (RH-108).
+   *
+   * Both are null when Spotify omits them. They exist so a Spotify candidate
+   * can be ordered against a catalog one at all: without them every Spotify
+   * recording sorts last and the 2001 album can never beat a 2023
+   * re-recording that happens to be the only version anyone has added.
+   */
+  albumType: string | null
+  releaseDate: string | null
 }
 
 /**

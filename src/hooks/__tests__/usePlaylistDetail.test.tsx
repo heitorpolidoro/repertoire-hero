@@ -21,7 +21,7 @@ import {
   type UsePlaylistDetailOptions,
 } from '@/hooks/usePlaylistDetail'
 import type { SongPickerActions } from '@/hooks/useSongPicker'
-import type { Song, Playlist, PlaylistSong, Repertoire } from '@/types/database'
+import type { Playlist, PlaylistSong, Repertoire } from '@/types/database'
 
 afterEach(cleanup)
 afterEach(() => vi.unstubAllGlobals())
@@ -315,7 +315,18 @@ describe('usePlaylistDetail (RH-71)', () => {
     const { result, onRefresh } = setup({ pickerActions })
 
     await act(async () => {
-      await result.current.picker.addCatalogSong({ id: 's3' } as Song)
+      // RH-108: one merged row in place of the catalog result. A row with no
+      // candidates is the version-less catalog song, which takes the same
+      // catalog branch — `addToRepertoire` resolves its first version.
+      await result.current.picker.addRow({
+        id: 'song-three|artist',
+        title: 'Song Three',
+        artist: 'Artist',
+        coverUrl: null,
+        album: null,
+        songId: 's3',
+        versions: [],
+      })
     })
 
     expect(pickerActions.addSongToPlaylist).toHaveBeenCalledWith('pl-1', 's3')

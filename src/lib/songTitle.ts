@@ -81,3 +81,31 @@ export function splitSongTitle(raw: string): SplitSongTitle {
   const head = trimmed.replace(DANGLING_SEPARATOR, '')
   return { title: head === '' ? trimmed : head, label: null }
 }
+
+/**
+ * RH-108 — the identity a catalog song and a Spotify track are grouped by in
+ * the add-song picker: the **split** title then the artist, both lowercased and
+ * trimmed, joined by `|`.
+ *
+ * Splitting the title before lowercasing is the whole collapse: Spotify's
+ * `"Bad - Remaster 2012"` and the catalog's `"Bad"` are one song, and the raw
+ * lowercase key this replaced (`pickerDedupKey`) said they were two, so the
+ * picker drew two adjacent near-identical rows with nothing saying which to
+ * press. On a catalog row the split is a no-op in the normal case —
+ * `resolveOrCreateSongIdentity` already stored the left half — and it still
+ * rescues a `songs` row written outside that resolver, as
+ * `scripts/seed-catalog.sql` does.
+ *
+ * The artist is **not** re-reduced by `primaryArtistName`: both sources deliver
+ * a reduced primary artist by construction, and a second copy of the RH-95 rule
+ * is the defect RH-95 removed. It could not live here anyway —
+ * `songIdentity.ts` imports `pool` and is server-only, while this module has no
+ * imports and both of its callers are client-safe.
+ *
+ * It lives beside `splitSongTitle` because two modules need the identical key:
+ * `songSearchMerge.ts`, which groups the search response, and `songPicker.ts`,
+ * whose `findRepertoireVersionIdByTrack` recovers a held entry by it.
+ */
+export function songIdentityKey(title: string, artist: string): string {
+  return `${splitSongTitle(title).title.toLowerCase().trim()}|${artist.toLowerCase().trim()}`
+}

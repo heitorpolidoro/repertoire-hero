@@ -2,16 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { logger } from '@/lib/logger'
 import { primarySpotifyArtist } from '@/lib/songIdentity'
-
-export interface SpotifyTrack {
-  id: string
-  title: string
-  artist: string
-  album: string | null
-  spotifyUrl: string
-  previewUrl: string | null
-  albumArt: string | null
-}
+// RH-108: one declaration, in `@/lib/spotify`. This file carried an identical
+// copy that nothing imported.
+import type { SpotifyTrack } from '@/lib/spotify'
 
 // ---------------------------------------------------------------------------
 // In-memory token cache — avoids fetching a new token on every request.
@@ -119,6 +112,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           album: {
             name: string
             images: Array<{ url: string; width: number; height: number }>
+            // RH-108: both are what lets a Spotify candidate be ordered
+            // against a catalog one. Optional because Spotify omits them on
+            // some payloads, and nothing here may throw on their absence.
+            album_type?: string | null
+            release_date?: string | null
           }
         }>
       }
@@ -135,6 +133,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       previewUrl: item.preview_url,
       // Use the smallest image available as the thumbnail (last in Spotify's array)
       albumArt: item.album.images.at(-1)?.url ?? null,
+      // RH-108: `albums.album_type`'s counterpart and the release date, which
+      // may be a `YYYY` or `YYYY-MM` prefix rather than a full date.
+      albumType: item.album?.album_type ?? null,
+      releaseDate: item.album?.release_date ?? null,
     }))
 
     return NextResponse.json(tracks)

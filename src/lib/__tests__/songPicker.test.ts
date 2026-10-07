@@ -13,18 +13,14 @@ import { describe, it, expect } from 'vitest'
 import {
   MIN_PICKER_QUERY_LENGTH,
   shouldSearchPicker,
-  visiblePickerCatalog,
-  pickerDedupKey,
-  pickerCatalogKeys,
-  visiblePickerSpotify,
   withPickerRowError,
   withoutPickerRowError,
   isAlreadyInRepertoireError,
   findRepertoireVersionIdByTrack,
   heldPickerVersionId,
 } from '@/lib/songPicker'
-import type { SpotifyTrack } from '@/lib/spotify'
-import type { CatalogSearchResult, Song, Repertoire } from '@/types/database'
+import type { SearchVersionCandidate, SongSearchRow } from '@/lib/songSearchMerge'
+import type { Song, Repertoire } from '@/types/database'
 
 function song(overrides: Partial<Song> & Pick<Song, 'id' | 'title' | 'artist'>): Song {
   return {
@@ -39,23 +35,39 @@ function song(overrides: Partial<Song> & Pick<Song, 'id' | 'title' | 'artist'>):
 }
 
 /**
- * A catalog search result (RH-125): the song plus the representative version
- * the search already computed. `version_id` defaults to `v-<song id>`, derived
- * rather than equal, so a filter comparing song ids cannot pass for one
- * comparing versions.
+ * One merged picker row (RH-108). Its representative candidate defaults to the
+ * version `v-<song id>`, derived rather than equal, so an assertion about a
+ * version cannot pass for one about a song.
  */
-function result(
-  overrides: Partial<CatalogSearchResult> & Pick<Song, 'id' | 'title' | 'artist'>,
-): CatalogSearchResult {
-  return { ...song(overrides), version_id: `v-${overrides.id}`, ...overrides }
+function pickerRow(overrides: Partial<SongSearchRow> = {}): SongSearchRow {
+  const songId = overrides.songId ?? 'song-1'
+  return {
+    id: 'black dog|led zeppelin',
+    title: 'Black Dog',
+    artist: 'Led Zeppelin',
+    coverUrl: null,
+    album: null,
+    songId,
+    versions: [versionCandidate({ versionId: `v-${songId}` })],
+    ...overrides,
+  }
 }
 
-function track(overrides: Partial<SpotifyTrack> & Pick<SpotifyTrack, 'id' | 'title' | 'artist'>): SpotifyTrack {
+function versionCandidate(
+  overrides: Partial<SearchVersionCandidate> = {},
+): SearchVersionCandidate {
   return {
-    album: null,
-    spotifyUrl: `https://open.spotify.com/track/${overrides.id}`,
-    previewUrl: null,
-    albumArt: null,
+    versionId: null,
+    spotifyTrackId: null,
+    rawTitle: 'Black Dog',
+    albumName: null,
+    albumType: null,
+    releaseDate: null,
+    label: null,
+    durationSeconds: null,
+    createdAt: null,
+    coverUrl: null,
+    spotifyUrl: null,
     ...overrides,
   }
 }
@@ -91,68 +103,12 @@ describe('songPicker', () => {
     expect(shouldSearchPicker('abc')).toBe(true)
   })
 
-  it('hides catalog results whose version is already in the playlist (RH-125 ER14)', () => {
-    const results = [
-      result({ id: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' }),
-      result({ id: 'song-2', title: 'Kashmir', artist: 'Led Zeppelin' }),
-    ]
 
-    expect(visiblePickerCatalog(results, new Set(['v-song-1']))).toEqual([results[1]])
-    // The filter compares **versions**: the song's own id names nothing in the
-    // playlist's set, so a song-id comparison would hide the wrong row.
-    expect(visiblePickerCatalog(results, new Set(['song-1']))).toEqual(results)
-  })
 
-  it('keeps every catalog result when the playlist holds no songs', () => {
-    const results = [
-      result({ id: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' }),
-      result({ id: 'song-2', title: 'Kashmir', artist: 'Led Zeppelin' }),
-    ]
 
-    expect(visiblePickerCatalog(results, new Set())).toEqual(results)
-  })
 
-  it('always offers a catalog row whose song has no version yet', () => {
-    const versionless = result({
-      id: 'song-3',
-      title: 'Seeded',
-      artist: 'Catalog',
-      version_id: null,
-    })
 
-    // It cannot be in any playlist — a playlist entry *is* a version — so no
-    // set of version ids can hide it.
-    expect(visiblePickerCatalog([versionless], new Set(['v-song-3']))).toEqual([versionless])
-  })
 
-  it('builds a dedup key from the lowercased title and artist', () => {
-    expect(pickerDedupKey({ title: 'Black Dog', artist: 'Led Zeppelin' })).toBe('black dog|led zeppelin')
-    expect(pickerDedupKey({ title: 'BLACK DOG', artist: 'LED ZEPPELIN' })).toBe('black dog|led zeppelin')
-  })
-
-  it('collects one dedup key per visible catalog song', () => {
-    const keys = pickerCatalogKeys([
-      song({ id: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' }),
-      song({ id: 'song-2', title: 'Kashmir', artist: 'Led Zeppelin' }),
-    ])
-
-    expect([...keys].sort()).toEqual(['black dog|led zeppelin', 'kashmir|led zeppelin'])
-  })
-
-  it('drops a Spotify track the catalog already covers, ignoring case', () => {
-    const tracks = [
-      track({ id: 'sp-1', title: 'BLACK DOG', artist: 'Led ZEPPELIN' }),
-      track({ id: 'sp-2', title: 'Rock and Roll', artist: 'Led Zeppelin' }),
-    ]
-
-    expect(visiblePickerSpotify(tracks, new Set(['black dog|led zeppelin']))).toEqual([tracks[1]])
-  })
-
-  it('keeps a Spotify track whose artist differs from the catalog result', () => {
-    const tracks = [track({ id: 'sp-1', title: 'Black Dog', artist: 'Someone Else' })]
-
-    expect(visiblePickerSpotify(tracks, new Set(['black dog|led zeppelin']))).toEqual(tracks)
-  })
 
   it('records an Error message under the failing row id', () => {
     expect(withPickerRowError({}, 'song-1', new Error('Playlist is full'))).toEqual({
@@ -200,6 +156,43 @@ describe('songPicker', () => {
     expect(findRepertoireVersionIdByTrack(entries, { title: 'BLACK DOG', artist: 'led zeppelin' })).toBe('v-song-2')
   })
 
+  it('finds a held entry for a suffixed Spotify title, which returned null at HEAD (ER13)', () => {
+    const entries = [
+      entry({
+        id: 'rep-1',
+        song_id: 'song-1',
+        version_id: 'v-song-1',
+        song: song({ id: 'song-1', title: 'Bad', artist: 'Michael Jackson' }),
+      }),
+    ]
+
+    // At HEAD the raw-title key compared `"bad - remaster 2012"` against the
+    // held entry's `"bad"`, never matched, and the user saw the raw
+    // already-in-your-repertoire error instead of the row being added.
+    expect(
+      findRepertoireVersionIdByTrack(entries, {
+        title: 'Bad - Remaster 2012',
+        artist: 'Michael Jackson',
+      }),
+    ).toBe('v-song-1')
+  })
+
+  it('returns the lowest version id when the owner holds several, whatever the order (ER13)', () => {
+    const held = (versionId: string) =>
+      entry({
+        id: `rep-${versionId}`,
+        song_id: 'song-1',
+        version_id: versionId,
+        song: song({ id: 'song-1', title: 'Bad', artist: 'Michael Jackson' }),
+      })
+    const track = { title: 'Bad - Remaster 2012', artist: 'Michael Jackson' }
+
+    // Post-RH-125 an owner may hold several versions of one song, so
+    // `entries.find` would answer whichever the array happened to list first.
+    expect(findRepertoireVersionIdByTrack([held('v-b'), held('v-a')], track)).toBe('v-a')
+    expect(findRepertoireVersionIdByTrack([held('v-a'), held('v-b')], track)).toBe('v-a')
+  })
+
   it('returns null when no repertoire entry matches the track', () => {
     const entries = [
       entry({ id: 'rep-1', song_id: 'song-1', song: song({ id: 'song-1', title: 'Kashmir', artist: 'Led Zeppelin' }) }),
@@ -218,23 +211,32 @@ describe('songPicker', () => {
    * and it answers with a **version** id in the first case.
    */
   describe('heldPickerVersionId', () => {
-    const card = result({ id: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin' })
+    const row = pickerRow()
     const held = entry({ id: 'rep-1', song_id: 'song-1', version_id: 'v-song-1' })
 
-    it('answers the card version when the owner already holds it', () => {
-      expect(heldPickerVersionId(card, new Map([['v-song-1', held]]))).toBe('v-song-1')
+    it("answers the representative candidate's version when the owner holds it", () => {
+      expect(heldPickerVersionId(row, new Map([['v-song-1', held]]))).toBe('v-song-1')
     })
 
     it('answers null when the owner holds no row for that version', () => {
-      expect(heldPickerVersionId(card, new Map())).toBeNull()
+      expect(heldPickerVersionId(row, new Map())).toBeNull()
       // A map keyed by the song id is not a hit: the key is the version.
-      expect(heldPickerVersionId(card, new Map([['song-1', held]]))).toBeNull()
+      expect(heldPickerVersionId(row, new Map([['song-1', held]]))).toBeNull()
     })
 
-    it('answers null for a card whose song has no version yet', () => {
-      const versionless = result({ id: 'song-1', title: 'Black Dog', artist: 'Led Zeppelin', version_id: null })
+    it('answers null for a row whose song has no version yet (RH-108 ER12)', () => {
+      const versionless = pickerRow({ songId: 'song-1', versions: [] })
 
       expect(heldPickerVersionId(versionless, new Map([['v-song-1', held]]))).toBeNull()
+    })
+
+    it('answers null for a Spotify-only row — its candidate names no version', () => {
+      const spotifyOnly = pickerRow({
+        songId: null,
+        versions: [versionCandidate({ spotifyTrackId: 'sp-aaa' })],
+      })
+
+      expect(heldPickerVersionId(spotifyOnly, new Map([['v-song-1', held]]))).toBeNull()
     })
   })
 })

@@ -231,6 +231,34 @@ export interface PlaylistSong {
  */
 export interface CatalogSearchResult extends Song {
   version_id: string | null;
+  /**
+   * Every version of this song, in representative order (RH-108). Empty for a
+   * `songs` row with no `song_versions` row yet — the same case `version_id`
+   * reports as null — and that row is still offered by the picker.
+   */
+  versions: CatalogVersionOption[];
+}
+
+/**
+ * One `song_versions` row as the catalog search aggregates it (RH-108), joined
+ * onto its `albums` row through a `LEFT JOIN` so an album-less version is
+ * **present** with its four album fields null rather than dropped.
+ *
+ * Camel-cased because it is built by `json_build_object` rather than selected
+ * as columns, and because it feeds `SearchVersionCandidate` in
+ * `src/lib/songSearchMerge.ts` field for field. `releaseDate` is rendered as
+ * `YYYY-MM-DD` text in SQL rather than left to the driver's date handling, so
+ * the string comparison the candidate ordering performs is well-defined.
+ */
+export interface CatalogVersionOption {
+  versionId: string;
+  label: string | null;
+  durationSeconds: number | null;
+  createdAt: string | null;
+  albumName: string | null;
+  albumType: string | null;
+  albumCoverUrl: string | null;
+  releaseDate: string | null;
 }
 
 export interface SpotifyPlaylist {

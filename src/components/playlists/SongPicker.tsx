@@ -4,6 +4,17 @@ import { useEffect, useRef } from "react";
 import { PickerRow } from "@/components/playlists/PickerRow";
 import { Spinner } from "@/components/ui/Spinner";
 import { shouldSearchPicker, type SongPickerController } from "@/lib/songPicker";
+import type { SongSearchRow } from "@/lib/songSearchMerge";
+
+/**
+ * The year of the row's representative candidate, or null.
+ *
+ * A release date is `YYYY-MM-DD` from the catalog and may be a bare `YYYY` or
+ * `YYYY-MM` from Spotify, so the year is always its first four characters.
+ */
+function rowYear(row: SongSearchRow): string | null {
+  return row.versions[0]?.releaseDate?.slice(0, 4) ?? null;
+}
 
 export interface SongPickerProps {
   /** The controller from `useSongPicker`; the panel decides nothing itself. */
@@ -16,6 +27,13 @@ export interface SongPickerProps {
  * prompt, searching, empty, results — and owns only the input ref and the focus
  * the page used to apply when the panel opened. The page unmounts this
  * component when the panel closes, which is what the e2e net asserts.
+ *
+ * RH-108 replaced the two `.map`s with one over `picker.results`, inside the
+ * **same** `<ul aria-live="polite">` and through the same `PickerRow`. There
+ * never were two sections to merge: the list was always one, and what was wrong
+ * is that one song occupied two rows in it. Nothing a user sees about the panel
+ * changes except that those two rows are now one — no section heading, no
+ * "in catalog" tag, no re-layout.
  */
 export function SongPicker({ picker }: SongPickerProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -49,40 +67,24 @@ export function SongPicker({ picker }: SongPickerProps) {
           >
             <Spinner /> Searching…
           </li>
-        ) : picker.catalogResults.length === 0 &&
-          picker.spotifyResults.length === 0 ? (
+        ) : picker.results.length === 0 ? (
           <li className="text-xs text-gray-400 text-center py-3">No results</li>
         ) : (
-          <>
-            {picker.catalogResults.map((song) => (
-              <PickerRow
-                key={song.id}
-                coverUrl={song.cover_url}
-                title={song.title}
-                artist={song.artist}
-                album={song.album}
-                adding={picker.addingId === song.id}
-                error={picker.rowErrors[song.id]}
-                onAdd={() => {
-                  void picker.addCatalogSong(song);
-                }}
-              />
-            ))}
-            {picker.spotifyResults.map((track) => (
-              <PickerRow
-                key={track.id}
-                coverUrl={track.albumArt}
-                title={track.title}
-                artist={track.artist}
-                album={track.album}
-                adding={picker.addingId === track.id}
-                error={picker.rowErrors[track.id]}
-                onAdd={() => {
-                  void picker.addSpotifyTrack(track);
-                }}
-              />
-            ))}
-          </>
+          picker.results.map((row) => (
+            <PickerRow
+              key={row.id}
+              coverUrl={row.coverUrl}
+              title={row.title}
+              artist={row.artist}
+              album={row.album}
+              year={rowYear(row)}
+              adding={picker.addingId === row.id}
+              error={picker.rowErrors[row.id]}
+              onAdd={() => {
+                void picker.addRow(row);
+              }}
+            />
+          ))
         )}
       </ul>
     </div>
