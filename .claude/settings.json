@@ -9,10 +9,14 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git log:*)",
-      "Bash(git rev-parse:*)"
+      "Bash(git rev-parse:*)",
+      "Bash(git push:*)"
     ],
     "deny": [
-      "Bash(git push:*)",
+      "Bash(git push --mirror:*)",
+      "Bash(git push --delete:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force:*)",
       "Bash(gh repo delete:*)",
       "Bash(rm -rf:*)",
       "Bash(git add -A:*)",
