@@ -16,7 +16,7 @@ const TRACKS: PlaylistEntry[] = [
 ]
 
 function navAt(index: number) {
-  return computePlaylistNav(TRACKS, TRACKS[index].repertoireId, 'pl-controls', 'Open mic')
+  return computePlaylistNav(TRACKS, TRACKS[index].versionId, 'pl-controls', 'Open mic')
 }
 
 describe('SetlistPill', () => {
@@ -42,24 +42,24 @@ describe('SetlistPill', () => {
 describe('SetlistSelect', () => {
   it('renders nothing without a navigation or without entries', () => {
     const { container, unmount } = render(
-      <SetlistSelect nav={null} entries={TRACKS} currentRepertoireId="ct-2" onSelect={vi.fn()} />,
+      <SetlistSelect nav={null} entries={TRACKS} currentVersionId="v-ct-2" onSelect={vi.fn()} />,
     )
     expect(container.innerHTML).toBe('')
     unmount()
 
     const empty = render(
-      <SetlistSelect nav={navAt(1)} entries={[]} currentRepertoireId="ct-2" onSelect={vi.fn()} />,
+      <SetlistSelect nav={navAt(1)} entries={[]} currentVersionId="v-ct-2" onSelect={vi.fn()} />,
     )
     expect(empty.container.innerHTML).toBe('')
   })
 
   it('lists every entry as "N. Title - Artist" and preselects the current one', () => {
     render(
-      <SetlistSelect nav={navAt(1)} entries={TRACKS} currentRepertoireId="ct-2" onSelect={vi.fn()} />,
+      <SetlistSelect nav={navAt(1)} entries={TRACKS} currentVersionId="v-ct-2" onSelect={vi.fn()} />,
     )
 
     const select = screen.getByRole('combobox') as HTMLSelectElement
-    expect(select.value).toBe('ct-2')
+    expect(select.value).toBe('v-ct-2')
     const options = screen.getAllByRole('option').map((option) => option.textContent)
     expect(options).toEqual([
       '1. Gimme Shelter - The Rolling Stones',
@@ -71,15 +71,50 @@ describe('SetlistSelect', () => {
   it('selects the chosen entry and ignores a re-selection of the current one', () => {
     const onSelect = vi.fn()
     render(
-      <SetlistSelect nav={navAt(1)} entries={TRACKS} currentRepertoireId="ct-2" onSelect={onSelect} />,
+      <SetlistSelect nav={navAt(1)} entries={TRACKS} currentVersionId="v-ct-2" onSelect={onSelect} />,
     )
 
     const select = screen.getByRole('combobox')
-    fireEvent.change(select, { target: { value: 'ct-2' } })
+    fireEvent.change(select, { target: { value: 'v-ct-2' } })
     expect(onSelect).not.toHaveBeenCalled()
 
-    fireEvent.change(select, { target: { value: 'ct-3' } })
-    expect(onSelect).toHaveBeenCalledWith('ct-3')
+    fireEvent.change(select, { target: { value: 'v-ct-3' } })
+    expect(onSelect).toHaveBeenCalledWith('v-ct-3')
+  })
+
+  /**
+   * RH-132 ER4 — every option is selectable and keyed by its `versionId`.
+   *
+   * The `disabled` option and the `entry.repertoireId ?? entry.versionId`
+   * value both go: the select's value space is version ids now, so the
+   * preselection matches whatever `currentVersionId` the page passes, including
+   * for an entry whose owner holds no row.
+   */
+  it('lists an entry with no owner row as an enabled, version-keyed option', () => {
+    const onSelect = vi.fn()
+    const gapped: PlaylistEntry[] = [
+      TRACKS[0],
+      { repertoireId: null, versionId: 'v-ct-9', songId: 'trk-9', title: 'Spoonman', artist: 'Soundgarden' },
+      TRACKS[2],
+    ]
+    render(
+      <SetlistSelect
+        nav={computePlaylistNav(gapped, 'v-ct-9', 'pl-controls', 'Open mic')}
+        entries={gapped}
+        currentVersionId="v-ct-9"
+        onSelect={onSelect}
+      />,
+    )
+
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    // The select shows it as selected — the whole point of the rename.
+    expect(select.value).toBe('v-ct-9')
+    const options = screen.getAllByRole('option') as HTMLOptionElement[]
+    expect(options.map((option) => option.value)).toEqual(['v-ct-1', 'v-ct-9', 'v-ct-3'])
+    expect(options.every((option) => !option.disabled)).toBe(true)
+
+    fireEvent.change(select, { target: { value: 'v-ct-1' } })
+    expect(onSelect).toHaveBeenCalledWith('v-ct-1')
   })
 })
 

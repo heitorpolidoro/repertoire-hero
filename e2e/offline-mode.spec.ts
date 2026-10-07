@@ -201,8 +201,16 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
   await waitForServiceWorker(page)
 
   const fastViewUrl = await fastViewUrlFromPlaylist(page, songTitle)
-  const repertoireId = fastViewUrl.split('/')[2]
+  // Since RH-132 the Fast View route segment is a `song_versions.id`, and the
+  // snapshot keys a song by exactly that — so the seeded record below must use
+  // the id the real link carries, or `findSong` answers null offline.
+  const versionId = fastViewUrl.split('/')[2]
   const playlistId = playlistUrl.split('/').pop() as string
+  // The owner row and the song are their own ids now; the seed only has to be
+  // internally consistent, because `getTabs` resolves through
+  // `repertoire.song_id` while the entry read resolves through `versionId`.
+  const ownerRowId = '33333333-3333-3333-3333-333333333333'
+  const songId = '44444444-4444-4444-4444-444444444444'
 
   await page.goto(fastViewUrl)
   await expect(page.getByRole('heading', { level: 1, name: songTitle })).toBeVisible({
@@ -231,23 +239,28 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
       savedAt: new Date().toISOString(),
       songs: [
         {
-          repertoireId,
-          // RH-125: the entry names a version, and `repertoireId` is nullable
-          // on the type — non-null here, because a captured song always has
-          // one (`gatherSongs` skips the entries that do not).
+          // RH-132 (v6): a song is keyed by the **version** the route carries,
+          // not by the owner row. A record keyed the old way fails
+          // `isSongSnapshot` and the whole seed reads as "not downloaded".
+          versionId,
           entry: {
-            repertoireId,
-            versionId: 'version-1',
-            songId: repertoireId,
+            // Still on the entry, still nullable on the type, and no longer an
+            // address: the setlist reads it only for the "Not in repertoire"
+            // chip (RH-125, RH-132).
+            repertoireId: ownerRowId,
+            versionId,
+            songId,
             title: songTitle,
             artist: 'RH80 Artist',
           },
+          // A `ResolvedSongEntry` since RH-132: the `(owner, version)` pair
+          // resolved, with `ownerRowId` in place of `id` and no `user_id` or
+          // `band_id`. Non-null here, so the page is writable online — which is
+          // what lets the offline *disabled* assertions below mean something.
           repertoire: {
-            id: repertoireId,
-            user_id: null,
-            band_id: null,
-            song_id: repertoireId,
-            version_id: 'version-1',
+            ownerRowId,
+            song_id: songId,
+            version_id: versionId,
             key: null,
             tuning: null,
             map: null,
@@ -258,7 +271,7 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
             // RH-99 ER7: one link, so the per-link `Delete link` button exists
             // offline and its disabled state can be asserted.
             song: {
-              id: repertoireId,
+              id: songId,
               title: songTitle,
               artist: 'RH80 Artist',
               links: [{ label: 'Chords', url: 'https://example.invalid/chords' }],
@@ -277,7 +290,7 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
               // (v3): a file entry carrying `repertoireId` fails
               // `isTabSnapshot`, and the whole record would read as absent.
               userId: '22222222-2222-2222-2222-222222222222',
-              songId: repertoireId,
+              songId,
               title: 'Seeded Chart',
               fileUrl: 'https://blob.invalid/seeded.pdf',
               createdAt: new Date().toISOString(),
@@ -348,7 +361,12 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
   // `readOnly`, is asserted beside it.
   await expect(tabSection.getByPlaceholder(/Tab Title/)).toBeDisabled()
   await expect(tabSection.getByRole('button', { name: 'Upload File' })).toBeDisabled()
-  await expect(tabSection.getByRole('button', { name: 'Delete tab' }).first()).toBeDisabled()
+  // `Delete file`, not `Delete tab`: RH-123 renamed the control's accessible
+  // name when a file stopped hanging off a repertoire row, and this
+  // production-gated assertion was not moved with it. Out of RH-132's scope,
+  // fixed here because re-keying the snapshot is exactly the change that needs
+  // this test to run.
+  await expect(tabSection.getByRole('button', { name: 'Delete file' }).first()).toBeDisabled()
 
   // Stage Mode is the offline renderer, and it reads the same-origin cache key
   // the worker's CacheOnly route answers.

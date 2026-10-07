@@ -361,7 +361,7 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
                   className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 transition-colors"
                 >
                   <Link
-                    href={`/songs/${song.id}/fast-view${bandContext.type === 'band' ? `?bandId=${bandContext.id}` : ''}`}
+                    href={`/songs/${song.version_id}/fast-view${bandContext.type === 'band' ? `?bandId=${bandContext.id}` : ''}`}
                     className="flex flex-1 items-center gap-3 min-w-0 focus:outline-none"
                   >
                     {/* Cover image or status color square */}

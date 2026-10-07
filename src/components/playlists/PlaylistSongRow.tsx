@@ -28,7 +28,12 @@ export interface PlaylistSongHandlers {
 
 export interface PlaylistSongRowProps extends PlaylistSongHandlers {
   playlistSong: PlaylistSong;
-  /** The owner's repertoire entry for this version, when they have one. */
+  /**
+   * The owner's repertoire entry for this version, when they have one.
+   *
+   * Still optional, and no longer gates the Fast View link (RH-132) — only the
+   * mastery status and the tags it carries.
+   */
   entry?: Repertoire;
   playlistId: string;
   /** The band being browsed, or `null` in personal context. */
@@ -36,9 +41,16 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
 }
 
 /**
- * One song of `/playlists/[id]`: identity (linked to Fast View when the owner
- * has a repertoire entry), duration, mastery status, the remove button and the
- * per-song tag row. Moved out of the page by RH-68 with its markup unchanged.
+ * One song of `/playlists/[id]`: identity (always linked to Fast View),
+ * duration, mastery status, the remove button and the per-song tag row. Moved
+ * out of the page by RH-68 with its markup unchanged.
+ *
+ * RH-132 made the link unconditional. Fast View is addressed by
+ * `song_versions.id` now and the owner comes from `?bandId=`, so a row the
+ * owner holds no repertoire entry for opens at version defaults, read-only —
+ * it is no longer a dead identity line. The `entry` prop stays: `StatusNotes`
+ * and the tag row still read it, and its absence is still "not in this
+ * repertoire", which they render as `unknown` and no tags.
  */
 export function PlaylistSongRow({
   playlistSong: ps,
@@ -53,16 +65,12 @@ export function PlaylistSongRow({
   return (
     <li className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 hover:shadow transition-all group">
       <div className="flex items-center gap-3">
-        {entry ? (
-          <Link
-            href={`/songs/${entry.id}/fast-view?returnTo=/playlists/${playlistId}${bandId ? `&bandId=${bandId}` : ''}`}
-            className="flex-1 flex items-center gap-3 min-w-0"
-          >
-            <PlaylistSongIdentity song={ps.song} label={ps.label} linked />
-          </Link>
-        ) : (
-          <PlaylistSongIdentity song={ps.song} label={ps.label} linked={false} />
-        )}
+        <Link
+          href={`/songs/${ps.version_id}/fast-view?returnTo=/playlists/${playlistId}${bandId ? `&bandId=${bandId}` : ''}`}
+          className="flex-1 flex items-center gap-3 min-w-0"
+        >
+          <PlaylistSongIdentity song={ps.song} label={ps.label} linked />
+        </Link>
         {ps.song?.duration_seconds != null && (
           <span className="text-xs text-gray-400 shrink-0 tabular-nums">
             {formatPlaylistDuration(ps.song.duration_seconds)}

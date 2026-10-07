@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongEntry, type SongEntryActions, type UseSongEntryOptions } from '@/hooks/useSongEntry'
 import { logger } from '@/lib/logger'
-import type { Song, Repertoire } from '@/types/database'
+import type { Song, Repertoire, ResolvedSongEntry } from '@/types/database'
 
 vi.mock('@/lib/logger', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -23,10 +23,9 @@ const SONG: Song = {
   created_at: '2026-01-01T00:00:00.000Z',
 }
 
-const BAND_ENTRY: Repertoire = {
-  id: 'rep-band',
-  user_id: null,
-  band_id: 'band-1',
+/** The route entry, version-addressed and owner-resolved since RH-132. */
+const BAND_ENTRY: ResolvedSongEntry = {
+  ownerRowId: 'rep-band',
   song_id: 'song-1',
   version_id: 'version-1',
   key: null,
@@ -39,19 +38,28 @@ const BAND_ENTRY: Repertoire = {
   song: SONG,
 }
 
+/** The member's own row stays a `Repertoire`, read by song id (RH-132 ER14). */
 const PERSONAL_ENTRY: Repertoire = {
-  ...BAND_ENTRY,
   id: 'rep-personal',
   user_id: 'user-1',
   band_id: null,
+  song_id: 'song-1',
+  version_id: 'version-1',
+  key: null,
+  tuning: null,
+  map: null,
+  status: 'learning',
+  tags: ['rock'],
+  last_practiced: null,
   lyrics: 'my words',
+  song: SONG,
 }
 
 type ActionSpies = { [K in keyof SongEntryActions]: Mock }
 
 function makeActions(): ActionSpies {
   return {
-    getSongEntry: vi.fn().mockResolvedValue(BAND_ENTRY),
+    getResolvedEntryForVersion: vi.fn().mockResolvedValue(BAND_ENTRY),
     getPersonalEntryForSong: vi.fn().mockResolvedValue(PERSONAL_ENTRY),
   }
 }
@@ -59,7 +67,7 @@ function makeActions(): ActionSpies {
 function setup(overrides: Partial<UseSongEntryOptions> = {}) {
   const actions = (overrides.actions as ActionSpies | undefined) ?? makeActions()
   const initialProps: UseSongEntryOptions = {
-    repertoireId: 'rep-band',
+    versionId: 'version-1',
     bandId: 'band-1',
     ...overrides,
     actions,
@@ -84,7 +92,7 @@ describe('useSongEntry', () => {
 
     await flush()
 
-    expect(actions.getSongEntry).toHaveBeenCalledWith('rep-band', 'band-1')
+    expect(actions.getResolvedEntryForVersion).toHaveBeenCalledWith('version-1', 'band-1')
     expect(result.current.entry).toEqual(BAND_ENTRY)
     expect(result.current.loading).toBe(false)
     expect(result.current.notFound).toBe(false)
@@ -93,7 +101,7 @@ describe('useSongEntry', () => {
 
   it('reports not found when the entry does not exist', async () => {
     const actions = makeActions()
-    actions.getSongEntry.mockResolvedValue(null)
+    actions.getResolvedEntryForVersion.mockResolvedValue(null)
     const { result } = setup({ actions })
 
     await flush()
@@ -106,7 +114,7 @@ describe('useSongEntry', () => {
 
   it('reports not found when the entry load throws', async () => {
     const actions = makeActions()
-    actions.getSongEntry.mockRejectedValue(new Error('Access denied'))
+    actions.getResolvedEntryForVersion.mockRejectedValue(new Error('Access denied'))
     const { result } = setup({ actions })
 
     await flush()
@@ -127,7 +135,7 @@ describe('useSongEntry', () => {
 
   it('does not load a personal entry outside a band context', async () => {
     const actions = makeActions()
-    actions.getSongEntry.mockResolvedValue(PERSONAL_ENTRY)
+    actions.getResolvedEntryForVersion.mockResolvedValue({ ...BAND_ENTRY, ownerRowId: 'rep-personal' })
     const { result, actions: spies } = setup({ actions, bandId: null })
 
     await flush()
@@ -153,15 +161,15 @@ describe('useSongEntry', () => {
   it('refetches the entry when the band id from the query changes', async () => {
     const { rerender, actions, initialProps } = setup()
     await flush()
-    expect(actions.getSongEntry).toHaveBeenCalledTimes(1)
+    expect(actions.getResolvedEntryForVersion).toHaveBeenCalledTimes(1)
 
     // Only `?bandId=` changes: the route id is the same. The load effect must
     // still refetch, i.e. its dependency array carries the band id (F26).
     rerender({ ...initialProps, bandId: 'band-2' })
     await flush()
 
-    expect(actions.getSongEntry).toHaveBeenCalledTimes(2)
-    expect(actions.getSongEntry).toHaveBeenLastCalledWith('rep-band', 'band-2')
+    expect(actions.getResolvedEntryForVersion).toHaveBeenCalledTimes(2)
+    expect(actions.getResolvedEntryForVersion).toHaveBeenLastCalledWith('version-1', 'band-2')
   })
 
   it('exposes the tab library inputs taken from the two entries', async () => {
@@ -172,6 +180,68 @@ describe('useSongEntry', () => {
     expect(result.current.entryBandId).toBe('band-1')
     expect(result.current.songId).toBe('song-1')
     expect(result.current.personalRepertoireId).toBe('rep-personal')
+  })
+
+  /**
+   * RH-132 ER14 — `entryBandId` comes from the hook's own `bandId` option.
+   *
+   * `ResolvedSongEntry` carries no `band_id` at all, and the option is the
+   * page's `?bandId=` — the very parameter `resolveOwner` derived the owner
+   * from, so the two are equal by construction rather than merely both present.
+   */
+  it('takes entryBandId from the bandId option, not from the entry', async () => {
+    const { result } = setup({ bandId: 'band-from-the-query' })
+
+    await flush()
+
+    expect(result.current.entryBandId).toBe('band-from-the-query')
+    expect(result.current.entry).not.toHaveProperty('band_id')
+  })
+
+  it('takes entryBandId as null outside a band', async () => {
+    const { result } = setup({ bandId: null })
+
+    await flush()
+
+    expect(result.current.entryBandId).toBeNull()
+  })
+
+  /** RH-132 ER14 — the personal read stays song-keyed, never version-keyed. */
+  it('reads the personal entry by song id, never by the route version id', async () => {
+    const { result, actions } = setup()
+
+    await flush()
+
+    expect(actions.getPersonalEntryForSong).toHaveBeenCalledWith('song-1')
+    expect(actions.getPersonalEntryForSong).not.toHaveBeenCalledWith('version-1')
+    expect(result.current.personalRepertoireId).toBe(PERSONAL_ENTRY.id)
+  })
+
+  /**
+   * RH-132 — the version a *different* owner holds no row for.
+   *
+   * `getResolvedEntryForVersion` answers a full entry with `ownerRowId: null`,
+   * `status: null` and `tags: []`, inheriting key/tuning/lyrics/map from the
+   * version. That is a page that renders, not a not-found.
+   */
+  it('exposes a resolved entry whose owner holds no row, without reporting not found', async () => {
+    const actions = makeActions()
+    actions.getResolvedEntryForVersion.mockResolvedValue({
+      ...BAND_ENTRY,
+      ownerRowId: null,
+      status: null,
+      tags: [],
+      last_practiced: null,
+    })
+    const { result } = setup({ actions })
+
+    await flush()
+
+    expect(result.current.notFound).toBe(false)
+    expect(result.current.entry?.ownerRowId).toBeNull()
+    expect(result.current.entry?.status).toBeNull()
+    expect(result.current.entry?.tags).toEqual([])
+    expect(result.current.identity.title).toBe('Black Dog')
   })
 
   it('applyStatus patches the entry status', async () => {

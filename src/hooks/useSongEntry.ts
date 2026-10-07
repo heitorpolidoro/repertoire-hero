@@ -8,7 +8,7 @@ import {
   withStatus,
   type SongEntryController,
 } from '@/lib/songEntry'
-import type { Repertoire, SongLink, SongStatus } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
 
 /**
  * The entry Server Actions the controller calls. Injected rather than imported,
@@ -16,13 +16,25 @@ import type { Repertoire, SongLink, SongStatus } from '@/types/database'
  * Required and never defaulted — a default would have to import that tree.
  */
 export interface SongEntryActions {
-  getSongEntry: (repertoireId: string, bandId: string | null) => Promise<Repertoire | null>
+  /**
+   * The route's entry, resolved for `(owner, version)` (RH-132).
+   *
+   * Online it never answers `null` and throws for a version that does not
+   * exist; the offline-first wrapper *can* answer `null`, meaning "this song is
+   * in no downloaded playlist", which is what the not-found branch below
+   * absorbs.
+   */
+  getResolvedEntryForVersion: (
+    versionId: string,
+    bandId: string | null,
+  ) => Promise<ResolvedSongEntry | null>
+  /** Song-keyed, not version-keyed — RH-132 §3a says why it stays that way. */
   getPersonalEntryForSong: (songId: string) => Promise<Repertoire | null>
 }
 
 export interface UseSongEntryOptions {
-  /** The route's repertoire id, i.e. `useParams().id`. */
-  repertoireId: string
+  /** The route's `song_versions.id`, i.e. `useParams().versionId` (RH-132). */
+  versionId: string
   /** From the page's `useSearchParams().get('bandId')` — F26. */
   bandId: string | null
   /** Required, never defaulted — see `src/app/fastViewEntryActions.ts` (F21). */
@@ -43,13 +55,18 @@ export interface UseSongEntryOptions {
  * The dependency array carries `bandId`, which the page derives from
  * `useSearchParams()`: a navigation that changes only `?bandId=` refetches
  * (F26).
+ *
+ * Since RH-132 the route entry is a `ResolvedSongEntry` read by
+ * `(versionId, bandId)`, so a version whose owner holds no row resolves to a
+ * readable page with `ownerRowId: null` instead of a not-found. The personal
+ * read below is unchanged and still keyed by `data.song_id`.
  */
 export function useSongEntry({
-  repertoireId,
+  versionId,
   bandId,
   actions,
 }: UseSongEntryOptions): SongEntryController {
-  const [entry, setEntry] = useState<Repertoire | null>(null)
+  const [entry, setEntry] = useState<ResolvedSongEntry | null>(null)
   const [personalEntry, setPersonalEntry] = useState<Repertoire | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingPersonal, setLoadingPersonal] = useState(false)
@@ -60,7 +77,7 @@ export function useSongEntry({
 
     async function load() {
       try {
-        const data = await actions.getSongEntry(repertoireId, bandId)
+        const data = await actions.getResolvedEntryForVersion(versionId, bandId)
         if (cancelled) return
         if (!data) {
           setNotFound(true)
@@ -99,7 +116,7 @@ export function useSongEntry({
 
     load()
     return () => { cancelled = true }
-  }, [actions, bandId, repertoireId])
+  }, [actions, bandId, versionId])
 
   const applyStatus = useCallback(
     (status: SongStatus) => setEntry((prev) => withStatus(prev, status)),
@@ -128,9 +145,13 @@ export function useSongEntry({
     loadingPersonal,
     notFound,
     identity: songIdentity(entry),
-    entryBandId: entry?.band_id ?? null,
+    // The page's `?bandId=`, not a field of the entry: `ResolvedSongEntry`
+    // carries no `band_id`, and this option is the parameter the owner was
+    // resolved from in the first place (RH-132 §3a).
+    entryBandId: bandId,
     songId: entry?.song_id ?? null,
     personalRepertoireId: personalEntry?.id ?? null,
+    ownerRowId: entry?.ownerRowId ?? null,
     adoptPersonalEntry: setPersonalEntry,
     applyStatus,
     applyLinks,

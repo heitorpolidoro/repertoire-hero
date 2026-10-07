@@ -11,9 +11,10 @@ export interface SetlistPanelProps {
   /** The header row's classes, which is all the two surfaces disagree about. */
   headerClassName: string
   entries: PlaylistEntry[]
-  currentRepertoireId: string
+  /** The route's `song_versions.id`, matched against each entry's own (RH-132). */
+  currentVersionId: string
   variant: SetlistRowVariant
-  onSelect: (repertoireId: string) => void
+  onSelect: (versionId: string) => void
 }
 
 /**
@@ -26,7 +27,7 @@ export function SetlistPanel({
   trailing,
   headerClassName,
   entries,
-  currentRepertoireId,
+  currentVersionId,
   variant,
   onSelect,
 }: SetlistPanelProps) {
@@ -50,7 +51,10 @@ export function SetlistPanel({
             key={entry.versionId}
             index={index}
             entry={entry}
-            isCurrent={entry.repertoireId === currentRepertoireId}
+            // By `versionId` since RH-132: the prop carries a version id, so
+            // comparing it to an owner row id would never match and no row
+            // would ever be marked current.
+            isCurrent={entry.versionId === currentVersionId}
             variant={variant}
             onSelect={onSelect}
           />

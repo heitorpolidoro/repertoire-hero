@@ -318,12 +318,12 @@ export async function getPlaylistWithSongs(id: string, userId: string): Promise<
  * One playlist entry as the fast view consumes it: the **version** it names,
  * plus the repertoire row that owner context holds for it — if it holds one.
  *
- * `versionId` is the entry's identity and is always non-null. `repertoireId` is
- * nullable (RH-125): an owner holding no row is information, not an error, and
- * the entry is returned either way. It stays on the entry because Fast View is
- * still addressed by the owner row's id — re-addressing it by version is
- * RH-109 — so an entry with a null one has no Fast View address yet and is
- * rendered non-interactive.
+ * `versionId` is the entry's identity and is always non-null. It is also the
+ * Fast View address since RH-132, so **every** entry is navigable.
+ * `repertoireId` is nullable (RH-125): an owner holding no row is information,
+ * not an error, and the entry is returned either way. It stays on the entry
+ * because the setlist still shows *that* — the muted "Not in repertoire" chip —
+ * but it no longer decides whether a row can be opened.
  */
 export interface PlaylistEntrySummary {
   repertoireId: string | null

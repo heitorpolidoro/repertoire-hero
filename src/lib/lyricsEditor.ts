@@ -15,7 +15,16 @@
  * receive without importing the hook that builds it.
  */
 
-/** The slice of a repertoire row the lyrics helpers read. `Repertoire` fits structurally. */
+/**
+ * The slice of a repertoire row the lyrics helpers read.
+ *
+ * `Repertoire` fits structurally and `personalEntry` still is one. The route
+ * entry is a `ResolvedSongEntry` since RH-132 and carries no `band_id`, so
+ * `useLyricsEditor` builds this shape at the hook boundary from the page's
+ * `?bandId=` plus the entry's `lyrics` — rather than letting `band_id` go
+ * undefined, which would collapse `resolveLyricsVersion` to always `'band'`
+ * and remove band members' personal lyrics from Fast View outright (§3b).
+ */
 export interface LyricsSource {
   band_id: string | null
   lyrics: string | null
@@ -95,7 +104,17 @@ export function seedLyricsDraft(
   return entry?.lyrics ?? ''
 }
 
-/** Where a lyrics save is issued. A null `repertoireId` means "create the personal entry first". */
+/**
+ * Where a lyrics save is issued.
+ *
+ * A null `repertoireId` means **one of two things**, told apart by
+ * `toPersonalEntry` (RH-132 §3c):
+ *
+ *   - `toPersonalEntry: true` — the member has no personal row yet, so the
+ *     save creates one and writes to it (RH-83, shipped).
+ *   - `toPersonalEntry: false` — the *addressed owner* holds no row at this
+ *     version. Nothing may be created and nothing may be written.
+ */
 export interface LyricsSaveTarget {
   repertoireId: string | null
   /** The `bandId` argument of `updateLyrics`; null for a personal row. */
@@ -105,7 +124,12 @@ export interface LyricsSaveTarget {
 }
 
 export function resolveLyricsSaveTarget(args: {
-  entryId: string
+  /**
+   * `entry.ownerRowId` — `null` when the addressed owner holds no row at this
+   * version. Never `''`: an empty string is non-null and would skip the
+   * caller's refusal (RH-132 §3b).
+   */
+  entryId: string | null
   entryBandId: string | null
   personalRepertoireId: string | null
   version: LyricsVersion
@@ -118,7 +142,7 @@ export function resolveLyricsSaveTarget(args: {
 
 /** Everything `useLyricsEditor` exposes, declared here so the components never import `src/hooks`. */
 export interface LyricsEditorController {
-  /** `entry.band_id` is set: drives the Band/Personal badge. */
+  /** The page is in band context (its `?bandId=` is set): drives the Band/Personal badge. */
   isBandEntry: boolean
   displayedLyrics: string | null
   /** The version on screen: the badge and the switcher label both read it. */

@@ -24,7 +24,7 @@ import {
   updateSongStatusAction,
   updateSongTagsAction,
   removeSongAction,
-  getSongEntryAction,
+  getResolvedEntryForVersionAction,
   updateSongAction,
   createAndAddSongAction,
   updateLyricsAction,
@@ -45,6 +45,8 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
   let adminUserId: string
   let bandId: string
   let bandEntryId: string
+  /** The `song_versions.id` behind `bandEntryId` — Fast View's address (RH-132). */
+  let bandVersionId: string
   let personalEntryId: string
   let catalogSongId: string
   const createdSongIds: string[] = []
@@ -99,6 +101,11 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
 
     const bandSongId = await createSong(`RH-34 Band Song ${suffix}`)
     bandEntryId = await seedOwnerSong({ bandId }, bandSongId)
+    bandVersionId = (
+      await query<{ version_id: string }>('SELECT version_id FROM band_songs WHERE id = $1', [
+        bandEntryId,
+      ])
+    ).rows[0].version_id
 
     catalogSongId = await createSong(`RH-34 Catalog Song ${suffix}`, [ORIGINAL_LINK])
     personalEntryId = await seedOwnerSong({ userId: userAId }, catalogSongId)
@@ -121,7 +128,11 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       ['updateSongStatusAction', () => updateSongStatusAction(bandEntryId, 'mastered', bandId), true],
       ['updateSongTagsAction', () => updateSongTagsAction(bandEntryId, ['hijacked'], bandId), true],
       ['removeSongAction', () => removeSongAction(bandEntryId, bandId), true],
-      ['getSongEntryAction', () => getSongEntryAction(bandEntryId, bandId), false],
+      [
+        'getResolvedEntryForVersionAction',
+        () => getResolvedEntryForVersionAction(bandVersionId, bandId),
+        false,
+      ],
       [
         'updateSongAction',
         () =>
@@ -160,10 +171,11 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       const repertoire = await getRepertoireAction(bandId)
       expect(repertoire.map((r) => r.id)).toContain(bandEntryId)
 
-      const entry = await getSongEntryAction(bandEntryId, bandId)
+      const entry = await getResolvedEntryForVersionAction(bandVersionId, bandId)
       expect(entry).not.toBeNull()
-      expect(entry!.id).toBe(bandEntryId)
-      expect(entry!.song).toBeDefined()
+      expect(entry.ownerRowId).toBe(bandEntryId)
+      expect(entry.version_id).toBe(bandVersionId)
+      expect(entry.song).toBeDefined()
     })
 
     it('updates status, tags and lyrics on a band entry', async () => {
@@ -180,7 +192,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
 
     it('updates the song behind a band entry', async () => {
       asUser(userAId)
-      const entry = await getSongEntryAction(bandEntryId, bandId)
+      const entry = (await getRepertoireAction(bandId)).find((row) => row.id === bandEntryId)
 
       await updateSongAction(entry!, {
         title: entry!.song!.title,
@@ -292,7 +304,9 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       asUser(userBId)
 
       expect((await getRepertoireAction(bandId)).map((r) => r.id)).toContain(bandEntryId)
-      expect((await getSongEntryAction(bandEntryId, bandId))!.id).toBe(bandEntryId)
+      expect((await getResolvedEntryForVersionAction(bandVersionId, bandId)).ownerRowId).toBe(
+        bandEntryId,
+      )
     })
 
     it('still sets their own personal status, and their own key and tags', async () => {
@@ -334,7 +348,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       createdSongIds.push(created.song_id)
       expect(await bandRowsForSong(created.song_id)).toBe(1)
 
-      const entry = await getSongEntryAction(bandEntryId, bandId)
+      const entry = (await getRepertoireAction(bandId)).find((row) => row.id === bandEntryId)
       await updateSongAction(entry!, {
         title: entry!.song!.title,
         artist: entry!.song!.artist,

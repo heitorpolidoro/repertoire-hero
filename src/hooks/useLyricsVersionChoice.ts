@@ -3,9 +3,9 @@ import {
   hasPersonalVersion as hasPersonalVersionFor,
   resolveLyricsVersion,
   selectDisplayedLyrics,
+  type LyricsSource,
   type LyricsVersion,
 } from '@/lib/lyricsEditor'
-import type { Repertoire } from '@/types/database'
 
 /**
  * The band-vs-personal half of Fast View's lyrics controller (RH-83).
@@ -50,9 +50,17 @@ export interface LyricsVersionChoice {
   cancelDiscard: () => void
 }
 
+/**
+ * Both arguments are `LyricsSource`, the two-field slice the pure helpers read.
+ *
+ * `personalEntry` is a `Repertoire` and fits structurally; the route entry is a
+ * `ResolvedSongEntry` since RH-132 and carries no `band_id`, so
+ * `useLyricsEditor` adapts it at its own boundary from the page's `?bandId=`
+ * (§3b) rather than this hook growing a third parameter.
+ */
 export function useLyricsVersionChoice(
-  entry: Repertoire | null,
-  personalEntry: Repertoire | null,
+  entry: LyricsSource | null,
+  personalEntry: LyricsSource | null,
 ): LyricsVersionChoice {
   const [override, setOverride] = useState<LyricsVersion | null>(null)
   const [editTarget, setEditTarget] = useState<LyricsVersion | null>(null)

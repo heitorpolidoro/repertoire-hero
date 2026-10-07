@@ -94,7 +94,7 @@ import {
   updateSongTagsAction,
   removeSongAction,
   searchSongsAction,
-  getSongEntryAction,
+  getResolvedEntryForVersionAction,
   updateSongAction,
   createAndAddSongAction,
   updateLyricsAction,
@@ -117,6 +117,8 @@ const PLAYLIST_ID = 'playlist-1'
 const REPERTOIRE_ID = 'repertoire-1'
 const SONG_ID = 'song-1'
 const TAB_ID = 'tab-1'
+/** Fast View's entry read is version-addressed since RH-132. */
+const VERSION_ID = 'version-1'
 
 const ENTRY = { id: REPERTOIRE_ID, song_id: SONG_ID } as unknown as Repertoire
 const SONG_PATCH = {
@@ -183,7 +185,10 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   updateSongTagsAction: { run: () => updateSongTagsAction(REPERTOIRE_ID, ['rock'], BAND_ID), mode: 'throws' },
   removeSongAction: { run: () => removeSongAction(REPERTOIRE_ID, BAND_ID), mode: 'throws' },
   searchSongsAction: { run: () => searchSongsAction('nirvana'), mode: 'throws' },
-  getSongEntryAction: { run: () => getSongEntryAction(REPERTOIRE_ID, BAND_ID), mode: 'throws' },
+  getResolvedEntryForVersionAction: {
+    run: () => getResolvedEntryForVersionAction(VERSION_ID, BAND_ID),
+    mode: 'throws',
+  },
   updateSongAction: { run: () => updateSongAction(ENTRY, SONG_PATCH, BAND_ID), mode: 'throws' },
   createAndAddSongAction: { run: () => createAndAddSongAction({ title: 'Fresh', artist: 'Someone' }, BAND_ID), mode: 'throws' },
   updateLyricsAction: { run: () => updateLyricsAction(REPERTOIRE_ID, 'la la la', BAND_ID), mode: 'throws' },

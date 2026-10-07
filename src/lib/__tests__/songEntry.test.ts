@@ -6,7 +6,7 @@ import {
   withSongLinks,
   withStatus,
 } from '@/lib/songEntry'
-import type { Song, Repertoire } from '@/types/database'
+import type { Song, ResolvedSongEntry } from '@/types/database'
 
 const SONG: Song = {
   id: 'song-1',
@@ -20,10 +20,14 @@ const SONG: Song = {
   created_at: '2026-01-01T00:00:00.000Z',
 }
 
-const ENTRY: Repertoire = {
-  id: 'rep-1',
-  user_id: 'user-1',
-  band_id: null,
+/**
+ * The route entry is a `ResolvedSongEntry` since RH-132: Fast View addresses a
+ * `song_versions.id` and the owner's row may not exist, so `id` / `user_id` /
+ * `band_id` are gone and `ownerRowId` is nullable. The four helpers below read
+ * only `song`, `key`, `status` and `lyrics`, all present on both shapes.
+ */
+const ENTRY: ResolvedSongEntry = {
+  ownerRowId: 'rep-1',
   song_id: 'song-1',
   version_id: 'version-1',
   key: null,
@@ -37,7 +41,7 @@ const ENTRY: Repertoire = {
 }
 
 /** A row whose join produced no song, i.e. `entry.song` is undefined. */
-const SONGLESS_ENTRY: Repertoire = { ...ENTRY, song: undefined }
+const SONGLESS_ENTRY: ResolvedSongEntry = { ...ENTRY, song: undefined }
 
 describe('songEntry', () => {
   it('shouldLoadPersonalEntry is false outside a band', () => {
@@ -74,6 +78,17 @@ describe('songEntry', () => {
     expect(songIdentity({ ...ENTRY, song: { ...SONG, standard_key: null } }).key).toBeNull()
   })
 
+  it('withStatus carries a null status through, which Repertoire could not hold', () => {
+    // `ResolvedSongEntry.status` is nullable: an owner holding no row at this
+    // version has no mastery status, and `unknown` is the page's fallback, not
+    // the stored value (RH-132 §3).
+    const noRow: ResolvedSongEntry = { ...ENTRY, ownerRowId: null, status: null, tags: [] }
+
+    expect(noRow.status).toBeNull()
+    expect(withStatus(noRow, 'mastered')?.status).toBe('mastered')
+    expect(withStatus(noRow, 'mastered')?.ownerRowId).toBeNull()
+  })
+
   it('withStatus returns a new entry carrying the new status', () => {
     const patched = withStatus(ENTRY, 'mastered')
 
@@ -92,7 +107,7 @@ describe('songEntry', () => {
     const patched = withSongLinks(ENTRY, links)
 
     expect(patched?.song?.links).toEqual(links)
-    expect(patched?.id).toBe('rep-1')
+    expect(patched?.ownerRowId).toBe('rep-1')
     expect(patched?.status).toBe('learning')
     expect(patched).not.toBe(ENTRY)
     expect(ENTRY.song?.links).toEqual([{ label: 'Chords', url: 'https://cifraclub.com.br/black-dog' }])

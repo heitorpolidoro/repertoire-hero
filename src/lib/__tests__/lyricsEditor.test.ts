@@ -184,4 +184,64 @@ describe('lyricsEditor', () => {
       toPersonalEntry: false,
     })
   })
+
+  /**
+   * RH-132 ER12 — the two different nulls, told apart at the source.
+   *
+   * `entryId` is widened to `string | null` because the hook now passes
+   * `entry.ownerRowId`, which is `null` exactly when the *addressed owner*
+   * holds no row at this version. That is **not** the shipped
+   * `personalRepertoireId === null` case: there, `toPersonalEntry` is true and
+   * the save creates the member's row (RH-83). Here `toPersonalEntry` is
+   * false, so the caller can refuse instead of falling into the create branch.
+   *
+   * `entryId` must stay `null` rather than becoming `''`: an empty string is
+   * non-null, so it would skip the refusal and route the save into
+   * `updateLyrics('')`, which resolves no owner row and fails as an opaque
+   * toast instead of a disabled control.
+   */
+  it('resolveLyricsSaveTarget propagates a null owner row as a non-personal null target', () => {
+    expect(
+      resolveLyricsSaveTarget({
+        entryId: null,
+        entryBandId: 'band-1',
+        personalRepertoireId: null,
+        version: 'band',
+      }),
+    ).toEqual({ repertoireId: null, bandId: 'band-1', toPersonalEntry: false })
+  })
+
+  it('resolveLyricsSaveTarget tells the owner-row null apart from the personal-row null', () => {
+    const noOwnerRow = resolveLyricsSaveTarget({
+      entryId: null,
+      entryBandId: 'band-1',
+      personalRepertoireId: null,
+      version: 'band',
+    })
+    const noPersonalRow = resolveLyricsSaveTarget({
+      entryId: 'band-rep',
+      entryBandId: 'band-1',
+      personalRepertoireId: null,
+      version: 'personal',
+    })
+
+    // Both carry `repertoireId: null`; only one of them means "create it".
+    expect(noOwnerRow.repertoireId).toBeNull()
+    expect(noPersonalRow.repertoireId).toBeNull()
+    expect(noOwnerRow.toPersonalEntry).toBe(false)
+    expect(noPersonalRow.toPersonalEntry).toBe(true)
+  })
+
+  it('resolveLyricsSaveTarget still routes a null owner row personal save to the member', () => {
+    // Outside the band branch the owner row is irrelevant: the personal target
+    // is the member's own row, created on save if they have none.
+    expect(
+      resolveLyricsSaveTarget({
+        entryId: null,
+        entryBandId: 'band-1',
+        personalRepertoireId: 'personal-rep',
+        version: 'personal',
+      }),
+    ).toEqual({ repertoireId: 'personal-rep', bandId: null, toPersonalEntry: true })
+  })
 })

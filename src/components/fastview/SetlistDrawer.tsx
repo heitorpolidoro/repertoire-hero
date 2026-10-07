@@ -7,9 +7,10 @@ export interface SetlistDrawerProps {
   open: boolean
   nav: PlaylistNav | null
   entries: PlaylistEntry[]
-  currentRepertoireId: string
+  /** The route's `song_versions.id` (RH-132). */
+  currentVersionId: string
   onClose: () => void
-  onSelect: (repertoireId: string) => void
+  onSelect: (versionId: string) => void
 }
 
 /**
@@ -22,7 +23,7 @@ export function SetlistDrawer({
   open,
   nav,
   entries,
-  currentRepertoireId,
+  currentVersionId,
   onClose,
   onSelect,
 }: SetlistDrawerProps) {
@@ -45,11 +46,11 @@ export function SetlistDrawer({
             </button>
           }
           entries={entries}
-          currentRepertoireId={currentRepertoireId}
+          currentVersionId={currentVersionId}
           variant="drawer"
-          onSelect={(repertoireId) => {
+          onSelect={(versionId) => {
             onClose()
-            onSelect(repertoireId)
+            onSelect(versionId)
           }}
         />
       </div>

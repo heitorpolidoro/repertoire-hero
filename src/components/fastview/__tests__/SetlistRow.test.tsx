@@ -46,12 +46,12 @@ describe('SetlistRow', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
-  it('calls onSelect with the repertoire id of a non-current entry', () => {
+  it('calls onSelect with the version id of a non-current entry', () => {
     const { onSelect } = renderRow()
 
     expect(screen.queryByText(/NOW/)).toBeNull()
     fireEvent.click(screen.getByRole('button'))
-    expect(onSelect).toHaveBeenCalledWith('rep-2')
+    expect(onSelect).toHaveBeenCalledWith('v-rep-2')
   })
 
   it('adds the sidebar-only ring class only in the sidebar variant', () => {
@@ -73,17 +73,19 @@ describe('SetlistRow', () => {
 })
 
 /**
- * RH-125 — an entry whose owner holds no repertoire row.
+ * RH-132 ER4 — an entry whose owner holds no repertoire row is a target.
  *
- * Fast View is still addressed by the owner row's id (re-addressing it by
- * version is RH-109), so such an entry has nowhere to navigate to. It is
- * rendered all the same: the setlist read returns every entry of the playlist
- * now, and hiding one used to collapse the whole setlist. The mockup's chosen
- * option (`docs/tasks/RH-126-mock.html`, B) is a muted *Not in repertoire*
- * chip on a row that does not invite a tap.
+ * Fast View is addressed by `song_versions.id` now and the owner comes from the
+ * page's `?bandId=`, so a version the owner holds no row for has an address
+ * like any other: the row is interactive, it selects by `versionId`, and it can
+ * be the current song and carry the ▶ NOW pill.
+ *
+ * **The muted *Not in repertoire* chip stays** — it is still true, and it is the
+ * information the RH-126 mockup chose option B for. Only the dead/grey,
+ * `disabled`, "Not in this repertoire yet" state goes.
  */
-describe('an entry with no repertoire row (RH-125)', () => {
-  const UNADDRESSABLE: PlaylistEntry = {
+describe('an entry with no repertoire row (RH-132 ER4)', () => {
+  const NO_OWNER_ROW: PlaylistEntry = {
     repertoireId: null,
     versionId: 'v-rep-9',
     songId: 'song-9',
@@ -91,29 +93,39 @@ describe('an entry with no repertoire row (RH-125)', () => {
     artist: 'Soundgarden',
   }
 
-  it('renders the song, disabled, and says why', () => {
-    renderRow({ entry: UNADDRESSABLE })
+  it('renders the song, enabled, and still says it is not in the repertoire', () => {
+    renderRow({ entry: NO_OWNER_ROW })
     const button = screen.getByRole('button') as HTMLButtonElement
 
     expect(button.textContent).toContain('Spoonman')
     expect(button.textContent).toContain('Soundgarden')
     expect(button.textContent).toContain('Not in repertoire')
-    expect(button.disabled).toBe(true)
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute('title')).toBeNull()
   })
 
-  it('selects nothing when it is clicked', () => {
-    const { onSelect } = renderRow({ entry: UNADDRESSABLE })
+  it('selects it by its version id when it is clicked', () => {
+    const { onSelect } = renderRow({ entry: NO_OWNER_ROW })
 
     fireEvent.click(screen.getByRole('button'))
 
-    expect(onSelect).not.toHaveBeenCalled()
+    expect(onSelect).toHaveBeenCalledWith('v-rep-9')
   })
 
-  it('never shows the NOW badge, even if it were marked current', () => {
-    // Unreachable in the app — the route param is an owner row id — asserted so
-    // a future `?? ''` cannot make a null entry read as the current one.
-    renderRow({ entry: UNADDRESSABLE, isCurrent: true })
+  it('shows the NOW pill when it is the current song', () => {
+    // The state RH-132 makes reachable: the pill used to be guarded on
+    // `repertoireId`, so the current song had the highlight and no pill.
+    renderRow({ entry: NO_OWNER_ROW, isCurrent: true })
 
-    expect(screen.getByRole('button').textContent).not.toContain('NOW')
+    expect(screen.getByRole('button').textContent).toContain('NOW')
+  })
+
+  it('takes the current-row highlight classes, not a dead/grey state', () => {
+    renderRow({ entry: NO_OWNER_ROW, isCurrent: true })
+
+    const className = screen.getByRole('button').className
+    expect(className).toContain('bg-emerald-50')
+    expect(className).not.toContain('cursor-not-allowed')
+    expect(className).not.toContain('text-gray-400 border-gray-100 cursor-not-allowed')
   })
 })

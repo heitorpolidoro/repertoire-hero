@@ -12,7 +12,7 @@ const SHEET_ENTRIES: PlaylistEntry[] = [
   { repertoireId: 'dr-c', versionId: 'v-dr-c', songId: 'sng-c', title: 'Coda', artist: null },
 ]
 
-const NAV = computePlaylistNav(SHEET_ENTRIES, 'dr-b', 'pl-drawer', 'Saturday gig')
+const NAV = computePlaylistNav(SHEET_ENTRIES, 'v-dr-b', 'pl-drawer', 'Saturday gig')
 
 function renderDrawer(props: Partial<React.ComponentProps<typeof SetlistDrawer>> = {}) {
   const onClose = vi.fn()
@@ -22,7 +22,7 @@ function renderDrawer(props: Partial<React.ComponentProps<typeof SetlistDrawer>>
       open
       nav={NAV}
       entries={SHEET_ENTRIES}
-      currentRepertoireId="dr-b"
+      currentVersionId="v-dr-b"
       onClose={onClose}
       onSelect={onSelect}
       {...props}
@@ -71,6 +71,42 @@ describe('SetlistDrawer', () => {
     fireEvent.click(screen.getByText('Coda'))
 
     expect(onClose).toHaveBeenCalledTimes(1)
-    expect(onSelect).toHaveBeenCalledWith('dr-c')
+    expect(onSelect).toHaveBeenCalledWith('v-dr-c')
+  })
+
+  /**
+   * RH-132 ER4 — the current-row highlight survives the rename.
+   *
+   * `SetlistPanel` used to compare `entry.repertoireId === currentRepertoireId`.
+   * With a version id in the prop that comparison is permanently false, so no
+   * row would ever be marked current. The second entry below holds **no owner
+   * row**, which is exactly the case RH-132 makes reachable, and the pill is
+   * asserted specifically: `SetlistRow` guarded it on `repertoireId` too, so a
+   * fix that only drops the grey class leaves the current song with no pill.
+   */
+  it('marks exactly the current row, by version id, even with no owner row', () => {
+    const gapped: PlaylistEntry[] = [
+      SHEET_ENTRIES[0],
+      { repertoireId: null, versionId: 'v-dr-x', songId: 'sng-x', title: 'Spoonman', artist: 'Soundgarden' },
+      SHEET_ENTRIES[2],
+    ]
+    renderDrawer({
+      entries: gapped,
+      currentVersionId: 'v-dr-x',
+      nav: computePlaylistNav(gapped, 'v-dr-x', 'pl-drawer', 'Saturday gig'),
+    })
+
+    // Exactly one ▶ NOW pill in the whole panel, and it is on the second row.
+    const pills = screen.getAllByText(/NOW/)
+    expect(pills).toHaveLength(1)
+    const currentRow = screen.getByText('Spoonman').closest('button')
+    expect(currentRow?.textContent).toContain('NOW')
+    expect(currentRow?.className).toContain('bg-emerald-50')
+
+    for (const title of ['Africa', 'Coda']) {
+      const row = screen.getByText(title).closest('button')
+      expect(row?.textContent).not.toContain('NOW')
+      expect(row?.className).not.toContain('bg-emerald-50')
+    }
   })
 })

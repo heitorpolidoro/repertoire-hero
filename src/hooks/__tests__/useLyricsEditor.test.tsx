@@ -3,15 +3,18 @@ import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useLyricsEditor, type LyricsEditorActions, type UseLyricsEditorOptions } from '@/hooks/useLyricsEditor'
 import { stageHistoryState } from '@/lib/stageHistory'
-import type { Repertoire } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry } from '@/types/database'
 
 afterEach(cleanup)
 afterEach(() => vi.restoreAllMocks())
 
-const BAND_ENTRY: Repertoire = {
-  id: 'band-rep',
-  user_id: null,
-  band_id: 'band-1',
+/**
+ * The route entry is a `ResolvedSongEntry` since RH-132 and carries no
+ * `band_id`: the page's `?bandId=` arrives as the hook's own `bandId` option
+ * instead, which is what the Band/Personal switcher is fed from now (§3b).
+ */
+const BAND_ENTRY: ResolvedSongEntry = {
+  ownerRowId: 'band-rep',
   song_id: 'song-1',
   version_id: 'version-1',
   key: null,
@@ -23,11 +26,22 @@ const BAND_ENTRY: Repertoire = {
   lyrics: 'band words',
 }
 
+/** The same version read outside any band: one version, one text. */
+const SOLO_ENTRY: ResolvedSongEntry = { ...BAND_ENTRY, ownerRowId: 'solo-rep', lyrics: 'my words' }
+
+/** The member's own row stays a `Repertoire`, song-keyed (RH-132 ER14). */
 const PERSONAL_ENTRY: Repertoire = {
-  ...BAND_ENTRY,
   id: 'personal-rep',
   user_id: 'user-1',
   band_id: null,
+  song_id: 'song-1',
+  version_id: 'version-1',
+  key: null,
+  tuning: null,
+  map: null,
+  status: 'learning',
+  tags: [],
+  last_practiced: null,
   lyrics: 'my words',
 }
 
@@ -49,6 +63,7 @@ function setup(overrides: Partial<UseLyricsEditorOptions> = {}) {
   const onPersonalEntryCreated = vi.fn()
   const initialProps: UseLyricsEditorOptions = {
     entry: BAND_ENTRY,
+    bandId: 'band-1',
     personalEntry: PERSONAL_ENTRY,
     songTitle: 'Song Title',
     artist: 'Artist Name',
@@ -126,7 +141,7 @@ describe('useLyricsEditor', () => {
   })
 
   it('opens the editor directly in personal context, with no dialog (ER4)', () => {
-    const { result } = setup({ entry: PERSONAL_ENTRY, personalEntry: null })
+    const { result } = setup({ entry: SOLO_ENTRY, personalEntry: null, bandId: null })
 
     act(() => result.current.startEditing())
 
@@ -513,5 +528,132 @@ describe('useLyricsEditor', () => {
 
     expect(result.current.isStageOpen).toBe(false)
     expect(back).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * RH-132 ER13 — the Band/Personal switcher survives the loss of
+   * `entry.band_id`.
+   *
+   * Every `entry?.band_id` read in this hook is replaced by the page's
+   * `bandId` option, and `useLyricsVersionChoice` is fed a memoized
+   * `LyricsSource { band_id: bandId, lyrics: entry.lyrics }`. The rejected
+   * alternative — letting `band_id` go undefined — collapses
+   * `resolveLyricsVersion` to always `'band'`, which removes band members'
+   * personal lyrics from Fast View outright.
+   */
+  it('reports the band-context switcher from the bandId option', () => {
+    const { result } = setup()
+
+    expect(result.current.isBandEntry).toBe(true)
+    expect(result.current.hasPersonalVersion).toBe(true)
+    expect(result.current.activeVersion).toBe('personal')
+    expect(result.current.displayedLyrics).toBe('my words')
+  })
+
+  it('reports no switcher at all with a null bandId, even with personal lyrics loaded', () => {
+    const { result } = setup({ bandId: null })
+
+    expect(result.current.isBandEntry).toBe(false)
+    expect(result.current.hasPersonalVersion).toBe(false)
+    expect(result.current.activeVersion).toBe('band')
+    // Outside a band the route entry *is* the one text there is.
+    expect(result.current.displayedLyrics).toBe('band words')
+  })
+
+  it('asks which version to edit only in band context', () => {
+    const inBand = setup()
+    act(() => inBand.result.current.startEditing())
+    expect(inBand.result.current.isVersionChoiceOpen).toBe(true)
+    expect(inBand.result.current.isEditing).toBe(false)
+    cleanup()
+
+    const solo = setup({ bandId: null })
+    act(() => solo.result.current.startEditing())
+    expect(solo.result.current.isVersionChoiceOpen).toBe(false)
+    expect(solo.result.current.isEditing).toBe(true)
+  })
+
+  /**
+   * RH-132 ER11 — the create-my-first-personal-chart flow is untouched.
+   *
+   * A band member in band context with a non-null `ownerRowId` and no personal
+   * row: `resolveLyricsSaveTarget` answers `repertoireId: null` with
+   * `toPersonalEntry: true`, so the save creates the row and writes to it.
+   */
+  it('creates the member first personal row and saves into it (RH-83 flow intact)', async () => {
+    const created: Repertoire = { ...PERSONAL_ENTRY, id: 'rep-created', lyrics: '' }
+    const actions = makeActions()
+    actions.addSong.mockResolvedValue(created)
+    const { result, onPersonalEntryCreated, onPersonalLyricsSaved } = setup({
+      actions,
+      personalEntry: null,
+    })
+
+    act(() => result.current.startEditing())
+    act(() => result.current.chooseVersion('personal'))
+    act(() => result.current.setDraft('my own cues'))
+    await act(async () => { await result.current.save() })
+
+    expect(actions.addSong).toHaveBeenCalledWith('song-1')
+    expect(onPersonalEntryCreated).toHaveBeenCalledWith(created)
+    expect(actions.updateLyrics).toHaveBeenCalledTimes(1)
+    expect(actions.updateLyrics).toHaveBeenCalledWith('rep-created', 'my own cues', null)
+    expect(onPersonalLyricsSaved).toHaveBeenCalledWith('my own cues')
+  })
+
+  /**
+   * RH-132 ER12 — the *other* null writes nothing at all.
+   *
+   * `ownerRowId === null` is "the addressed owner holds no row at this
+   * version". The band save target is then `repertoireId: null` with
+   * `toPersonalEntry: false`, and the hook must return rather than fall into
+   * the create branch — and in particular must never call `updateLyrics('')`,
+   * which an `ownerRowId ?? ''` coercion would produce.
+   */
+  describe('with an owner holding no row at this version (RH-132 ER12)', () => {
+    const NO_OWNER_ROW: ResolvedSongEntry = {
+      ...BAND_ENTRY,
+      ownerRowId: null,
+      status: null,
+      tags: [],
+    }
+
+    it('neither creates nor writes on a band save', async () => {
+      const { result, actions, onEntryLyricsSaved, onPersonalLyricsSaved } = setup({
+        entry: NO_OWNER_ROW,
+        personalEntry: null,
+      })
+
+      act(() => result.current.startEditing())
+      act(() => result.current.chooseVersion('band'))
+      act(() => result.current.setDraft('words nobody may store'))
+      await act(async () => { await result.current.save() })
+
+      expect(actions.addSong).not.toHaveBeenCalled()
+      expect(actions.updateLyrics).not.toHaveBeenCalled()
+      expect(onEntryLyricsSaved).not.toHaveBeenCalled()
+      expect(onPersonalLyricsSaved).not.toHaveBeenCalled()
+      expect(result.current.saving).toBe(false)
+    })
+
+    it('never issues a save with an empty or falsy first argument', async () => {
+      const { result, actions } = setup({ entry: NO_OWNER_ROW, personalEntry: null })
+
+      act(() => result.current.startEditing())
+      act(() => result.current.chooseVersion('band'))
+      await act(async () => { await result.current.save() })
+
+      for (const call of actions.updateLyrics.mock.calls) {
+        expect(call[0]).toBeTruthy()
+        expect(call[0]).not.toBe('')
+      }
+      expect(actions.updateLyrics).not.toHaveBeenCalled()
+    })
+
+    it('still renders the inherited lyrics it may not write', () => {
+      const { result } = setup({ entry: NO_OWNER_ROW, personalEntry: null })
+
+      expect(result.current.displayedLyrics).toBe('band words')
+    })
   })
 })

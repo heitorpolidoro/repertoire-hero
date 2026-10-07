@@ -6,8 +6,9 @@ import type { PlaylistEntry, PlaylistNav } from '@/lib/playlistNav'
 export interface SetlistSidebarProps {
   nav: PlaylistNav | null
   entries: PlaylistEntry[]
-  currentRepertoireId: string
-  onSelect: (repertoireId: string) => void
+  /** The route's `song_versions.id` (RH-132). */
+  currentVersionId: string
+  onSelect: (versionId: string) => void
 }
 
 /**
@@ -17,7 +18,7 @@ export interface SetlistSidebarProps {
  * (`w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen`) and
  * are asserted by this component's test, not merely described here.
  */
-export function SetlistSidebar({ nav, entries, currentRepertoireId, onSelect }: SetlistSidebarProps) {
+export function SetlistSidebar({ nav, entries, currentVersionId, onSelect }: SetlistSidebarProps) {
   if (!nav || entries.length === 0) return null
 
   return (
@@ -31,7 +32,7 @@ export function SetlistSidebar({ nav, entries, currentRepertoireId, onSelect }: 
           </span>
         }
         entries={entries}
-        currentRepertoireId={currentRepertoireId}
+        currentVersionId={currentVersionId}
         variant="sidebar"
         onSelect={onSelect}
       />

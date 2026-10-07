@@ -1,5 +1,5 @@
 import {
-  getSongEntryAction,
+  getResolvedEntryForVersionAction,
   getPersonalEntryForSongAction,
   updateSongStatusAction,
   updateSongLinksAction,
@@ -20,7 +20,10 @@ import type { SongStatusActions } from '@/hooks/useSongStatus'
  * file rather than three.
  */
 export const SONG_ENTRY_ACTIONS: SongEntryActions = {
-  getSongEntry: getSongEntryAction,
+  // Version-addressed since RH-132: the route carries a `song_versions.id` and
+  // the owner comes from the page's `?bandId=`. The personal read beside it is
+  // still song-keyed, deliberately (RH-132 §3a).
+  getResolvedEntryForVersion: getResolvedEntryForVersionAction,
   getPersonalEntryForSong: getPersonalEntryForSongAction,
 }
 

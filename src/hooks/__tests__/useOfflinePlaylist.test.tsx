@@ -21,17 +21,41 @@ import {
 } from '@/hooks/useOfflinePlaylist'
 import { OFFLINE_STORE, createOfflineStore } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
-import type { Repertoire, SongFile } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
-function repertoire(id: string): Repertoire {
+/**
+ * The captured `(owner, version)` pair, keyed by the version the entry names.
+ *
+ * `versionId` is `v-rep-N` in this fixture, and `song_id` is `song-rep-N` —
+ * the pairing the entries below carry, so the song-keyed reads stay
+ * distinguishable from the version-keyed one.
+ */
+function resolvedEntry(versionId: string): ResolvedSongEntry {
+  const ownerRowId = versionId.replace(/^v-/, '')
   return {
-    id,
-    user_id: null,
-    band_id: 'band-1',
-    song_id: `song-${id}`,
-    version_id: 'version-1',
+    ownerRowId,
+    song_id: `song-${ownerRowId}`,
+    version_id: versionId,
+    key: null,
+    tuning: null,
+    map: null,
+    status: 'learning',
+    tags: [],
+    last_practiced: null,
+    lyrics: null,
+  }
+}
+
+/** The member's own row, still a `Repertoire` read by song id (RH-132 ER14). */
+function personalRow(songId: string): Repertoire {
+  return {
+    id: `personal-${songId}`,
+    user_id: 'user-1',
+    band_id: null,
+    song_id: songId,
+    version_id: `v-${songId}`,
     key: null,
     tuning: null,
     map: null,
@@ -61,11 +85,11 @@ const ENTRIES = [
 function makeActions(): OfflineDownloadActions {
   return {
     getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Gig', entries: ENTRIES }),
-    getSongEntry: vi.fn((repertoireId: string) => Promise.resolve(repertoire(repertoireId))),
-    getTabs: vi.fn((songId: string) => Promise.resolve([tabRow(`tab-${songId}`, songId)])),
-    getPersonalEntryForSong: vi.fn((songId: string) =>
-      Promise.resolve({ ...repertoire(`personal-${songId}`), band_id: null, song_id: songId }),
+    getResolvedEntryForVersion: vi.fn((versionId: string) =>
+      Promise.resolve(resolvedEntry(versionId)),
     ),
+    getTabs: vi.fn((songId: string) => Promise.resolve([tabRow(`tab-${songId}`, songId)])),
+    getPersonalEntryForSong: vi.fn((songId: string) => Promise.resolve(personalRow(songId))),
   }
 }
 
@@ -130,9 +154,9 @@ describe('useOfflinePlaylist — the happy path', () => {
       '/__offline-tab/pl-1/tab-song-rep-1',
       '/__offline-tab/pl-1/tab-song-rep-2',
     ])
-    expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.repertoireId)).toEqual([
-      'rep-1',
-      'rep-2',
+    expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.versionId)).toEqual([
+      'v-rep-1',
+      'v-rep-2',
     ])
   })
 
@@ -233,10 +257,10 @@ describe('useOfflinePlaylist — the happy path', () => {
     expect(ports.blobs.keysFor('pl-1')).toEqual([])
   })
 
-  it('skips an entry whose repertoire row cannot be read rather than failing the download', async () => {
+  it('skips an entry whose resolved read answers null rather than failing the download', async () => {
     const actions = makeActions()
-    actions.getSongEntry = vi.fn((repertoireId: string) =>
-      Promise.resolve(repertoireId === 'rep-2' ? null : repertoire(repertoireId)),
+    actions.getResolvedEntryForVersion = vi.fn((versionId: string) =>
+      Promise.resolve(versionId === 'v-rep-2' ? null : resolvedEntry(versionId)),
     )
     const { result, ports } = setup({ actions })
 
@@ -245,7 +269,9 @@ describe('useOfflinePlaylist — the happy path', () => {
     })
 
     expect(result.current.status).toBe('downloaded')
-    expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.repertoireId)).toEqual(['rep-1'])
+    expect(
+      ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.versionId),
+    ).toEqual(['v-rep-1'])
   })
 })
 
@@ -322,5 +348,101 @@ describe('useOfflinePlaylist — all-or-nothing (ER10)', () => {
 
     expect(result.current.error).toBeNull()
     expect(result.current.status).toBe('idle')
+  })
+})
+
+/**
+ * RH-132 ER7 — every entry of the playlist is captured.
+ *
+ * The download used to `continue` past an entry carrying no `repertoireId`,
+ * which is what kept `OfflineSongSnapshot`'s key non-null. Fast View is
+ * version-addressed now, so such an entry has an address and a readable page:
+ * skipping it would leave the musician a downloaded setlist with holes in it.
+ */
+describe('the download captures every entry (RH-132 ER7)', () => {
+  const GAPPED = [
+    { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
+    { repertoireId: null, versionId: 'v-rep-9', songId: 'song-rep-9', title: 'Spoonman', artist: 'Soundgarden' },
+    { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-rep-2', title: 'Faroeste Caboclo', artist: null },
+  ]
+
+  it('saves all three songs, one of them keyed by the entry with no owner row', async () => {
+    const actions = makeActions()
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: GAPPED })
+    // The middle entry resolves at version defaults: no owner row at all.
+    vi.mocked(actions.getResolvedEntryForVersion).mockImplementation((versionId: string) =>
+      Promise.resolve(
+        versionId === 'v-rep-9'
+          ? { ...resolvedEntry(versionId), ownerRowId: null, status: null, tags: [] }
+          : resolvedEntry(versionId),
+      ),
+    )
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    const saved = ports.records.rows.get('pl-1')?.snapshot.songs
+    expect(saved).toHaveLength(3)
+    expect(saved?.map((song) => song.versionId)).toEqual(['v-rep-1', 'v-rep-9', 'v-rep-2'])
+    const captured = saved?.find((song) => song.versionId === 'v-rep-9')
+    expect(captured?.repertoire.ownerRowId).toBeNull()
+    expect(captured?.entry.repertoireId).toBeNull()
+    // Read by version, never by the owner row id the entry does not have.
+    expect(vi.mocked(actions.getResolvedEntryForVersion).mock.calls.map(([id]) => id)).toEqual([
+      'v-rep-1',
+      'v-rep-9',
+      'v-rep-2',
+    ])
+  })
+
+  /**
+   * The per-entry `try` / `continue` the two old `continue`s used to provide.
+   *
+   * The replacement read **throws** for a version that no longer exists
+   * (`ownerSongs.ts`, "Song version not found"), so a version deleted between
+   * the playlist read and the capture would abort the whole download instead of
+   * dropping one song.
+   */
+  it('drops one unreadable entry rather than failing the whole download', async () => {
+    const actions = makeActions()
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: GAPPED })
+    vi.mocked(actions.getResolvedEntryForVersion).mockImplementation((versionId: string) =>
+      versionId === 'v-rep-9'
+        ? Promise.reject(new Error('Failed to resolve song version: Song version not found'))
+        : Promise.resolve(resolvedEntry(versionId)),
+    )
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.status).toBe('downloaded')
+    expect(result.current.error).toBeNull()
+    const saved = ports.records.rows.get('pl-1')?.snapshot.songs
+    expect(saved?.map((song) => song.versionId)).toEqual(['v-rep-1', 'v-rep-2'])
+  })
+
+  it('still skips an entry whose read answers null', async () => {
+    const actions = makeActions()
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: GAPPED })
+    vi.mocked(actions.getResolvedEntryForVersion).mockImplementation((versionId: string) =>
+      Promise.resolve(versionId === 'v-rep-9' ? null : resolvedEntry(versionId)),
+    )
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.versionId)).toEqual([
+      'v-rep-1',
+      'v-rep-2',
+    ])
   })
 })

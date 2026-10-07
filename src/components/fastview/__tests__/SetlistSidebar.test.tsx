@@ -12,7 +12,7 @@ const COLUMN_SONGS: PlaylistEntry[] = [
   { repertoireId: 'sb-3', versionId: 'v-sb-3', songId: 'tune-3', title: 'Freebird', artist: null },
 ]
 
-const NAV = computePlaylistNav(COLUMN_SONGS, 'sb-2', 'pl-sidebar', 'Sunday matinee')
+const NAV = computePlaylistNav(COLUMN_SONGS, 'v-sb-2', 'pl-sidebar', 'Sunday matinee')
 
 function renderSidebar(props: Partial<React.ComponentProps<typeof SetlistSidebar>> = {}) {
   const onSelect = vi.fn()
@@ -20,7 +20,7 @@ function renderSidebar(props: Partial<React.ComponentProps<typeof SetlistSidebar
     <SetlistSidebar
       nav={NAV}
       entries={COLUMN_SONGS}
-      currentRepertoireId="sb-2"
+      currentVersionId="v-sb-2"
       onSelect={onSelect}
       {...props}
     />,
@@ -71,6 +71,6 @@ describe('SetlistSidebar', () => {
     const { onSelect } = renderSidebar()
 
     fireEvent.click(screen.getByText('Dazed and Confused'))
-    expect(onSelect).toHaveBeenCalledWith('sb-1')
+    expect(onSelect).toHaveBeenCalledWith('v-sb-1')
   })
 })

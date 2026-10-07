@@ -8,7 +8,7 @@ import {
   type OfflineSongInput,
   type OfflineStore,
 } from '@/lib/offlineStore'
-import type { Repertoire, SongFile } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
 /**
  * The Server Actions the download reads through. Injected rather than imported,
@@ -22,17 +22,25 @@ import type { Repertoire, SongFile } from '@/types/database'
  * is fail-soft and cannot break a download.
  *
  * `getTabs` takes a **song id** since RH-123, not a repertoire row id. That is
- * where the plan's recorded defect lived: in band context `entry.repertoireId`
- * is the *band* row, so the snapshot took the band's files and skipped the
- * member's own. Passing the song id to an action that resolves by the session's
+ * where the plan's recorded defect lived: in band context the band's row is not
+ * the member's, so the snapshot took the band's files and skipped the member's
+ * own. Passing the song id to an action that resolves by the session's
  * `user_id` captures the downloader's own files instead.
+ *
+ * The entry read is version-addressed since RH-132, which is what lets the
+ * capture cover **every** entry of the playlist — the ones whose owner holds no
+ * row included. `getTabs` and `getPersonalEntryForSong` are unchanged: both are
+ * song-keyed and resolve through `repertoire.song_id`.
  */
 export interface OfflineDownloadActions {
   getPlaylistDetailsWithEntries: (
     playlistId: string,
     bandId?: string | null,
   ) => Promise<{ name: string; entries: PlaylistEntry[] }>
-  getSongEntry: (repertoireId: string, bandId?: string | null) => Promise<Repertoire | null>
+  getResolvedEntryForVersion: (
+    versionId: string,
+    bandId?: string | null,
+  ) => Promise<ResolvedSongEntry | null>
   getTabs: (songId: string) => Promise<SongFile[]>
   getPersonalEntryForSong: (songId: string) => Promise<Repertoire | null>
 }
@@ -95,15 +103,17 @@ function messageOf(error: unknown): string {
 /**
  * Reads everything one playlist needs offline, through the injected actions.
  *
- * An entry whose repertoire row cannot be read is skipped rather than failing
- * the download: it is a row the caller may not read in this owner context, and
- * Fast View could not show it online either.
+ * **Every entry is captured** since RH-132: the read is keyed by
+ * `entry.versionId`, which every entry carries, so an owner holding no row at
+ * that version no longer means "skip it". Such an entry is a readable Fast View
+ * page at version defaults, and a downloaded setlist with holes in it would be
+ * worse offline than online.
  *
- * Since RH-125 an entry may carry **no** repertoire row id at all — the setlist
- * read returns every entry of the playlist, held or not — and that is skipped
- * by the same `continue`, before the round trip rather than after it. Which is
- * what keeps `OfflineSongSnapshot.repertoireId` non-null: the entries that
- * reach the snapshot are exactly the ones that survived this loop.
+ * The per-entry `try` / `continue` is what the two RH-125 `continue`s used to
+ * provide and is still needed, for a different reason: the version-keyed read
+ * **throws** for a version that does not exist, so one deleted between the
+ * playlist read and the capture would otherwise abort the whole download rather
+ * than drop one song.
  */
 async function gatherSongs(
   actions: OfflineDownloadActions,
@@ -112,16 +122,31 @@ async function gatherSongs(
 ): Promise<OfflineSongInput[]> {
   const songs: OfflineSongInput[] = []
   for (const entry of entries) {
-    if (!entry.repertoireId) continue
-    const repertoire = await actions.getSongEntry(entry.repertoireId, bandId)
+    let repertoire: ResolvedSongEntry | null
+    // Scoped to this one read on purpose, and no wider: a `getTabs` or
+    // `getPersonalEntryForSong` failure must still fail the whole download,
+    // which is the all-or-nothing contract the store and this controller share.
+    try {
+      repertoire = await actions.getResolvedEntryForVersion(entry.versionId, bandId)
+    } catch (cause) {
+      // One unreadable entry — a revoked owner context, or a version deleted
+      // between the playlist read and the capture, which this read throws for
+      // rather than answering null — drops out instead of aborting everything.
+      logger.error('Skipped a playlist entry during the offline capture', cause, {
+        versionId: entry.versionId,
+      })
+      continue
+    }
     if (!repertoire) continue
-    // The song id, never `entry.repertoireId`: in band context that is the
-    // band's row, and the band holds no files at all now. Resolved by the
-    // session's `user_id`, so this captures the downloader's own charts (RH-123).
+    // The song id, never the owner row id: in band context that is the band's
+    // row, and the band holds no files at all now. Resolved by the session's
+    // `user_id`, so this captures the downloader's own charts (RH-123).
     const tabs = await actions.getTabs(repertoire.song_id)
     // Only in band context: outside one there is no second version to capture,
     // and `repertoire` already *is* the member's own row.
-    const personalRepertoire = bandId ? await actions.getPersonalEntryForSong(repertoire.song_id) : null
+    const personalRepertoire = bandId
+      ? await actions.getPersonalEntryForSong(repertoire.song_id)
+      : null
     songs.push({ entry, repertoire, personalRepertoire, tabs })
   }
   return songs

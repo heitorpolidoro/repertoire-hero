@@ -1,14 +1,15 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   resolveLyricsSaveTarget,
   seedLyricsDraft,
   type LyricsEditorController,
+  type LyricsSource,
   type LyricsVersion,
 } from '@/lib/lyricsEditor'
 import { useLyricsStage } from '@/hooks/useLyricsStage'
 import { useLyricsVersionChoice } from '@/hooks/useLyricsVersionChoice'
 import type { ToastTone } from '@/lib/uiTones'
-import type { Repertoire } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry } from '@/types/database'
 
 /**
  * The lyrics Server Actions the controller calls. Injected rather than imported,
@@ -27,8 +28,23 @@ export interface LyricsEditorActions {
 }
 
 export interface UseLyricsEditorOptions {
-  /** The route's entry; null until it loads. Owned by the page (RH-52). */
-  entry: Repertoire | null
+  /**
+   * The route's entry; null until it loads. Owned by the page (RH-52).
+   *
+   * A `ResolvedSongEntry` since RH-132: `ownerRowId` is the row every write
+   * targets, and it is `null` when the addressed owner holds no row at this
+   * version.
+   */
+  entry: ResolvedSongEntry | null
+  /**
+   * The page's `?bandId=` (RH-132 §3b).
+   *
+   * `ResolvedSongEntry` has no `band_id`, and this hook's three former reads of
+   * it — the choice dialog, the save target's `entryBandId` and `isBandEntry` —
+   * all come from here now. It also feeds the memoized `LyricsSource` the pure
+   * helpers decide the Band/Personal switcher from.
+   */
+  bandId: string | null
   /** The member's own entry in band context, else null. Owned by the page (RH-52). */
   personalEntry: Repertoire | null
   /** `entry.song?.title ?? '(untitled)'` — the auto-import query and its toast. */
@@ -61,6 +77,7 @@ export interface UseLyricsEditorOptions {
  */
 export function useLyricsEditor({
   entry,
+  bandId,
   personalEntry,
   songTitle,
   artist,
@@ -75,25 +92,33 @@ export function useLyricsEditor({
   const [saving, setSaving] = useState(false)
   const [fetching, setFetching] = useState(false)
   const stage = useLyricsStage()
-  const choice = useLyricsVersionChoice(entry, personalEntry)
+  // The adapter of §3b: `ResolvedSongEntry` carries no `band_id`, and the pure
+  // helpers decide the whole Band/Personal switcher from one. Null-ness is
+  // preserved rather than flattened, because `selectDisplayedLyrics` branches
+  // on it.
+  const source = useMemo<LyricsSource | null>(
+    () => (entry ? { band_id: bandId, lyrics: entry.lyrics } : null),
+    [bandId, entry],
+  )
+  const choice = useLyricsVersionChoice(source, personalEntry)
   const displayed = choice.displayedLyrics
 
   const chooseVersion = useCallback(
     (version: LyricsVersion) => {
-      setDraft(seedLyricsDraft(version, entry, personalEntry))
+      setDraft(seedLyricsDraft(version, source, personalEntry))
       choice.startEditingVersion(version)
       setIsEditing(true)
     },
-    [choice, entry, personalEntry],
+    [choice, personalEntry, source],
   )
 
   // Band context always asks, including once a personal version exists: the
   // operator chose consistency over fewer taps (RH-83 ER4).
   const startEditing = useCallback(() => {
     if (!entry) return
-    if (entry.band_id) choice.openChoice()
+    if (bandId) choice.openChoice()
     else chooseVersion('band')
-  }, [choice, chooseVersion, entry])
+  }, [bandId, choice, chooseVersion, entry])
 
   const cancelEditing = useCallback(() => {
     setDraft(displayed ?? '')
@@ -103,15 +128,25 @@ export function useLyricsEditor({
 
   const save = useCallback(async () => {
     if (!entry) return
+    const version = choice.editTarget ?? choice.activeVersion
+    const target = resolveLyricsSaveTarget({
+      // Never `?? ''`: an empty string is non-null, so it would skip the
+      // refusal below and route the save into `updateLyrics('')`, which
+      // resolves no owner row and fails as an opaque toast (RH-132 §3b).
+      entryId: entry.ownerRowId,
+      entryBandId: bandId,
+      personalRepertoireId: personalEntry?.id ?? null,
+      version,
+    })
+    // The second of §3c's two nulls: `toPersonalEntry` false with no
+    // repertoire id is "the addressed owner holds no row at this version".
+    // Nothing may be created and nothing may be written, so this returns
+    // instead of falling into the create branch below — which is reserved for
+    // `personalRepertoireId === null`, the shipped RH-83 flow. The save
+    // control is already disabled; this is the guard behind it.
+    if (target.repertoireId === null && !target.toPersonalEntry) return
     try {
       setSaving(true)
-      const version = choice.editTarget ?? choice.activeVersion
-      const target = resolveLyricsSaveTarget({
-        entryId: entry.id,
-        entryBandId: entry.band_id,
-        personalRepertoireId: personalEntry?.id ?? null,
-        version,
-      })
       // A whitespace-only personal draft is the same act as Discard my version:
       // an empty personal `lyrics` is exactly "no personal version" (ER8).
       const text = target.toPersonalEntry && !draft.trim() ? '' : draft
@@ -136,6 +171,7 @@ export function useLyricsEditor({
     }
   }, [
     actions,
+    bandId,
     choice,
     draft,
     entry,
@@ -192,7 +228,7 @@ export function useLyricsEditor({
   }, [actions, artist, notify, songTitle])
 
   return {
-    isBandEntry: !!entry?.band_id,
+    isBandEntry: !!bandId,
     displayedLyrics: displayed,
     activeVersion: choice.activeVersion,
     hasPersonalVersion: choice.hasPersonalVersion,

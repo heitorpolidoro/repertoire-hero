@@ -31,7 +31,7 @@ const FAST_VIEW_SONG_PREFIX = 'E2E Mobile FastView Song'
 test.use({ storageState: AUTH_STATE_PATH })
 
 // The dev server compiles routes on first hit, so the first test to reach
-// /songs/[id]/fast-view can pay a large one-off compile cost on top of the
+// /songs/[versionId]/fast-view can pay a large one-off compile cost on top of
 // the hydration retry loop below. Allow more than the 30s default rather than
 // reporting a cold cache as a product failure (same reasoning as
 // e2e/bands-confirm.spec.ts).

@@ -119,7 +119,21 @@ const FORBIDDEN_LINT_FLAGS = [
 
 type ConfigEntry = { name?: string; files?: string[]; rules?: Record<string, unknown> }
 
-const ESLINT_TIMEOUT = 120_000
+/**
+ * How long the whole-project ESLint run may take.
+ *
+ * 120_000 -> 300_000 (RH-132). This suite and `complexityBudget.test.ts` each
+ * run ESLint over the project, and under `vitest run` they run *in parallel*,
+ * saturating every core. Measured on one developer machine: this suite alone
+ * takes ~10 s, the pair together ~28 s, and the pair inside the full suite on a
+ * loaded machine exceeded the old 120 s ceiling — whereupon the `beforeAll`
+ * below times out and all ten tests report as **skipped**, which is the worst
+ * possible failure mode for a gate (it reads as "nothing to check").
+ *
+ * Only the patience changes. Every assertion below is untouched: the suite
+ * still lints everything and still fails on a finding of any severity.
+ */
+const ESLINT_TIMEOUT = 300_000
 
 let eslintInstance: ESLint | undefined
 /** One instance for both halves (a) and (b), so the config is resolved once. */

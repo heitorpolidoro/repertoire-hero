@@ -196,7 +196,11 @@ describe('complexity budget (F20)', () => {
     }
 
     expect(violations, `budget violations under src:\n${violations.join('\n')}`).toEqual([])
-  }, 120_000)
+    // 120_000 -> 300_000 (RH-132): this run and `lintGate.test.ts`'s both lint
+    // the project and `vitest run` schedules them in parallel, so on a loaded
+    // machine each one's wall clock is several times its isolated cost. Only
+    // the patience moved; the assertion above is unchanged.
+  }, 300_000)
 
   it('pins every override ceiling to the current worst number in its file', async () => {
     const overrides = await loadOverrides()
@@ -232,5 +236,6 @@ describe('complexity budget (F20)', () => {
       slack,
       `override ceilings looser than the file's current worst number (fix or drop them):\n${slack.join('\n')}`,
     ).toEqual([])
-  }, 120_000)
+    // 120_000 -> 300_000, for the reason recorded on the test above.
+  }, 300_000)
 })

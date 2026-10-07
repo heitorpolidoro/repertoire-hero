@@ -17,16 +17,15 @@
  *     It replaced `repertoireId`: a file is keyed by `(user_id, song_id)` now,
  *     so a repertoire row id would key the capture by something the read no
  *     longer knows about.
- *   - **`OfflineSongSnapshot.repertoireId` stays**, and the two keys coexist on
- *     purpose. Since RH-124 it holds the **owner row's** id — a `user_songs` or
- *     `band_songs` row — because `repertoire` is gone; the field name survives
- *     with the rest of the `Repertoire` vocabulary. `findSong` — and so the
- *     `getSongEntry` reader — keys on it, because that is what the route
- *     carries and what `isSongSnapshot` keeps requiring; `findSongBySongId`
- *     keys on `repertoire.song_id`, the already-present field both the
- *     `getTabs` and the `getPersonalEntryForSong` readers resolve through. The
- *     song snapshot therefore gains **no** new field for the file lookup.
- *     `new Set(snapshot.songs.map(s => s.repertoireId))` is still exactly the
+ *   - **`OfflineSongSnapshot.versionId`** replaced `repertoireId` in RH-132,
+ *     and the two keys still coexist on purpose. Fast View is addressed by a
+ *     `song_versions.id` now, so `findSong` — and so the entry reader — keys on
+ *     it, because that is what the route carries and what `isSongSnapshot`
+ *     requires; `findSongBySongId` keys on `repertoire.song_id`, the
+ *     already-present field both the `getTabs` and the
+ *     `getPersonalEntryForSong` readers resolve through. The song snapshot
+ *     therefore gains **no** new field for the file lookup.
+ *     `new Set(snapshot.songs.map(s => s.versionId))` is still exactly the
  *     "was this captured?" predicate for a song entry.
  *   - `OfflineSongSnapshot.personalRepertoire` is the member's own repertoire
  *     row for the song, captured at download time in band context (RH-83).
@@ -44,8 +43,9 @@
  * docs/tasks/RH-124-spec.md §6 and docs/tasks/RH-125-spec.md §7.
  */
 
+import { isSnapshotV5, upgradeSnapshotV5ToV6 } from '@/lib/offlineSnapshotV5'
 import type { PlaylistEntry } from '@/lib/playlistNav'
-import type { Repertoire, SongFile } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
 
 /**
@@ -88,8 +88,21 @@ import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
  * `schemaVersion !==` check in `readValidSnapshot`, on this module's own
  * v1 -> v2 precedent — an indicator that might be wrong is worse than no
  * offline copy.
+ *
+ * 5 -> 6 (RH-132): Fast View is addressed by a `song_versions.id`, so a song is
+ * keyed by `versionId` instead of `repertoireId` and the captured row is a
+ * `ResolvedSongEntry` whose `ownerRowId` may be null. **This one is upgraded,
+ * not discarded** — the first bump that is a pure reshape of data already in
+ * the record. A v5 song carries everything v6 needs: `entry.versionId` has
+ * been required since RH-125 and `repertoire.id` is the owner row id, so
+ * `upgradeSnapshotV5ToV6` is total and loses nothing (the only widening is
+ * `status`, to `SongStatus | null`). It does not follow the v1 -> v2 precedent
+ * because nothing is *absent* here, and discarding would destroy every
+ * downloaded playlist and its cached PDF bytes on first launch, recoverable
+ * only with a network connection. The `cacheKey`s are untouched by the
+ * reshape, which is what keeps those bytes valid.
  */
-export const OFFLINE_SCHEMA_VERSION = 5
+export const OFFLINE_SCHEMA_VERSION = 6
 
 /** One file PDF, as stored: the row's fields plus where its bytes live and how many. */
 export interface OfflineTabSnapshot {
@@ -128,23 +141,25 @@ export interface OfflineTabSnapshot {
  */
 export interface OfflineSongSnapshot {
   /**
-   * Equals `entry.repertoireId` and `repertoire.id` — the owner row's id since
-   * RH-124, never a `repertoire` row's — and the `getSongEntry` lookup key. The
-   * *file* lookup key is `repertoire.song_id` instead (RH-123) — see the module
-   * docblock on why the two coexist.
+   * Equals `entry.versionId` — the Fast View address since RH-132, and this
+   * reader's lookup key. The *file* lookup key is `repertoire.song_id` instead
+   * (RH-123) — see the module docblock on why the two coexist.
    *
-   * **Non-null, though `PlaylistEntry.repertoireId` is nullable since RH-125**:
-   * `gatherSongs` skips an entry that carries none, so the entries that reach a
-   * snapshot are exactly the ones that have an address.
+   * Always non-null: `PlaylistEntry.versionId` is the entry's identity and has
+   * been required since RH-125, so every entry of a playlist reaches the
+   * snapshot — including the ones whose owner holds no row, which RH-132 made
+   * both addressable and capturable.
    */
-  repertoireId: string
+  versionId: string
   entry: PlaylistEntry
   /**
-   * The owner's row with every field already **resolved** (RH-124): offline is
-   * read-only and cannot walk `song_versions` and `songs` itself, so what is
-   * captured is the answer, not the three levels.
+   * The `(owner, version)` pair with every field already **resolved** (RH-124,
+   * re-keyed by RH-132): offline is read-only and cannot walk `song_versions`
+   * and `songs` itself, so what is captured is the answer, not the three
+   * levels. `ownerRowId` is `null` when the owner holds no row at this version,
+   * which is exactly what makes Fast View read-only for it.
    */
-  repertoire: Repertoire
+  repertoire: ResolvedSongEntry
   /**
    * The member's own row for this song, or `null` — both in band context (they
    * genuinely have none) and always outside one, where there is no second
@@ -174,7 +189,7 @@ export interface OfflineTabMaterial {
 /** Everything read for one song, before it becomes an `OfflineSongSnapshot`. */
 export interface OfflineSongMaterial {
   entry: PlaylistEntry
-  repertoire: Repertoire
+  repertoire: ResolvedSongEntry
   personalRepertoire: Repertoire | null
   tabs: OfflineTabMaterial[]
 }
@@ -222,9 +237,9 @@ export function buildOfflineSnapshot(input: BuildOfflineSnapshotInput): OfflineS
     bandId: input.bandId,
     savedAt: input.savedAt,
     songs: input.songs.map((song) => ({
-      // `repertoire.id`, not `entry.repertoireId`: the two are the same row,
-      // and this one is non-null by type since RH-125 made the entry's nullable.
-      repertoireId: song.repertoire.id,
+      // `entry.versionId`, the entry's own identity and the Fast View address
+      // (RH-132). Non-null by type, where the old owner-row key was not.
+      versionId: song.entry.versionId,
       entry: song.entry,
       repertoire: song.repertoire,
       personalRepertoire: song.personalRepertoire,
@@ -273,7 +288,7 @@ function isTabSnapshot(value: unknown): boolean {
 
 function isSongSnapshot(value: unknown): boolean {
   if (!isRecord(value)) return false
-  if (!isString(value.repertoireId)) return false
+  if (!isString(value.versionId)) return false
   if (!isRecord(value.entry) || !isRecord(value.repertoire)) return false
   // Absent is not null: a v1 song carried no such field, and reading it as
   // "no personal version" is exactly the wrong answer the bump avoids.
@@ -289,8 +304,14 @@ function isSongSnapshot(value: unknown): boolean {
  * different `schemaVersion`, a shape that does not validate, or a value that is
  * not an object at all. Callers do not have to tell those apart — all three
  * lead to the same place, "not downloaded".
+ *
+ * **A v5 record is upgraded before it is compared** (RH-132): a value that
+ * validates as v5 is reshaped by `upgradeSnapshotV5ToV6` and then validated as
+ * v6, so a playlist downloaded before this shipped keeps its cached PDFs
+ * instead of being purged. Anything else still returns `null`.
  */
 export function readValidSnapshot(value: unknown): OfflineSnapshot | null {
+  if (isSnapshotV5(value)) return readValidSnapshot(upgradeSnapshotV5ToV6(value))
   if (!isRecord(value)) return null
   if (value.schemaVersion !== OFFLINE_SCHEMA_VERSION) return null
   if (!isString(value.playlistId) || !isString(value.playlistName) || !isString(value.savedAt)) return null

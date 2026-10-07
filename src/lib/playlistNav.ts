@@ -18,10 +18,11 @@
  * `PlaylistEntrySummary` in `src/lib/playlists.ts`, redeclared here so this
  * client-safe module never pulls the `pg` pool into the browser bundle.
  *
- * `versionId` is the entry's identity and is always non-null (RH-125).
- * `repertoireId` is the owner's row **if there is one**, and it is also the Fast
- * View address — re-addressing Fast View by version is RH-109 — so a null means
- * "this entry has nowhere to navigate to yet", not "this entry is broken".
+ * `versionId` is the entry's identity and is always non-null (RH-125). It is
+ * also the Fast View address since RH-132, so **every** entry is navigable.
+ * `repertoireId` is the owner's row **if there is one**; a null means "not in
+ * this repertoire yet", which is information the row still renders, never
+ * "this entry has nowhere to navigate to".
  */
 export interface PlaylistEntry {
   repertoireId: string | null
@@ -33,7 +34,9 @@ export interface PlaylistEntry {
 
 /** Where the current song sits inside the setlist it was opened from. */
 export interface PlaylistNav {
+  /** The previous entry's `versionId` — a Fast View address (RH-132). */
   prevId: string | null
+  /** The next entry's `versionId` — a Fast View address (RH-132). */
   nextId: string | null
   position: number
   total: number
@@ -61,44 +64,27 @@ export function playlistIdFromReturnTo(returnTo: string | null): string | null {
 }
 
 /**
- * The nearest entry **with a Fast View address** on one side of `index`, or
- * `null` at that end of the setlist.
+ * null when `entries` is empty or `currentVersionId` is not in it.
  *
- * An entry whose owner holds no repertoire row has no address yet (RH-125), and
- * a gap like that must not block the rest of the list: prev/next step over it
- * rather than stopping at it. `position` and `total` are unaffected — they count
- * every entry, so the indicator matches the list the drawer draws.
- */
-function nearestAddressable(entries: PlaylistEntry[], index: number, step: -1 | 1): string | null {
-  for (let at = index + step; at >= 0 && at < entries.length; at += step) {
-    const id = entries[at].repertoireId
-    if (id) return id
-  }
-  return null
-}
-
-/**
- * null when `entries` is empty or `currentRepertoireId` is not in it.
- *
- * Matching is still by `repertoireId`, because the Fast View route param *is*
- * an owner row id (re-addressing it by version is RH-109), so an entry that can
- * be current always has a non-null one. What changed with RH-125 is that the
- * entry can no longer be *absent* from the list — the read `LEFT JOIN`s the
- * owner table — so the collapse-to-null mode is gone for a reason unrelated to
- * the matching key.
+ * Matching is by `versionId`, because the Fast View route param *is* a
+ * `song_versions.id` since RH-132 and the owner comes from the page's
+ * `?bandId=`. Every entry therefore has an address, which is what removed the
+ * skip-the-neighbour-with-no-owner-row step this function used to apply:
+ * `prevId` and `nextId` are the plain neighbours now, including the ones whose
+ * owner holds no row. `position` and `total` count every entry, as before.
  */
 export function computePlaylistNav(
   entries: PlaylistEntry[],
-  currentRepertoireId: string,
+  currentVersionId: string,
   playlistId: string,
   playlistName: string,
 ): PlaylistNav | null {
-  const index = entries.findIndex((entry) => entry.repertoireId === currentRepertoireId)
+  const index = entries.findIndex((entry) => entry.versionId === currentVersionId)
   if (index === -1) return null
 
   return {
-    prevId: nearestAddressable(entries, index, -1),
-    nextId: nearestAddressable(entries, index, 1),
+    prevId: entries[index - 1]?.versionId ?? null,
+    nextId: entries[index + 1]?.versionId ?? null,
     position: index + 1,
     total: entries.length,
     playlistId,
@@ -107,32 +93,32 @@ export function computePlaylistNav(
 }
 
 /**
- * `/songs/<id>/fast-view?returnTo=..&bandId=..`, both omitted when empty and
- * always in that order.
+ * `/songs/<versionId>/fast-view?returnTo=..&bandId=..`, both omitted when empty
+ * and always in that order.
  *
  * The `?` is emitted even when both are absent, byte-identical to the string the
  * page built before the extraction: preserving it keeps a bookmark or a history
  * entry created by either version of the page comparable.
  */
 export function fastViewHref(
-  repertoireId: string,
+  versionId: string,
   returnTo: string | null,
   bandId: string | null,
 ): string {
   const qs = new URLSearchParams()
   if (returnTo) qs.set('returnTo', returnTo)
   if (bandId) qs.set('bandId', bandId)
-  return `/songs/${repertoireId}/fast-view?${qs.toString()}`
+  return `/songs/${versionId}/fast-view?${qs.toString()}`
 }
 
 /** 'left' when the target sits later in the list, otherwise 'right'. */
 export function slideDirection(
   entries: PlaylistEntry[],
-  currentRepertoireId: string,
-  targetRepertoireId: string,
+  currentVersionId: string,
+  targetVersionId: string,
 ): SlideDirection {
-  const currentIndex = entries.findIndex((entry) => entry.repertoireId === currentRepertoireId)
-  const targetIndex = entries.findIndex((entry) => entry.repertoireId === targetRepertoireId)
+  const currentIndex = entries.findIndex((entry) => entry.versionId === currentVersionId)
+  const targetIndex = entries.findIndex((entry) => entry.versionId === targetVersionId)
   return targetIndex > currentIndex ? 'left' : 'right'
 }
 
@@ -146,13 +132,13 @@ export function slideDirection(
 export function swipeTarget(
   deltaX: number,
   nav: PlaylistNav | null,
-): { repertoireId: string; direction: SlideDirection } | null {
+): { versionId: string; direction: SlideDirection } | null {
   if (!nav || Math.abs(deltaX) < SWIPE_THRESHOLD_PX) return null
 
   if (deltaX > 0) {
-    return nav.nextId ? { repertoireId: nav.nextId, direction: 'left' } : null
+    return nav.nextId ? { versionId: nav.nextId, direction: 'left' } : null
   }
-  return nav.prevId ? { repertoireId: nav.prevId, direction: 'right' } : null
+  return nav.prevId ? { versionId: nav.prevId, direction: 'right' } : null
 }
 
 /**
@@ -187,15 +173,15 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp'])
 export function keyboardTarget(
   press: NavKeyPress,
   nav: PlaylistNav | null,
-): { repertoireId: string; direction: SlideDirection } | null {
+): { versionId: string; direction: SlideDirection } | null {
   if (!nav || press.defaultPrevented || press.editableTarget) return null
   if (press.altKey || press.ctrlKey || press.metaKey || press.shiftKey) return null
 
   if (NEXT_KEYS.has(press.key)) {
-    return nav.nextId ? { repertoireId: nav.nextId, direction: 'left' } : null
+    return nav.nextId ? { versionId: nav.nextId, direction: 'left' } : null
   }
   if (PREV_KEYS.has(press.key)) {
-    return nav.prevId ? { repertoireId: nav.prevId, direction: 'right' } : null
+    return nav.prevId ? { versionId: nav.prevId, direction: 'right' } : null
   }
   return null
 }

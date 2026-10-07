@@ -8,7 +8,7 @@ import {
   updateSongStatus,
   updateSongTags,
   removeSongFromRepertoire,
-  getSongEntry,
+  getResolvedEntryForVersion,
   updateSong,
   createAndAddSong,
   assertRepertoireAccess,
@@ -18,7 +18,7 @@ import {
 } from '@/lib/ownerSongs'
 import { applySongLinkUpdate, searchSongs, type SongUpdateInput } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
-import type { Repertoire, SongLink, SongStatus } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
 
 async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
   const userId = await getRequiredUserId()
@@ -94,9 +94,25 @@ export async function searchSongsAction(queryStr: string) {
   return searchSongs(queryStr)
 }
 
-export async function getSongEntryAction(repertoireId: string, bandId?: string | null) {
+/**
+ * Fast View's entry read, version-addressed (RH-132).
+ *
+ * The route carries a `song_versions.id` and the owner comes from the page's
+ * `?bandId=`, resolved through {@link resolveOwner} — which is member-level and
+ * already calls `assertBandMember`, because reading a band's row is not an
+ * admin act.
+ *
+ * It never answers `null`: an owner holding no row at this version resolves to
+ * `ownerRowId: null` with `status: null`, `tags: []` and the inherited
+ * key/tuning/lyrics/map. It throws for a `versionId` that does not exist, and
+ * that throw is what drives the not-found screen.
+ */
+export async function getResolvedEntryForVersionAction(
+  versionId: string,
+  bandId?: string | null,
+): Promise<ResolvedSongEntry> {
   const owner = await resolveOwner(bandId)
-  return getSongEntry(owner, repertoireId)
+  return getResolvedEntryForVersion(owner, versionId)
 }
 
 export async function updateSongAction(

@@ -24,15 +24,14 @@ import { createOfflineStore, type OfflineStore } from '@/lib/offlineStore'
 import { offlineTabCacheKey } from '@/lib/offlineSnapshot'
 import { createFakePorts } from './offlineStoreFakes'
 import type { PlaylistEntry } from '@/lib/playlistNav'
-import type { Repertoire, SongFile } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
-function repertoire(id: string, overrides: Partial<Repertoire> = {}): Repertoire {
+/** The captured `(owner, version)` pair — a `ResolvedSongEntry` since RH-132. */
+function repertoire(id: string, overrides: Partial<ResolvedSongEntry> = {}): ResolvedSongEntry {
   return {
-    id,
-    user_id: 'user-1',
-    band_id: null,
+    ownerRowId: id,
     song_id: `song-${id}`,
-    version_id: 'version-1',
+    version_id: `v-${id}`,
     key: null,
     tuning: null,
     map: null,
@@ -41,6 +40,24 @@ function repertoire(id: string, overrides: Partial<Repertoire> = {}): Repertoire
     last_practiced: null,
     lyrics: 'la la la',
     ...overrides,
+  }
+}
+
+/** The member's own row, still a `Repertoire` (RH-132 ER14). */
+function personalRow(id: string, lyrics: string): Repertoire {
+  return {
+    id: `personal-${id}`,
+    user_id: 'user-1',
+    band_id: null,
+    song_id: `song-${id}`,
+    version_id: `v-${id}`,
+    key: null,
+    tuning: null,
+    map: null,
+    status: 'learning',
+    tags: [],
+    last_practiced: null,
+    lyrics,
   }
 }
 
@@ -69,7 +86,13 @@ interface SeededPlaylist {
   playlistId: string
   playlistName: string
   savedAt: string
-  songs: { repertoireId: string; tabs?: SongFile[]; personalLyrics?: string }[]
+  songs: {
+    repertoireId: string
+    tabs?: SongFile[]
+    personalLyrics?: string
+    /** RH-132: the owner holds no row at this version. */
+    noOwnerRow?: boolean
+  }[]
 }
 
 /** The real store over in-memory ports, with the given playlists downloaded. */
@@ -83,9 +106,11 @@ async function seededStore(playlists: SeededPlaylist[]): Promise<OfflineStore> {
       savedAt: playlist.savedAt,
       songs: playlist.songs.map((song) => ({
         entry: entry(song.repertoireId, `Song ${song.repertoireId}`),
-        repertoire: repertoire(song.repertoireId),
+        repertoire: song.noOwnerRow
+          ? repertoire(song.repertoireId, { ownerRowId: null, status: null, tags: [] })
+          : repertoire(song.repertoireId),
         personalRepertoire: song.personalLyrics
-          ? { ...repertoire(`personal-${song.repertoireId}`), band_id: null, song_id: `song-${song.repertoireId}`, lyrics: song.personalLyrics }
+          ? personalRow(song.repertoireId, song.personalLyrics)
           : null,
         tabs: song.tabs ?? [],
       })),
@@ -193,7 +218,7 @@ describe('offlineFirst — the wrapper itself', () => {
     const calls: unknown[][] = []
     const wrapped = offlineFirst(
       {
-        getSongEntry: (...args: unknown[]) => {
+        getResolvedEntryForVersion: (...args: unknown[]) => {
           calls.push(args)
           return Promise.resolve(repertoire('rep-online'))
         },
@@ -201,15 +226,17 @@ describe('offlineFirst — the wrapper itself', () => {
       await onlinePorts(ONE_PLAYLIST),
     )
 
-    await expect(wrapped.getSongEntry('rep-1', null)).resolves.toEqual(repertoire('rep-online'))
-    expect(calls).toEqual([['rep-1', null]])
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', null)).resolves.toEqual(
+      repertoire('rep-online'),
+    )
+    expect(calls).toEqual([['v-rep-1', null]])
   })
 
   it('never calls the real action while offline', async () => {
     let called = 0
     const wrapped = offlineFirst(
       {
-        getSongEntry: () => {
+        getResolvedEntryForVersion: () => {
           called += 1
           return Promise.resolve(null)
         },
@@ -217,7 +244,7 @@ describe('offlineFirst — the wrapper itself', () => {
       await offlinePorts(ONE_PLAYLIST),
     )
 
-    await wrapped.getSongEntry('rep-1', null)
+    await wrapped.getResolvedEntryForVersion('v-rep-1', null)
 
     expect(called).toBe(0)
   })
@@ -226,21 +253,23 @@ describe('offlineFirst — the wrapper itself', () => {
 describe('offlineFirst — the error policy', () => {
   it('falls back to the snapshot when a reader fails with a network error', async () => {
     const wrapped = offlineFirst(
-      { getSongEntry: () => Promise.reject(networkError()) },
+      { getResolvedEntryForVersion: () => Promise.reject(networkError()) },
       await onlinePorts(ONE_PLAYLIST),
     )
 
-    await expect(wrapped.getSongEntry('rep-1', null)).resolves.toEqual(repertoire('rep-1'))
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', null)).resolves.toEqual(
+      repertoire('rep-1'),
+    )
   })
 
   it('rethrows a non-network rejection rather than serving the snapshot', async () => {
     const boom = new Error('permission denied')
     const wrapped = offlineFirst(
-      { getSongEntry: () => Promise.reject(boom) },
+      { getResolvedEntryForVersion: () => Promise.reject(boom) },
       await onlinePorts(ONE_PLAYLIST),
     )
 
-    await expect(wrapped.getSongEntry('rep-1', null)).rejects.toBe(boom)
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', null)).rejects.toBe(boom)
   })
 
   it('rethrows a network rejection from a write', async () => {
@@ -289,15 +318,48 @@ describe('offlineFirst — the offline readers', () => {
     )
   })
 
-  it('answers getSongEntry with the captured repertoire row, and null for a song in no snapshot', async () => {
+  /**
+   * RH-132 ER5b — the offline entry reader finds a v6 song by its `versionId`.
+   *
+   * The owner row id is no longer an address, so it finds nothing: that is the
+   * assertion that catches a reader left keyed on the old field, which would
+   * render `OfflineUnavailable` for every downloaded song.
+   */
+  it('answers the entry read by versionId, and null for a version in no snapshot', async () => {
     const ports = await offlinePorts(ONE_PLAYLIST)
     const wrapped = offlineFirst(
-      { getSongEntry: () => Promise.reject(new Error('unreachable')) },
+      { getResolvedEntryForVersion: () => Promise.reject(new Error('unreachable')) },
       ports,
     )
 
-    await expect(wrapped.getSongEntry('rep-2', null)).resolves.toEqual(repertoire('rep-2'))
-    await expect(wrapped.getSongEntry('rep-nope', null)).resolves.toBeNull()
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-2', null)).resolves.toEqual(
+      repertoire('rep-2'),
+    )
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-nope', null)).resolves.toBeNull()
+    // The owner row id is not an address: looking one up finds nothing.
+    await expect(wrapped.getResolvedEntryForVersion('rep-2', null)).resolves.toBeNull()
+  })
+
+  /** RH-132 ER5b — including a captured song whose owner holds no row. */
+  it('finds a captured version whose ownerRowId is null', async () => {
+    const wrapped = offlineFirst(
+      { getResolvedEntryForVersion: () => Promise.reject(new Error('unreachable')) },
+      await offlinePorts([
+        {
+          playlistId: 'pl-1',
+          playlistName: 'Friday Set',
+          savedAt: '2026-09-20T10:00:00.000Z',
+          songs: [{ repertoireId: 'rep-9', noOwnerRow: true }],
+        },
+      ]),
+    )
+
+    const found = await wrapped.getResolvedEntryForVersion('v-rep-9', null)
+
+    expect(found).not.toBeNull()
+    expect((found as ResolvedSongEntry).ownerRowId).toBeNull()
+    expect((found as ResolvedSongEntry).status).toBeNull()
+    expect((found as ResolvedSongEntry).version_id).toBe('v-rep-9')
   })
 
   it('prefers the most recently downloaded playlist when a song is in two', async () => {
@@ -353,6 +415,9 @@ describe('offlineFirst — the offline readers', () => {
     await expect(wrapped.getTabs('song-nope')).resolves.toEqual([])
     // The repertoire row id is no longer a key this reader understands.
     await expect(wrapped.getTabs('rep-1')).resolves.toEqual([])
+    // RH-132 ER5c: nor is the *version* id. A file hangs off `(user_id,
+    // song_id)`, so re-addressing Fast View by version changes nothing here.
+    await expect(wrapped.getTabs('v-rep-1')).resolves.toEqual([])
   })
 
   // RH-83 ER10: the snapshot now carries the member's own row, so the badge and
@@ -366,9 +431,15 @@ describe('offlineFirst — the offline readers', () => {
     const found = await wrapped.getPersonalEntryForSong('song-rep-1')
     expect((found as { lyrics: string }).lyrics).toBe('my cues')
 
+    // The captured row itself, unchanged — still the member's `Repertoire`.
+    expect((found as { id: string }).id).toBe('personal-rep-1')
+
     // A captured song with no personal row, and a song in no snapshot at all.
     await expect(wrapped.getPersonalEntryForSong('song-rep-2')).resolves.toBeNull()
     await expect(wrapped.getPersonalEntryForSong('song-nope')).resolves.toBeNull()
+    // RH-132 ER5d: resolved through `repertoire.song_id`, never the version.
+    await expect(wrapped.getPersonalEntryForSong('v-rep-1')).resolves.toBeNull()
+    await expect(wrapped.getPersonalEntryForSong('rep-1')).resolves.toBeNull()
   })
 
   it('answers getAnnotations with an empty annotation set, never an error envelope', async () => {

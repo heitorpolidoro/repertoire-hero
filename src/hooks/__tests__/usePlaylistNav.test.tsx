@@ -25,7 +25,7 @@ function setup(overrides: Partial<UsePlaylistNavOptions> = {}) {
   const navigate = vi.fn()
   const navigateBack = vi.fn()
   const initialProps: UsePlaylistNavOptions = {
-    currentRepertoireId: 'rep-2',
+    currentVersionId: 'v-rep-2',
     returnTo: '/playlists/pl-1',
     bandId: 'band-7',
     actions,
@@ -70,8 +70,8 @@ describe('usePlaylistNav', () => {
     expect(actions.getPlaylistDetailsWithEntries).toHaveBeenCalledWith('pl-1', 'band-7')
     expect(result.current.entries).toEqual(ENTRIES)
     expect(result.current.nav).toEqual({
-      prevId: 'rep-1',
-      nextId: 'rep-3',
+      prevId: 'v-rep-1',
+      nextId: 'v-rep-3',
       position: 2,
       total: 3,
       playlistId: 'pl-1',
@@ -90,7 +90,7 @@ describe('usePlaylistNav', () => {
   })
 
   it('exposes no navigation when the current entry is absent from the playlist', async () => {
-    const { result } = setup({ currentRepertoireId: 'rep-99' })
+    const { result } = setup({ currentVersionId: 'v-rep-99' })
     await flush()
 
     expect(result.current.nav).toBeNull()
@@ -112,13 +112,13 @@ describe('usePlaylistNav', () => {
     const { result, navigate } = setup()
     await flush()
 
-    act(() => result.current.selectEntry('rep-3'))
+    act(() => result.current.selectEntry('v-rep-3'))
     expect(result.current.slideOut).toBe('left')
     expect(navigate).not.toHaveBeenCalled()
 
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
     expect(navigate).toHaveBeenCalledWith(
-      '/songs/rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
+      '/songs/v-rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
     )
   })
 
@@ -126,7 +126,7 @@ describe('usePlaylistNav', () => {
     const { result, navigate } = setup()
     await flush()
 
-    act(() => result.current.selectEntry('rep-2'))
+    act(() => result.current.selectEntry('v-rep-2'))
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
 
     expect(result.current.slideOut).toBeNull()
@@ -141,10 +141,10 @@ describe('usePlaylistNav', () => {
     expect(result.current.slideOut).toBe('right')
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
     expect(navigate).toHaveBeenCalledWith(
-      '/songs/rep-1/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
+      '/songs/v-rep-1/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
     )
 
-    const first = setup({ currentRepertoireId: 'rep-1' })
+    const first = setup({ currentVersionId: 'v-rep-1' })
     await flush()
     act(() => first.result.current.goPrev())
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
@@ -161,7 +161,7 @@ describe('usePlaylistNav', () => {
 
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
     expect(navigate).toHaveBeenCalledWith(
-      '/songs/rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
+      '/songs/v-rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
     )
   })
 
@@ -211,7 +211,7 @@ describe('usePlaylistNav', () => {
     const { result, navigate, unmount } = setup()
     await flush()
 
-    act(() => result.current.selectEntry('rep-3'))
+    act(() => result.current.selectEntry('v-rep-3'))
     unmount()
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
 
@@ -232,10 +232,10 @@ describe('usePlaylistNav', () => {
 
       const event = press('ArrowRight')
       expect(event.defaultPrevented).toBe(true)
-      expect(navigate).toHaveBeenLastCalledWith('/songs/rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-rep-3/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7')
 
       press('ArrowLeft')
-      expect(navigate).toHaveBeenLastCalledWith('/songs/rep-1/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-rep-1/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7')
     })
 
     it('queues a single push for a key pressed again during the slide-out', async () => {

@@ -16,7 +16,7 @@ import { OfflineDownloadButton } from '../OfflineDownloadButton'
 import { createOfflineStore } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
-import type { Repertoire, SongFile } from '@/types/database'
+import type { ResolvedSongEntry, SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -25,13 +25,13 @@ const ENTRIES = [
   { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-2', title: 'Faroeste Caboclo', artist: null },
 ]
 
-function repertoire(id: string): Repertoire {
+/** The captured `(owner, version)` pair, read by version id since RH-132. */
+function resolvedEntry(versionId: string): ResolvedSongEntry {
+  const ownerRowId = versionId.replace(/^v-/, '')
   return {
-    id,
-    user_id: null,
-    band_id: 'band-1',
-    song_id: `song-${id}`,
-    version_id: 'version-1',
+    ownerRowId,
+    song_id: `song-${ownerRowId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -57,9 +57,11 @@ function tabRow(songId: string): SongFile {
 function makeActions(hold?: Promise<void>): OfflineDownloadActions {
   return {
     getPlaylistDetailsWithEntries: vi.fn(() => Promise.resolve({ name: 'Gig', entries: ENTRIES })),
-    getSongEntry: vi.fn((repertoireId: string) => Promise.resolve(repertoire(repertoireId))),
-    // Keyed by song id since RH-123: `repertoire('rep-2').song_id` is
-    // `song-rep-2`, which is what `gatherSongs` now passes.
+    getResolvedEntryForVersion: vi.fn((versionId: string) =>
+      Promise.resolve(resolvedEntry(versionId)),
+    ),
+    // Keyed by song id since RH-123: the resolved entry for `v-rep-2` carries
+    // `song_id: 'song-rep-2'`, which is what `gatherSongs` passes.
     getTabs: vi.fn(async (songId: string) => {
       if (hold && songId === 'song-rep-2') await hold
       return [tabRow(songId)]

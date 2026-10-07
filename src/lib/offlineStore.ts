@@ -32,7 +32,7 @@ import {
   type OfflineTabMaterial,
 } from '@/lib/offlineSnapshot'
 import type { PlaylistEntry } from '@/lib/playlistNav'
-import type { Repertoire, SongFile } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
 /**
  * The Cache Storage cache the tab PDFs live in.
@@ -88,7 +88,8 @@ export interface OfflineStorePorts {
 /** Everything read for one song of the playlist being downloaded. */
 export interface OfflineSongInput {
   entry: PlaylistEntry
-  repertoire: Repertoire
+  /** The resolved `(owner, version)` pair; `ownerRowId` may be null (RH-132). */
+  repertoire: ResolvedSongEntry
   /** The member's own row for the song; `null` outside a band (RH-83 ER10). */
   personalRepertoire: Repertoire | null
   tabs: SongFile[]
@@ -255,14 +256,26 @@ export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
       const rows = await active.records.list()
       const current: OfflinePlaylistSummary[] = []
       for (const record of rows) {
-        // Purged, not merely skipped: a record listed as "Downloaded" while
-        // Fast View reports the playlist unavailable is the worst of both
-        // (RH-83 ER11). `removeOfflinePlaylist` drops the cached PDFs too.
-        if (record.schemaVersion !== OFFLINE_SCHEMA_VERSION) {
+        if (record.schemaVersion === OFFLINE_SCHEMA_VERSION) {
+          current.push(toSummary(record))
+          continue
+        }
+        // A superseded record is **upgraded where it can be** (RH-132):
+        // `readValidSnapshot` reshapes a v5 record losslessly, and the cached
+        // PDFs survive because no `cacheKey` changes. The record is rewritten
+        // at the new version so the walk happens once rather than on every
+        // listing.
+        const upgraded = readValidSnapshot(record.snapshot)
+        if (!upgraded) {
+          // Purged, not merely skipped: a record listed as "Downloaded" while
+          // Fast View reports the playlist unavailable is the worst of both
+          // (RH-83 ER11). `removeOfflinePlaylist` drops the cached PDFs too.
           await removeOfflinePlaylist(record.playlistId)
           continue
         }
-        current.push(toSummary(record))
+        const rewritten = { ...record, schemaVersion: upgraded.schemaVersion, snapshot: upgraded }
+        await active.records.put(rewritten)
+        current.push(toSummary(rewritten))
       }
       return current
     },

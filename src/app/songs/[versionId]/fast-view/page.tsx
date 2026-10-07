@@ -59,28 +59,41 @@ import { FastViewOverlays } from '@/components/fastview/FastViewOverlays'
  * control is disabled rather than left to fail. The *data*
  * side is independent of the signal: the bundles imported above are already
  * offline-first, so they answer from the RH-79 snapshot on their own.
+ *
+ * RH-132 changed what the route *is*: the param is a `song_versions.id` and the
+ * owner comes from `?bandId=`, so a version the owner holds no row for is a
+ * page that renders at version defaults — title, artist, inherited
+ * key/tuning/lyrics/map, empty tags, status `unknown`, the file library.
+ * `song.ownerRowId` is then `null`, and it joins `isOffline` as the **second
+ * reason** the page is read-only: both mean "readable, not writable", and both
+ * disable the same five write controls through the one `readOnly` expression
+ * below. Nothing may be created from here either — creating an owner row from
+ * Fast View is deliberately out of scope — so the refusal lives behind each
+ * disabled control as a guard in its hook, not as a silent no-op (§3c).
  */
 export default function FastViewPage() {
-  const { id } = useParams<{ id: string }>()
+  const { versionId } = useParams<{ versionId: string }>()
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnTo = searchParams.get('returnTo')
   const queryBandId = searchParams.get('bandId')
 
-  // One Toast for the whole page (every controller reports through it) and the
-  // page's single offline reader — see the note above the component.
+  // The page's one Toast and its single offline reader — see the docblock.
   const { toast, showToast, dismissToast } = useToast()
   const isOffline = useOfflineStatus()
   useWakeLock() // the screen stays on while a song is open on a music stand
 
   // The route's entry, the band-context reconciliation of the member's own
   // entry and the five patches the writes below apply (RH-52).
-  const song = useSongEntry({ repertoireId: id, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_ENTRY_ACTIONS })
+  const song = useSongEntry({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_ENTRY_ACTIONS })
   const { entry, personalEntry, identity } = song
+  // The two reasons this page is readable but not writable — see the docblock.
+  const readOnly = isOffline || !song.ownerRowId
 
   // The mastery-status dropdown and its write (RH-52).
   const status = useSongStatus({
     entry,
+    bandId: queryBandId,
     actions: OFFLINE_FIRST_SONG_STATUS_ACTIONS,
     onStatusSaved: song.applyStatus,
     notify: showToast,
@@ -121,6 +134,7 @@ export default function FastViewPage() {
   // mode and its back-button intercept) live in this controller (RH-51).
   const lyrics = useLyricsEditor({
     entry,
+    bandId: queryBandId,
     personalEntry,
     songTitle: identity.title,
     artist: identity.artist,
@@ -135,7 +149,7 @@ export default function FastViewPage() {
   // router push the setlist UI can trigger live in this controller (RH-48).
   // The arrow keys stay off while either Stage Mode surface is up.
   const playlist = usePlaylistNav({
-    currentRepertoireId: id,
+    currentVersionId: versionId,
     returnTo,
     bandId: queryBandId,
     actions: OFFLINE_FIRST_PLAYLIST_NAV_ACTIONS,
@@ -160,7 +174,7 @@ export default function FastViewPage() {
         open={playlist.isDrawerOpen}
         nav={playlist.nav}
         entries={playlist.entries}
-        currentRepertoireId={id}
+        currentVersionId={versionId}
         onClose={playlist.closeDrawer}
         onSelect={playlist.selectEntry}
       />
@@ -197,12 +211,12 @@ export default function FastViewPage() {
             <SetlistSelect
               nav={playlist.nav}
               entries={playlist.entries}
-              currentRepertoireId={id}
+              currentVersionId={versionId}
               onSelect={playlist.selectEntry}
             />
 
             {/* Song identity */}
-            <SongIdentityHeader identity={identity} status={status} readOnly={isOffline} />
+            <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} />
 
             {/* Tabs Section */}
             <TabLibrarySection
@@ -210,7 +224,7 @@ export default function FastViewPage() {
               loadingPersonal={song.loadingPersonal}
               onOpenStage={pdfStage.open}
               offline={isOffline}
-              readOnly={isOffline}
+              readOnly={readOnly}
             />
 
             {/* Links Section — `onDelete`'s wiring is documented on the prop */}
@@ -220,11 +234,11 @@ export default function FastViewPage() {
                 tabLibrary.cancelDelete()
                 links.requestDelete(url)
               }}
-              readOnly={isOffline}
+              readOnly={readOnly}
             />
 
             {/* Lyrics Section */}
-            <LyricsSection controller={lyrics} loadingPersonal={song.loadingPersonal} readOnly={isOffline} />
+            <LyricsSection controller={lyrics} loadingPersonal={song.loadingPersonal} readOnly={readOnly} />
 
             {/* Tags Section */}
             <SongTagsSection tags={entry.tags} />
@@ -238,7 +252,7 @@ export default function FastViewPage() {
         <SetlistSidebar
           nav={playlist.nav}
           entries={playlist.entries}
-          currentRepertoireId={id}
+          currentVersionId={versionId}
           onSelect={playlist.selectEntry}
         />
       </div>
@@ -252,7 +266,7 @@ export default function FastViewPage() {
         links={links}
         toast={toast}
         onDismissToast={dismissToast}
-        readOnly={isOffline}
+        readOnly={readOnly}
       />
     </>
   )

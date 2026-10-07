@@ -7,7 +7,7 @@ import {
   type SongLinksController,
 } from '@/lib/songLinks'
 import type { ToastTone } from '@/lib/uiTones'
-import type { Repertoire, SongLink } from '@/types/database'
+import type { ResolvedSongEntry, SongLink } from '@/types/database'
 
 /**
  * The link Server Actions the controller calls. Injected rather than imported,
@@ -28,7 +28,7 @@ export interface SongLinksActions {
 
 export interface UseSongLinksOptions {
   /** The route's entry; null until it loads. Owned by `useSongEntry`. */
-  entry: Repertoire | null
+  entry: ResolvedSongEntry | null
   /** Required, never defaulted — see `src/app/fastViewEntryActions.ts` (F21). */
   actions: SongLinksActions
   /** The page passes `song.applyLinks`, so the card list re-renders at once. */
@@ -69,7 +69,10 @@ export function useSongLinks({
   }, [])
 
   const submit = useCallback(async () => {
-    if (!entry?.song) return
+    // A null `ownerRowId` is "the addressed owner holds no row at this
+    // version": the add control is disabled and the write is refused rather
+    // than issued against a coerced id (RH-132 §3c).
+    if (!entry?.song || !entry.ownerRowId) return
 
     const current = entry.song.links ?? []
     if (isDuplicateLinkUrl(current, url)) {
@@ -94,7 +97,7 @@ export function useSongLinks({
       // `offlineFirst`'s ENVELOPE_WRITES), and reporting "Link added
       // successfully!" over a refusal would show the musician a link that was
       // never saved. Mirrors `confirmDelete` below (RH-99 ER6).
-      const result = await actions.updateLinks(entry.id, updated)
+      const result = await actions.updateLinks(entry.ownerRowId, updated)
       if (!result.success) throw new Error(result.error || 'Failed to add link.')
 
       onLinksSaved(updated)
@@ -115,13 +118,15 @@ export function useSongLinks({
     if (!pendingDeleteUrl) return
     setDeleteBusy(true)
     try {
-      if (entry?.song) {
+      // Same null-owner-row refusal as `submit` above (RH-132 §3c).
+      if (entry?.song && entry.ownerRowId) {
+        const ownerRowId = entry.ownerRowId
         const updated = removeLinkByUrl(entry.song.links ?? [], pendingDeleteUrl)
         try {
           // Removing a link rewrites the shared catalog for everyone, so it is
           // submitted for review instead of applied: keep the link on screen
           // until an admin approves the removal.
-          const result = await actions.updateLinks(entry.id, updated)
+          const result = await actions.updateLinks(ownerRowId, updated)
           if (result.pending) {
             notify('Link removal submitted for review. It stays visible until an admin approves it.', 'warning')
           } else {

@@ -166,7 +166,7 @@ describe('PlaylistSongList', () => {
     ])
   })
 
-  it('links a row that has a repertoire entry to that entry Fast View, carrying the band id', () => {
+  it('links a row to its version Fast View, carrying returnTo and the band id', () => {
     render(
       <PlaylistSongList
         {...props({
@@ -177,17 +177,38 @@ describe('PlaylistSongList', () => {
     )
 
     const link = within(songList()).getByRole('link', { name: /Kashmir/ })
+    // The entry's `version_id`, never the owner row's id (RH-132 ER15).
     expect(link.getAttribute('href')).toBe(
-      '/songs/rep-song-1/fast-view?returnTo=/playlists/playlist-1&bandId=band-9',
+      '/songs/song-1/fast-view?returnTo=/playlists/playlist-1&bandId=band-9',
     )
   })
 
-  it('renders a row without a repertoire entry with no link', () => {
-    render(<PlaylistSongList {...props()} />)
+  /**
+   * RH-132 ER15 — a row the owner holds no repertoire entry for is still a
+   * link.
+   *
+   * Fast View is version-addressed and takes its owner from `?bandId=`, so such
+   * a row opens at version defaults, read-only. It used to render as a dead
+   * identity line, which is the state this inverts. The mastery status still
+   * reads `unknown` and the tag row is still empty — that is what the absent
+   * entry means, and it is unchanged.
+   */
+  it('links a row with no repertoire entry too, to the same version address', () => {
+    render(<PlaylistSongList {...props({ bandId: 'band-9' })} />)
 
     const row = within(songList()).getByRole('listitem')
-    expect(within(row).queryByRole('link')).toBeNull()
+    const link = within(row).getByRole('link', { name: /Kashmir/ })
+    expect(link.getAttribute('href')).toBe(
+      '/songs/song-1/fast-view?returnTo=/playlists/playlist-1&bandId=band-9',
+    )
     expect(within(row).getByText('Kashmir')).toBeDefined()
+  })
+
+  it('omits the bandId from the link outside a band context', () => {
+    render(<PlaylistSongList {...props()} />)
+
+    const link = within(songList()).getByRole('link', { name: /Kashmir/ })
+    expect(link.getAttribute('href')).toBe('/songs/song-1/fast-view?returnTo=/playlists/playlist-1')
   })
 
   it('renders the song duration when the song carries one', () => {

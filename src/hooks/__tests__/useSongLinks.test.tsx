@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useSongLinks, type SongLinksActions, type UseSongLinksOptions } from '@/hooks/useSongLinks'
-import type { Song, Repertoire, SongLink } from '@/types/database'
+import type { Song, ResolvedSongEntry, SongLink } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -23,10 +23,8 @@ const SONG: Song = {
   created_at: '2026-01-01T00:00:00.000Z',
 }
 
-const ENTRY: Repertoire = {
-  id: 'rep-band',
-  user_id: null,
-  band_id: 'band-1',
+const ENTRY: ResolvedSongEntry = {
+  ownerRowId: 'rep-band',
   song_id: 'song-1',
   version_id: 'version-1',
   key: null,
@@ -311,5 +309,55 @@ describe('useSongLinks', () => {
 
     expect(actions.updateLinks).not.toHaveBeenCalled()
     expect(result.current.pendingDeleteUrl).toBeNull()
+  })
+})
+
+/**
+ * RH-132 ER9 — both link writes target the owner row, and refuse a null one.
+ *
+ * `updateSongLinksAction` resolves the owner server-side from the row id
+ * alone, so this hook needs no `bandId` option — only the `entry.id` to
+ * `entry.ownerRowId` swap and a guard, because `ownerRowId` is `null` exactly
+ * when the addressed owner holds no row at this version.
+ */
+describe('useSongLinks against the owner row (RH-132 ER9)', () => {
+  it('adds a link against the owner row id, never the version id', async () => {
+    const { result, actions } = setup()
+
+    act(() => result.current.startAdding())
+    act(() => result.current.setLabel('Tab'))
+    act(() => result.current.setUrl('https://songsterr.com/black-dog'))
+    await act(async () => { await result.current.submit() })
+
+    expect(actions.updateLinks).toHaveBeenCalledTimes(1)
+    expect(actions.updateLinks.mock.calls[0][0]).toBe('rep-band')
+    expect(actions.updateLinks.mock.calls[0][0]).not.toBe('version-1')
+  })
+
+  it('deletes a link against the owner row id', async () => {
+    const { result, actions } = setup()
+
+    act(() => result.current.requestDelete(LINKS[0].url))
+    await act(async () => { await result.current.confirmDelete() })
+
+    expect(actions.updateLinks).toHaveBeenCalledTimes(1)
+    expect(actions.updateLinks.mock.calls[0][0]).toBe('rep-band')
+  })
+
+  it('writes nothing, on either path, when the owner holds no row', async () => {
+    const noRow: ResolvedSongEntry = { ...ENTRY, ownerRowId: null, status: null, tags: [] }
+    const { result, actions, onLinksSaved } = setup({ entry: noRow })
+
+    act(() => result.current.startAdding())
+    act(() => result.current.setUrl('https://songsterr.com/black-dog'))
+    await act(async () => { await result.current.submit() })
+
+    act(() => result.current.requestDelete(LINKS[0].url))
+    await act(async () => { await result.current.confirmDelete() })
+
+    expect(actions.updateLinks).not.toHaveBeenCalled()
+    expect(onLinksSaved).not.toHaveBeenCalled()
+    // The links themselves still render: inherited data is readable.
+    expect(result.current.links).toEqual(LINKS)
   })
 })

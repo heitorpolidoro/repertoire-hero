@@ -130,8 +130,8 @@ export function isNetworkFailure(error: unknown): boolean {
 }
 
 /**
- * The order snapshots are searched in when only a `repertoireId` is known:
- * most recently downloaded first, ties broken by `playlistId` ascending.
+ * The order snapshots are searched in when only a `versionId` is known: most
+ * recently downloaded first, ties broken by `playlistId` ascending.
  *
  * Total and deterministic on purpose — a song in two downloaded playlists must
  * resolve the same way on every call. The two copies hold the same repertoire
@@ -147,14 +147,20 @@ export function orderSnapshotCandidates(
   })
 }
 
-/** The first downloaded snapshot that captured this song, newest first. */
+/**
+ * The first downloaded snapshot that captured this **version**, newest first.
+ *
+ * Keyed by `versionId` since RH-132, which is what the Fast View route carries.
+ * Keying it by the owner row id would answer `null` for every downloaded song
+ * and render `OfflineUnavailable` across the whole offline library.
+ */
 async function findSong(
   ports: OfflineFirstPorts,
-  repertoireId: string,
+  versionId: string,
 ): Promise<OfflineSongSnapshot | null> {
   for (const summary of orderSnapshotCandidates(await ports.store.listOfflinePlaylists())) {
     const snapshot = await ports.store.readOfflineSnapshot(summary.playlistId)
-    const song = snapshot?.songs.find((candidate) => candidate.repertoireId === repertoireId)
+    const song = snapshot?.songs.find((candidate) => candidate.versionId === versionId)
     if (song) return song
   }
   return null
@@ -163,9 +169,10 @@ async function findSong(
 /**
  * The first downloaded snapshot that captured this *song*, newest first.
  *
- * The scan is over `song.repertoire.song_id` rather than `repertoireId`,
- * because `getPersonalEntryForSong` is called with the song id and the member's
- * own row has a different repertoire id from the band row on screen (RH-83).
+ * The scan is over `song.repertoire.song_id` rather than `versionId`, because
+ * `getPersonalEntryForSong` is called with the song id and the member's own row
+ * may be held at a different version from the band row on screen (RH-83,
+ * RH-132 §3a). `ResolvedSongEntry` carries `song_id`, so nothing moved here.
  */
 async function findSongBySongId(
   ports: OfflineFirstPorts,
@@ -202,8 +209,11 @@ const OFFLINE_READERS: Record<string, OfflineReader> = {
     return detailsFromSnapshot(snapshot)
   },
 
-  getSongEntry: async (ports, [repertoireId]) => {
-    return (await findSong(ports, String(repertoireId)))?.repertoire ?? null
+  // Version-addressed since RH-132. `null` means "this version is in no
+  // downloaded playlist", which `useSongEntry` reads as the not-found screen —
+  // offline, rendered as "not downloaded".
+  getResolvedEntryForVersion: async (ports, [versionId]) => {
+    return (await findSong(ports, String(versionId)))?.repertoire ?? null
   },
 
   // Resolved through `findSongBySongId` since RH-123: `getTabs` is called with

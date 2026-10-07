@@ -197,6 +197,46 @@ describe.skipIf(!RUN_DB_TESTS)('owner-song reads and writes (real database)', ()
       expect(resolved.song_id).toBe(songId)
     })
 
+    /**
+     * RH-132 ER2 — the read behind the version-addressed Fast View route.
+     *
+     * The page is reachable for a version the signed-in user holds no
+     * `user_songs` row for, so this asserts the whole shape it renders at:
+     * `ownerRowId` / `status` absent, `tags` empty, and key / tuning / map
+     * compared against the `song_versions` row's **own stored values** rather
+     * than against literals, so a change to the fixture cannot make the
+     * inheritance assertion vacuous.
+     */
+    it('resolves the full Fast View entry at version defaults for an unheld version (RH-132 ER2)', async () => {
+      const version = (
+        await query<{ key: string | null; tuning: string | null; map: unknown }>(
+          'SELECT key, tuning, map FROM song_versions WHERE id = $1',
+          [singleVersionId],
+        )
+      ).rows[0]
+      // Guard the guard: an all-null version row would prove nothing.
+      expect(version.key).not.toBeNull()
+      expect(version.tuning).not.toBeNull()
+
+      const resolved = await getResolvedEntryForVersion({ userId: otherUserId }, singleVersionId)
+
+      expect(
+        await query(
+          'SELECT 1 FROM user_songs WHERE user_id = $1 AND version_id = $2',
+          [otherUserId, singleVersionId],
+        ).then((res) => res.rowCount),
+      ).toBe(0)
+      expect(resolved.ownerRowId).toBeNull()
+      expect(resolved.status).toBeNull()
+      expect(resolved.tags).toEqual([])
+      expect(resolved.key).toBe(version.key)
+      expect(resolved.tuning).toBe(version.tuning)
+      expect(resolved.map).toEqual(version.map)
+      // The page still has a title to render: the song level is read
+      // unconditionally, not through the owner row.
+      expect(resolved.song?.title).toBe(`RH-124 Read Song ${suffix}`)
+    })
+
     it('throws only for a version that does not exist', async () => {
       await expect(getResolvedEntryForVersion({ userId }, MISSING_ID)).rejects.toThrow(
         'Failed to resolve song version',

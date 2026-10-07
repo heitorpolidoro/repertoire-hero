@@ -191,8 +191,10 @@ describe.skipIf(!RUN_DB_TESTS)('the version-keyed playlist reads (RH-125 ER9, ER
       title: `RH-125 Two Takes ${sfx}`,
       artist: `RH-125 Artist ${sfx}`,
     })
-    // The live take: no owner row, so no Fast View address yet (RH-109) — and
-    // the entry is still there, with its identity and its display columns.
+    // The live take: no owner row, which since RH-132 is information rather
+    // than the absence of an address — the entry is still there, with its
+    // identity and its display columns, and `versionId` is what Fast View
+    // addresses it by.
     expect(second.repertoireId).toBeNull()
     expect(second.versionId).toBe(unheldVersionId)
     expect(second.title).toBe(`RH-125 Two Takes ${sfx}`)

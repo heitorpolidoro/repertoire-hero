@@ -6,7 +6,7 @@ import { LyricsEditorPanel } from '../LyricsEditorPanel'
 import { useLyricsEditor, type LyricsEditorActions } from '@/hooks/useLyricsEditor'
 import type { LyricsEditorController } from '@/lib/lyricsEditor'
 import { resolveSongFields } from '@/lib/songResolution'
-import type { Repertoire } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -350,10 +350,13 @@ describe('LyricsEditorPanel', () => {
  * reaches the screen with no interaction at all. A test may import `src/hooks`
  * (F21 exempts `__tests__`); the component still may not, and does not.
  */
-const BAND_ROW: Repertoire = {
-  id: 'band-rep',
-  user_id: null,
-  band_id: 'band-1',
+/**
+ * The route entry: a `ResolvedSongEntry` since RH-132, carrying no `band_id`.
+ * The band context reaches the controller as its own `bandId` option, which is
+ * the page's `?bandId=` — see the host below.
+ */
+const BAND_ROW: ResolvedSongEntry = {
+  ownerRowId: 'band-rep',
   song_id: 'song-1',
   version_id: 'version-1',
   key: null,
@@ -365,6 +368,22 @@ const BAND_ROW: Repertoire = {
   lyrics: 'band words',
 }
 
+/** The member's own row, still a `Repertoire` (RH-132 ER14). */
+const PERSONAL_ROW: Repertoire = {
+  id: 'personal-rep',
+  user_id: 'u1',
+  band_id: null,
+  song_id: 'song-1',
+  version_id: 'version-1',
+  key: null,
+  tuning: null,
+  map: null,
+  status: 'learning',
+  tags: [],
+  last_practiced: null,
+  lyrics: 'my words',
+}
+
 const NOOP_ACTIONS: LyricsEditorActions = {
   updateLyrics: vi.fn().mockResolvedValue(undefined),
   fetchLyrics: vi.fn().mockResolvedValue(null),
@@ -374,6 +393,8 @@ const NOOP_ACTIONS: LyricsEditorActions = {
 function LyricsHost({ personalEntry }: { personalEntry: Repertoire | null }) {
   const controller = useLyricsEditor({
     entry: BAND_ROW,
+    // The page's `?bandId=`, which is what makes this band context (RH-132 §3b).
+    bandId: 'band-1',
     personalEntry,
     songTitle: 'Song',
     artist: 'Artist',
@@ -388,8 +409,7 @@ function LyricsHost({ personalEntry }: { personalEntry: Repertoire | null }) {
 
 describe('Fast View lyrics on first paint (ER2)', () => {
   it('shows the personal version, and says so, with no user interaction', () => {
-    const personal: Repertoire = { ...BAND_ROW, id: 'personal-rep', band_id: null, user_id: 'u1', lyrics: 'my words' }
-    render(<LyricsHost personalEntry={personal} />)
+    render(<LyricsHost personalEntry={PERSONAL_ROW} />)
 
     expect(screen.getByText('my words')).toBeDefined()
     expect(screen.queryByText('band words')).toBeNull()
@@ -397,7 +417,7 @@ describe('Fast View lyrics on first paint (ER2)', () => {
   })
 
   it('shows the band version when the personal one is empty or absent', () => {
-    const emptyPersonal: Repertoire = { ...BAND_ROW, id: 'personal-rep', band_id: null, user_id: 'u1', lyrics: '   ' }
+    const emptyPersonal: Repertoire = { ...PERSONAL_ROW, lyrics: '   ' }
     const withEmpty = render(<LyricsHost personalEntry={emptyPersonal} />)
 
     expect(screen.getByText('band words')).toBeDefined()
@@ -423,10 +443,8 @@ describe('Fast View lyrics on first paint (ER2)', () => {
 describe('Fast View lyrics inherited from the composition (RH-124 ER16)', () => {
   const SONG_ONLY_LYRICS = 'words that live only on the song'
 
-  const resolvedEntry = (): Repertoire => ({
-    id: 'owner-row-1',
-    user_id: 'u1',
-    band_id: null,
+  const resolvedEntry = (): ResolvedSongEntry => ({
+    ownerRowId: 'owner-row-1',
     song_id: 'song-1',
     version_id: 'version-1',
     ...resolveSongFields({
@@ -449,6 +467,8 @@ describe('Fast View lyrics inherited from the composition (RH-124 ER16)', () => 
   function Host() {
     const controller = useLyricsEditor({
       entry: resolvedEntry(),
+      // Outside a band: one version, one text.
+      bandId: null,
       personalEntry: null,
       songTitle: 'Song',
       artist: 'Artist',

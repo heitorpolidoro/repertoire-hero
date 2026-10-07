@@ -288,11 +288,11 @@ export async function getSongEntry(owner: RepertoireOwner, repertoireId: string)
  * One user's own row for a catalog song, or `null` — the Fast View's "does this
  * song sit in *my* repertoire?". Keyed by `(song_id, user_id)` and not by a
  * version, so the representative-version ordering is applied to the rows the
- * user **actually holds**, through a lateral; that preserves the
- * one-row-per-song answer the caller expects. **The lateral stays**: RH-125
- * deleted the two in the *playlist* reads, whose rows carry a `version_id` now,
- * but this caller holds a `songs.id` — Fast View and the offline snapshot are
- * still owner-row-addressed, and re-addressing them (RH-109) is what deletes it.
+ * user **actually holds**, through a lateral; that keeps the one-row-per-song
+ * answer. **The lateral stays**: both callers are song-keyed by nature —
+ * `ensureOwnEntry` (`src/app/actions/tabs.ts`) because `song_files` is
+ * `(user_id, song_id)`, and Fast View's personal read because version-keying it
+ * would lose a member's lyrics when they hold the song at another version (§3a).
  */
 export async function getPersonalEntryForSong(songId: string, userId: string): Promise<Repertoire | null> {
   const sql = `

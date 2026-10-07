@@ -26,7 +26,8 @@ export interface PlaylistNavActions {
 }
 
 export interface UsePlaylistNavOptions {
-  currentRepertoireId: string
+  /** The route's `song_versions.id` — the Fast View address (RH-132). */
+  currentVersionId: string
   returnTo: string | null
   bandId: string | null
   /** Required, never defaulted — see `src/app/fastViewNavActions.ts`. */
@@ -50,8 +51,8 @@ export interface PlaylistNavController {
   slideOut: SlideDirection | null
   openDrawer: () => void
   closeDrawer: () => void
-  /** No-op when `repertoireId` is the current entry. */
-  selectEntry: (repertoireId: string) => void
+  /** No-op when `versionId` is the current entry. */
+  selectEntry: (versionId: string) => void
   goPrev: () => void
   goBack: () => void
   onTouchStart: (clientX: number) => void
@@ -70,7 +71,7 @@ export interface PlaylistNavController {
  * setlist components render nothing.
  */
 export function usePlaylistNav({
-  currentRepertoireId,
+  currentVersionId,
   returnTo,
   bandId,
   actions,
@@ -95,7 +96,7 @@ export function usePlaylistNav({
       .then((details) => {
         if (cancelled) return
         setEntries(details.entries)
-        setNav(computePlaylistNav(details.entries, currentRepertoireId, playlistId, details.name))
+        setNav(computePlaylistNav(details.entries, currentVersionId, playlistId, details.name))
       })
       .catch(() => {
         // Setlist navigation is optional chrome — a song that cannot resolve its
@@ -105,7 +106,7 @@ export function usePlaylistNav({
     return () => {
       cancelled = true
     }
-  }, [actions, bandId, currentRepertoireId, returnTo])
+  }, [actions, bandId, currentVersionId, returnTo])
 
   // The pending slide-out must not push a route after the page is gone.
   useEffect(() => {
@@ -115,22 +116,22 @@ export function usePlaylistNav({
   }, [])
 
   const slideAwayTo = useCallback(
-    (repertoireId: string, direction: SlideDirection) => {
+    (versionId: string, direction: SlideDirection) => {
       setSlideOut(direction)
       slideTimer.current = setTimeout(() => {
         slideTimer.current = null
-        navigate(fastViewHref(repertoireId, returnTo, bandId))
+        navigate(fastViewHref(versionId, returnTo, bandId))
       }, SLIDE_OUT_MS)
     },
     [bandId, navigate, returnTo],
   )
 
   const selectEntry = useCallback(
-    (repertoireId: string) => {
-      if (repertoireId === currentRepertoireId) return
-      slideAwayTo(repertoireId, slideDirection(entries, currentRepertoireId, repertoireId))
+    (versionId: string) => {
+      if (versionId === currentVersionId) return
+      slideAwayTo(versionId, slideDirection(entries, currentVersionId, versionId))
     },
-    [currentRepertoireId, entries, slideAwayTo],
+    [currentVersionId, entries, slideAwayTo],
   )
 
   const goPrev = useCallback(() => {
@@ -151,7 +152,7 @@ export function usePlaylistNav({
 
       const target = swipeTarget(startX - clientX, nav)
       if (!target) return
-      slideAwayTo(target.repertoireId, target.direction)
+      slideAwayTo(target.versionId, target.direction)
     },
     [nav, slideAwayTo],
   )
@@ -178,7 +179,7 @@ export function usePlaylistNav({
       )
       if (!target) return
       event.preventDefault()
-      slideAwayTo(target.repertoireId, target.direction)
+      slideAwayTo(target.versionId, target.direction)
     }
 
     document.addEventListener('keydown', handleKeyDown)

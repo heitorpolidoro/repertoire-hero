@@ -33,7 +33,7 @@ vi.mock('@/lib/ownerSongs', () => ({
   updateSongStatus: vi.fn(),
   updateSongTags: vi.fn(),
   removeSongFromRepertoire: vi.fn(),
-  getSongEntry: vi.fn(),
+  getResolvedEntryForVersion: vi.fn(),
   updateSong: vi.fn(),
   createAndAddSong: vi.fn(),
   assertRepertoireAccess: vi.fn(),
@@ -58,7 +58,7 @@ import {
   updateSongTagsAction,
   removeSongAction,
   searchSongsAction,
-  getSongEntryAction,
+  getResolvedEntryForVersionAction,
   updateSongAction,
   createAndAddSongAction,
   updateLyricsAction,
@@ -76,7 +76,7 @@ import {
   updateSongStatus,
   updateSongTags,
   removeSongFromRepertoire,
-  getSongEntry,
+  getResolvedEntryForVersion,
   updateSong,
   createAndAddSong,
   assertRepertoireAccess,
@@ -91,6 +91,7 @@ const USER_ID = 'user-1'
 const BAND_ID = 'band-1'
 const REPERTOIRE_ID = 'repertoire-1'
 const SONG_ID = 'song-1'
+const VERSION_ID = 'version-1'
 
 const ENTRY = { id: REPERTOIRE_ID, song_id: SONG_ID } as unknown as Repertoire
 const UPDATE_DATA = { title: 'New Title' }
@@ -102,7 +103,15 @@ const CREATE_DATA = { title: 'Fresh', artist: 'Someone' }
  * `adminGated` names the band guard the action authorizes through. Since RH-124
  * every **write** goes through `assertBandAdmin` — *Writing a band's rows* is
  * unqualified — and only the two reads, `getRepertoireAction` and
- * `getSongEntryAction`, go through `assertBandMember`.
+ * `getResolvedEntryForVersionAction`, go through `assertBandMember`.
+ *
+ * RH-132 replaced the owner-row-addressed entry read with
+ * `getResolvedEntryForVersionAction`, which is Fast View's entry read now. The
+ * row **moved** rather than being dropped: this matrix is not DB-gated, so it
+ * is the only ungated proof that the Fast View entry read authorizes through
+ * `assertBandMember` and delegates to `@/lib/ownerSongs`. The DB-backed
+ * `authzRepertoire.db.test.ts` cannot prove it under `npm run test:coverage`,
+ * which sets no `RUN_DB_TESTS`.
  */
 const DELEGATIONS: Array<{
   label: string
@@ -152,10 +161,10 @@ const DELEGATIONS: Array<{
     adminGated: true,
   },
   {
-    label: 'getSongEntryAction',
-    lib: () => vi.mocked(getSongEntry),
-    run: (bandId) => getSongEntryAction(REPERTOIRE_ID, bandId),
-    tail: [REPERTOIRE_ID],
+    label: 'getResolvedEntryForVersionAction',
+    lib: () => vi.mocked(getResolvedEntryForVersion),
+    run: (bandId) => getResolvedEntryForVersionAction(VERSION_ID, bandId),
+    tail: [VERSION_ID],
     revalidates: false,
   },
   {
