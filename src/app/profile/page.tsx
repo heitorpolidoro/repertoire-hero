@@ -13,6 +13,7 @@ import { useBandContextStore } from "@/store/bandContextStore";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { getBandThemeStyles } from "@/lib/bandColors";
 import { InstrumentPicker, INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
+import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import {
   EmailChangeSection,
   type EmailChangeActions,
@@ -599,65 +600,16 @@ function PersonalProfileView() {
 // ---------------------------------------------------------------------------
 export default function ProfilePage() {
   const context = useBandContextStore((s) => s.context);
-  const isBandMode = context.type === "band";
-
-  const [activeTab, setActiveTab] = useState<"band" | "personal">(
-    isBandMode ? "band" : "personal"
-  );
-
-  const bandTheme = getBandThemeStyles(context.type === "band" ? context.color : null);
-
-  // Sync tab with band context if context changes
-  useEffect(() => {
-    setActiveTab(context.type === "band" ? "band" : "personal");
-  }, [context.type]);
 
   return (
     <div className="flex flex-col h-full">
-      <header className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-4 md:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">
-            {activeTab === "band" && isBandMode
-              ? `Band Profile · ${context.name}`
-              : "Personal Profile"}
-          </h1>
-        </div>
-
-        {/* Tab switcher when in Band Mode */}
-        {isBandMode && (
-          <div className="flex bg-gray-100 p-1 rounded-xl self-start sm:self-auto">
-            <button
-              onClick={() => setActiveTab("band")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "band"
-                  ? "shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-              style={activeTab === "band" ? bandTheme.style : undefined}
-            >
-              🎸 {context.name}
-            </button>
-            <button
-              onClick={() => setActiveTab("personal")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "personal"
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              👤 Personal
-            </button>
-          </div>
-        )}
-      </header>
-
-      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-6 max-w-3xl">
-        {activeTab === "band" && isBandMode ? (
-          <BandProfileView bandId={context.id} />
-        ) : (
-          <PersonalProfileView />
-        )}
-      </div>
+      <ProfileTabs
+        context={context}
+        // `BandContext` is a discriminated union: `context.id` exists only on
+        // the `band` arm, so the element has to be built inside the narrowing.
+        bandPanel={context.type === "band" ? <BandProfileView bandId={context.id} /> : null}
+        personalPanel={<PersonalProfileView />}
+      />
     </div>
   );
 }

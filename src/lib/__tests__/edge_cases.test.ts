@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createPlaylist, addSongToPlaylist } from '../playlists'
-import { getProfile, updateProfile } from '../profile'
+import { addSongToPlaylist } from '../playlists'
+import { getProfile } from '../profile'
 import {
-  addSongToRepertoire,
   createAndAddSong,
   updateSongStatus,
   updateSongTags,
@@ -72,7 +71,7 @@ beforeEach(() => {
   playlistsReturnBandId = false
 
   vi.mocked(query).mockReset()
-  vi.mocked(query).mockImplementation(async (sql: string, params?: any[]) => {
+  vi.mocked(query).mockImplementation(async (sql: string) => {
     const normalizedSql = sql.toLowerCase()
 
     // Support transaction commands without throwing

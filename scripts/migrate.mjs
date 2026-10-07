@@ -60,7 +60,7 @@ async function run() {
 
   try {
     await client.connect()
-  } catch (err) {
+  } catch {
     console.warn("⚠️ Could not connect to Postgres DB — skipping migrations during build.")
     return
   }

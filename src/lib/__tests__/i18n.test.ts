@@ -6,7 +6,6 @@ import {
   parseAcceptLanguage,
   resolveLocale,
   getDictionary,
-  type Locale,
 } from '../i18n'
 
 describe('i18n module', () => {

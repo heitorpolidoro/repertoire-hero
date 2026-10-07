@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useHydrated } from "@/hooks/useHydrated";
 import { COOKIE_NAME, getDictionary, type Locale } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/layout/LanguageSelector";
 
@@ -42,10 +43,17 @@ function FeatureCard({ icon, title, desc }: { icon: string; title: string; desc:
 
 export default function LandingPage() {
   const [devProfiles, setDevProfiles] = useState<DevProfile[]>([]);
-  const [locale, setLocale] = useState<Locale>("pt-BR");
 
+  // Derived during render rather than written into state from a mount effect
+  // (RH-129: `react-hooks/set-state-in-effect`). The `useHydrated()` gate keeps
+  // the SSR pass and the hydration render agreeing on the `pt-BR` default,
+  // which is the only locale the server can know.
+  const hydrated = useHydrated();
+  const locale: Locale = hydrated ? getLocaleCookie() : "pt-BR";
+
+  // The dev-profile fetch stays: its `setDevProfiles` lives in a `.then`
+  // callback, which the rule does not flag.
   useEffect(() => {
-    setLocale(getLocaleCookie());
     if (process.env.NODE_ENV !== "development") return;
     fetch("/api/dev/profiles")
       .then((res) => (res.ok ? res.json() : Promise.reject()))

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { OfflineStorageSection } from '@/components/settings/OfflineStorageSection';
 import { Spinner } from '@/components/ui/Spinner';
 import type { SpotifyPlaylist } from '@/types/database';
@@ -10,23 +10,35 @@ const SettingsPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  const loadSpotifyStatus = useCallback(async () => {
-    try {
-      const res = await fetch('/api/spotify/playlists');
-      const body = (await res.json()) as SpotifyPlaylist[] | { connected: false };
-      if (!Array.isArray(body) && body.connected === false) {
-        setSpotifyConnected(false);
-      } else {
-        setSpotifyConnected(true);
-      }
-    } catch {
-      setSpotifyConnected(false);
-    }
-  }, []);
-
+  // The load is defined inside the effect rather than wrapped in a
+  // `useCallback` the effect then calls: `react-hooks/set-state-in-effect`
+  // follows the callback into its body and reports the state writes (RH-129).
+  // Inlining it also makes the `alive` guard possible, so a resolution that
+  // lands after an unmount writes nothing.
   useEffect(() => {
-    loadSpotifyStatus().catch(console.error);
-  }, [loadSpotifyStatus]);
+    let alive = true;
+
+    const loadSpotifyStatus = async () => {
+      try {
+        const res = await fetch('/api/spotify/playlists');
+        const body = (await res.json()) as SpotifyPlaylist[] | { connected: false };
+        if (!alive) return;
+        if (!Array.isArray(body) && body.connected === false) {
+          setSpotifyConnected(false);
+        } else {
+          setSpotifyConnected(true);
+        }
+      } catch {
+        if (alive) setSpotifyConnected(false);
+      }
+    };
+
+    void loadSpotifyStatus();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
@@ -113,6 +125,12 @@ const SettingsPage = () => {
                   Import playlists and keep them in sync.
                 </p>
               </div>
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- not a
+                  page: `src/app/api/auth/spotify/authorize/route.ts` is a route
+                  handler that sets an httpOnly `spotify_oauth_state` CSRF cookie
+                  and redirects to `accounts.spotify.com`, so it needs a full
+                  document request — exactly what the rule wants replaced with a
+                  `next/link` client transition. */}
               <a
                 href="/api/auth/spotify/authorize"
                 className="shrink-0 inline-flex items-center justify-center px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors"

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
+import { useHydrated } from '@/hooks/useHydrated';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
 import { SignOutButton } from '@/components/layout/SignOutButton';
@@ -42,11 +43,9 @@ function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
   const { context, setUserContext, setBandContext } = useBandContextStore();
   const loadSongs = useRepertoireStore((s) => s.loadSongs);
 
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -64,7 +63,7 @@ function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
     router.push('/');
   };
 
-  if (!mounted || !user) return null;
+  if (!hydrated || !user) return null;
 
   const label = context.type === 'band'
     ? context.name
@@ -144,15 +143,18 @@ const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent),
  * content wrapper at the same tree position, so React never unmounts the route
  * subtree. Only the chrome elements and the wrappers' classes and role vary.
  *
- * Chrome visibility follows the session alone, never `mounted`: it is shown
+ * Chrome visibility follows the session alone, never hydration: it is shown
  * while `useSession()` is still pending — which keeps the server HTML and the
  * first client render exactly what they were — and hidden only once the session
  * has resolved to no user, in which case both wrappers go layout-neutral
  * (`contents`) and the `main` landmark is withheld, so a chrome-less page such
  * as the signed-out landing page lays itself out and owns its own landmarks.
  *
- * `mounted` survives only for the band-mode hydration guard below: the
- * persisted context store can disagree with the SSR default.
+ * The hydration flag survives only for the band-mode guard below: the
+ * persisted context store can disagree with the SSR default. It comes from
+ * `useHydrated()` (`useSyncExternalStore`) rather than the `useState(false)` +
+ * `useEffect(() => setMounted(true), [])` pair it replaced, which was a
+ * `react-hooks/set-state-in-effect` error (RH-129).
  */
 export default function AppLayout({ children, bands }: AppLayoutProps) {
   const pathname = usePathname();
@@ -162,8 +164,7 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
   const loadSongs = useRepertoireStore((s) => s.loadSongs);
 
   const { data: session, isPending } = authClient.useSession();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const hydrated = useHydrated();
 
   const showChrome = isPending || !!session?.user;
   const chrome = showChrome
@@ -171,7 +172,7 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
     : { outer: 'contents', content: 'contents', role: undefined };
 
   const band = context.type === 'band' ? context : null;
-  const isBandMode = mounted && showChrome && band !== null;
+  const isBandMode = hydrated && showChrome && band !== null;
   const theme = getBandThemeStyles(isBandMode ? band.color : null);
   const chromeStyle = isBandMode ? theme.style : undefined;
 

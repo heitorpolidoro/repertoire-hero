@@ -1,6 +1,6 @@
 {
   "name": "repertoire-hero",
-  "version": "0.1.150-202610071147",
+  "version": "0.1.151-202610071217",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -10,7 +10,7 @@
     "build": "node scripts/migrate.mjs && next build && serwist build serwist.config.js",
     "db:migrate": "node scripts/migrate.mjs",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint . --max-warnings=0",
     "lint:dead": "knip",
     "lint:dup": "jscpd",
     "audit": "npm audit --audit-level=high --omit=dev",

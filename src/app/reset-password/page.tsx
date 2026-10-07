@@ -3,23 +3,24 @@
 import { authClient } from '@/lib/auth-client'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState } from 'react'
 
 function ResetPasswordForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
-  const [token, setToken] = useState<string | null>(null)
+  // Pure derivation from a hook value, so it is read during render and not
+  // written into state from an effect (RH-129:
+  // `react-hooks/set-state-in-effect`). It also fixes a flash: `token` used to
+  // be `null` on the first render, so the missing-token panel below painted for
+  // one frame even when the URL carried a token.
+  const token = searchParams.get('token')
+
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    const t = searchParams.get('token')
-    setToken(t)
-  }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()

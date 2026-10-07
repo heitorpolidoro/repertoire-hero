@@ -36,8 +36,10 @@ const eslintConfig = defineConfig([
   },
   // F20/RH-39: the complexity budget. These five rules are the mechanical
   // ratchet that keeps a FastViewPage (RH-38) or a PlaylistDetailPage from
-  // being re-created after it is fixed. No CI job runs eslint, so
-  // src/lib/__tests__/complexityBudget.test.ts is what actually enforces them.
+  // being re-created after it is fixed. Since RH-129 the `Lint (eslint)` CI job
+  // runs `npm run lint`, so a violation fails a PR on its own;
+  // src/lib/__tests__/complexityBudget.test.ts additionally pins the thresholds
+  // and the override list, which eslint itself cannot check.
   {
     name: "complexity-budget/base",
     files: ["src/**/*.ts", "src/**/*.tsx"],
@@ -80,7 +82,7 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 25], "max-depth": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/app/bands/\\[id\\]/page.tsx"], rules: { complexity: ["error", 29], "max-lines-per-function": ["error", 453], "max-lines": ["error", 473] } },
   { name: "complexity-budget/override", files: ["src/app/join/\\[code\\]/page.tsx"], rules: { "max-lines-per-function": ["error", 249] } },
-  { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 663] } },
+  { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 615] } },
   { name: "complexity-budget/override", files: ["src/components/layout/AppLayout.tsx"], rules: { complexity: ["error", 21] } },
   // RH-96: the status badge moved into `SongStatusBadge.tsx` and the band-role
   // read into `useBandRole.ts`, so the row's worst complexity fell from 18 to

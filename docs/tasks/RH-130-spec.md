@@ -277,22 +277,29 @@ No ceiling may go up, no entry may be added (in particular none for
         `@typescript-eslint/no-explicit-any`, `no-restricted-imports`,
         `complexity`, `max-depth`, `max-lines-per-function`, `max-params`,
         `max-lines` — an eighth id fails whatever it is set to. Then check the
-        resolution: on `src/components/layout/LanguageSelector.tsx` (a
-        `src/components` file with no override) `complexity` is
-        `[2, 15]`, `max-depth` 4, `max-lines-per-function` 200,
-        `max-params` 4, `max-lines` 400, and `no-restricted-imports` and
-        `@typescript-eslint/no-explicit-any` are severity 2; on
-        `src/lib/__tests__/errors.test.ts` the only two zeros **among these seven** appear —
-        `@typescript-eslint/no-explicit-any` severity 0 and
-        `max-lines-per-function` severity 0 — alongside `max-lines`
-        `[2, 800]` and `complexity` `[2, 16]`. All eight numbers
-        measured today.
+        resolution. Severities come back **normalised and always as arrays**, so
+        write the assertions in that form: on
+        `src/components/layout/LanguageSelector.tsx` (a `src/components` file
+        with no override) `complexity` is `[2, 15]`, `max-depth` `[2, 4]`,
+        `max-lines-per-function` `[2, 200]`, `max-params` `[2, 4]`, `max-lines`
+        `[2, 400]`, `@typescript-eslint/no-explicit-any` `[2]` and
+        `no-restricted-imports` `[2, { patterns: [...] }]` (assert its severity,
+        not the options object); on `src/lib/__tests__/errors.test.ts` the only
+        two zeros **among these seven** appear —
+        `@typescript-eslint/no-explicit-any` `[0]` and `max-lines-per-function`
+        `[0, 200]` — alongside `max-lines` `[2, 800]` and `complexity`
+        `[2, 16]`. Note the seventh: `no-restricted-imports` resolves
+        **`undefined`** on that file, because the F21 block carries
+        `ignores: ["**/__tests__/**"]`. `undefined` is not a zero, so the
+        "only two zeros" claim holds — but an assertion that walks all seven
+        must treat `undefined` as its own case and not coerce it to 0.
+        All measured at `f7ae8b1`.
 
    c. **The resolved file universe: nothing silently leaves the run.** Assert
       that `lintFiles(['.'])` returns a result for **every** git-tracked
       lintable path — `git ls-files` filtered to
       `.js/.jsx/.mjs/.cjs/.ts/.tsx`, with the set difference required to be
-      empty. Measured today: 435 tracked lintable paths, 435 linted, zero
+      empty. Re-measured at `f7ae8b1`: 440 tracked lintable paths, 440 linted, zero
       excluded (the 7 `globalIgnores` entries all name untracked or generated
       paths, `next-env.d.ts` included). Expressed as a derived set difference
       and not a count, so the six new test files are covered the moment they
@@ -322,7 +329,7 @@ No ceiling may go up, no entry may be added (in particular none for
       - no file under `src/`, `e2e/` or `scripts/` carries a **whole-file**
         `/* eslint-disable ... */` block comment (with or without a rule list)
         or an **inline config comment** of the `/* eslint <rule>: 0 */` form.
-        There are none of either today: all eleven `eslint-disable` hits in the
+        There are none of either today: all eleven `eslint-disable` *directive* hits in the
         tree are `-next-line` directives, and the single `/* eslint-disable`
         block-comment hit is the JSX-wrapped `-next-line` at
         `src/components/fastview/TabViewer.tsx:125`. Per-rule counts for the
@@ -330,7 +337,7 @@ No ceiling may go up, no entry may be added (in particular none for
 
    The `rules` objects **and `files` arrays** of `complexity-budget/base` and
    `complexity-budget/tests` are **not** re-asserted here:
-   `complexityBudget.test.ts:112` and `:127` already pin both by `toEqual`, including
+   `complexityBudget.test.ts:112`/`:113` and `:127`/`:132` already pin both by `toEqual`, including
    the sorted `files` arrays — which is also what closes "narrow a budget
    block's glob until it matches nothing". That test is the artifact QA should
    cite for them; duplicating it would mean two files to update on the next
@@ -383,7 +390,7 @@ row.
 | a later config object re-declaring a rule more loosely | ER8: `calculateConfigForFile` returns the last-wins value |
 | plugin re-registered under a new name so the id stops resolving | ER8: an absent rule is not severity 2 |
 | a second `globalIgnores([...])` call, or entries added to the first | ER10 half (c): the excluded file is still git-tracked and now unlinted |
-| a config object's own `ignores:` key **alongside a `files` key** (the file stays in the run) | ER8 (b): every budget rule then resolves `undefined` on that file — **not** half (c) |
+| a config object's own `ignores:` key **alongside a `files` key** (the file stays in the run) | ER8 (b): the budget rules resolve `undefined` on that file — **not** half (c), which still sees the file. Narrower than it reads: half (b) probes two named files (`LanguageSelector.tsx` and `errors.test.ts`), so an `ignores:` naming some *other* file would disable that file's budget with every half silent. The exposure is one future budget, not a current finding; closing it would mean probing every file an override names. |
 | a bare `{ ignores: [...] }` object with no `files` key (a global ignore) | ER10 half (c), and half (b) throws because `calculateConfigForFile` returns `undefined` |
 | moving a source file under an ignored glob (`public/**`, `build/**`) | ER10 half (c) |
 | narrowing a budget block's `files` glob until it matches nothing | `complexityBudget.test.ts:112` and `:127` `files` deep equality (cited in ER8) |
@@ -565,14 +572,70 @@ consent screen; `/reset-password?token=…` still completes a reset and
 - [ ] ER7 — All `@typescript-eslint/no-unused-vars` warnings are fixed in code with no suppression and no `argsIgnorePattern` added to `eslint.config.mjs`: `chromium` gone from `e2e/global-setup.ts`'s import, an optional catch binding in `scripts/migrate.mjs`, `SUPPORTED_LOCALES` gone from `src/components/layout/LanguageSelector.tsx`, the three unused imports gone from `src/lib/__tests__/edge_cases.test.ts`, `type Locale` gone from `src/lib/__tests__/i18n.test.ts`, the trailing unused `params` parameter removed from the mock dispatcher in both `src/lib/__tests__/edge_cases.test.ts` and `src/lib/__tests__/errors.test.ts`, and `useCallback` gone from `src/app/settings/page.tsx`'s React import. No test assertion changed in any of those files.
 - [ ] ER8 — Lint was not made green by weakening a rule, and the check is on **resolved severities**, not on the source text of `eslint.config.mjs` (a text scan cannot see `"react-hooks/set-state-in-effect": 0`, which silences four of today's eight errors). Via the ESLint Node API's `calculateConfigForFile`: (a) the three rules this task clears still resolve to their current severities — `react-hooks/set-state-in-effect` **2** and `@next/next/no-html-link-for-pages` **2** on each of the six touched component/page files, and `@typescript-eslint/no-unused-vars` **1** (never 0) on each of the eleven baseline files; (b) the set of rule ids declared by `eslint.config.mjs`'s **own** config objects — the exported array minus the two `eslint-config-next` preset spreads — is exactly these seven and no eighth: `@typescript-eslint/no-explicit-any`, `no-restricted-imports`, `complexity`, `max-depth`, `max-lines-per-function`, `max-params`, `max-lines`; and their resolution is unchanged — on `src/components/layout/LanguageSelector.tsx`, `complexity` `[2, 15]`, `max-depth` 4, `max-lines-per-function` 200, `max-params` 4, `max-lines` 400, `no-restricted-imports` and `@typescript-eslint/no-explicit-any` severity 2, while on `src/lib/__tests__/errors.test.ts` the only two zeros **among these seven declared ids** are the intended ones, `@typescript-eslint/no-explicit-any` and `max-lines-per-function`, with `max-lines` `[2, 800]` and `complexity` `[2, 16]`. These assertions hold however a severity is spelled (`"off"`, `'off'`, `0`), in whichever config object, and whether or not its `rules` were spread in from another module. The `rules` objects and sorted `files` arrays of `complexity-budget/base` and `complexity-budget/tests` are **not** re-asserted here: `src/lib/__tests__/complexityBudget.test.ts:107-135` already pins both by `toEqual`, and that is the artifact that proves them.
 - [ ] ER9 — The block between `// BEGIN:complexity-budget-overrides` and `// END:complexity-budget-overrides` in `eslint.config.mjs` holds at most 14 entries, with no entry added for `src/components/profile/ProfileTabs.tsx` or any new test file. The `src/app/profile/page.tsx` entry still carries `complexity: 22` and `max-lines-per-function: 365` (both are `BandProfileView`'s numbers and this task does not touch it) with `max-lines` lowered to the file's new exact length; the `AppLayout.tsx`, `edge_cases.test.ts` and `errors.test.ts` entries are unchanged after re-measurement. No ceiling is higher than before, `MAX_OVERRIDES` is still 17 or lower, and `src/lib/__tests__/complexityBudget.test.ts` passes.
-- [ ] ER10 — A new `src/lib/__tests__/lintGate.test.ts` passes and has four halves: (a) an ESLint Node API run over the whole project asserting that no result carries any message of **any** severity; (b) the resolved-severity assertions of ER8; (c) **no file silently leaves the run** — `lintFiles(['.'])` returns a result for every git-tracked lintable path (`git ls-files` filtered to `.js/.jsx/.mjs/.cjs/.ts/.tsx`; the set difference must be empty — 435 of 435 today), asserted as a derived set difference and not a count; (d) a text read asserting ER2's `lint`-script properties, that `eslint.config.mjs` imports only from `eslint/config`, `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript`, contains no `process.env` reference and declares no `linterOptions` key (there is none today, so `reportUnusedDisableDirectives` cannot be quietly lowered — a `linterOptions` key is not a rule declaration and is invisible to ER8), and that no file under `src/`, `e2e/` or `scripts/` carries a whole-file `/* eslint-disable ... */` block comment (with or without a rule list) or an inline `/* eslint <rule>: 0 */` config comment.
+- [ ] ER10 — A new `src/lib/__tests__/lintGate.test.ts` passes and has four halves: (a) an ESLint Node API run over the whole project asserting that no result carries any message of **any** severity; (b) the resolved-severity assertions of ER8; (c) **no file silently leaves the run** — `lintFiles(['.'])` returns a result for every git-tracked lintable path (`git ls-files` filtered to `.js/.jsx/.mjs/.cjs/.ts/.tsx`; the set difference must be empty — 440 of 440 at `f7ae8b1`), asserted as a derived set difference and not a count; (d) a text read asserting ER2's `lint`-script properties, that `eslint.config.mjs` imports only from `eslint/config`, `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript`, contains no `process.env` reference and declares no `linterOptions` key (there is none today, so `reportUnusedDisableDirectives` cannot be quietly lowered — a `linterOptions` key is not a rule declaration and is invisible to ER8), and that no file under `src/`, `e2e/` or `scripts/` carries a whole-file `/* eslint-disable ... */` block comment (with or without a rule list) or an inline `/* eslint <rule>: 0 */` config comment.
 - [ ] ER11 — The gate bites on every suppression mechanism, each verified by making the change, running `npx vitest run src/lib/__tests__/lintGate.test.ts`, seeing it fail, and reverting: inserting `"react-hooks/set-state-in-effect": 0` into any config object's `rules` (the **numeric** severity — this is the case a literal count of `"off"` misses, and it silences four of today's eight errors on its own) fails half (b); so do `'off'` in single quotes, `"warn"`, and a `rules` object imported from a new module and spread into the array; adding a second `globalIgnores([...])` call, adding an `ignores:` key to any config object, and moving a tracked source file under an ignored glob each fail half (c); introducing one unused variable fails half (a); adding `--quiet` to the `lint` script and adding a whole-file `/* eslint-disable */` to any file under `src/` each fail half (d).
 - [ ] ER12 — `.github/workflows/ci.yml` contains a job that runs `npm run lint` and fails the workflow when it exits non-zero, and four stale claims are corrected: "No CI job runs eslint" in `AGENTS.md`, in the comment above `complexity-budget/base` in `eslint.config.mjs` and in the header docblock of `src/lib/__tests__/complexityBudget.test.ts`; plus the 18→17 override-limit figure, both in that same `AGENTS.md` bullet and in the `complexityBudget.test.ts` test title that reads "lists at most 18 per-file overrides". Outside `docs/` (which quotes the old wording on purpose), `grep -rn "No CI job runs eslint" AGENTS.md eslint.config.mjs src` and `grep -rn "18 per-file overrides\|past 18 entries" AGENTS.md src` both return nothing.
 - [ ] ER13 — A new `src/app/reset-password/__tests__/resetPasswordPage.test.tsx` passes and asserts the missing-token branch by the text that branch actually renders — the heading **"Invalid Link"** and the body **"The password reset token is missing from the URL"** (`src/app/reset-password/page.tsx:85` and `:86`), **not** the string "Invalid or expired reset token", which `setError` writes inside `handleSubmit` only (`:30`) and which never appears on a first render before or after this change. Three assertions: with `useSearchParams` answering `?token=abc`, that branch is absent on the **first** render and the password form is present; submitting two matching 8+ character passwords calls `authClient.resetPassword` with `token: 'abc'`; with no `token` param, that branch **is** rendered and the password form is not.
 - [ ] ER14 — A new `src/app/settings/__tests__/settingsPage.test.tsx` passes and asserts, with `fetch` stubbed, that a `{ connected: false }` response renders the "Connect your Spotify account" region containing `<a href="/api/auth/spotify/authorize">`, that an array response renders the "Connected to Spotify" region, and that in both cases the "Checking Spotify connection..." spinner is gone once the load settles.
 - [ ] ER15 — Two new tests pin the locale derivation as hydration-safe, each asserting an output that component actually emits. With the locale cookie set to `en`: `src/components/landing/__tests__/LandingPage.test.tsx` asserts that the server-shaped render (`renderToStaticMarkup`, where `useHydrated()` answers `false`) still carries the `pt-BR` copy while a client `render()` carries the `en` copy — valid because all 26 `landing.*` dictionary keys differ between `pt-BR.json` and `en.json`. `src/components/layout/__tests__/LanguageSelector.test.tsx` asserts instead that the **client** render's select element has `value === 'en'` as a DOM property, and that the **`renderToStaticMarkup`** output carries `selected` on the `pt-BR` option and not on the `en` one — because that component's two `<option>` labels are hardcoded and rendered unconditionally and `common.portuguese`/`common.english` are identical in both dictionaries, so its client `en` and client `pt-BR` markup are byte-identical and "produces the `en` output" would assert nothing. The `LanguageSelector` test additionally asserts that selecting a language writes the cookie, with `window.location.reload` stubbed.
-- [ ] ER16 — `RUN_DB_TESTS=1 npx vitest run` (Postgres on port 54322) reports 0 failed, 1 skipped and at least 2197 passed, including the six new test files; no pre-existing test was deleted, skipped, or had an assertion removed or weakened. `npm run test:coverage`, `npm run lint:dead` and `npm run lint:dup` also pass.
-- [ ] ER17 — `package.json`'s version is bumped per the AGENTS.md rule (patch increment plus a `YYYYMMDDHHmm` suffix, strictly above `0.1.147-202610070115`).
+- [ ] ER16 — `RUN_DB_TESTS=1 npx vitest run` (Postgres on port 54322) reports 0 failed, 1 skipped and at least 2265 passed (re-measured at `f7ae8b1`; the spec's original 2197 predates RH-126's five new test files), including the six new test files; no pre-existing test was deleted, skipped, or had an assertion removed or weakened. `npm run test:coverage`, `npm run lint:dead` and `npm run lint:dup` also pass.
+- [ ] ER17 — `package.json`'s version is bumped per the AGENTS.md rule (patch increment plus a `YYYYMMDDHHmm` suffix, strictly above `0.1.150-202610071147`).
+
+## Drift Corrections (re-measured at `f7ae8b1`, RH-129 implementation)
+
+Every path, line number, symbol and count the spec cites was re-verified
+against the tree at `f7ae8b1`. The lint baseline is **unchanged**: still
+exactly 8 errors and 9 warnings across the same 11 files, and every line
+number in §§A–C, §A1, §D and §F still resolves to the cited construct
+(`AppLayout.tsx:49`/`:166`, `LanguageSelector.tsx:17`/`:21`/`:22`,
+`LandingPage.tsx:48`, `reset-password/page.tsx:21`/`:30`/`:67`/`:85`/`:86`,
+`settings/page.tsx:3`/`:13`/`:28`/`:116`, `profile/page.tsx:604`/`:611-613`/
+`:620`/`:630`/`:632`/`:636`/`:641`/`:643`/`:655`, `e2e/global-setup.ts:13`,
+`scripts/migrate.mjs:63`, `edge_cases.test.ts:2`/`:3`/`:5`/`:75`,
+`errors.test.ts:85`, `i18n.test.ts:9`, `useBandAdmin.ts:190`,
+`AGENTS.md:97`, `eslint.config.mjs:39`, `complexityBudget.test.ts:9`/`:54`/`:138`,
+`bandContextStore.ts:4-6`, `AppLayout.test.tsx:51-54`, `TabViewer.tsx:125`).
+The override block still holds 14 entries against `MAX_OVERRIDES = 17`;
+`nextVitals.length === 4`, `nextTs.length === 5`, `defineConfig` exports 28
+entries and `cfg.slice(9)` is the repo's own 19 objects declaring exactly the
+seven rule ids. The dictionary claims hold: 26 `landing.*` keys, all 26
+differing; 51 keys total, 47 differing; `common.portuguese` and
+`common.english` byte-identical in both files. `spotify.test.ts` is still
+exactly 678 lines against its pinned `max-lines: ["error", 678]`.
+
+Seven figures had drifted and are corrected in place above:
+
+1. **The lintable universe is 440, not 435** (§E.3 half (c), ER10 (c)). RH-126
+   added five test files. 440 git-tracked lintable paths, 440 linted, set
+   difference empty.
+2. **The suite floor is 2265, not 2197** (ER16). `RUN_DB_TESTS=1 npx vitest run`
+   at `f7ae8b1`: 184 files, 2265 passed, 1 skipped, 0 failed.
+3. **The version floor is `0.1.150-202610071147`, not `0.1.147-202610070115`**
+   (ER17). Three bumps landed since the spec was written.
+4. **Resolved severities are arrays, not scalars** (§E.3 half (b), ER8 (b)).
+   `max-depth` is `[2, 4]`, not `4`; likewise `[2, 200]`, `[2, 4]`, `[2, 400]`
+   and `[2]` / `[0]` for `@typescript-eslint/no-explicit-any`.
+5. **`no-restricted-imports` resolves `undefined`, not 0, on
+   `src/lib/__tests__/errors.test.ts`** (§E.3 half (b), ER8 (b)) — the F21
+   block's `ignores: ["**/__tests__/**"]` removes the declaration rather than
+   zeroing it. The "only two zeros among the seven" claim survives, but an
+   assertion walking all seven must not coerce `undefined` to 0.
+6. **27 of the 29 zero-severity rules on `errors.test.ts` come from the preset,
+   not 25** (board ER8 text). 29 total, 2 among the repo's own seven, 27
+   inherited. On `src/components/layout/LanguageSelector.tsx` the total is 27,
+   none of them among the seven.
+7. **`grep -rn "eslint-disable" src e2e scripts` returns 14 lines, not 11**
+   (§E.3 half (d)). Eleven are real directives; three are prose or
+   string-literal mentions inside `src/lib/__tests__/dbRowTypes.test.ts`
+   (`:17`, `:96`, `:99`), which itself asserts that `src/lib/db.ts` carries
+   none. Half (d)'s pattern must therefore match the `/* eslint-disable`
+   **comment opener** and exclude `-next-line`, or it fails on that guard.
+
+One citation is off by a line rather than wrong: ER8 points at
+`complexityBudget.test.ts:112` and `:127` for "the `rules` objects **and**
+sorted `files` arrays". `:112` and `:127` are the `files` deep-equalities; the
+`rules` deep-equalities are at `:113` and `:132`. Both artifacts exist and the
+claim stands.
 
 ## Out of Scope
 

@@ -6,8 +6,10 @@
  * looser (documented, not exempt) budget for test files and a per-file override
  * list for the files that were already over budget when the rules landed.
  *
- * No CI job runs eslint, so the rules alone would be invisible. This test lints
- * all of `src` through the real config with the ESLint Node API and fails if:
+ * Since RH-129 the `Lint (eslint)` CI job runs `npm run lint`, which fails a PR
+ * on any finding; this test covers what eslint cannot check about its own
+ * config. It lints all of `src` through the real config with the ESLint Node
+ * API and fails if:
  *   a) the base or test budget drifts from the declared thresholds;
  *   b) the override list grows past MAX_OVERRIDES, or points at a file that no
  *      longer exists;
@@ -135,7 +137,7 @@ describe('complexity budget (F20)', () => {
     })
   }, 60_000)
 
-  it('lists at most 18 per-file overrides, each naming a file that exists', async () => {
+  it('lists at most 17 per-file overrides, each naming a file that exists', async () => {
     const overrides = await loadOverrides()
 
     // `<=`, not `===`: fixing a file and deleting its override must not fail

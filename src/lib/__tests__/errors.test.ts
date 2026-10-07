@@ -82,7 +82,7 @@ beforeEach(() => {
   failPlaylistLookup = true;
 
   vi.mocked(query).mockReset();
-  vi.mocked(query).mockImplementation(async (sql: string, params?: any[]) => {
+  vi.mocked(query).mockImplementation(async (sql: string) => {
     const normalizedSql = sql.toLowerCase();
 
     // Support transaction commands without throwing. One regex rather than

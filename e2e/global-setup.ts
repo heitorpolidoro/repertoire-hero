@@ -10,7 +10,7 @@
  *  3. Save the resulting cookies to e2e/.auth/user.json
  */
 
-import { chromium, request as apiRequest } from '@playwright/test'
+import { request as apiRequest } from '@playwright/test'
 import path from 'path'
 import fs from 'fs'
 

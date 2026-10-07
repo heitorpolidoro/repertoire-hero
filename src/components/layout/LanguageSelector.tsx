@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { COOKIE_NAME, SUPPORTED_LOCALES, type Locale } from '@/lib/i18n'
+import { useHydrated } from '@/hooks/useHydrated'
+import { COOKIE_NAME, type Locale } from '@/lib/i18n'
 
 function getLocaleCookie(): Locale {
   if (typeof document === 'undefined') return 'pt-BR'
@@ -11,15 +11,17 @@ function getLocaleCookie(): Locale {
 }
 
 export function LanguageSelector() {
-  const [currentLocale, setCurrentLocale] = useState<Locale>('pt-BR')
-
-  useEffect(() => {
-    setCurrentLocale(getLocaleCookie())
-  }, [])
+  // Derived during render rather than written into state from a mount effect
+  // (RH-129: `react-hooks/set-state-in-effect`). The `useHydrated()` gate is
+  // load-bearing, not defensive: the server cannot read `document.cookie`, so
+  // an ungated read would make the SSR pass and the hydration render disagree.
+  const hydrated = useHydrated()
+  const currentLocale: Locale = hydrated ? getLocaleCookie() : 'pt-BR'
 
   const handleLanguageChange = (newLocale: Locale) => {
     document.cookie = `${COOKIE_NAME}=${newLocale}; path=/; max-age=31536000; SameSite=Lax`
-    setCurrentLocale(newLocale)
+    // No state write to match: the reload below re-derives the locale from the
+    // cookie. The `<select>` shows the old value for the instant in between.
     window.location.reload()
   }
 
