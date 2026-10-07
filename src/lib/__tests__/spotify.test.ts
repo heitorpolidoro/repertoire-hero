@@ -442,7 +442,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       expect(repRows.rows[0].status).toBe('unknown')
     })
 
-    it('should propagate imported songs to all band members when importing a band playlist (UC4.1)', async () => {
+    it('should write only the band row when importing a band playlist (UC4.1)', async () => {
       const request = new NextRequest(
         new URL('http://localhost/api/spotify/playlists/band-playlist-123/import'),
         {
@@ -469,8 +469,8 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       createdSongs.push(songId)
 
       // 1. Verify in Band Repertoire
-      // The band's row, then User A's (the admin who imported) and User B's
-      // (a member the import propagates to — the dual write RH-126 removes).
+      // The band's row, and no member row at all (RH-126): neither User A, the
+      // admin who imported, nor User B, a plain member, gains a personal hold.
       const bandRep = await query(
         `SELECT o.id FROM ${OWNER_SONG_FROM.band} WHERE o.band_id = $1 AND v.song_id = $2`,
         [bandId, songId],
@@ -481,7 +481,7 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
           `SELECT o.id FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1 AND v.song_id = $2`,
           [ownerId, songId],
         )
-        expect(rows.rows).toHaveLength(1)
+        expect(rows.rows).toHaveLength(0)
       }
     })
   })

@@ -5,8 +5,8 @@
  * `spotifyPlaylistRouteAuthz.db.test.ts`; everything else is the real handler
  * writing real rows. Two findings are covered: F9 (the delete-then-insert
  * resync had no transaction, so a failing re-insert emptied the playlist) and
- * F19 (`ensureInRepertoire` now seeds the band and every member with two
- * statements instead of a per-member fan-out).
+ * F19, as RH-126 settled it (`ensureInRepertoire` seeds the band's row with one
+ * statement and no member row at all).
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -33,21 +33,40 @@ const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const TRACK_TITLE = 'RH-36 Track'
 const TRACK_ARTIST = 'RH-36 Track Artist'
 
-const oneTrackPage = {
+/**
+ * RH-126 — the band pull pulls a **different** track from the personal one.
+ *
+ * The two tests below used to share `oneTrackPage`, which made the band test's
+ * "no member row for this version" assertion depend on test order: the personal
+ * test runs first, and the `ensureInRepertoire({ userId })` it reaches sits
+ * *outside* the `withTransaction` the failing `playlist_songs` insert rolls
+ * back, so it legitimately commits the owner's own `user_songs` row for that
+ * version. Counting over every user — which is the only count that can see a
+ * fan-out to the other members — would then read that legitimate personal row
+ * as a violation. One track each makes the assertion mean what it says and
+ * holds whether the file runs whole or filtered to one test.
+ */
+const BAND_TRACK_TITLE = 'RH-36 Band Track'
+const BAND_TRACK_ARTIST = 'RH-36 Band Track Artist'
+
+const oneTrackPageFor = (id: string, name: string, artist: string) => ({
   items: [
     {
       track: {
-        id: 'rh36track1',
-        name: TRACK_TITLE,
+        id,
+        name,
         duration_ms: 180000,
-        artists: [{ name: TRACK_ARTIST }],
+        artists: [{ name: artist }],
         album: { name: 'RH-36 Album', images: [] as Array<{ url: string }> },
-        external_urls: { spotify: 'https://open.spotify.com/track/rh36track1' },
+        external_urls: { spotify: `https://open.spotify.com/track/${id}` },
       },
     },
   ],
   next: null,
-}
+})
+
+const oneTrackPage = oneTrackPageFor('rh36track1', TRACK_TITLE, TRACK_ARTIST)
+const bandTrackPage = oneTrackPageFor('rh36bandtrack1', BAND_TRACK_TITLE, BAND_TRACK_ARTIST)
 
 describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => {
   const suffix = Date.now()
@@ -173,6 +192,10 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
       TRACK_TITLE,
       TRACK_ARTIST,
     ])
+    await query('DELETE FROM songs WHERE title = $1 AND artist = $2', [
+      BAND_TRACK_TITLE,
+      BAND_TRACK_ARTIST,
+    ])
     await query('DROP FUNCTION IF EXISTS rh36_sync_raise() CASCADE')
   })
 
@@ -203,16 +226,23 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     expect(playlist.last_synced_at).toBeNull()
   })
 
-  it('seeds the band row and every member repertoire row on a pull', async () => {
+  it('seeds the band row and no member row on a pull', async () => {
     asUser(ownerId)
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(bandTrackPage),
+      } as Response),
+    )
 
     const response = await callSync(bandPlaylistId)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ added: 1, removed: 0 })
 
     const song = await one('SELECT id FROM songs WHERE title = $1 AND artist = $2', [
-      TRACK_TITLE,
-      TRACK_ARTIST,
+      BAND_TRACK_TITLE,
+      BAND_TRACK_ARTIST,
     ])
     const syncedSongId = song.id as string
 
@@ -223,10 +253,13 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     )
     expect(bandRows.count).toBe(1)
 
+    // RH-126: counted over every user, not just the admin who pulled. The band
+    // has three members and none of them holds the song personally — a pull
+    // into a band playlist is a band write and nothing else.
     const memberRows = await one(
       `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user} WHERE v.song_id = $1`,
       [syncedSongId],
     )
-    expect(memberRows.count).toBe(3)
+    expect(memberRows.count).toBe(0)
   })
 })

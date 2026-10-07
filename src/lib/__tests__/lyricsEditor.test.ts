@@ -161,4 +161,27 @@ describe('lyricsEditor', () => {
       }),
     ).toEqual({ repertoireId: null, bandId: null, toPersonalEntry: true })
   })
+
+  /**
+   * RH-126 — the second of the three deliberate per-musician exceptions, as a
+   * regression guard rather than new coverage. Removing the playlist-side and
+   * import-side fan-outs must not take the lyrics split with it: in band
+   * context, `version: 'personal'` still routes to the member's own row (no
+   * band id, and `repertoireId: null` asking for the row to be created), and
+   * `version: 'band'` still routes to the band's.
+   */
+  it('resolveLyricsSaveTarget keeps the personal lyrics exception in band context (RH-126)', () => {
+    const args = { entryId: 'e1', entryBandId: 'b1', personalRepertoireId: null }
+
+    expect(resolveLyricsSaveTarget({ ...args, version: 'personal' })).toEqual({
+      repertoireId: null,
+      bandId: null,
+      toPersonalEntry: true,
+    })
+    expect(resolveLyricsSaveTarget({ ...args, version: 'band' })).toEqual({
+      repertoireId: 'e1',
+      bandId: 'b1',
+      toPersonalEntry: false,
+    })
+  })
 })

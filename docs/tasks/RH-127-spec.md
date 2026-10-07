@@ -8,7 +8,11 @@ Two call sites write two owners for one act. This task deletes both, leaves the 
 deliberate per-musician exceptions intact, and inverts the five existing tests that
 currently assert the fan-out as correct behaviour.
 
-**In scope** — the two violating writes, verified against the tree at `c27c611`:
+**In scope** — the two violating writes, verified against the tree at `4932826`
+(every path, line number, line count and symbol name below re-verified there at
+implementation time; `c27c611`, which this spec was written against, has since been
+followed by `4751366`, `2d240c7`, `0f7c247` and `4932826`, none of which touched the
+files this task owns):
 
 1. `src/lib/spotifyPlaylistSync.ts:195-200` — the band branch of `ensureInRepertoire`
    writes the `band_songs` row (lines 190-194) **and then a `user_songs` row for every
@@ -56,8 +60,9 @@ encode the fan-out as correct behaviour (see *Approach*).
   contiguous from `0001`, so no number may be quoted in advance.
 - The `owners` supertype (named out of scope by the task's justification).
 - Building a "practised it" control. **No practice write path exists in the tree**:
-  `grep -rni 'practis|recordPractice|markPractic' src` returns nothing outside the
-  `last_practiced` column name itself. `last_practiced` is a readable column, a member of
+  `grep -rniE 'practis|recordPractice|markPractic' src` returns **nothing at all** (the
+  parenthetical "outside the `last_practiced` column name itself" was wrong: `practiced`
+  is spelt with a `c`, so the column name does not match `practis` either). `last_practiced` is a readable column, a member of
   `OWNER_SONG_COLUMNS` (`src/lib/ownerSongRows.ts:32`) and reachable through
   `updateSongOverrides`, and that is all. This task asserts the *mechanism* is
   single-owner; the button is someone else's task.
@@ -111,7 +116,11 @@ new override is needed and none may be added: the override block holds **14 entr
 against `MAX_OVERRIDES = 17`** (`src/lib/__tests__/complexityBudget.test.ts:54`) and is a
 ratchet that may only shrink. `src/lib/spotifyPlaylistSync.ts` is 266 lines and also
 shrinks. Test files are capped at 800; the four edited ones are 382 / 232 / 503 / and
-`spotify.test.ts` carries a `max-lines: 678` override that must not grow.
+`spotify.test.ts` carries a `max-lines: 678` override pinned to its **exact** current
+line count by `complexityBudget.test.ts`'s "pins every override ceiling to the current
+worst number in its file" test, so editing that file must either leave it at exactly 678
+lines or lower the ceiling to its new count — "must not grow" alone is not the whole
+constraint.
 
 ### Test criteria
 
@@ -174,6 +183,19 @@ escalation.
   `SELECT count(*)::int FROM band_songs WHERE band_id = <band> AND version_id = <version>`
   is `1`, and asserts `SELECT count(*)::int FROM user_songs WHERE version_id = <version>`
   is `0`.
+
+  **Correction found at implementation time.** As written this is unsatisfiable while the
+  two tests in that file share one Spotify track. The file's first test
+  (`a failing playlist_songs insert leaves the original playlist rows intact`) syncs the
+  **personal** playlist, and the sync route's `ensureInRepertoire` call sits *outside* the
+  `withTransaction` that the injected `playlist_songs` failure rolls back — so it
+  legitimately commits the owner's own `user_songs` row for that track's version and
+  commits it for good. A count over *every* user for the same version then reads that
+  legitimate personal row as a fan-out, and the band test fails whole-file while passing
+  under `-t`. The fix is in the test, not the count: the band pull now pulls its own
+  track (`RH-36 Band Track`), so the assertion is order-independent and means exactly what
+  it says. The count stays over every user, which is the only count that can see a
+  fan-out to the other two members.
 - [ ] ER5 — `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` contains a passing test named
   `a personal Spotify import writes only the importer's rows` which runs the import
   route's `POST` in personal context over a two-track playlist and asserts
@@ -236,6 +258,15 @@ escalation.
   the same call with `version: 'band'` returns `bandId: 'b1'` and
   `toPersonalEntry: false` — i.e. a personal lyrics save in band context is still routed
   to the member's own row and a band lyrics save still is not.
+
+  **Correction found at implementation time.** The ids `'e1'` / `'b1'` appear nowhere in
+  that file; the two existing tests that cover both branches use `'band-rep'` / `'band-1'`
+  (`resolveLyricsSaveTarget asks for a personal entry to be created when the member has
+  none`, and `… targets the band entry on the band version`). `resolveLyricsSaveTarget` is
+  pure and its answer for the personal branch does not read `entryId`, so the existing
+  coverage is equivalent — but rather than restate the ER, implementation added one test
+  using the exact arguments the ER names, as a named RH-126 regression guard, and left the
+  existing tests alone.
 - [ ] ER12 — Exception 3's mechanism is single-owner:
   `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` contains a passing test named
   `a last_practiced write in band context touches one owner row only` which, with both a
@@ -278,6 +309,6 @@ escalation.
   8 errors / 9 warnings across 11 files (RH-129): the error count, warning count and file
   count are each less than or equal to the baseline. `npm run lint:dead` exits 0 and
   `npm run build` exits 0.
-- [ ] ER18 — `package.json`'s `version` is bumped from `0.1.147-202610070115` by at least
+- [ ] ER18 — `package.json`'s `version` is bumped from `0.1.149-202610071119` by at least
   one patch with a fresh `YYYYMMDDHHmm` local-time suffix (AGENTS.md § *Version Bumping
   Rule*).

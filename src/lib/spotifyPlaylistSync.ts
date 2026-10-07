@@ -175,8 +175,13 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<Resolved
 // body-`band_id` check and the sync route's playlist check, both
 // `assertBandAdmin` through `resolveBandOwnership`.
 //
-// The band branch's second statement — a row for **every** member — is the dual
-// write RH-126 removes. It is repointed here, not deleted.
+// **One write reaches exactly one owner** (RH-126): a band owner gets the
+// band's row and nothing else, a user owner gets their own. The band branch
+// used to issue a second statement seeding a `user_songs` row for every row of
+// `band_members`, putting a song in each member's personal repertoire that none
+// of them chose; gone. The only writes that land a personal row in band context
+// are the three per-musician exceptions, none of them on this path
+// (`docs/use-cases.md`, *What creates a personal row in band context*).
 //
 // `db` defaults to the pool; pass a transaction client to make the seeding part
 // of a caller's transaction.
@@ -191,12 +196,6 @@ export async function ensureInRepertoire(
       `INSERT INTO band_songs (band_id, version_id, status)
        VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING`,
       [owner.bandId, versionId],
-    )
-    await db.query<never>(
-      `INSERT INTO user_songs (user_id, version_id, status)
-       SELECT bm.user_id, $1, 'unknown'
-       FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING`,
-      [versionId, owner.bandId],
     )
   } else if (owner.userId) {
     await db.query<never>(

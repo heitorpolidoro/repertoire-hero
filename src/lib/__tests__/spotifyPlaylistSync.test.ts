@@ -247,29 +247,24 @@ describe('findOrCreateSong', () => {
 })
 
 describe('ensureInRepertoire', () => {
-  it('issues exactly two statements for a band owner regardless of member count', async () => {
-    // No lookups, no per-member fan-out: the member rows are seeded by one
-    // INSERT … SELECT, so the statement count no longer depends on the band.
+  it('issues exactly one statement for a band owner', async () => {
+    // RH-126: one write reaches one owner. The band's row is the whole of a
+    // band-context seed — no member row for the acting admin, none for anyone
+    // else, and therefore no `band_members` read of any shape.
     mockedQuery.mockResolvedValue({ rows: [], rowCount: 0 })
 
     await ensureInRepertoire('version-1', { bandId: 'band-1' })
 
-    expect(mockedQuery).toHaveBeenCalledTimes(2)
+    expect(mockedQuery).toHaveBeenCalledTimes(1)
 
     const [bandSql, bandValues] = mockedQuery.mock.calls[0]
     expect(String(bandSql)).toContain('INSERT INTO band_songs (band_id, version_id, status)')
     // RH-125: the caller resolved the version, so there is no
     // representative-version pick left here — and therefore no `albums` join.
     expect(String(bandSql)).not.toContain('albums')
+    expect(String(bandSql)).not.toContain('band_members')
     expect(String(bandSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
     expect(bandValues).toEqual(['band-1', 'version-1'])
-
-    const [membersSql, memberValues] = mockedQuery.mock.calls[1]
-    expect(String(membersSql)).toContain('INSERT INTO user_songs (user_id, version_id, status)')
-    expect(String(membersSql)).toContain('FROM band_members')
-    expect(String(membersSql)).not.toContain('albums')
-    expect(String(membersSql).trim().endsWith('ON CONFLICT DO NOTHING')).toBe(true)
-    expect(memberValues).toEqual(['version-1', 'band-1'])
   })
 
   it('issues exactly one statement for a personal owner', async () => {

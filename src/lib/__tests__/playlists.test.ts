@@ -196,16 +196,15 @@ describe.skipIf(skip)('playlists integration tests', () => {
   /**
    * UC3.2, plus RH-124's two additions to it.
    *
-   * ER20 — the **dual write is unchanged**: an admin adding a song to a band
-   * playlist still produces both the `band_songs` row and the caller's own
-   * `user_songs` row. That second write is wrong under *Add a song to a
-   * playlist* and deleting it is RH-126's whole deliverable, so it is asserted
-   * here as the current, deliberate behaviour rather than removed.
+   * RH-126 — one write reaches exactly one owner: an admin adding a song to a
+   * band playlist produces the `band_songs` row and nothing else. Neither the
+   * acting admin nor any other member gains a `user_songs` row, which is what
+   * *Add a song to a playlist* asks for.
    *
    * ER19 — the band branch now requires band admin. User A administers the
    * band; the member case is the test that follows.
    */
-  it('should autogest repertoire and propagate to members when adding song to a band playlist (UC3.2)', async () => {
+  it('should write only the band row when adding a song to a band playlist (UC3.2)', async () => {
     // 1. Create a band directly, to set it up easily
     const bandInsert = await query<{ id: string }>(
       'INSERT INTO bands (name, description) VALUES ($1, $2) RETURNING id',
@@ -252,16 +251,16 @@ describe.skipIf(skip)('playlists integration tests', () => {
     )
     expect(bandRep.rows).toHaveLength(1)
 
-    // B. The song was automatically propagated to User A's personal repertoire
+    // B. The acting admin's own repertoire is untouched (RH-126)
     const userARep = await query<{ id: string }>(
       `SELECT o.id FROM user_songs o
        JOIN song_versions v ON v.id = o.version_id
        WHERE o.user_id = $1 AND v.song_id = $2`,
       [userAId, songId],
     )
-    expect(userARep.rows).toHaveLength(1)
+    expect(userARep.rows).toHaveLength(0)
 
-    // C. The song was NOT automatically propagated to User B's personal repertoire (correct for client-side RLS)
+    // C. And so is the other member's — a band write reaches the band only
     const userBRep = await query<{ id: string }>(
       `SELECT o.id FROM user_songs o
        JOIN song_versions v ON v.id = o.version_id
@@ -328,8 +327,21 @@ describe.skipIf(skip)('playlists integration tests', () => {
     expect(bandRows.rows).toHaveLength(0)
     const entries = await query('SELECT id FROM playlist_songs WHERE playlist_id = $1', [playlistId])
     expect(entries.rows).toHaveLength(0)
+    // RH-126 — "neither row" means neither owner's: a refused call leaves the
+    // refused member and the band's admin alike with nothing.
+    for (const ownerId of [userBId, userAId]) {
+      expect(
+        (
+          await query(
+            `SELECT o.id FROM ${OWNER_SONG_FROM.user} WHERE o.user_id = $1 AND v.song_id = $2`,
+            [ownerId, songId],
+          )
+        ).rows,
+      ).toHaveLength(0)
+    }
 
-    // The same call as the band's admin succeeds, and produces both rows.
+    // The same call as the band's admin succeeds, and produces the band's row
+    // only (RH-126): the admin gains no personal hold by adding for the band.
     await addSongToPlaylist(playlistId, userAId, gateVersionId)
     expect(
       (
@@ -346,7 +358,7 @@ describe.skipIf(skip)('playlists integration tests', () => {
           [userAId, songId],
         )
       ).rows,
-    ).toHaveLength(1)
+    ).toHaveLength(0)
   })
 
   // -------------------------------------------------------------------------

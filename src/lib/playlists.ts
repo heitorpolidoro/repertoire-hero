@@ -170,9 +170,11 @@ function seedOwnerSongSql(table: 'user_songs' | 'band_songs', column: 'user_id' 
  * text reaches the UI verbatim (L1a). `assertPlaylistAccess` is left alone: it
  * is also the Spotify read guard, which is member-level.
  *
- * **The dual write stays**, as a decision and not an oversight: the band branch
- * also writes the caller's own `user_songs` row — wrong under *Add a song to a
- * playlist*, and deleting it is RH-126's whole deliverable.
+ * **One write reaches exactly one owner** (RH-126): the band branch writes the
+ * band's row and the personal branch the owner's, never both. It used to add
+ * the acting admin's own row too — a band act putting a song in a personal
+ * repertoire; gone. Only the three exceptions in `docs/use-cases.md`, *What
+ * creates a personal row in band context*, put a personal row there.
  */
 export async function addSongToPlaylist(playlistId: string, userId: string, versionId: string): Promise<void> {
   // 1. Fetch playlist context — and refuse a playlist the caller cannot write to.
@@ -184,10 +186,8 @@ export async function addSongToPlaylist(playlistId: string, userId: string, vers
     //    landing in the playlist.
     await withTransaction(async (client) => {
       if (playlist.band_id) {
-        // Band playlist: the band's repertoire and — until RH-126 — the
-        // caller's own.
+        // Band playlist: the band's repertoire, and only the band's.
         await client.query<never>(seedOwnerSongSql('band_songs', 'band_id'), [playlist.band_id, versionId])
-        await client.query<never>(seedOwnerSongSql('user_songs', 'user_id'), [userId, versionId])
       } else if (playlist.user_id) {
         await client.query<never>(seedOwnerSongSql('user_songs', 'user_id'), [playlist.user_id, versionId])
       }
