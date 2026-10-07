@@ -11,6 +11,11 @@ export interface PdfStageOverlayProps {
   height: number | null
   tabId: string | null
   fileUrl: string | null
+  /**
+   * The active file's `song_files.content_type` (RH-128), passed straight
+   * through to the stage's page surface — this overlay branches on nothing.
+   */
+  contentType?: string | null
   tabTitle: string
   songTitle: string
   songKey?: string | null
@@ -40,6 +45,7 @@ export function PdfStageOverlay({
   height,
   tabId,
   fileUrl,
+  contentType,
   tabTitle,
   songTitle,
   songKey,
@@ -71,14 +77,14 @@ export function PdfStageOverlay({
     >
       <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white border-b border-gray-800 shrink-0">
         <div className="flex flex-col min-w-0">
-          <span className="text-sm font-bold truncate">{tabTitle || 'PDF Tab'}</span>
+          <span className="text-sm font-bold truncate">{tabTitle || 'Tab'}</span>
           <span className="text-xs text-gray-400 truncate">{songTitle} {songKey ? `• ${songKey}` : ''}</span>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="w-8 h-8 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm flex items-center justify-center transition-colors focus:outline-none"
-          title="Close PDF Stage Mode"
+          title="Close Stage Mode"
         >
           ✕
         </button>
@@ -86,6 +92,7 @@ export function PdfStageOverlay({
       <TabDrawingStage
         key={tabId}
         fileUrl={fileUrl}
+        contentType={contentType}
         annotations={annotations}
         annotationsError={annotationsError}
         onSaveAnnotations={onSaveAnnotations}

@@ -8,6 +8,7 @@ import {
   type PendingTabDelete,
   type TabLibraryController,
 } from '@/lib/tabLibrary'
+import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
 
 /**
  * The file Server Actions the controller calls. Injected rather than imported,
@@ -47,6 +48,8 @@ interface ActiveTab {
   id: string
   url: string
   title: string
+  /** How it is rendered (RH-128). Resolved at selection: the list row knows, the viewer does not. */
+  contentType: string
 }
 
 /**
@@ -100,7 +103,16 @@ export function useTabLibrary({
 
   const selectTab = useCallback((tab: SongFile) => {
     setActive((current) =>
-      current?.url === tab.file_url ? null : { id: tab.id, url: tab.file_url, title: tab.title },
+      current?.url === tab.file_url
+        ? null
+        : {
+            id: tab.id,
+            url: tab.file_url,
+            title: tab.title,
+            // Absent is `application/pdf`, not a guess: every row written
+            // before RH-127 and every pre-RH-128 offline snapshot is a PDF.
+            contentType: tab.content_type ?? DEFAULT_TAB_CONTENT_TYPE,
+          },
     )
   }, [])
 
@@ -195,6 +207,7 @@ export function useTabLibrary({
     activeTabId: active?.id ?? null,
     activeTabUrl: active?.url ?? null,
     activeTabTitle: active?.title ?? '',
+    activeTabContentType: active?.contentType ?? DEFAULT_TAB_CONTENT_TYPE,
     selectTab,
     closeActiveTab,
     uploadTitle,

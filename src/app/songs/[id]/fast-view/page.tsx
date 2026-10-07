@@ -204,7 +204,7 @@ export default function FastViewPage() {
             {/* Song identity */}
             <SongIdentityHeader identity={identity} status={status} readOnly={isOffline} />
 
-            {/* Tabs (PDF) Section */}
+            {/* Tabs Section */}
             <TabLibrarySection
               library={tabLibrary}
               loadingPersonal={song.loadingPersonal}

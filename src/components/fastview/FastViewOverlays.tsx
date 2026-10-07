@@ -81,6 +81,7 @@ export function FastViewOverlays({
         height={pdfStage.height}
         tabId={tabLibrary.activeTabId}
         fileUrl={tabLibrary.activeTabUrl}
+        contentType={tabLibrary.activeTabContentType}
         tabTitle={tabLibrary.activeTabTitle}
         songTitle={identity.title}
         songKey={identity.key}

@@ -343,11 +343,11 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
   await expect(linksSection.getByRole('button', { name: '+ Add Link' })).toBeDisabled()
   await expect(linksSection.getByRole('button', { name: 'Delete link' }).first()).toBeDisabled()
 
-  // The `Upload PDF` submit is also disabled with no file chosen, which is its
+  // The `Upload File` submit is also disabled with no file chosen, which is its
   // own rule — so the title input, whose only disabling condition offline is
   // `readOnly`, is asserted beside it.
   await expect(tabSection.getByPlaceholder(/Tab Title/)).toBeDisabled()
-  await expect(tabSection.getByRole('button', { name: 'Upload PDF' })).toBeDisabled()
+  await expect(tabSection.getByRole('button', { name: 'Upload File' })).toBeDisabled()
   await expect(tabSection.getByRole('button', { name: 'Delete tab' }).first()).toBeDisabled()
 
   // Stage Mode is the offline renderer, and it reads the same-origin cache key

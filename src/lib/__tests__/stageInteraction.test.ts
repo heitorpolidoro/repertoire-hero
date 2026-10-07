@@ -5,6 +5,7 @@ import {
   stageTouchAction,
   isStableViewportMeasurement,
   shouldHandleStagePointer,
+  stageSaveLabel,
 } from '@/lib/stageInteraction'
 
 describe('stageViewportHeight', () => {
@@ -81,5 +82,26 @@ describe('isStableViewportMeasurement', () => {
     expect(isStableViewportMeasurement(2)).toBe(false)
     expect(isStableViewportMeasurement(0.5)).toBe(false)
     expect(isStableViewportMeasurement(1.02)).toBe(false)
+  })
+})
+
+/**
+ * RH-128 moved this out of `TabDrawingStage`'s render body. It is the stage's
+ * only always-visible feedback that ink is safe — the page-navigation row it
+ * used to share is now absent for an image and for a single-page PDF — so it
+ * is worth a test of its own rather than a glance at a component tree.
+ */
+describe('stageSaveLabel', () => {
+  it('reads as loading until the annotations prop has arrived', () => {
+    expect(stageSaveLabel(false, 'saved')).toBe('Loading\u2026')
+    expect(stageSaveLabel(false, 'saving')).toBe('Loading\u2026')
+    expect(stageSaveLabel(false, 'error')).toBe('Loading\u2026')
+  })
+
+  it('reads each loaded save state', () => {
+    expect(stageSaveLabel(true, 'loading')).toBe('Loading\u2026')
+    expect(stageSaveLabel(true, 'saving')).toBe('Saving\u2026')
+    expect(stageSaveLabel(true, 'error')).toBe('Save failed')
+    expect(stageSaveLabel(true, 'saved')).toBe('Saved')
   })
 })

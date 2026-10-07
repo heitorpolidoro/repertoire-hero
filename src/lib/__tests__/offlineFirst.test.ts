@@ -343,6 +343,9 @@ describe('offlineFirst — the offline readers', () => {
         title: 'Tab tab-1',
         file_url: offlineTabCacheKey('pl-1', 'tab-1'),
         created_at: '2026-01-02T00:00:00.000Z',
+        // RH-128: the snapshot carries no content type here, which reads as a
+        // PDF — every snapshot written before that task is one.
+        content_type: 'application/pdf',
       },
     ])
     // A captured song with no files, and a song in no snapshot at all.

@@ -46,6 +46,7 @@
 
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, SongFile } from '@/types/database'
+import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
 
 /**
  * The stored shape's version. A snapshot written under any other number is read
@@ -104,6 +105,17 @@ export interface OfflineTabSnapshot {
   /** The Cache Storage key the bytes were written under. */
   cacheKey: string
   bytes: number
+  /**
+   * The row's `content_type` (RH-128), so the viewer and the stage branch the
+   * same way offline as online.
+   *
+   * **Optional, and absent reads as `application/pdf`** — which is why
+   * `OFFLINE_SCHEMA_VERSION` is *not* bumped for it. Every snapshot already on
+   * disk predates image upload, so the fallback is a fact rather than a guess,
+   * and discarding those snapshots would cost a musician a downloaded setlist
+   * for nothing.
+   */
+  contentType?: string
 }
 
 /**
@@ -197,6 +209,7 @@ function toTabSnapshot(playlistId: string, material: OfflineTabMaterial): Offlin
     createdAt: material.tab.created_at,
     cacheKey: offlineTabCacheKey(playlistId, material.tab.id),
     bytes: material.bytes,
+    contentType: material.tab.content_type,
   }
 }
 
@@ -223,6 +236,7 @@ export function buildOfflineSnapshot(input: BuildOfflineSnapshotInput): OfflineS
 /**
  * The stored file as Fast View's file library wants it. The only mapping between
  * the two shapes, declared here so RH-80's reader does not have to invent one.
+ *
  * `annotations` is optional on `SongFile` and out of scope for the snapshot, so
  * it is omitted rather than faked.
  */
@@ -234,6 +248,9 @@ export function offlineTabToSongFile(tab: OfflineTabSnapshot): SongFile {
     title: tab.title,
     file_url: tab.fileUrl,
     created_at: tab.createdAt,
+    // Absent is `application/pdf`: a snapshot written before RH-128 carries no
+    // such field and is certainly a PDF (RH-128).
+    content_type: tab.contentType ?? DEFAULT_TAB_CONTENT_TYPE,
   }
 }
 
@@ -248,7 +265,10 @@ function isString(value: unknown): boolean {
 function isTabSnapshot(value: unknown): boolean {
   if (!isRecord(value)) return false
   const strings = [value.id, value.userId, value.songId, value.title, value.fileUrl, value.createdAt]
-  return strings.every(isString) && typeof value.bytes === 'number' && isString(value.cacheKey)
+  if (!strings.every(isString) || typeof value.bytes !== 'number' || !isString(value.cacheKey)) return false
+  // Optional, unlike every field above: absent is the pre-RH-128 snapshot, and
+  // it reads as `application/pdf` rather than invalidating the whole download.
+  return value.contentType === undefined || isString(value.contentType)
 }
 
 function isSongSnapshot(value: unknown): boolean {

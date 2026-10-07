@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { TabUploadForm } from '../TabUploadForm'
 
 afterEach(cleanup)
@@ -49,7 +47,7 @@ describe('TabUploadForm', () => {
   it('disables the submit button while no file is selected', () => {
     renderForm({ file: null })
 
-    const button = screen.getByRole('button', { name: 'Upload PDF' }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: 'Upload File' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
   })
 
@@ -63,24 +61,30 @@ describe('TabUploadForm', () => {
   })
 
   /**
-   * ER11 (RH-127). RH-127 taught the *action* to ingest images; opening the
-   * picker to them is RH-128. Until that lands the picker must stay PDF-only,
-   * because an image chosen today would upload successfully and then have
-   * nothing in the stage able to render it. So this asserts both halves: the
-   * `accept` hint, and that the component's source mentions no image type or
-   * image extension anywhere — which is what catches someone widening the hint
-   * in a comment-sized edit.
+   * RH-128 ER1, which retires both halves of RH-127's ER11. That guard kept
+   * the picker PDF-only *until* an image could be rendered — an image chosen
+   * then would have uploaded fine and had nothing able to display it. This
+   * task is what makes it renderable, in the viewer and in the stage, so the
+   * assertion is inverted here and nowhere else.
    */
-  it('keeps the picker PDF-only until RH-128 (ER11)', () => {
+  it('admits the three ingested image types alongside PDF (ER1)', () => {
     const { container } = renderForm()
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    expect(fileInput.getAttribute('accept')).toBe('application/pdf')
+    const accepted = (fileInput.getAttribute('accept') ?? '').split(',').map((v) => v.trim())
 
-    const source = readFileSync(resolve(__dirname, '../TabUploadForm.tsx'), 'utf8').toLowerCase()
-    for (const needle of ['image/', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.avif', '.gif']) {
-      expect(source, `TabUploadForm.tsx must not mention ${needle}`).not.toContain(needle)
-    }
+    expect(accepted).toContain('application/pdf')
+    expect(accepted).toContain('image/jpeg')
+    expect(accepted).toContain('image/png')
+    expect(accepted).toContain('image/webp')
+  })
+
+  it('no longer names the feature PDF-only on its button (ER11)', () => {
+    const { container } = renderForm()
+
+    expect(screen.queryByRole('button', { name: 'Upload PDF' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Upload File' })).toBeDefined()
+    expect(container.textContent).not.toContain('Upload PDF')
   })
 
   it('reports the chosen file to the controller', () => {
@@ -91,7 +95,6 @@ describe('TabUploadForm', () => {
     expect(onTitleChange).toHaveBeenCalledWith('Bass')
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    expect(fileInput.getAttribute('accept')).toBe('application/pdf')
 
     const picked = new File(['chart'], 'Africa.pdf', { type: 'application/pdf' })
     fireEvent.change(fileInput, { target: { files: [picked] } })

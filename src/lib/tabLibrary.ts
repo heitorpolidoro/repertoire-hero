@@ -86,6 +86,11 @@ export interface TabLibraryController {
   activeTabId: string | null
   activeTabUrl: string | null
   activeTabTitle: string
+  /**
+   * The active file's `content_type`, with an absent one already resolved to
+   * `application/pdf` (RH-128). The viewer and the stage branch on this.
+   */
+  activeTabContentType: string
   selectTab: (tab: SongFile) => void
   closeActiveTab: () => void
   uploadTitle: string

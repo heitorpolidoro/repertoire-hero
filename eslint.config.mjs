@@ -99,10 +99,21 @@ const eslintConfig = defineConfig([
   // RH-99: `drawPath` moved to `src/lib/strokeRenderer.ts`, which paid for the
   // `readOnly` prop that disables `Toggle drawing` offline and left the ratchet
   // lower than it found it — the component function 757 lines to 743 and the
-  // file 819 to 815. `complexity` is unchanged at 21: `readOnly` is declared
+  // file 819 to 815. `complexity` was unchanged at 21: `readOnly` is declared
   // without a default and its only branch is the guard in
-  // `handleToggleDrawing`, so the prop costs the budget nothing.
-  { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { complexity: ["error", 21], "max-lines-per-function": ["error", 743], "max-lines": ["error", 815] } },
+  // `handleToggleDrawing`, so the prop cost the budget nothing.
+  //
+  // RH-128 took three things out of this file and dropped `complexity` from
+  // the entry altogether. The `Document`/`Page` pair became
+  // `StagePageSurface`/`PdfPageSurface`/`ImagePageSurface`, the toolbar's top
+  // row became `StageStatusRow` and the save-badge text became
+  // `stageSaveLabel` in `src/lib/stageInteraction.ts` — together worth seven
+  // branches, taking the component function from 21 to 14, which is *below*
+  // the base budget of 15, so the file no longer needs a complexity ceiling at
+  // all. The component function went 743 lines to 709 and the file 815 to 788.
+  // None of the four new modules carries an entry: each is inside every base
+  // budget (worst: 72 lines, 44 per function, complexity 4).
+  { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { "max-lines-per-function": ["error", 709], "max-lines": ["error", 788] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },
   // RH-124 removed `src/lib/songs.ts`'s entry outright rather than lowering it:

@@ -10,8 +10,9 @@
  * and the worker-asset shim it pulls in.
  *
  * `ResizeObserver` is stubbed with a class that never fires, so `baseFitWidth`
- * stays 0, `renderWidth` stays undefined and the <Document> subtree is never
- * mounted. The toolbar — the part this suite asserts on — renders regardless.
+ * stays 0, `renderWidth` stays undefined and the page surface (RH-128's
+ * `StagePageSurface`, which owns the <Document> subtree) is never mounted. The
+ * toolbar — the part this suite asserts on — renders regardless.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
@@ -83,7 +84,11 @@ describe('TabDrawingStage renders from props (RH-46)', () => {
   it('renders the page toolbar from props alone, with no annotation fetch', () => {
     renderStage()
 
-    expect(screen.getByText(/^Page 1 /)).toBeDefined()
+    // No `Page n / m` here since RH-128: the page surface never mounts under
+    // the never-firing ResizeObserver, so no page count is ever reported and
+    // the navigation row is correctly absent. `TabDrawingStagePages.test.tsx`
+    // is where the count-driven gate itself is asserted.
+    expect(screen.queryByText(/^Page /)).toBeNull()
     expect(screen.getByRole('button', { name: 'Toggle drawing' })).toBeDefined()
     expect(saveBadgeText()).toMatch(/^Saved$/)
   })

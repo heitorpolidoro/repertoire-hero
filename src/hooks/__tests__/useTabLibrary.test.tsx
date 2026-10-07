@@ -144,6 +144,27 @@ describe('the active file', () => {
     expect(result.current).not.toHaveProperty('activeTabRepertoireId')
   })
 
+  /**
+   * RH-128: the viewer and the stage branch on the active file's content
+   * type, so the controller has to carry it — nothing else knows which row of
+   * the list is showing. An absent value reads as `application/pdf`, which is
+   * what every row written before RH-127 is.
+   */
+  it('exposes the active file content type, defaulting an absent one to PDF', async () => {
+    const image = { ...songFile('t-img', '2026-03-01T10:00:00.000Z'), content_type: 'image/jpeg' }
+    const { result } = setup()
+    await flush()
+
+    act(() => result.current.selectTab(image))
+    expect(result.current.activeTabContentType).toBe('image/jpeg')
+
+    act(() => result.current.selectTab(SONG_FILES[1]))
+    expect(result.current.activeTabContentType).toBe('application/pdf')
+
+    act(() => result.current.closeActiveTab())
+    expect(result.current.activeTabContentType).toBe('application/pdf')
+  })
+
   it('closes the active file', async () => {
     const { result } = setup()
     await flush()

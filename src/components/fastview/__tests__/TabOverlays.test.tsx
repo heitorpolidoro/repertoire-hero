@@ -119,15 +119,15 @@ describe('TabLibrarySection', () => {
     const empty = render(
       <TabLibrarySection library={makeLibrary()} loadingPersonal={false} onOpenStage={vi.fn()} />,
     )
-    expect(screen.getByText('No PDFs uploaded yet.')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Upload PDF' })).toBeDefined()
+    expect(screen.getByText('No files uploaded yet.')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Upload File' })).toBeDefined()
     empty.unmount()
 
     const loading = render(
       <TabLibrarySection library={makeLibrary()} loadingPersonal onOpenStage={vi.fn()} />,
     )
     expect(screen.getByLabelText('Loading tabs...')).toBeDefined()
-    expect(screen.queryByText('No PDFs uploaded yet.')).toBeNull()
+    expect(screen.queryByText('No files uploaded yet.')).toBeNull()
     loading.unmount()
 
     const library = makeLibrary({
@@ -191,6 +191,6 @@ describe('the file library for a song the user holds no repertoire row for', () 
     expect(getTabs).toHaveBeenCalledTimes(1)
     expect(getTabs).toHaveBeenCalledWith('song-1')
     expect(screen.getByText('Horn section')).toBeDefined()
-    expect(screen.queryByText('No PDFs uploaded yet.')).toBeNull()
+    expect(screen.queryByText('No files uploaded yet.')).toBeNull()
   })
 })

@@ -1,6 +1,7 @@
 'use client'
 
 import type { RefObject } from 'react'
+import { IMAGE_TAB_CONTENT_TYPES } from '@/lib/tabRenderer'
 
 export interface TabUploadFormProps {
   title: string
@@ -20,9 +21,20 @@ export interface TabUploadFormProps {
 }
 
 /**
- * The "Upload New Tab" form. `accept="application/pdf"` is the file picker's
- * hint, not a gate — the user can still choose `All Files`, and the file type is
- * decided by the upload action on the bytes it receives.
+ * What the picker offers: a PDF, or a photograph of a chart in any of the three
+ * types RH-127's ingest can produce (RH-128).
+ *
+ * It is the picker's *hint*, not a gate — the user can still choose `All
+ * Files`, and what is actually accepted is decided on the server, on the
+ * bytes: `sniffUploadContentType` reads the magic numbers, so a chart picked
+ * through the Android Storage Access Framework with a generic reported type
+ * and no extension still uploads. No client-side MIME check is added here for
+ * the same reason.
+ */
+const ACCEPTED_UPLOAD_TYPES = ['application/pdf', ...IMAGE_TAB_CONTENT_TYPES].join(',')
+
+/**
+ * The "Upload New Tab" form.
  */
 export function TabUploadForm({
   title,
@@ -56,7 +68,7 @@ export function TabUploadForm({
         />
         <input
           type="file"
-          accept="application/pdf"
+          accept={ACCEPTED_UPLOAD_TYPES}
           ref={inputRef}
           onChange={(e) => onFileChange(e.target.files?.[0] || null)}
           className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer disabled:cursor-not-allowed disabled:file:bg-gray-100 disabled:file:text-gray-400"
@@ -80,7 +92,7 @@ export function TabUploadForm({
             Uploading...
           </>
         ) : (
-          'Upload PDF'
+          'Upload File'
         )}
       </button>
     </form>

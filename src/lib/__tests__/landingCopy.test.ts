@@ -51,6 +51,19 @@ describe('landing copy', () => {
     }
   })
 
+  /**
+   * RH-128: the f5 card promised handwritten annotation on "PDF chord charts
+   * and tablatures" only, which this task makes untrue in the user's favour —
+   * a photograph of a handwritten chart is annotated exactly the same way.
+   * Same two keys, no new key and no new consumer.
+   */
+  it('both f5 cards cover a photograph of a chart, not PDFs alone', () => {
+    expect(en.landing.f5Desc).toMatch(/photo|image|picture/i)
+    expect(en.landing.f5Title).toMatch(/photo|image/i)
+    expect(ptBR.landing.f5Desc).toMatch(/foto|imagem/i)
+    expect(ptBR.landing.f5Title).toMatch(/foto|imagem/i)
+  })
+
   it('EN catalog card mentions the shared catalog', () => {
     expect(en.landing.f1Desc).toMatch(/other musicians/i)
     expect(en.landing.f1Desc).toMatch(/pre-filled/i)

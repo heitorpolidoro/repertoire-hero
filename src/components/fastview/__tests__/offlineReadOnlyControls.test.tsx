@@ -342,23 +342,23 @@ describe('RH-99 ER2 — the tab library controls', () => {
     )
   }
 
-  it('leaves the upload inputs, the Upload PDF submit and the tab deletes enabled by default', () => {
+  it('leaves the upload inputs, the Upload File submit and the tab deletes enabled by default', () => {
     renderTabs()
 
     expect(screen.getByPlaceholderText(/Tab Title/).hasAttribute('disabled')).toBe(false)
     expect(fileInput().hasAttribute('disabled')).toBe(false)
-    expect(screen.getByRole('button', { name: 'Upload PDF' }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Upload File' }).hasAttribute('disabled')).toBe(false)
     const deletes = screen.getAllByRole('button', { name: 'Delete file' })
     expect(deletes).toHaveLength(2)
     expect(deletes.every((b) => b.hasAttribute('disabled'))).toBe(false)
   })
 
-  it('disables the upload inputs, the Upload PDF submit and every tab delete when read-only', () => {
+  it('disables the upload inputs, the Upload File submit and every tab delete when read-only', () => {
     renderTabs(true)
 
     expect(screen.getByPlaceholderText(/Tab Title/).hasAttribute('disabled')).toBe(true)
     expect(fileInput().hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('button', { name: 'Upload PDF' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Upload File' }).hasAttribute('disabled')).toBe(true)
     const deletes = screen.getAllByRole('button', { name: 'Delete file' })
     expect(deletes).toHaveLength(2)
     expect(deletes.every((b) => b.hasAttribute('disabled'))).toBe(true)

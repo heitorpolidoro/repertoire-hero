@@ -360,6 +360,9 @@ describe('offlineTabToSongFile', () => {
       title: 'Chart tab-old',
       file_url: 'https://store.public.blob.vercel-storage.com/tabs/tab-old.pdf',
       created_at: '2026-01-01T00:00:00Z',
+      // RH-128: absent on the row, so `application/pdf` — the honest reading
+      // of every file stored before RH-127's ingest existed.
+      content_type: 'application/pdf',
     })
     expect('annotations' in mapped).toBe(false)
     expect(mapped).not.toHaveProperty('repertoire_id')
@@ -373,6 +376,71 @@ describe('offlineTabToSongFile', () => {
       '2026-01-01T00:00:00Z',
       '2026-06-01T00:00:00Z',
     ])
+  })
+})
+
+/**
+ * RH-128 ER7 — the content type has to survive the round trip, or the branch
+ * is made differently offline and a downloaded photograph renders as a broken
+ * PDF.
+ *
+ * `OFFLINE_SCHEMA_VERSION` deliberately does **not** move for this. Every
+ * snapshot already on disk predates image upload and is a PDF, so reading an
+ * absent `contentType` as `application/pdf` is a fact rather than a guess —
+ * and bumping the version would throw away a musician's downloaded setlist to
+ * learn nothing.
+ */
+describe('the content type round trip (RH-128 ER7)', () => {
+  it('carries an image tab\'s content type from the row to the SongFile', () => {
+    const snapshot = buildOfflineSnapshot({
+      playlistId: 'pl-1',
+      playlistName: 'Gig',
+      bandId: null,
+      savedAt: '2026-09-20T18:04:00.000Z',
+      songs: [
+        {
+          entry: { repertoireId: 'rep-1', versionId: 'version-of-rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: null },
+          repertoire: repertoire('rep-1'),
+          personalRepertoire: null,
+          tabs: [
+            { tab: { ...tabRow('tab-img', '2026-01-01T00:00:00Z'), content_type: 'image/jpeg' }, bytes: 100 },
+          ],
+        },
+      ],
+    })
+
+    expect(snapshot.songs[0].tabs[0].contentType).toBe('image/jpeg')
+
+    const read = readValidSnapshot(JSON.parse(JSON.stringify(snapshot)))
+    expect(read).not.toBeNull()
+    expect(offlineTabToSongFile(read!.songs[0].tabs[0]).content_type).toBe('image/jpeg')
+  })
+
+  it('validates a snapshot written before this task and reads it back as a PDF', () => {
+    const snapshot = buildOne()
+    const withoutContentType = { ...snapshot.songs[0].tabs[0] }
+    delete withoutContentType.contentType
+    const songs = [
+      { ...snapshot.songs[0], tabs: [withoutContentType, ...snapshot.songs[0].tabs.slice(1)] },
+      snapshot.songs[1],
+    ]
+
+    const read = readValidSnapshot({ ...snapshot, songs })
+
+    expect(read).not.toBeNull()
+    expect('contentType' in read!.songs[0].tabs[0]).toBe(false)
+    expect(offlineTabToSongFile(read!.songs[0].tabs[0]).content_type).toBe('application/pdf')
+    expect(OFFLINE_SCHEMA_VERSION).toBe(5)
+  })
+
+  it('rejects a snapshot whose tab content type is not a string', () => {
+    const snapshot = buildOne()
+    const songs = [
+      { ...snapshot.songs[0], tabs: [{ ...snapshot.songs[0].tabs[0], contentType: 7 }] },
+      snapshot.songs[1],
+    ]
+
+    expect(readValidSnapshot({ ...snapshot, songs })).toBeNull()
   })
 })
 

@@ -22,7 +22,13 @@ export interface TabLibrarySectionProps {
   readOnly?: boolean
 }
 
-/** The whole "Tabs (PDF)" section: the list, the embedded viewer and the upload form. */
+/**
+ * The whole "Tabs" section: the list, the embedded viewer and the upload form.
+ *
+ * RH-128 took "PDF" out of the heading, the empty state and the upload button:
+ * a file here can now be a photograph of a handwritten chart, and copy that
+ * says otherwise would tell a user the one thing they cannot do.
+ */
 export function TabLibrarySection({
   library,
   loadingPersonal,
@@ -32,7 +38,7 @@ export function TabLibrarySection({
 }: TabLibrarySectionProps) {
   return (
     <section aria-label="Tabs" className="flex flex-col gap-4">
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tabs (PDF)</h2>
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tabs</h2>
 
       {library.tabs.length > 0 ? (
         <div className="flex flex-col gap-4">
@@ -46,6 +52,7 @@ export function TabLibrarySection({
           <TabViewer
             url={library.activeTabUrl}
             title={library.activeTabTitle}
+            contentType={library.activeTabContentType}
             onOpenStage={onOpenStage}
             onClose={library.closeActiveTab}
             offline={offline}
@@ -62,7 +69,7 @@ export function TabLibrarySection({
           ))}
         </div>
       ) : (
-        <p className="text-sm text-gray-500 bg-gray-100/60 border border-gray-200/50 rounded-xl p-4 text-center">No PDFs uploaded yet.</p>
+        <p className="text-sm text-gray-500 bg-gray-100/60 border border-gray-200/50 rounded-xl p-4 text-center">No files uploaded yet.</p>
       )}
 
       <TabUploadForm

@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Document, Page } from 'react-pdf'
-import '@/lib/pdfWorker'
 import type { Stroke, TabAnnotations } from '@/types/database'
 import {
   normalizePoint,
@@ -16,11 +14,21 @@ import {
   canvasPointerEvents,
   stageTouchAction,
   shouldHandleStagePointer,
+  stageSaveLabel,
+  type StageSaveState,
 } from '@/lib/stageInteraction'
 import { drawPath } from '@/lib/strokeRenderer'
+import { StagePageSurface } from './StagePageSurface'
+import { StageStatusRow } from './StageStatusRow'
 
 interface TabDrawingStageProps {
   fileUrl: string
+  /**
+   * The row's `song_files.content_type` (RH-128). It decides nothing here — it
+   * is handed straight to the page surface, which is the only thing that knows
+   * how a page is produced. Absent reads as PDF.
+   */
+  contentType?: string | null
   /** `null` while the parent is still loading them; `{}` for a tab with none. */
   annotations: TabAnnotations | null
   /** Load-failure message from the parent, rendered in the stage's own error panel. */
@@ -41,7 +49,6 @@ interface TabDrawingStageProps {
 }
 
 type Mode = 'pen' | 'erase' | 'pan'
-type SaveState = 'loading' | 'saving' | 'saved' | 'error'
 
 const PRESET_COLORS = ['#000000', '#ef4444', '#2563eb', '#16a34a']
 const STROKE_WIDTH_PX = 3
@@ -72,6 +79,7 @@ interface PinchState {
 
 export default function TabDrawingStage({
   fileUrl,
+  contentType,
   annotations,
   annotationsError,
   onSaveAnnotations,
@@ -96,7 +104,7 @@ export default function TabDrawingStage({
   const colorInputRef = useRef<HTMLInputElement>(null)
 
   const [strokes, setStrokes] = useState<Stroke[]>([])
-  const [saveState, setSaveState] = useState<SaveState>('saved')
+  const [saveState, setSaveState] = useState<StageSaveState>('saved')
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [localToast, setLocalToast] = useState<{ message: string } | null>(null)
 
@@ -534,7 +542,7 @@ export default function TabDrawingStage({
   }
 
   const renderWidth = baseFitWidth > 0 ? baseFitWidth * zoomLevel : undefined
-  const saveLabel = !annotationsLoaded ? 'Loading…' : saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : saveState === 'loading' ? 'Loading…' : 'Saved'
+  const saveLabel = stageSaveLabel(annotationsLoaded, saveState)
 
   // The stage root below is the common ancestor of BOTH the drawing area and
   // the toolbar, and touch-action composes as the intersection down the
@@ -565,27 +573,14 @@ export default function TabDrawingStage({
           <div className="min-h-full w-full flex items-start justify-center p-4">
             {renderWidth !== undefined && (
               <div className="relative inline-block">
-                <Document
-                  file={fileUrl}
-                  onLoadSuccess={({ numPages: n }) => setNumPages(n)}
-                  loading={<div className="text-white text-sm p-8">Loading PDF…</div>}
-                  error={<div className="text-red-400 text-sm p-8">Failed to load PDF.</div>}
-                >
-                  <Page
-                    pageNumber={pageNumber}
-                    width={renderWidth}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    onRenderSuccess={(page) =>
-                      setPageGeometry({
-                        width: page.width,
-                        height: page.height,
-                        originalWidth: page.originalWidth,
-                        originalHeight: page.originalHeight,
-                      })
-                    }
-                  />
-                </Document>
+                <StagePageSurface
+                  fileUrl={fileUrl}
+                  contentType={contentType}
+                  pageNumber={pageNumber}
+                  renderWidth={renderWidth}
+                  onPageCount={setNumPages}
+                  onGeometry={setPageGeometry}
+                />
                 {/* Stays mounted while drawing is off so saved strokes keep
                     rendering read-only; only hit-testing is disabled. */}
                 <canvas
@@ -615,35 +610,13 @@ export default function TabDrawingStage({
         className="shrink-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800 px-3 py-2 flex flex-col gap-2"
         style={{ touchAction: 'pan-x' }}
       >
-        {/* Page navigation */}
-        <div className="flex items-center justify-center gap-3 text-white text-xs">
-          <button
-            type="button"
-            onClick={() => goToPage(pageNumber - 1)}
-            disabled={pageNumber <= 1}
-            className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed font-semibold"
-          >
-            ‹ Prev
-          </button>
-          <span className="font-mono">
-            Page {pageNumber} / {numPages ?? '…'}
-          </span>
-          <button
-            type="button"
-            onClick={() => goToPage(pageNumber + 1)}
-            disabled={numPages === null || pageNumber >= numPages}
-            className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed font-semibold"
-          >
-            Next ›
-          </button>
-          <span
-            className={`ml-2 text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full ${
-              saveState === 'error' ? 'bg-red-950 text-red-300' : 'bg-gray-800 text-gray-300'
-            }`}
-          >
-            {saveLabel}
-          </span>
-        </div>
+        <StageStatusRow
+          pageNumber={pageNumber}
+          numPages={numPages}
+          onGoToPage={goToPage}
+          saveLabel={saveLabel}
+          saveFailed={saveState === 'error'}
+        />
 
         {/* Single, never-wrapping control row: its height is what keeps the
             whole toolbar at a constant, budgeted height on tablets. Anything

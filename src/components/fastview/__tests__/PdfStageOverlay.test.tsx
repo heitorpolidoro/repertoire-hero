@@ -12,6 +12,7 @@ import type { Stroke, TabAnnotations } from '@/types/database'
 vi.mock('@/components/tabs/TabDrawingStage', () => ({
   default: (props: {
     fileUrl: string
+    contentType?: string | null
     annotations: TabAnnotations | null
     annotationsError: string | null
     onSaveAnnotations: (pageNumber: number, strokes: Stroke[]) => Promise<{ success?: boolean; error?: string }>
@@ -19,6 +20,7 @@ vi.mock('@/components/tabs/TabDrawingStage', () => ({
     <div
       data-testid="drawing-stage"
       data-file-url={props.fileUrl}
+      data-content-type={props.contentType ?? ''}
       data-annotations={JSON.stringify(props.annotations)}
       data-annotations-error={props.annotationsError ?? ''}
     >
@@ -57,6 +59,16 @@ function root(container: HTMLElement): HTMLElement {
 }
 
 describe('PdfStageOverlay', () => {
+  /**
+   * RH-128: the overlay is a pass-through for the content type, exactly as it
+   * is for the file url. The branch itself lives in the stage's page surface.
+   */
+  it('hands the active file content type down to the stage', () => {
+    render(<PdfStageOverlay {...props({ contentType: 'image/png' })} />)
+
+    expect(screen.getByTestId('drawing-stage').getAttribute('data-content-type')).toBe('image/png')
+  })
+
   it('PdfStageOverlay renders nothing while the stage is closed', () => {
     const { container } = render(<PdfStageOverlay {...props({ open: false })} />)
 
@@ -80,7 +92,7 @@ describe('PdfStageOverlay', () => {
 
     // No key, and a tab whose title never loaded: the header falls back.
     render(<PdfStageOverlay {...props({ songKey: null, tabTitle: '' })} />)
-    expect(screen.getByText('PDF Tab')).toBeDefined()
+    expect(screen.getByText('Tab')).toBeDefined()
     expect(screen.getByText(/Sultans of Swing/).textContent).not.toContain('•')
   })
 
@@ -107,7 +119,7 @@ describe('PdfStageOverlay', () => {
     const onClose = vi.fn()
     render(<PdfStageOverlay {...props({ onClose })} />)
 
-    fireEvent.click(screen.getByTitle('Close PDF Stage Mode'))
+    fireEvent.click(screen.getByTitle('Close Stage Mode'))
 
     expect(onClose).toHaveBeenCalledTimes(1)
   })

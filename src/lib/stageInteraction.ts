@@ -91,3 +91,26 @@ export function isStableViewportMeasurement(visualViewportScale: number | undefi
 export function shouldHandleStagePointer(drawingEnabled: boolean): boolean {
   return drawingEnabled
 }
+
+/** The four states the stage's autosave can be in, in the order they occur. */
+export type StageSaveState = 'loading' | 'saving' | 'saved' | 'error'
+
+/**
+ * The text of the stage's save-state badge.
+ *
+ * Pure, and here rather than inline in `TabDrawingStage`'s render body, for two
+ * reasons: that file's `complexity` budget is a ratchet that may only shrink
+ * and RH-128 spends a branch there on gating the page-navigation row, and the
+ * badge is now the *only* always-rendered element of that row — for an image,
+ * and for a single-page PDF, there is nothing beside it — so what it says is
+ * worth asserting directly.
+ *
+ * `annotationsLoaded === false` wins over every state: nothing has been read
+ * yet, so "Saved" would be a claim about a page nobody has seen.
+ */
+export function stageSaveLabel(annotationsLoaded: boolean, saveState: StageSaveState): string {
+  if (!annotationsLoaded || saveState === 'loading') return 'Loading…'
+  if (saveState === 'saving') return 'Saving…'
+  if (saveState === 'error') return 'Save failed'
+  return 'Saved'
+}

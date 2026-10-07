@@ -2,10 +2,17 @@
 
 import { useState } from 'react'
 import { Spinner } from '@/components/ui/Spinner'
+import { isImageTab } from '@/lib/tabRenderer'
 
 export interface TabViewerProps {
   url: string | null
   title: string
+  /**
+   * The active file's `song_files.content_type` (RH-128). An image is rendered
+   * directly; anything else — `application/pdf`, an absent value from a row
+   * written before RH-127, an unknown string — keeps the `gview` iframe.
+   */
+  contentType?: string | null
   onOpenStage: () => void
   onClose: () => void
   /**
@@ -28,8 +35,22 @@ export interface TabViewerProps {
  * renderer that *does* work offline (Stage Mode's `react-pdf` reads the
  * same-origin cache key `src/app/sw.ts` answers). So offline the iframe is
  * replaced by a panel that says so and points at Stage Mode.
+ *
+ * RH-128 put the image branch **in front of** the offline one. The offline
+ * panel exists because `gview` is a cross-origin viewer with no network to
+ * reach; an `<img>` pointed at the synthetic same-origin cache key
+ * `src/app/sw.ts` answers (`/__offline-tab/...`) has no such problem, so an
+ * image tab renders its bytes online and offline alike and never mounts the
+ * panel. Only a PDF still takes the offline branch.
  */
-export function TabViewer({ url, title, onOpenStage, onClose, offline = false }: TabViewerProps) {
+export function TabViewer({
+  url,
+  title,
+  contentType,
+  onOpenStage,
+  onClose,
+  offline = false,
+}: TabViewerProps) {
   if (!url) return null
 
   return (
@@ -55,7 +76,9 @@ export function TabViewer({ url, title, onOpenStage, onClose, offline = false }:
           </button>
         </div>
       </div>
-      {offline ? (
+      {isImageTab(contentType) ? (
+        <ImageFrame key={url} url={url} title={title} />
+      ) : offline ? (
         <div
           data-testid="tab-viewer-offline"
           className="w-full rounded-lg border border-dashed border-emerald-300 bg-emerald-50/50 px-6 py-10 flex flex-col items-center gap-2 text-center"
@@ -72,6 +95,43 @@ export function TabViewer({ url, title, onOpenStage, onClose, offline = false }:
       ) : (
         <GviewFrame key={url} url={url} title={title} />
       )}
+    </div>
+  )
+}
+
+/**
+ * An image tab's bytes, rendered directly in the same 550px card box: no
+ * viewer service, no iframe and nothing cross-origin (RH-128).
+ *
+ * `object-contain` inside a fixed-height box keeps a portrait phone photo and
+ * a landscape scan both whole, and the spinner is the same
+ * until-it-loads treatment the iframe gets, so switching between a PDF and a
+ * photo looks like one card and not two.
+ */
+function ImageFrame({ url, title }: { url: string; title: string }) {
+  const [loaded, setLoaded] = useState(false)
+
+  return (
+    <div className="relative">
+      {!loaded && (
+        <div
+          className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-gray-50 text-xs text-gray-500"
+          role="status"
+        >
+          <Spinner />
+          Loading preview…
+        </div>
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element -- a user-uploaded
+          Blob URL, or the service worker's offline cache key; `next/image`
+          would route both through the optimizer, which is exactly what is
+          unreachable with no network. */}
+      <img
+        src={url}
+        alt={title}
+        onLoad={() => setLoaded(true)}
+        className="w-full h-[550px] object-contain rounded-lg border border-gray-150 bg-gray-50"
+      />
     </div>
   )
 }
