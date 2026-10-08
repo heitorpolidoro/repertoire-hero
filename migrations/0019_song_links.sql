@@ -193,6 +193,13 @@ CREATE TRIGGER mirror_song_links_on_songs_write
 
 -- The REVERSE bridge trigger: `song_links` rows back into `songs.links`.
 --
+-- DROPPED BY `0020_drop_song_links_reverse_bridge.sql` (RH-137), which
+-- re-keyed the Spotify push off `song_links.provider` and so removed this
+-- trigger's only reader. The block below is left as written because the file
+-- is already applied everywhere and migrations are never edited in place; read
+-- it as history. The FORWARD trigger above survives 0020 and is dropped by
+-- RH-143 together with the column.
+--
 -- Added in review round 1 of RH-136, against a measured regression. The spec's
 -- premise that deferring the DROP "costs a musician nothing today" was written
 -- before RH-135 (`5d602f7`) re-keyed the Spotify push off the link's **url**

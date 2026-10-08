@@ -11,12 +11,18 @@
  * So this suite never writes a links column by hand. Every song it pushes gets
  * its link through a **real write path**, and the assertion is on the outbound
  * `PUT .../tracks` body. RH-136 moved a link out of the `songs.links` column
- * and into `song_links` rows while this route still reads the column, so the
- * suite now covers **all three** paths by which a Spotify url reaches a song,
- * because each one would have gone silently empty on its own:
- * `findOrCreateSong` (the Spotify pull), `createAndAddSong` (the song picker,
- * `src/hooks/useSongPicker.ts:197`) and `applySongLinkUpdate` (the Fast View
- * link editor).
+ * and into `song_links` rows, so the suite covers **all four** paths by which a
+ * Spotify url reaches a song, because each one would have gone silently empty
+ * on its own: `findOrCreateSong` (the Spotify pull), `createAndAddSong` (the
+ * song picker, `src/hooks/useSongPicker.ts:197`), `applySongLinkUpdate` (the
+ * Fast View link editor) and `updateSong` (the song form).
+ *
+ * RH-137 then keyed the route's query off `song_links.provider`, so these four
+ * cases now read the rows the four writers wrote, with no column and no bridge
+ * trigger in between. They are unchanged by that re-key — assertion for
+ * assertion — which is what makes them the discriminating end-to-end check:
+ * every one of them went through a real write path, so a push that resolved
+ * nothing would show up here and nowhere else.
  *
  * Only the session, the Spotify token and `fetch` are mocked, as in
  * `spotifySyncAtomicity.db.test.ts`; everything else is the real handler
@@ -156,12 +162,13 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify push (real database, real write path
     versionCId = await representativeVersionId(songC.song_id)
 
     // Song D — the Fast View add-link path (`applySongLinkUpdate`), the third
-    // and last way a Spotify url reaches a song. It is here because RH-136
-    // moved the links write off `songs.links` while the push route still reads
-    // that column, and only the reverse bridge trigger
-    // (`migrations/0019_song_links.sql`) keeps this path pushable. Without it
-    // this song's `uris` entry is missing and the push answers 200 with
-    // `{added: 1}` — success, having pushed one track of two.
+    // way a Spotify url reaches a song. It is here because RH-136 moved the
+    // links write off `songs.links` while the push still read that column, so
+    // until RH-137 only the reverse bridge trigger kept this path pushable.
+    // Since RH-137 the push reads the `song_links` row this writer created
+    // directly. Either way, a regression here is this song's `uris` entry going
+    // missing while the push answers 200 with `{added: 1}` — success, having
+    // pushed one track of two.
     const songD = await createAndAddSong(
       { userId: ownerId },
       { title: TITLE_D, artist: ARTIST, album: 'RH-135 Album D' },

@@ -74,14 +74,24 @@ export interface PlaylistVersionIdRow {
 }
 
 /**
- * `SELECT ps.version_id, ps.position, s.links FROM playlist_songs ps
- *    JOIN song_versions v ON v.id = ps.version_id JOIN songs s ON s.id = v.song_id …`
- * — the Spotify push's URL source.
+ * `SELECT ps.version_id, ps.position, <spotifyLinkUrlsJson('v.song_id')> AS spotify_urls
+ *    FROM playlist_songs ps JOIN song_versions v ON v.id = ps.version_id …`
+ * — the Spotify push's URL source (RH-137).
+ *
+ * `spotify_urls` holds the song's `provider = 'spotify'` link urls in the
+ * canonical read order `position, created_at, id`, keyed off the derived column
+ * on `song_links` rather than off a label or a url substring. It is never null:
+ * the fragment wraps the aggregate in `COALESCE(…, '[]'::json)`, so a song with
+ * no Spotify link answers an empty array and contributes nothing to the push.
+ *
+ * There is no `songs` row in this query at all — the push reaches a song's links
+ * through `song_links` correlated on the entry's own `v.song_id`, so the
+ * retained `songs.links` column is read by nothing in production.
  */
-export interface PlaylistVersionLinksRow {
+export interface PlaylistVersionSpotifyUrlsRow {
   version_id: string
   position: number
-  links: SongLink[] | null
+  spotify_urls: string[]
 }
 
 /**

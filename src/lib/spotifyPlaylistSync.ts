@@ -136,11 +136,30 @@ export async function findOrCreateSong(track: SpotifyRawTrack): Promise<Resolved
     const song = await resolveOrCreateSongIdentity(input, client)
     const versionId = await upsertAlbumAndVersion(song, input, client)
 
+    // RH-137: the appended link is a `song_links` row, not a rewrite of the
+    // `songs.links` array. `song.links` already comes from `song_links`
+    // (`songLinksJson`), so the guard is unchanged.
+    //
+    // Appended at `max(position) + 1` rather than renumbered from 1: this
+    // writer adds one link and has no authority over the order of the ones
+    // already there. `COALESCE` is mandatory — `max()` over zero rows is NULL
+    // and `position` is NOT NULL, which is the ordinary case here, not an edge
+    // one. The conflict clause absorbs a re-import of the same track; a caught
+    // 23505 could not, because it would leave this transaction aborted and
+    // `transactionGuard` forbids a savepoint through `query()`.
+    //
+    // The timestamp bump is its own bare statement now, the idiom
+    // `applySongLinkUpdate` already uses: the column write that used to carry
+    // `updated_at = now()` is gone, and RH-101's semantics are not.
     if (!song.created && !song.links.some((l) => l.url === track.spotifyUrl)) {
-      await client.query<never>('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2', [
-        JSON.stringify([...song.links, spotifyLink]),
-        song.id,
-      ])
+      await client.query<never>(
+        `INSERT INTO song_links (song_id, url, label, position)
+         VALUES ($1, $2, $3,
+                 COALESCE((SELECT max(position) FROM song_links WHERE song_id = $1), 0) + 1)
+         ON CONFLICT (song_id, url) DO NOTHING`,
+        [song.id, track.spotifyUrl, spotifyLink.label],
+      )
+      await client.query<never>('UPDATE songs SET updated_at = now() WHERE id = $1', [song.id])
     }
 
     return { songId: song.id, versionId }

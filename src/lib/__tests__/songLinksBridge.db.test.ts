@@ -17,15 +17,16 @@
  * are the only ones that catch it, and neither is reachable through the other
  * three.
  *
- * THE REVERSE BRIDGE IS THE OTHER HALF, and it is load-bearing for a musician
- * today rather than for RH-137. The Spotify push reads the retained
- * `songs.links` column and matches a track by its url (RH-135, `5d602f7`), so
- * with the four owned writers moved onto `song_links` and nothing writing the
- * column back, every push for a song touched after this migration would send an
- * empty `uris` list and answer HTTP 200 with `{added: 0}` — the exact
- * silently-succeeding push RH-135 existed to remove. The reverse trigger
- * recomputes the column from the rows, so all four writers are covered by one
- * statement; `spotifyPushUris.db.test.ts` is where the end-to-end proof lives.
+ * THE REVERSE BRIDGE IS GONE (RH-137,
+ * `migrations/0020_drop_song_links_reverse_bridge.sql`). It existed only
+ * because the Spotify push still read the retained `songs.links` column; the
+ * push is keyed off `song_links.provider` now, so the column has no production
+ * reader and the dual write it forced is retired. What stands in its place here
+ * is an absence assertion — schema-qualified, because the dev database carries
+ * `mirror_*` copies in a leftover probe schema — plus the import case below,
+ * which proves the column is left untouched on the very path the reverse
+ * trigger was added for. `spotifyPushUris.db.test.ts` is where the end-to-end
+ * proof that the push still works lives.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -318,9 +319,42 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
     })
   })
 
-  describe('the reverse bridge trigger: song_links back into songs.links', () => {
-    it('mirrors an inserted row into the column, and recursion terminates', async () => {
-      const songId = await seedSong('Reverse Insert')
+  describe('the reverse bridge trigger is gone (RH-137)', () => {
+    it('has no reverse trigger and no reverse function, while the forward trigger stands', async () => {
+      // All three predicates are schema-qualified. The dev database carries a
+      // leftover `rh136rev` probe schema holding its own copies of the
+      // `mirror_*` objects, so the unqualified counts are 2, 2 and 2 and would
+      // hide exactly the change under test. Qualifying also pins each trigger
+      // to the relation it belongs on, rather than to a name existing
+      // somewhere in the cluster.
+      const reverseTrigger = await query<{ count: string }>(
+        `SELECT count(*) AS count FROM pg_trigger
+          WHERE tgname = 'mirror_column_on_song_links_write'
+            AND tgrelid = 'public.song_links'::regclass`,
+      )
+      expect(Number(reverseTrigger.rows[0].count)).toBe(0)
+
+      const reverseFunction = await query<{ count: string }>(
+        `SELECT count(*) AS count FROM pg_proc
+          WHERE proname = 'mirror_column_from_song_links'
+            AND pronamespace = 'public'::regnamespace`,
+      )
+      expect(Number(reverseFunction.rows[0].count)).toBe(0)
+
+      // The forward bridge survives: RH-143 drops it with the column.
+      const forwardTrigger = await query<{ count: string }>(
+        `SELECT count(*) AS count FROM pg_trigger
+          WHERE tgname = 'mirror_song_links_on_songs_write'
+            AND tgrelid = 'public.songs'::regclass`,
+      )
+      expect(Number(forwardTrigger.rows[0].count)).toBe(1)
+    })
+
+    it('leaves songs.links alone when a song_links row is written', async () => {
+      // With a row present for the dropped trigger to have fired on: a trigger
+      // is not evaluated for a statement matching no row, so an assertion over
+      // an untouched song would prove nothing.
+      const songId = await seedSong('Reverse Gone')
       expect(await columnLinks(songId)).toEqual([])
 
       await query('INSERT INTO song_links (song_id, url, label, position) VALUES ($1, $2, $3, 1)', [
@@ -329,80 +363,8 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
         'Tabs',
       ])
 
-      expect(await columnLinks(songId)).toEqual([{ label: 'Tabs', url: UA }])
-      // The reverse trigger's `UPDATE songs` fires the forward trigger, whose
-      // insert is `ON CONFLICT DO NOTHING`; a row it suppresses fires no
-      // `AFTER INSERT`, so the cycle closes after one turn and no duplicate
-      // row appears.
-      expect(await storedLinks(songId)).toHaveLength(1)
-    })
-
-    it('mirrors the canonical read order, not the insertion order', async () => {
-      const songId = await seedSong('Reverse Order')
-      await query(
-        `INSERT INTO song_links (song_id, url, label, position)
-         VALUES ($1, $2, 'Second', 2), ($1, $3, 'First', 1)`,
-        [songId, UB, UA],
-      )
-
-      expect(await columnLinks(songId)).toEqual([
-        { label: 'First', url: UA },
-        { label: 'Second', url: UB },
-      ])
-    })
-
-    it('mirrors a position rewrite, so an approved reorder reaches the column', async () => {
-      const songId = await seedSong('Reverse Reorder')
-      await query(
-        `INSERT INTO song_links (song_id, url, label, position)
-         VALUES ($1, $2, 'A', 1), ($1, $3, 'B', 2)`,
-        [songId, UA, UB],
-      )
-
-      await query('UPDATE song_links SET position = 0 WHERE song_id = $1 AND url = $2', [
-        songId,
-        UB,
-      ])
-
-      expect(await columnLinks(songId)).toEqual([
-        { label: 'B', url: UB },
-        { label: 'A', url: UA },
-      ])
-    })
-
-    it('mirrors a delete, and empties the column when the last row goes', async () => {
-      const songId = await seedSong('Reverse Delete')
-      await query(
-        `INSERT INTO song_links (song_id, url, label, position)
-         VALUES ($1, $2, 'A', 1), ($1, $3, 'B', 2)`,
-        [songId, UA, UB],
-      )
-
-      await query('DELETE FROM song_links WHERE song_id = $1 AND url = $2', [songId, UA])
-      expect(await columnLinks(songId)).toEqual([{ label: 'B', url: UB }])
-
-      // A deleted url must not come back: the reverse trigger rewrites the
-      // column from the surviving rows, and the forward trigger it fires can
-      // only insert what the column now holds.
-      await query('DELETE FROM song_links WHERE song_id = $1', [songId])
+      expect((await storedLinks(songId)).map((row) => row.url)).toEqual([UA])
       expect(await columnLinks(songId)).toEqual([])
-      expect(await storedLinks(songId)).toHaveLength(0)
-    })
-
-    it('is created after the backfill, so the migration leaves the column byte-identical', () => {
-      const dir = path.resolve(__dirname, '..', '..', '..', 'migrations')
-      const names = fs.readdirSync(dir).filter((name) => name.endsWith(MIGRATION_SUFFIX))
-      expect(names).toHaveLength(1)
-      const sql = fs.readFileSync(path.join(dir, names[0]), 'utf8')
-
-      // With the reverse trigger already in place, the backfill's
-      // `INSERT INTO song_links` would rewrite `songs.links` for every song in
-      // the catalog — collapsing duplicates and dropping malformed elements —
-      // and ER4's byte-identical column would be false.
-      const backfill = sql.indexOf('INSERT INTO song_links (song_id, url, label, position)')
-      const reverseTrigger = sql.indexOf('CREATE TRIGGER mirror_column_on_song_links_write')
-      expect(backfill).toBeGreaterThan(-1)
-      expect(reverseTrigger).toBeGreaterThan(backfill)
     })
   })
 
@@ -431,6 +393,60 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
       expect(rows.map((row) => row.url)).toEqual([UC])
       expect(rows[0].provider).toBe('spotify')
       expect(rows[0].label).toBe(title)
+    })
+
+    it('appends at max(position) + 1, bumps updated_at and leaves songs.links untouched (RH-137)', async () => {
+      const title = `RH-137 Import ${suffix}`
+      const artist = `RH-137 Import Artist ${suffix}`
+      const songId = await seedSong('Import Append Target')
+      await query('UPDATE songs SET title = $1, artist = $2 WHERE id = $3', [title, artist, songId])
+
+      // Two links already on the song, written through the column so the
+      // forward bridge gives them positions 1 and 2 — the state `max(position)`
+      // is read from.
+      await setColumn(songId, [
+        { label: 'A', url: UA },
+        { label: 'B', url: UB },
+      ])
+      const before = await storedLinks(songId)
+      expect(before.map((row) => row.position)).toEqual([1, 2])
+      const seededColumn = await columnLinks(songId)
+      const beforeUpdatedAt = await updatedAt(songId)
+
+      const track = {
+        spotifyTrackId: `rh137-${suffix}`,
+        title,
+        artist,
+        album: null,
+        albumArt: null,
+        spotifyUrl: UC,
+        durationSeconds: 210,
+      }
+      expect((await findOrCreateSong(track)).songId).toBe(songId)
+
+      const after = await storedLinks(songId)
+      expect(after.map((row) => row.url)).toEqual([UA, UB, UC])
+      const appended = after.find((row) => row.url === UC)!
+      expect(appended.position).toBe(3)
+      expect(appended.provider).toBe('spotify')
+      // Nothing was deleted and reinserted.
+      for (const row of before) {
+        expect(after.find((candidate) => candidate.url === row.url)!.id).toBe(row.id)
+      }
+      expect(await updatedAt(songId) > beforeUpdatedAt).toBe(true)
+
+      // The cheapest demonstration that the reverse bridge is really gone, on
+      // the very path that motivated it: the column keeps the value seeded
+      // before the import, with no `UC` added to it.
+      expect(await columnLinks(songId)).toEqual(seededColumn)
+      expect(await columnLinks(songId)).toEqual([
+        { label: 'A', url: UA },
+        { label: 'B', url: UB },
+      ])
+
+      // Re-importing the same track adds no second row.
+      await findOrCreateSong(track)
+      expect(await storedLinks(songId)).toHaveLength(3)
     })
   })
 })

@@ -48,6 +48,40 @@ export function songLinksJson(alias: string): string {
 }
 
 /**
+ * A song's **Spotify** link urls as a json array, in the canonical read order —
+ * the Spotify push's url source (RH-137).
+ *
+ * Keyed on the derived `provider` column, never on a substring of the url. The
+ * column is host-anchored (`migrations/0019_song_links.sql`), so
+ * `https://notspotify.com/track/x` is `provider = 'other'` and is excluded here
+ * rather than by the reader. `spotifyTrackUriFromUrl`'s own `isSpotifyHost`
+ * check stays: the two are defence in depth, not one replacing the other.
+ *
+ * `ORDER BY sl.position, sl.created_at, sl.id` is the same canonical order
+ * {@link songLinksJson} emits, and it is load-bearing rather than decorative:
+ * the push sends **the first url in that order** that names a track, so without
+ * it a song holding two Spotify track urls would push whichever row Postgres
+ * happened to return first.
+ *
+ * **Takes the song-id expression, not a `songs` alias.** The push's query has
+ * no `songs` row in scope — it joins `song_versions` and nothing else — so it
+ * calls this with `'v.song_id'`. A twin of `songLinksJson`, appending `.id` to
+ * an alias, could not express that join.
+ *
+ * `COALESCE(..., '[]'::json)` so a song with no Spotify link answers an empty
+ * array rather than null: such a song contributes nothing to the push and does
+ * not fail it.
+ */
+export function spotifyLinkUrlsJson(songIdExpression: string): string {
+  return `COALESCE((
+             SELECT json_agg(sl.url ORDER BY sl.position, sl.created_at, sl.id)
+               FROM song_links sl
+              WHERE sl.song_id = ${songIdExpression}
+                AND sl.provider = 'spotify'
+           ), '[]'::json)`
+}
+
+/**
  * Layer 1 of the duplicate-url policy: the first occurrence of each `url` wins
  * and the rest are dropped.
  *

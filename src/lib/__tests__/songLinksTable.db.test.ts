@@ -68,10 +68,11 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
   /**
    * Seeds `song_links` rows by hand.
    *
-   * The reverse bridge trigger mirrors them into `songs.links`, so a caller
-   * that needs the deliberately-empty column of ER9 and ER16 blanks it
-   * **afterwards** with {@link blankColumn} — which the forward trigger leaves
-   * standing, because an empty array inserts nothing and changes no row.
+   * Since RH-137 dropped the reverse bridge trigger, these rows reach
+   * `songs.links` through nothing at all: the column keeps whatever the song
+   * was created with. Callers that want the deliberately-empty column of ER9
+   * and ER16 still blank it with {@link blankColumn}, which the forward trigger
+   * leaves standing because an empty array inserts nothing.
    */
   const seedLinkRows = async (songId: string, links: Array<[string, string, number]>) => {
     for (const [url, label, position] of links) {
@@ -87,9 +88,9 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
   /**
    * Empties `songs.links` while the song's `song_links` rows stay.
    *
-   * Holds, rather than being undone by either trigger: the forward bridge is
-   * insert-only and inserts nothing from `'[]'`, so no `song_links` row
-   * changes and the reverse bridge never fires.
+   * Holds, rather than being undone: the forward bridge is insert-only and
+   * inserts nothing from `'[]'`, and since RH-137 there is no reverse bridge
+   * left to put the column back.
    */
   const blankColumn = async (songId: string): Promise<void> => {
     await query(`UPDATE songs SET links = '[]'::jsonb WHERE id = $1`, [songId])
@@ -229,7 +230,7 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       return songId
     }
 
-    it('adds a link, preserves the submitted order and mirrors it into the column (ER11)', async () => {
+    it('adds a link, preserves the submitted order and leaves the column alone (ER11)', async () => {
       const songId = await songWithTriggerGap('Additive')
       const before = await storedLinks(songId)
 
@@ -260,19 +261,16 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
           before.find((row) => row.url === url)!.id,
         )
       }
-      // ER11 as written required `songs.links` to come back **unmodified**,
-      // under the spec's premise that nothing reads the retained column any
-      // more. RH-135 falsified that premise one commit earlier: the Spotify
-      // push reads `songs.links` and matches by url, so a column this writer
-      // left empty makes the push send zero uris and answer 200. The reverse
-      // bridge trigger therefore mirrors the rows back, and the column's
-      // correct value here is the submitted set in canonical read order — the
-      // assertion that actually protects the push. See the RH-136 report: ER11
-      // needs this clause amended.
+      // `songs.links` comes back **unmodified** — the 2-element array the
+      // fixture seeded, not the 3-element submitted set. RH-136 had to amend
+      // this clause because the Spotify push still read the column, so the
+      // reverse bridge trigger mirrored the rows back into it; RH-137 re-keyed
+      // the push off `song_links.provider` and dropped that trigger, so the
+      // original clause holds again: nothing reads the column, and this writer
+      // leaves it alone.
       expect(await columnLinks(songId)).toEqual([
         { label: 'Chords', url: U1 },
         { label: 'Video', url: U2 },
-        { label: 'Spotify', url: U3 },
       ])
     })
 

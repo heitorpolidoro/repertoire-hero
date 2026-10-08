@@ -80,15 +80,19 @@ const eslintConfig = defineConfig([
   // (!seenSpotifyVersions.has(...))` branch it took with it is the one the
   // route no longer spends.
   //
-  // RH-135 lowered it again, 25 -> 22. The push loop used to pick a song's
-  // Spotify link by label and then dig the track id out of its url, spending
-  // three branches on it: the `links?.find(...)` optional chain, `if
-  // (spotifyLink?.url)` and `if (match)`. All three moved into
-  // `spotifyTrackUriFromLinks` (`src/lib/spotifyTrackUri.ts`), where a unit
-  // test can reach them — `src/app/api/**` is outside the coverage gate — and
-  // the loop is left with one `if (uri)`. `max-depth` stays at 5: the
-  // shallower loop body was never the file's deepest block.
-  { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 22], "max-depth": ["error", 5] } },
+  // RH-135 lowered it again, 25 -> 22, by moving the push's label match and
+  // track-id dig out of the route.
+  //
+  // RH-137 lowers it 22 -> 20. The push's query is keyed off
+  // `song_links.provider` now, so the route no longer walks a song's links
+  // looking for a Spotify host: the per-entry loop and its `if (uri)` are gone,
+  // replaced by one `spotifyPushUris(...)` call over the query's rows
+  // (`src/lib/spotifyTrackUri.ts`), where a unit test can reach the
+  // at-most-one-uri-per-entry rule — `src/app/api/**` is outside the coverage
+  // gate. `max-depth` stays at 5: the file's deepest block is
+  // `if (!postResponse.ok)` inside the append-batch loop, which this task does
+  // not touch.
+  { name: "complexity-budget/override", files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 20], "max-depth": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/app/bands/\\[id\\]/page.tsx"], rules: { complexity: ["error", 29], "max-lines-per-function": ["error", 453], "max-lines": ["error", 473] } },
   { name: "complexity-budget/override", files: ["src/app/join/\\[code\\]/page.tsx"], rules: { "max-lines-per-function": ["error", 249] } },
   { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 615] } },

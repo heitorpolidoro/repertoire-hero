@@ -125,7 +125,7 @@ const rawTrack: SpotifyRawTrack = {
 }
 
 describe('findOrCreateSong', () => {
-  it('returns the existing id and appends the Spotify link when it is absent', async () => {
+  it('returns the existing id and appends the Spotify link as a song_links row', async () => {
     mockedQuery
       // 1 — the identity lookup finds the row
       .mockResolvedValueOnce({
@@ -136,20 +136,44 @@ describe('findOrCreateSong', () => {
       // its own id since RH-125
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
-      // 4 — the link append
+      // 4 — the link append, 5 — the catalog timestamp bump (RH-137: the append
+      // is a `song_links` row, so the timestamp is no longer a side effect of
+      // rewriting `songs.links`)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     const resolved = await findOrCreateSong(rawTrack)
 
     expect(resolved).toEqual({ songId: 'song-1', versionId: 'version-1' })
-    expect(mockedQuery).toHaveBeenCalledTimes(4)
-    const [updateSql, updateValues] = mockedQuery.mock.calls[3]
-    expect(updateSql).toBe('UPDATE songs SET links = $1, updated_at = now() WHERE id = $2')
-    expect(JSON.parse(updateValues[0] as string)).toEqual([
-      { label: 'Chords', url: 'http://chords' },
-      { label: 'Song Name - 2018 Remaster', url: 'https://open.spotify.com/track/t1' },
+    expect(mockedQuery).toHaveBeenCalledTimes(5)
+
+    const [insertSql, insertValues] = mockedQuery.mock.calls[3]
+    expect(insertSql).toContain('INSERT INTO song_links (song_id, url, label, position)')
+    // Appended at the end of the song's existing rows, never renumbered from 1:
+    // the import adds one link and has no authority over the order of the rest.
+    expect(insertSql).toContain(
+      'COALESCE((SELECT max(position) FROM song_links WHERE song_id = $1), 0) + 1',
+    )
+    // Re-importing the same track must add no second row, and must not abort
+    // the transaction on `UNIQUE (song_id, url)`.
+    expect(insertSql).toContain('ON CONFLICT (song_id, url) DO NOTHING')
+    // `provider` is never bound: naming a generated column in an INSERT raises
+    // 428C9.
+    expect(insertSql).not.toContain('provider')
+    expect(insertValues).toEqual([
+      'song-1',
+      'https://open.spotify.com/track/t1',
+      'Song Name - 2018 Remaster',
     ])
-    expect(updateValues[1]).toBe('song-1')
+
+    // The column itself is not written any more — RH-143 drops it — but the
+    // catalog timestamp still moves, which is RH-101's semantics.
+    const [bumpSql, bumpValues] = mockedQuery.mock.calls[4]
+    expect(bumpSql).toBe('UPDATE songs SET updated_at = now() WHERE id = $1')
+    expect(bumpValues).toEqual(['song-1'])
+
+    const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
+    expect(statements.some((sql) => /UPDATE\s+songs\s+SET\s+links/i.test(sql))).toBe(false)
   })
 
   it('does not touch the links when the Spotify url is already there', async () => {

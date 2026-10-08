@@ -14,12 +14,11 @@
  * the route file it is called from is an App Router handler, whose export
  * surface Next.js restricts to HTTP methods and route-segment config.
  *
- * RH-110 Part 2 later replaces this host check with a derived `provider`
- * column on a `song_links` table; keeping it in one module of its own keeps
- * that replacement to one file.
+ * RH-136 added the derived `provider` column on `song_links`, and RH-137 keyed
+ * the push's query off it. This host check **stays**: the column decides which
+ * rows the query returns, this function decides whether a returned url names a
+ * track, and the two are defence in depth rather than one replacing the other.
  */
-
-import type { SongLink } from '@/types/database'
 
 /**
  * The track-id capture, unchanged from the push loop this module replaces.
@@ -76,17 +75,47 @@ export function spotifyTrackUriFromUrl(url: string): string | null {
 }
 
 /**
- * The first Spotify track URI among a song's links, or `null` if it has none.
+ * The uri list the Spotify push sends, over the rows of the provider-keyed
+ * query (RH-137) — its **single** entry point, called once from the route and
+ * nowhere else.
  *
- * `links` is `PlaylistVersionLinksRow.links` — nullable, because the `songs`
- * row may carry no links at all. The search is over **every** link, not the
- * first one whose label matched, so a Spotify link sitting behind a lyrics or
- * tab link is now found.
+ * **At most one uri per playlist entry**, and it is the first url in the row's
+ * array that yields a track uri. The array arrives already ordered by the
+ * canonical read order `position, created_at, id`
+ * ({@link spotifyLinkUrlsJson}), so this is the first-non-null-wins rule the
+ * label-keyed loop and then `spotifyTrackUriFromLinks` already applied, carried
+ * over rather than reinvented — and it is load-bearing in both directions:
+ *
+ * - resolving `urls[0]` alone would drop a song whose links are
+ *   `[album-url, track-url]`, an ordering the Fast View editor and the song
+ *   picker both reach because they append in paste order;
+ * - one uri per url would send a song holding two Spotify track urls twice,
+ *   which `UNIQUE (song_id, url)` does not prevent.
+ *
+ * A row contributing no uri — no `provider = 'spotify'` link, or none of them
+ * naming a track — is skipped and does not fail the push. Entry order is the
+ * query's `ORDER BY ps.position`.
+ *
+ * It lives in `src/lib` rather than in the route because `src/app/api/**` is
+ * outside the coverage gate and an App Router handler's export surface is
+ * restricted by Next.js to HTTP methods and route-segment config, so the route
+ * cannot export a testable helper.
  */
-export function spotifyTrackUriFromLinks(links: SongLink[] | null): string | null {
-  for (const link of links ?? []) {
-    const uri = spotifyTrackUriFromUrl(link.url)
-    if (uri) return uri
+export function spotifyPushUris(rows: readonly { spotify_urls: string[] | null }[]): string[] {
+  const uris: string[] = []
+  for (const row of rows) {
+    // `?? []` rather than trusting the shape: the query wraps the aggregate in
+    // `COALESCE(…, '[]'::json)` so today's only caller cannot deliver null, but
+    // this function's predecessor took a nullable column for exactly this
+    // reason. A future caller shaping its own rows should get a skipped song,
+    // not a TypeError inside the push loop.
+    for (const url of row.spotify_urls ?? []) {
+      const uri = spotifyTrackUriFromUrl(url)
+      if (uri) {
+        uris.push(uri)
+        break
+      }
+    }
   }
-  return null
+  return uris
 }

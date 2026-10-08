@@ -9,8 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SongLink } from '@/types/database'
-import { spotifyTrackUriFromLinks, spotifyTrackUriFromUrl } from '@/lib/spotifyTrackUri'
+import { spotifyPushUris, spotifyTrackUriFromUrl } from '@/lib/spotifyTrackUri'
 
 describe('spotifyTrackUriFromUrl', () => {
   it('accepts the open.spotify.com track URL every writer produces', () => {
@@ -111,41 +110,75 @@ describe('spotifyTrackUriFromUrl', () => {
   })
 })
 
-describe('spotifyTrackUriFromLinks', () => {
-  it('returns null for a null links column', () => {
-    expect(spotifyTrackUriFromLinks(null)).toBeNull()
+/**
+ * RH-137 — the push's single uri entry point, over the rows of the
+ * provider-keyed query.
+ *
+ * One uri per playlist entry at most, and it is the **first url in the row's
+ * array that yields a track uri** — the array arrives in the canonical read
+ * order `position, created_at, id`, so "first that resolves" is "first the
+ * musician pasted that is a track".
+ */
+describe('spotifyPushUris', () => {
+  it('answers the uris in row order', () => {
+    expect(
+      spotifyPushUris([
+        { spotify_urls: ['https://open.spotify.com/track/first1'] },
+        { spotify_urls: ['https://open.spotify.com/track/second2'] },
+      ]),
+    ).toEqual(['spotify:track:first1', 'spotify:track:second2'])
   })
 
-  it('returns null for an empty links array', () => {
-    expect(spotifyTrackUriFromLinks([])).toBeNull()
+  it('skips a row whose spotify-url array is empty, without failing the push', () => {
+    // A song with no `provider = 'spotify'` row: the per-song skip RH-135
+    // established, kept intact.
+    expect(
+      spotifyPushUris([
+        { spotify_urls: ['https://open.spotify.com/track/first1'] },
+        { spotify_urls: [] },
+        { spotify_urls: ['https://open.spotify.com/track/second2'] },
+      ]),
+    ).toEqual(['spotify:track:first1', 'spotify:track:second2'])
   })
 
-  it('finds the Spotify link whatever its label says', () => {
-    const links: SongLink[] = [
-      { label: 'Bohemian Rhapsody', url: 'https://open.spotify.com/track/abc123' },
-    ]
-    expect(spotifyTrackUriFromLinks(links)).toBe('spotify:track:abc123')
+  it('skips a Spotify url that names no track', () => {
+    expect(spotifyPushUris([{ spotify_urls: ['https://open.spotify.com/album/abc123'] }])).toEqual(
+      [],
+    )
   })
 
-  it('finds a Spotify link sitting behind unrelated links', () => {
-    const links: SongLink[] = [
-      { label: 'Lyrics', url: 'https://genius.com/x' },
-      { label: 'Tab', url: 'https://ultimate-guitar.com/y' },
-      { label: 'Spotify', url: 'https://open.spotify.com/track/abc123' },
-    ]
-    expect(spotifyTrackUriFromLinks(links)).toBe('spotify:track:abc123')
+  it('takes the track url sitting behind an album url, not the first url', () => {
+    // Both urls are `provider = 'spotify'`, and this ordering is reachable:
+    // the Fast View editor (`SongLinksEditor.tsx`) and the song picker
+    // (`useSongPicker.ts`) append in whatever order the musician pastes.
+    // Resolving `urls[0]` alone would drop this song from the playlist while
+    // the route answered HTTP 200 — RH-135's defect class, recurring per song.
+    expect(
+      spotifyPushUris([
+        {
+          spotify_urls: [
+            'https://open.spotify.com/album/abc',
+            'https://open.spotify.com/track/xyz',
+          ],
+        },
+      ]),
+    ).toEqual(['spotify:track:xyz'])
   })
 
-  it('returns null when no link is a Spotify track link', () => {
-    const links: SongLink[] = [{ label: 'Lyrics', url: 'https://genius.com/x' }]
-    expect(spotifyTrackUriFromLinks(links)).toBeNull()
-  })
+  it('contributes exactly one uri for a row holding two track urls', () => {
+    // Never one uri per url: the song would be sent to Spotify twice, and
+    // `UNIQUE (song_id, url)` prevents only identical urls, not two distinct
+    // track urls on one song.
+    const uris = spotifyPushUris([
+      {
+        spotify_urls: [
+          'https://open.spotify.com/track/first1',
+          'https://open.spotify.com/track/second2',
+        ],
+      },
+    ])
 
-  it('returns the first matching link when several are Spotify tracks', () => {
-    const links: SongLink[] = [
-      { label: 'Studio', url: 'https://open.spotify.com/track/first1' },
-      { label: 'Live', url: 'https://open.spotify.com/track/second2' },
-    ]
-    expect(spotifyTrackUriFromLinks(links)).toBe('spotify:track:first1')
+    expect(uris).toHaveLength(1)
+    expect(uris).toEqual(['spotify:track:first1'])
   })
 })

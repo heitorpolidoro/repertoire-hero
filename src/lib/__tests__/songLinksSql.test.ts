@@ -8,7 +8,12 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { dedupeLinksByUrl, songLinkInsertRows, songLinksJson } from '../songLinksSql'
+import {
+  dedupeLinksByUrl,
+  songLinkInsertRows,
+  songLinksJson,
+  spotifyLinkUrlsJson,
+} from '../songLinksSql'
 import type { SongLink } from '@/types/database'
 
 describe('dedupeLinksByUrl', () => {
@@ -84,6 +89,28 @@ describe('songLinksJson', () => {
     const sql = songLinksJson('s')
     expect(sql).toContain('WHERE sl.song_id = s.id')
     expect(sql).toContain('ORDER BY sl.position, sl.created_at, sl.id')
+    // A link-less song answers an empty array, never null.
+    expect(sql).toContain("'[]'::json")
+  })
+})
+
+describe('spotifyLinkUrlsJson', () => {
+  it('keys on the derived provider, correlates on a song-id expression, and reads in the canonical order', () => {
+    // Called with the push's own `v.song_id`, not a `songs` alias: the re-keyed
+    // push has no `songs` row in scope (RH-137 dropped its `JOIN songs`), so a
+    // helper appending `.id` to an alias could not express the join at all.
+    const sql = spotifyLinkUrlsJson('v.song_id')
+
+    expect(sql).toContain("provider = 'spotify'")
+    expect(sql).toContain('sl.song_id = v.song_id')
+    // "The first url in canonical read order" is normative: with no ORDER BY,
+    // a song holding two Spotify track urls pushes whichever url Postgres
+    // happens to return first.
+    expect(sql).toContain('ORDER BY sl.position, sl.created_at, sl.id')
+    // Keyed on the derived column, never on a substring of the url. A
+    // `links::text LIKE '%spotify.com%'` filter is runtime-indistinguishable
+    // here, so this is the only possible proof of the re-key.
+    expect(sql).not.toContain('LIKE')
     // A link-less song answers an empty array, never null.
     expect(sql).toContain("'[]'::json")
   })

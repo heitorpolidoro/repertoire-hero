@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, withTransaction } from '@/lib/db'
-import type { PlaylistVersionIdRow, PlaylistVersionLinksRow } from '@/lib/dbRows'
+import type { PlaylistVersionIdRow, PlaylistVersionSpotifyUrlsRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 import { resolveSpotifyRouteAccess, resolveWritablePlaylist } from '@/lib/spotifyRouteAuth'
 import {
@@ -10,7 +10,8 @@ import {
   buildPlaylistSongsInsert,
   dedupeVersionIds,
 } from '@/lib/spotifyPlaylistSync'
-import { spotifyTrackUriFromLinks } from '@/lib/spotifyTrackUri'
+import { spotifyLinkUrlsJson } from '@/lib/songLinksSql'
+import { spotifyPushUris } from '@/lib/spotifyTrackUri'
 
 // ---------------------------------------------------------------------------
 // POST /api/spotify/playlists/[id]/sync
@@ -116,30 +117,30 @@ export async function POST(
         }
       })
     } else {
-      // Push local playlist to Spotify
-      // The links live on the shared catalog row, so the push reaches them
-      // through the version the entry names (RH-125).
-      const playlistSongsRes = await query<PlaylistVersionLinksRow>(`
-        SELECT ps.version_id, ps.position, s.links
+      // Push local playlist to Spotify.
+      //
+      // Keyed off `song_links.provider` (RH-137), never off a label and never
+      // off a url substring: a label is human-typed display text, and matching
+      // one is what made every push send an empty track list while reporting
+      // success (RH-135). The links hang off the shared catalog song, which the
+      // entry names through its version (RH-125), so the correlation is on
+      // `v.song_id` and this query joins no `songs` row at all — the retained
+      // `songs.links` column is read by nothing here.
+      const playlistSongsRes = await query<PlaylistVersionSpotifyUrlsRow>(`
+        SELECT ps.version_id, ps.position,
+               ${spotifyLinkUrlsJson('v.song_id')} AS spotify_urls
         FROM playlist_songs ps
         JOIN song_versions v ON v.id = ps.version_id
-        JOIN songs s ON s.id = v.song_id
         WHERE ps.playlist_id = $1
         ORDER BY ps.position ASC
       `, [localPlaylistId])
-      const playlistSongs = playlistSongsRes.rows
 
-      const uris: string[] = []
-
-      // By URL host, never by label (RH-135): this loop used to pick the
-      // first link whose label equalled the lowercase word "spotify", which no
-      // writer in `src/` produces, so every push sent an empty track list and
-      // reported success. A song with no Spotify track link contributes
-      // nothing and does not fail the push.
-      for (const ps of playlistSongs) {
-        const uri = spotifyTrackUriFromLinks(ps.links)
-        if (uri) uris.push(uri)
-      }
+      // One call, and the route derives no uri itself: the rule that an entry
+      // contributes at most one uri — the first of its urls that names a track
+      // — lives in `spotifyPushUris`, where a unit test can reach it
+      // (`src/app/api/**` is outside the coverage gate). A song contributing
+      // none is skipped and does not fail the push.
+      const uris = spotifyPushUris(playlistSongsRes.rows)
 
       if (uris.length > 0) {
         const firstBatch = uris.slice(0, 100)
