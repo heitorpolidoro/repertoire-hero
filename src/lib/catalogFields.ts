@@ -25,10 +25,10 @@
  *  - **`standard_key` is fill-when-empty but never refused**, because the key
  *    the musician typed was in fact saved — to the owner row's `key`.
  *
- * A refused column's route is `CorrectionModal` -> the `global_song_edits`
- * queue; see `docs/use-cases.md` § *Suggest a correction to the catalog*.
+ * A refused column's route is `CorrectionModal` -> the moderation queue; see
+ * `docs/use-cases.md` § *Suggest a correction to the catalog*.
  */
-import type { SongEditPayload } from '@/lib/songEditPayload'
+import type { CatalogSuggestionPayload } from '@/lib/catalogSuggestionPayload'
 import type {
   CatalogFieldValue,
   RefusableCatalogColumn,
@@ -252,14 +252,16 @@ function putIfChanged(
 
 /**
  * The correction payload: only the fields whose draft value differs from the
- * catalog's own, normalized the way `parseSongEditPayload` expects them.
+ * catalog's own, normalized the way `parseCatalogSuggestionPayload` expects
+ * them.
  *
- * Only-what-changed matters twice over. `parseSongEditPayload` rejects a
- * payload proposing no known column, so an untouched form must be refused
- * before it is sent; and a queue row naming one column is what RH-107's
- * one-row-per-field model will want, reached without implementing it.
+ * Only-what-changed matters twice over. `parseCatalogSuggestionPayload` rejects
+ * a payload proposing no known column, so an untouched form must be refused
+ * before it is sent; and RH-107's one-row-per-field model fans the payload out
+ * into one queue row per named column, so a payload that names only what
+ * changed is already the set of rows a reviewer should see.
  */
-export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): SongEditPayload {
+export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): CatalogSuggestionPayload {
   const payload: Record<string, unknown> = {}
 
   putIfChanged(payload, 'title', base.title, draft.title)
@@ -274,7 +276,7 @@ export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): S
   const links = usableLinks(draft.links)
   if (!sameLinks(usableLinks(base.links), links)) payload.links = links
 
-  return payload as SongEditPayload
+  return payload as CatalogSuggestionPayload
 }
 
 /**

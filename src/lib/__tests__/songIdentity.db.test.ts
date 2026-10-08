@@ -38,6 +38,7 @@ import { findOrCreateSong } from '@/lib/spotifyPlaylistSync'
 import type { SpotifyRawTrack } from '@/lib/spotifyPlaylistSync'
 import {
   LEGACY_CATALOG_TABLE,
+  LEGACY_EDITS_TABLE,
   legacyCatalogReplayDdl,
   LEGACY_REPERTOIRE_TABLE,
   LEGACY_TABS_TABLE,
@@ -70,12 +71,12 @@ function migrationFileNames(): string[] {
  * Substituting the name is sound because that is the *only* difference RH-121
  * made to this table: a rename is a catalogue-only operation, so every
  * statement below — the duplicate grouping, the column fill, the link union,
- * the repointing of `repertoire`, `playlist_songs` and `global_song_edits`, and
- * the unique index it ends with — operates on exactly the rows and the index it
- * did before. What this file tests is `0009`'s merge logic, and that logic is
- * untouched. The substitution does not reach `global_song_edits`: its name
- * does not contain the catalog table's, which is why RH-121 could leave it
- * alone.
+ * the repointing of `repertoire`, `playlist_songs` and the legacy moderation
+ * queue, and the unique index it ends with — operates on exactly the rows and
+ * the index it did before. What this file tests is `0009`'s merge logic, and
+ * that logic is untouched. The substitution does not reach the queue table:
+ * its name does not contain the catalog table's, which is why RH-121 could
+ * leave it alone.
  *
  * It also keeps the index name aligned. `0009` ends by creating its unique
  * index under the old table's prefix, which `0013` renamed to
@@ -200,7 +201,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
     ).rows,
     edits: (
       await client.query<MergeSnapshot['edits'][number]>(
-        'SELECT song_id FROM global_song_edits WHERE requested_by = ANY($1)',
+        `SELECT song_id FROM ${LEGACY_EDITS_TABLE} WHERE requested_by = ANY($1)`,
         [users],
       )
     ).rows,
@@ -292,7 +293,7 @@ async function runMergeScenario(): Promise<MergeScenario> {
     }
 
     await client.query(
-      "INSERT INTO global_song_edits (song_id, requested_by, proposed_data) VALUES ($1, $2, $3::jsonb)",
+      `INSERT INTO ${LEGACY_EDITS_TABLE} (song_id, requested_by, proposed_data) VALUES ($1, $2, $3::jsonb)`,
       [dupId, userId, JSON.stringify({ links: [] })],
     )
 

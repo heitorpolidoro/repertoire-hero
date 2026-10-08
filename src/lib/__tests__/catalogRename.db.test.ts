@@ -1,15 +1,22 @@
 /**
  * RH-121 — the catalog table is `songs`, carries no contributor column, and still
- * owns the moderation-queue foreign key.
+ * and the moderation queue still points its requester at `profiles`.
  *
  * `migrations/0013_rename_songs_to_songs.sql` is a pure rename plus one
  * column drop, which makes it exactly the kind of change no unit test can see:
  * every assertion about it is an assertion about the live catalog in Postgres.
  * So this file reads `information_schema` and `pg_indexes` directly rather than
- * going through `src/lib`, and then exercises the one thing a catalogue read
- * cannot prove — that `global_song_edits.song_id` repointed at the renamed
- * table by OID, with no `DROP CONSTRAINT`/`ADD CONSTRAINT` pair in the
- * migration.
+ * going through `src/lib`.
+ *
+ * RH-107 replaced the moderation queue with `catalog_suggestions`, whose
+ * `target_id` is **polymorphic** and therefore carries no foreign key at all.
+ * The original assertion here — that the queue's `song_id` foreign key had
+ * repointed at the renamed catalog table by OID — has no subject any more, so
+ * the queue tests below assert what is true of the replacement instead: a
+ * suggestion may name any catalog id, a suggestion may name an id the catalog
+ * does not hold, and the one foreign key the table *did* keep still points at
+ * `profiles`. Dropping them outright would have left the rename's effect on
+ * the queue unasserted.
  *
  * It is a `.db.test.ts` because it needs a migrated database, and it skips
  * visibly without `RUN_DB_TESTS`.
@@ -121,32 +128,37 @@ describe.skipIf(!RUN_DB_TESTS)('catalog table rename (real database)', () => {
     expect(res.rows[0].indexdef).toMatch(/lower\(btrim\(artist\)\), lower\(btrim\(title\)\)/)
   })
 
-  it('still lets `global_song_edits.song_id` reference a `songs` id', async () => {
+  it('lets a queued suggestion target a `songs` id', async () => {
     const res = await query<{ id: string }>(
-      `INSERT INTO global_song_edits (song_id, requested_by, proposed_data)
-       VALUES ($1, $2, $3::jsonb) RETURNING id`,
-      [songId, userId, JSON.stringify({ title: 'RH-121 Proposed' })],
+      `INSERT INTO catalog_suggestions
+         (group_id, target_table, target_id, target_column, value, requested_by)
+       VALUES (gen_random_uuid(), 'songs', $1, 'title', $2::jsonb, $3) RETURNING id`,
+      [songId, JSON.stringify('RH-121 Proposed'), userId],
     )
     expect(res.rows[0].id).toBeTruthy()
-    await query('DELETE FROM global_song_edits WHERE id = $1', [res.rows[0].id])
+    await query('DELETE FROM catalog_suggestions WHERE id = $1', [res.rows[0].id])
   })
 
-  it('rejects an edit row for a song id that is not in `songs`', async () => {
-    await expect(
-      query(
-        `INSERT INTO global_song_edits (song_id, requested_by, proposed_data)
-         VALUES ($1, $2, $3::jsonb)`,
-        ['00000000-0000-0000-0000-000000000000', userId, JSON.stringify({ title: 'nope' })],
-      ),
-    ).rejects.toThrow(/foreign key/i)
+  it('accepts a suggestion for a target id the catalog does not hold', async () => {
+    // RH-107: `target_id` is polymorphic, so it carries no foreign key and the
+    // legacy `ON DELETE CASCADE` is gone. The orphan this admits is recorded
+    // in the migration's own comment and belongs to RH-117's cleanup; the
+    // queue's `JOIN songs` hides it from the admin meanwhile.
+    const res = await query<{ id: string }>(
+      `INSERT INTO catalog_suggestions
+         (group_id, target_table, target_id, target_column, value, requested_by)
+       VALUES (gen_random_uuid(), 'songs', $1, 'title', $2::jsonb, $3) RETURNING id`,
+      ['00000000-0000-0000-0000-000000000000', JSON.stringify('nope'), userId],
+    )
+    await query('DELETE FROM catalog_suggestions WHERE id = $1', [res.rows[0].id])
   })
 
-  it('points that foreign key at `songs`, by OID', async () => {
+  it('keeps the requester foreign key pointed at `profiles`, by OID', async () => {
     const res = await query<{ referenced: string }>(
       `SELECT confrelid::regclass::text AS referenced
          FROM pg_constraint
-        WHERE conname = 'global_song_edits_song_id_fkey'`,
+        WHERE conname = 'catalog_suggestions_requested_by_fkey'`,
     )
-    expect(res.rows.map((r) => r.referenced)).toEqual(['songs'])
+    expect(res.rows.map((r) => r.referenced)).toEqual(['profiles'])
   })
 })

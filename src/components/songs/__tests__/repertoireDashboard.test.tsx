@@ -53,7 +53,7 @@ const NOOP_ACTIONS = {
   updateSong: async () => {},
   updateSongStatus: async () => {},
   updateSongTags: async () => {},
-  submitSongEdit: async () => {},
+  submitCatalogSuggestion: async () => {},
 } as unknown as RepertoireDashboardActions
 
 describe('RepertoireDashboard first render (RH-77 hydration guard)', () => {

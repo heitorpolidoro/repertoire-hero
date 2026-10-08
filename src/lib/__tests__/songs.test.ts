@@ -490,9 +490,10 @@ describe.skipIf(skip)('songs service integration tests', () => {
       return res.rows.map((row) => ({ label: row.label, url: row.url }))
     }
 
-    const pendingEdits = async (songId: string) => {
+    const pendingSuggestions = async (songId: string) => {
       const res = await query(
-        "SELECT proposed_data FROM global_song_edits WHERE song_id = $1 AND status = 'pending'",
+        `SELECT target_column, value FROM catalog_suggestions
+          WHERE target_id = $1 AND status = 'pending'`,
         [songId],
       )
       return res.rows
@@ -506,7 +507,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       })
 
       expect(await catalogLinks(songId)).toEqual([ORIGINAL, ADDED])
-      expect(await pendingEdits(songId)).toEqual([])
+      expect(await pendingSuggestions(songId)).toEqual([])
     })
 
     it('routes a removed link to the moderation queue and leaves the catalog alone', async () => {
@@ -518,7 +519,7 @@ describe.skipIf(skip)('songs service integration tests', () => {
       })
 
       expect(await catalogLinks(songId)).toEqual([ORIGINAL])
-      expect(await pendingEdits(songId)).toEqual([{ proposed_data: { links: [] } }])
+      expect(await pendingSuggestions(songId)).toEqual([{ target_column: 'links', value: [] }])
     })
 
     it('routes a rewritten url to the moderation queue too', async () => {
@@ -531,7 +532,9 @@ describe.skipIf(skip)('songs service integration tests', () => {
       })
 
       expect(await catalogLinks(songId)).toEqual([ORIGINAL])
-      expect(await pendingEdits(songId)).toEqual([{ proposed_data: { links: [rewritten] } }])
+      expect(await pendingSuggestions(songId)).toEqual([
+        { target_column: 'links', value: [rewritten] },
+      ])
     })
 
     it('throws Song entry not found when the id matches no catalog row', async () => {

@@ -1,8 +1,8 @@
 import { PendingEditDiff } from "@/components/admin/PendingEditDiff";
-import type { SongEdit } from "@/types/database";
+import type { PendingCatalogSuggestionGroup } from "@/types/database";
 
 interface PendingEditCardProps {
-  edit: SongEdit;
+  group: PendingCatalogSuggestionGroup;
   isProcessing: boolean;
   isRejecting: boolean;
   rejectionReason: string;
@@ -19,7 +19,7 @@ interface PendingEditCardProps {
  * component in this tree that holds any.
  */
 export function PendingEditCard({
-  edit,
+  group,
   isProcessing,
   isRejecting,
   rejectionReason,
@@ -29,7 +29,7 @@ export function PendingEditCard({
   onConfirmReject,
   onApprove,
 }: PendingEditCardProps) {
-  const requester = edit.requester;
+  const requester = group.requester;
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
@@ -37,14 +37,14 @@ export function PendingEditCard({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
         <div>
           <span className="text-xs font-semibold text-gray-400">
-            Edit Request ID: {edit.id.substring(0, 8)}...
+            Edit Request ID: {group.group_id.substring(0, 8)}...
           </span>
           <p className="text-xs text-gray-500 mt-0.5">
             Requested by{" "}
             <span className="font-medium text-gray-700">
-              {requester?.full_name || requester?.email || edit.requested_by}
+              {requester?.full_name || requester?.email || group.requested_by}
             </span>{" "}
-            on {new Date(edit.created_at).toLocaleDateString()}
+            on {new Date(group.created_at).toLocaleDateString()}
           </p>
         </div>
         <span className="self-start sm:self-auto text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md">
@@ -53,7 +53,7 @@ export function PendingEditCard({
       </div>
 
       {/* Diff Comparison */}
-      <PendingEditDiff song={edit.song} proposed={edit.proposed_data} />
+      <PendingEditDiff song={group.song} proposed={group.proposed_data} />
 
       {/* Rejection reason form */}
       {isRejecting ? (

@@ -20,29 +20,29 @@ vi.mock('next/headers', () => ({
 }))
 
 vi.mock('@/lib/moderation', () => ({
-  submitSongEdit: vi.fn(),
-  getPendingSongEdits: vi.fn(),
-  reviewSongEdit: vi.fn(),
+  submitCatalogSuggestion: vi.fn(),
+  getPendingCatalogSuggestions: vi.fn(),
+  reviewCatalogSuggestionGroup: vi.fn(),
 }))
 
 import { getProfileAction, updateProfileAction, requestEmailChangeAction } from '../profile'
 import {
-  submitSongEditAction,
-  getPendingSongEditsAction,
-  reviewSongEditAction,
+  submitCatalogSuggestionAction,
+  getPendingCatalogSuggestionsAction,
+  reviewCatalogSuggestionGroupAction,
 } from '../moderation'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getProfile, updateProfile } from '@/lib/profile'
 import { requestEmailChange } from '@/lib/emailChange'
 import {
-  submitSongEdit,
-  getPendingSongEdits,
-  reviewSongEdit,
+  submitCatalogSuggestion,
+  getPendingCatalogSuggestions,
+  reviewCatalogSuggestionGroup,
 } from '@/lib/moderation'
 
 const USER_ID = 'user-1'
 const SONG_ID = 'song-1'
-const EDIT_ID = 'edit-1'
+const GROUP_ID = 'group-1'
 
 const PROFILE_PATCH = { full_name: 'Jane Doe', instruments: ['Guitar'] }
 const SONG_PATCH = { title: 'Corrected Title' }
@@ -79,28 +79,28 @@ const THIN_ACTIONS: Array<{
     expected: [expect.any(Headers), 'new@example.com'],
   },
   {
-    name: 'submitSongEditAction',
-    invoke: () => submitSongEditAction(SONG_ID, SONG_PATCH),
-    target: () => vi.mocked(submitSongEdit),
+    name: 'submitCatalogSuggestionAction',
+    invoke: () => submitCatalogSuggestionAction(SONG_ID, SONG_PATCH),
+    target: () => vi.mocked(submitCatalogSuggestion),
     expected: [USER_ID, SONG_ID, SONG_PATCH],
   },
   {
-    name: 'getPendingSongEditsAction',
-    invoke: () => getPendingSongEditsAction(),
-    target: () => vi.mocked(getPendingSongEdits),
+    name: 'getPendingCatalogSuggestionsAction',
+    invoke: () => getPendingCatalogSuggestionsAction(),
+    target: () => vi.mocked(getPendingCatalogSuggestions),
     expected: [USER_ID],
   },
   {
-    name: 'reviewSongEditAction (approve)',
-    invoke: () => reviewSongEditAction(EDIT_ID, 'approve'),
-    target: () => vi.mocked(reviewSongEdit),
-    expected: [USER_ID, EDIT_ID, 'approve', undefined],
+    name: 'reviewCatalogSuggestionGroupAction (approve)',
+    invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'approve'),
+    target: () => vi.mocked(reviewCatalogSuggestionGroup),
+    expected: [USER_ID, GROUP_ID, 'approve', undefined],
   },
   {
-    name: 'reviewSongEditAction (reject with a reason)',
-    invoke: () => reviewSongEditAction(EDIT_ID, 'reject', 'Wrong album'),
-    target: () => vi.mocked(reviewSongEdit),
-    expected: [USER_ID, EDIT_ID, 'reject', 'Wrong album'],
+    name: 'reviewCatalogSuggestionGroupAction (reject with a reason)',
+    invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'reject', 'Wrong album'),
+    target: () => vi.mocked(reviewCatalogSuggestionGroup),
+    expected: [USER_ID, GROUP_ID, 'reject', 'Wrong album'],
   },
 ]
 

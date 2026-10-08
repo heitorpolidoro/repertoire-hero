@@ -1,6 +1,11 @@
 /**
- * RH-136 — `reviewSongEdit` as a replace-set, the two bridge triggers, and the
- * Spotify import, against a real Postgres (ER14, ER17, ER18).
+ * RH-136 — an approved `links` correction as a replace-set, the two bridge
+ * triggers, and the Spotify import, against a real Postgres (ER14, ER17, ER18).
+ *
+ * RH-107 replaced the queue with `catalog_suggestions`, so the replace-set is
+ * reached through `reviewCatalogSuggestionGroup` by `group_id` now. Nothing
+ * about the behaviour under test moved: `links` is still one proposable column
+ * whose approved value is applied as a whole set.
  *
  * The other half of the behaviour suite lives in `songLinksTable.db.test.ts`;
  * the seam is the subsystem under test and neither file may reach the hard
@@ -34,7 +39,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { query } from '@/lib/db'
 import { createTestUser, deleteTestUser } from './test-helpers'
-import { reviewSongEdit, submitSongEdit } from '../moderation'
+import { reviewCatalogSuggestionGroup, submitCatalogSuggestion } from '../moderation'
 import { findOrCreateSong } from '../spotifyPlaylistSync'
 import type { SongLink } from '@/types/database'
 
@@ -95,11 +100,11 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
     return res.rows[0].updated_at
   }
 
-  /** A pending correction, approved, returning the edit's final status. */
+  /** A pending correction, approved, returning the suggestion's final status. */
   const approveLinks = async (songId: string, links: SongLink[]): Promise<string> => {
-    const edit = await submitSongEdit(userId, songId, { links })
-    const reviewed = await reviewSongEdit(adminId, edit.id, 'approve')
-    return reviewed.status
+    const submitted = await submitCatalogSuggestion(userId, songId, { links })
+    const reviewed = await reviewCatalogSuggestionGroup(adminId, submitted[0].group_id, 'approve')
+    return reviewed[0].status
   }
 
   beforeAll(async () => {
@@ -116,7 +121,7 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
     if (adminId) await deleteTestUser(adminId)
   })
 
-  describe('reviewSongEdit applies an approved links array as a replace-set (ER14)', () => {
+  describe('an approved links array is applied as a replace-set (ER14)', () => {
     it('drops the removed url, keeps every survivor song_links.id and approves the edit', async () => {
       const songId = await seedSong('Replace Set')
       await setColumn(songId, [

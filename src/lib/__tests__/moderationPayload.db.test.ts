@@ -2,23 +2,24 @@
  * RH-55 (F17) — moderation payload validation against the real database.
  *
  * Two things only a real database can prove: that an invalid submission never
- * reaches the INSERT, and that a historical `global_song_edits` row whose
- * `proposed_data` no longer validates is refused at approval with the catalog
- * row untouched and the edit still `pending`.
+ * reaches the INSERT, and that a historical queue row whose stored value no
+ * longer validates is refused at approval with the catalog row untouched and
+ * the suggestion still `pending`.
  *
  * Every fixture carries a `Date.now()` suffix because vitest runs files in
  * parallel workers against these shared tables. No transaction-control literal
  * appears here (see `transactionGuard.test.ts`).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { createTestUser, deleteTestUser } from '@/lib/__tests__/test-helpers'
 import { query } from '@/lib/db'
-import { submitSongEdit, reviewSongEdit } from '@/lib/moderation'
+import { submitCatalogSuggestion, reviewCatalogSuggestionGroup } from '@/lib/moderation'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
-const BAD_DURATION = 'Invalid global song edit: duration_seconds must be a non-negative integer or null'
+const BAD_DURATION = 'Invalid catalog suggestion: duration_seconds must be a non-negative integer or null'
 
-describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real database)', () => {
+describe.skipIf(!RUN_DB_TESTS)('catalog suggestion payload validation (real database)', () => {
   const suffix = Date.now()
   const songTitle = `RH-55 Song ${suffix}`
 
@@ -31,10 +32,11 @@ describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real databa
     return res.rows[0]
   }
 
-  const countEdits = async (): Promise<number> => {
-    const row = await one('SELECT count(*)::int AS count FROM global_song_edits WHERE song_id = $1', [
-      songId,
-    ])
+  const countSuggestions = async (): Promise<number> => {
+    const row = await one(
+      'SELECT count(*)::int AS count FROM catalog_suggestions WHERE target_id = $1',
+      [songId],
+    )
     return row.count as number
   }
 
@@ -51,40 +53,41 @@ describe.skipIf(!RUN_DB_TESTS)('global song edit payload validation (real databa
   })
 
   afterAll(async () => {
-    if (songId) await query('DELETE FROM global_song_edits WHERE song_id = $1', [songId])
+    if (songId) await query('DELETE FROM catalog_suggestions WHERE target_id = $1', [songId])
     for (const user of [userId, adminUserId]) {
       if (user) await deleteTestUser(user)
     }
     if (songId) await query('DELETE FROM songs WHERE id = $1', [songId])
   })
 
-  it('refuses an invalid payload at submission and inserts no edit row', async () => {
-    const before = await countEdits()
+  it('refuses an invalid payload at submission and inserts no suggestion row', async () => {
+    const before = await countSuggestions()
 
-    await expect(submitSongEdit(userId, songId, { duration_seconds: 'abc' })).rejects.toThrowError(
-      new Error(BAD_DURATION),
-    )
+    await expect(
+      submitCatalogSuggestion(userId, songId, { duration_seconds: 'abc' }),
+    ).rejects.toThrowError(new Error(BAD_DURATION))
 
-    expect(await countEdits()).toBe(before)
+    expect(await countSuggestions()).toBe(before)
   })
 
-  it('refuses a historical edit row whose proposed_data no longer validates', async () => {
-    const edit = await one(
-      `INSERT INTO global_song_edits (song_id, requested_by, proposed_data, status)
-       VALUES ($1, $2, $3, 'pending') RETURNING id`,
-      [songId, userId, JSON.stringify({ duration_seconds: 'abc' })],
+  it('refuses a historical suggestion row whose stored value no longer validates', async () => {
+    const groupId = randomUUID()
+    await query(
+      `INSERT INTO catalog_suggestions
+         (group_id, target_table, target_id, target_column, value, requested_by)
+       VALUES ($1, 'songs', $2, 'duration_seconds', $3::jsonb, $4)`,
+      [groupId, songId, JSON.stringify('abc'), userId],
     )
-    const editId = edit.id as string
 
-    await expect(reviewSongEdit(adminUserId, editId, 'approve')).rejects.toThrowError(
-      new Error(BAD_DURATION),
-    )
+    await expect(
+      reviewCatalogSuggestionGroup(adminUserId, groupId, 'approve'),
+    ).rejects.toThrowError(new Error(BAD_DURATION))
 
     const song = await one('SELECT title, duration_seconds FROM songs WHERE id = $1', [songId])
     expect(song.title).toBe(songTitle)
     expect(song.duration_seconds).toBe(217)
 
-    const after = await one('SELECT status FROM global_song_edits WHERE id = $1', [editId])
+    const after = await one('SELECT status FROM catalog_suggestions WHERE group_id = $1', [groupId])
     expect(after.status).toBe('pending')
   })
 })

@@ -57,6 +57,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { withTransaction, type Queryable } from '@/lib/db'
 import {
+  LEGACY_EDITS_TABLE,
   LEGACY_REPERTOIRE_TABLE,
   LEGACY_TABS_TABLE,
   legacyCatalogReplayDdl,
@@ -517,7 +518,7 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
 
       // The moderation queue has no unique on `song_id`, so this simply follows.
       await client.query(
-        'INSERT INTO global_song_edits (song_id, requested_by, proposed_data) VALUES ($1, $2, $3::jsonb)',
+        `INSERT INTO ${LEGACY_EDITS_TABLE} (song_id, requested_by, proposed_data) VALUES ($1, $2, $3::jsonb)`,
         [loser, userId, JSON.stringify({ links: [] })],
       )
 
@@ -558,7 +559,7 @@ describe.skipIf(!RUN_DB_TESTS)('the collapse (ER13)', () => {
           ).rows.map((r) => r.song_id),
           editSongIds: (
             await client.query<{ song_id: string }>(
-              'SELECT song_id FROM global_song_edits WHERE requested_by = $1',
+              `SELECT song_id FROM ${LEGACY_EDITS_TABLE} WHERE requested_by = $1`,
               [userId],
             )
           ).rows.map((r) => r.song_id),

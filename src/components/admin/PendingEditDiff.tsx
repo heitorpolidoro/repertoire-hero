@@ -1,7 +1,7 @@
-import type { SongEdit } from "@/types/database";
+import type { PendingCatalogSuggestionGroup } from "@/types/database";
 
 interface PendingEditDiffProps {
-  song: SongEdit["song"];
+  song: PendingCatalogSuggestionGroup["song"];
   proposed: Record<string, unknown>;
 }
 

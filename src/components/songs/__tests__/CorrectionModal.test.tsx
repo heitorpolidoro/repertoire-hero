@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { CorrectionModal, type SongCorrectionInput } from '../CorrectionModal'
-import { parseSongEditPayload } from '@/lib/songEditPayload'
+import { parseCatalogSuggestionPayload } from '@/lib/catalogSuggestionPayload'
 import type { Song } from '@/types/database'
 
 afterEach(cleanup)
@@ -141,7 +141,7 @@ describe('CorrectionModal submits through its injected callback (RH-47)', () => 
  * not change. The real parser is run against the real emitted payload rather
  * than a hand-written literal, so the two cannot drift apart.
  */
-describe('the emitted payload passes the unmodified parseSongEditPayload (ER8)', () => {
+describe('the emitted payload passes the unmodified parseCatalogSuggestionPayload (ER8)', () => {
   it('accepts a correction to cover_url, duration_seconds and links at once', async () => {
     const { container, onSubmitCorrection } = setup()
 
@@ -166,7 +166,7 @@ describe('the emitted payload passes the unmodified parseSongEditPayload (ER8)',
       links: [{ label: 'Official video', url: LINK.url }],
       reason: 'Better cover',
     })
-    expect(parseSongEditPayload(payload)).toEqual({
+    expect(parseCatalogSuggestionPayload(payload)).toEqual({
       cover_url: 'https://example.com/other.jpg',
       duration_seconds: 270,
       links: [{ label: 'Official video', url: LINK.url }],
@@ -194,6 +194,6 @@ describe('the emitted payload passes the unmodified parseSongEditPayload (ER8)',
       links: [LINK, { label: 'Chords', url: 'https://chords.test/yellow' }],
       reason: null,
     })
-    expect(() => parseSongEditPayload(payload)).not.toThrow()
+    expect(() => parseCatalogSuggestionPayload(payload)).not.toThrow()
   })
 })

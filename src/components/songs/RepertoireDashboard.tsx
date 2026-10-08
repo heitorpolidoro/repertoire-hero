@@ -79,7 +79,7 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
       updateSong: actions.updateSong,
       updateSongStatus: actions.updateSongStatus,
       updateSongTags: actions.updateSongTags,
-      submitSongEdit: actions.submitSongEdit,
+      submitCatalogSuggestion: actions.submitCatalogSuggestion,
     }),
     [actions],
   );

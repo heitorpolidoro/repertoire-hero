@@ -66,7 +66,7 @@ async function runTabQuery<T extends QueryResultRow = DbRow>(
  * It lives beside its one function, not in `src/types/database.ts` (it is not
  * app vocabulary) and not in `dbRows.ts` (it is not a SQL projection) — the
  * `<Subject>Payload` convention AGENTS.md already names for a
- * parsed-and-narrowed input shape, as in `SongEditPayload`.
+ * parsed-and-narrowed input shape, as in `CatalogSuggestionPayload`.
  *
  * `contentType` is what the ingest actually produced, never the client's
  * claim — see `src/lib/fileIngest.ts`.

@@ -55,7 +55,7 @@ export interface SongFormActions {
   updateSong: (entry: Repertoire, data: SongFormEditInput) => Promise<SongUpdateResult>;
   updateSongStatus: (repertoireId: string, status: SongStatus) => Promise<void>;
   updateSongTags: (repertoireId: string, tags: string[]) => Promise<void>;
-  submitSongEdit: CorrectionModalProps["onSubmitCorrection"];
+  submitCatalogSuggestion: CorrectionModalProps["onSubmitCorrection"];
 }
 
 interface SongFormProps {
@@ -583,7 +583,7 @@ export default function SongForm({
           song={catalog}
           prefill={correction.prefill}
           focusField={correction.focusField}
-          onSubmitCorrection={actions.submitSongEdit}
+          onSubmitCorrection={actions.submitCatalogSuggestion}
           onClose={() => setCorrection(null)}
           onSuccess={() => {
             setToastMessage("Correction request submitted for admin review!");

@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import {
   createTestUser,
   deleteTestUser,
@@ -21,7 +22,7 @@ import {
 } from '@/lib/__tests__/test-helpers'
 import { query, withTransaction } from '@/lib/db'
 import { getSongEntry, updateSong } from '@/lib/ownerSongs'
-import { reviewSongEdit } from '@/lib/moderation'
+import { reviewCatalogSuggestionGroup } from '@/lib/moderation'
 import { addSongToPlaylist, removeSongFromPlaylist } from '@/lib/playlists'
 import type { Repertoire } from '@/types/database'
 
@@ -60,7 +61,7 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
   let adminUserId: string
   let songId: string
   let entryId: string
-  let editId: string
+  let suggestionGroupId: string
   let playlistId: string
   const extraSongIds: string[] = []
   /** The representative version of each of the four, in the same order. */
@@ -110,12 +111,13 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
 
     entryId = await seedOwnerSong({ userId }, songId)
 
-    const edit = await one(
-      `INSERT INTO global_song_edits (song_id, requested_by, proposed_data, status)
-       VALUES ($1, $2, $3, 'pending') RETURNING id`,
-      [songId, userId, JSON.stringify({ title: `RH-36 Proposed ${suffix}` })],
+    suggestionGroupId = randomUUID()
+    await query(
+      `INSERT INTO catalog_suggestions
+         (group_id, target_table, target_id, target_column, value, requested_by)
+       VALUES ($1, 'songs', $2, 'title', $3::jsonb, $4)`,
+      [suggestionGroupId, songId, JSON.stringify(`RH-36 Proposed ${suffix}`), userId],
     )
-    editId = edit.id as string
 
     const playlist = await one(
       'INSERT INTO playlists (user_id, name) VALUES ($1, $2) RETURNING id',
@@ -180,18 +182,26 @@ describe.skipIf(!RUN_DB_TESTS)('multi-statement writes are atomic (real database
     expect(after.key).toBeNull()
   })
 
-  it('reviewSongEdit leaves songs untouched when marking the edit reviewed fails', async () => {
-    await injectFailure('rh36_fail_edits', 'global_song_edits', 'UPDATE', `OLD.id = '${editId}'`)
-
-    await expect(reviewSongEdit(adminUserId, editId, 'approve')).rejects.toThrow(
-      /^Failed to review global song edit:/,
+  it('reviewCatalogSuggestionGroup leaves songs untouched when flipping the group fails', async () => {
+    await injectFailure(
+      'rh36_fail_suggestions',
+      'catalog_suggestions',
+      'UPDATE',
+      `OLD.group_id = '${suggestionGroupId}'`,
     )
+
+    await expect(
+      reviewCatalogSuggestionGroup(adminUserId, suggestionGroupId, 'approve'),
+    ).rejects.toThrow(/^Failed to review a catalog suggestion group:/)
 
     const song = await one('SELECT title FROM songs WHERE id = $1', [songId])
     expect(song.title).toBe(`RH-36 Song ${suffix}`)
 
-    const edit = await one('SELECT status FROM global_song_edits WHERE id = $1', [editId])
-    expect(edit.status).toBe('pending')
+    const suggestion = await one(
+      'SELECT status FROM catalog_suggestions WHERE group_id = $1',
+      [suggestionGroupId],
+    )
+    expect(suggestion.status).toBe('pending')
   })
 
   it('leaves no connection idle in transaction after a failed write', async () => {

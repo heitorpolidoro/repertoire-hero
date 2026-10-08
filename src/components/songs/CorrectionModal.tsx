@@ -16,9 +16,9 @@ import { SongLinksEditor } from "./SongLinksEditor";
  * `Record<string, unknown>` parameter (see the action's signature).
  *
  * Every catalog column is optional because only the ones the user actually
- * changed are sent (RH-97): `parseSongEditPayload` accepts any non-empty
+ * changed are sent (RH-97): `parseCatalogSuggestionPayload` accepts any non-empty
  * subset, and a queue row naming one column is what RH-107's one-row-per-field
- * model will want.
+ * model stores.
  */
 export type SongCorrectionInput = {
   title?: string;
@@ -43,7 +43,7 @@ export interface CorrectionModalProps {
   focusField?: CatalogColumn;
   onClose: () => void;
   onSuccess: () => void;
-  /** The injected global-song-edit Server Action — `src/components` never imports `@/app` (F21). */
+  /** The injected catalog-correction Server Action — `src/components` never imports `@/app` (F21). */
   onSubmitCorrection: (songId: string, data: SongCorrectionInput) => Promise<unknown>;
 }
 

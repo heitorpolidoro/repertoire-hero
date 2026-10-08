@@ -147,18 +147,76 @@ export interface Profile {
   is_system_admin?: boolean;
 }
 
-export type EditStatus = "pending" | "approved" | "rejected";
+/**
+ * The life of one proposed field in the moderation queue.
+ *
+ * `superseded` is distinct from `rejected` on purpose: approving a value for a
+ * column closes every other pending suggestion for that same column, and
+ * nobody refused those values. The requester has to be told which of the two
+ * happened.
+ *
+ * Keeps its name (and `ModerationQueue` / `PendingEditCard` /
+ * `PendingEditDiff` keep theirs) to bound the rename RH-107 performed: none of
+ * them carries the legacy model's name.
+ */
+export type EditStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "superseded";
 
-export interface SongEdit {
+/**
+ * One row of the moderation queue: a single proposed column of a single
+ * catalog row.
+ *
+ * The rows of one submission share a `group_id`, which is what keeps a
+ * multi-field correction one card carrying one `reason`. `target_id` is
+ * **polymorphic** and carries no foreign key, so a deleted catalog row leaves
+ * orphan suggestions that the queue's join hides.
+ *
+ * `value` is `unknown` because the queue stores whatever the requester
+ * submitted: it is narrowed by `parseCatalogSuggestionValue` immediately
+ * before it reaches the catalog, and never before.
+ */
+export interface CatalogSuggestion {
   id: string;
-  song_id: string;
+  group_id: string;
+  target_table: string;
+  target_id: string;
+  target_column: string;
+  value: unknown;
+  reason: string | null;
   requested_by: string;
-  proposed_data: Record<string, unknown>;
   status: EditStatus;
   reviewed_by: string | null;
   rejection_reason: string | null;
   created_at: string;
   updated_at: string;
+  song?: Song;
+  requester?: Profile;
+}
+
+/**
+ * One card of the admin moderation queue: the **pending** rows of one
+ * submission, aggregated back into the field-by-field shape the review
+ * components render.
+ *
+ * `proposed_data` is the aggregate of the group's pending values, keyed by
+ * column — the same shape the diff read before the queue became per-column, so
+ * the render is unchanged. `suggestion_ids` carries the per-field row id
+ * alongside it, which is what a per-field outcome message needs.
+ *
+ * It carries no `status`: only `pending` rows are aggregated, so a partially
+ * reviewed submission shows only what is left to decide.
+ */
+export interface PendingCatalogSuggestionGroup {
+  group_id: string;
+  song_id: string;
+  proposed_data: Record<string, unknown>;
+  suggestion_ids: Record<string, string>;
+  reason: string | null;
+  requested_by: string;
+  created_at: string;
   song?: Song;
   requester?: Profile;
 }

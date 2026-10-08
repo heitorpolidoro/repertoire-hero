@@ -29,7 +29,7 @@ import { query, withTransaction } from '@/lib/db'
 import { applyCatalogFill, applySongLinkUpdate, type SongUpdateInput } from '../songs'
 import { resolveOrCreateSongIdentity } from '../songIdentity'
 import { getRepertoire, updateSong } from '../ownerSongs'
-import { getPendingSongEdits } from '../moderation'
+import { getPendingCatalogSuggestions } from '../moderation'
 import { createPlaylist, addSongToPlaylist, getPlaylistWithSongs } from '../playlists'
 import type { Repertoire, SongLink } from '@/types/database'
 
@@ -194,15 +194,16 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       ])
     })
 
-    it('getPendingSongEdits returns both links with their provider, in position order', async () => {
+    it('getPendingCatalogSuggestions returns both links with their provider, in position order', async () => {
       await query(
-        `INSERT INTO global_song_edits (song_id, requested_by, proposed_data, status)
-         VALUES ($1, $2, $3::jsonb, 'pending')`,
-        [songId, userId, JSON.stringify({ title: `RH-136 Corrected ${suffix}` })],
+        `INSERT INTO catalog_suggestions
+           (group_id, target_table, target_id, target_column, value, requested_by)
+         VALUES (gen_random_uuid(), 'songs', $1, 'title', $2::jsonb, $3)`,
+        [songId, JSON.stringify(`RH-136 Corrected ${suffix}`), userId],
       )
-      const edits = await getPendingSongEdits(adminId)
-      const edit = edits.find((candidate) => candidate.song_id === songId)
-      expect(edit!.song!.links).toEqual([
+      const groups = await getPendingCatalogSuggestions(adminId)
+      const card = groups.find((candidate) => candidate.song_id === songId)
+      expect(card!.song!.links).toEqual([
         { label: 'Chords', url: U1, provider: 'other' },
         { label: 'Video', url: U2, provider: 'youtube' },
       ])
@@ -315,11 +316,14 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       ).resolves.toEqual({ success: true, pending: true })
 
       expect(await storedLinks(songId)).toEqual(before)
-      const edits = await query<{ proposed_data: unknown }>(
-        "SELECT proposed_data FROM global_song_edits WHERE song_id = $1 AND status = 'pending'",
+      const queued = await query<{ target_column: string; value: unknown }>(
+        `SELECT target_column, value FROM catalog_suggestions
+          WHERE target_id = $1 AND status = 'pending'`,
         [songId],
       )
-      expect(edits.rows).toEqual([{ proposed_data: { links: [{ label: 'Chords', url: U1 }] } }])
+      expect(queued.rows).toEqual([
+        { target_column: 'links', value: [{ label: 'Chords', url: U1 }] },
+      ])
     })
 
     it('bumps the catalog timestamp on an additive write (ER19)', async () => {

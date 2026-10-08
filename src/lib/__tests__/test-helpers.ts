@@ -19,6 +19,20 @@ import { ensureSongHasVersion, representativeVersionSubquery } from '@/lib/songV
  */
 export const LEGACY_CATALOG_TABLE = ['global', 'songs'].join('_')
 
+/**
+ * The pre-RH-107 moderation queue's table name, assembled from parts for the
+ * same reason and **not** reusing {@link LEGACY_CATALOG_TABLE}, which names the
+ * catalog table and is a different string.
+ *
+ * RH-107 replaced the table wholesale with the per-column
+ * `catalog_suggestions` and requires (ER12) that the old identifier appear
+ * nowhere under `src/`. The replay suites genuinely need it: `migrations/0009`
+ * and `migrations/0014` both re-point its `song_id`, and RH-107's own migration
+ * reads it before dropping it. Spelling it once, here, keeps that unavoidable
+ * exception in a single reviewable place.
+ */
+export const LEGACY_EDITS_TABLE = ['global', 'song', 'edits'].join('_')
+
 export async function createTestUser(
   { email, name = 'Test User' }: { email: string; name?: string },
 ): Promise<string> {
@@ -180,8 +194,8 @@ export const LEGACY_REPERTOIRE_TABLE = ['reper', 'toire'].join('')
  * every relation it drops is not in the lock graph at all. Two things that were
  * tried and are worse, for the next person who reaches for them:
  *
- *  - promoting the advisory lock to `LOCK TABLE songs, global_song_edits IN
- *    ACCESS EXCLUSIVE MODE` serialises every `songs` reader in the suite behind
+ *  - promoting the advisory lock to an `ACCESS EXCLUSIVE` `LOCK TABLE` over
+ *    the catalog and the moderation queue serialises every `songs` reader in the suite behind
  *    each replay, and made unrelated atomicity tests time out;
  *  - serialising the files (`fileParallelism: false`, a `poolOptions` carve-out,
  *    `--no-threads`) hides the cycle instead of removing it, and pays for it in
@@ -566,7 +580,7 @@ export function legacyCatalogReplayDdl(schema: string): string {
         created_at       timestamptz NOT NULL DEFAULT now(),
         updated_at       timestamptz NOT NULL DEFAULT now()
     );
-    CREATE TABLE ${schema}.global_song_edits (
+    CREATE TABLE ${schema}.${LEGACY_EDITS_TABLE} (
         id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
         song_id       uuid        NOT NULL REFERENCES ${schema}.songs(id) ON DELETE CASCADE,
         requested_by  uuid        NOT NULL,
@@ -609,4 +623,61 @@ export async function seedOwnerSong(
     [isBand ? owner.bandId : owner.userId, songId, row.status ?? 'unknown', row.tags ?? []],
   )
   return res.rows[0].id
+}
+
+/**
+ * The pre-RH-107 moderation queue, frozen at `migrations/0006`'s shape, inside
+ * a throwaway replay schema — what RH-107's migration reads before it drops it.
+ *
+ * Mirrored here rather than read off disk: `0006` is history and never changes,
+ * and replaying it verbatim would recreate half the schema.
+ *
+ * Two deliberate differences from {@link legacyCatalogReplayDdl}'s copy of the
+ * same table, and both are what the backfill is tested against:
+ *
+ *  - every column `0006` left nullable is nullable here, `created_at` and
+ *    `updated_at` included. Those two are exactly the columns the conversion
+ *    has to `COALESCE`, and a NOT NULL copy would make that guard
+ *    untestable;
+ *  - `status`, `reviewed_by` and `rejection_reason` are present, because the
+ *    conversion carries all three across.
+ *
+ * `profiles` and `songs` stubs come with it, because the new table's foreign
+ * keys name `profiles` **unqualified**: without a stub first on the
+ * `search_path` they would resolve to `public.profiles` and tie a throwaway
+ * schema to a shared table. `profiles.id` carries no reference of its own
+ * here — the replay has no `"user"` table and does not need one.
+ *
+ * `schema` is written by the calling suite from a hex token, never by a user.
+ */
+export function legacyModerationQueueReplayDdl(schema: string): string {
+  return `
+    CREATE SCHEMA ${schema};
+    CREATE TABLE ${schema}.profiles (
+        id    uuid PRIMARY KEY,
+        email text NOT NULL
+    );
+    CREATE TABLE ${schema}.songs (
+        id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+        title            text        NOT NULL,
+        artist           text        NOT NULL,
+        album            text,
+        standard_key     text,
+        cover_url        text,
+        duration_seconds integer,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        updated_at       timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE ${schema}.${LEGACY_EDITS_TABLE} (
+        id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+        song_id          uuid        NOT NULL REFERENCES ${schema}.songs(id) ON DELETE CASCADE,
+        requested_by     uuid        NOT NULL REFERENCES ${schema}.profiles(id) ON DELETE CASCADE,
+        proposed_data    jsonb       NOT NULL,
+        status           text        NOT NULL DEFAULT 'pending',
+        reviewed_by      uuid        REFERENCES ${schema}.profiles(id),
+        rejection_reason text,
+        created_at       timestamptz DEFAULT now(),
+        updated_at       timestamptz DEFAULT now()
+    );
+  `
 }

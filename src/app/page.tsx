@@ -8,7 +8,7 @@ import {
   updateSongTagsAction,
 } from "@/app/actions/repertoire";
 import { getBandRoleAction } from "@/app/actions/bands";
-import { submitSongEditAction } from "@/app/actions/moderation";
+import { submitCatalogSuggestionAction } from "@/app/actions/moderation";
 import LandingPage from "@/components/landing/LandingPage";
 import RepertoireDashboard, {
   type RepertoireDashboardActions,
@@ -26,7 +26,7 @@ const REPERTOIRE_DASHBOARD_ACTIONS: RepertoireDashboardActions = {
   updateSong: updateSongAction,
   updateSongStatus: updateSongStatusAction,
   updateSongTags: updateSongTagsAction,
-  submitSongEdit: submitSongEditAction,
+  submitCatalogSuggestion: submitCatalogSuggestionAction,
   getBandRole: getBandRoleAction,
 };
 

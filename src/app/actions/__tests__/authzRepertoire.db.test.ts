@@ -36,7 +36,7 @@ import {
   updateLyricsAction,
   updateSongLinksAction,
 } from '../repertoire'
-import { reviewSongEditAction } from '../moderation'
+import { reviewCatalogSuggestionGroupAction } from '../moderation'
 import type { Repertoire, SongLink } from '@/types/database'
 
 const ORIGINAL_LINK: SongLink = { label: 'Chords', url: 'https://tabs.example/rh34-original' }
@@ -91,8 +91,10 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
     return res.rows[0].links
   }
 
-  const editCount = () =>
-    countRows('SELECT count(*)::int AS count FROM global_song_edits WHERE song_id = $1', [catalogSongId])
+  const suggestionCount = () =>
+    countRows('SELECT count(*)::int AS count FROM catalog_suggestions WHERE target_id = $1', [
+      catalogSongId,
+    ])
 
   /** Inserts a catalog song and remembers it for `afterAll`. */
   const createSong = async (title: string, links: SongLink[] = []): Promise<string> => {
@@ -417,7 +419,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
     })
 
     it('writes an additive change straight through', async () => {
-      const editsBefore = await editCount()
+      const suggestionsBefore = await suggestionCount()
       asUser(userAId)
 
       const result = await updateSongLinksAction(personalEntryId, [ORIGINAL_LINK, ADDED_LINK])
@@ -425,7 +427,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect(result.success).toBe(true)
       expect(result.pending).toBeFalsy()
       expect(await catalogLinks()).toContain(ADDED_LINK.url)
-      expect(await editCount()).toBe(editsBefore)
+      expect(await suggestionCount()).toBe(suggestionsBefore)
     })
 
     it('routes a removal to the moderation queue and leaves the catalog untouched', async () => {
@@ -437,25 +439,27 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect(result).toEqual({ success: true, pending: true })
       expect(await catalogLinks()).toBe(before)
 
-      const edits = await query(
-        `SELECT id, status, requested_by, proposed_data
-         FROM global_song_edits WHERE song_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      const queued = await query(
+        `SELECT group_id, status, requested_by, target_column, value
+         FROM catalog_suggestions WHERE target_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [catalogSongId],
       )
-      expect(edits.rowCount).toBe(1)
-      expect(edits.rows[0].status).toBe('pending')
-      expect(edits.rows[0].requested_by).toBe(userAId)
-      expect(edits.rows[0].proposed_data.links).toEqual([ADDED_LINK])
+      expect(queued.rowCount).toBe(1)
+      expect(queued.rows[0].status).toBe('pending')
+      expect(queued.rows[0].requested_by).toBe(userAId)
+      expect(queued.rows[0].target_column).toBe('links')
+      expect(queued.rows[0].value).toEqual([ADDED_LINK])
     })
 
     it('applies the removal once a system admin approves it', async () => {
       const pending = await query(
-        "SELECT id FROM global_song_edits WHERE song_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+        `SELECT group_id FROM catalog_suggestions
+          WHERE target_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
         [catalogSongId],
       )
       asUser(adminUserId)
 
-      await reviewSongEditAction(pending.rows[0].id as string, 'approve')
+      await reviewCatalogSuggestionGroupAction(pending.rows[0].group_id as string, 'approve')
 
       expect(JSON.parse(await catalogLinks())).toEqual([ADDED_LINK])
     })

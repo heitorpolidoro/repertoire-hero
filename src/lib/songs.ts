@@ -12,7 +12,7 @@
 import { query, withTransaction, type Queryable } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
-import { submitSongEdit } from '@/lib/moderation'
+import { submitCatalogSuggestion } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
 import {
   representativeVersionOrder,
@@ -310,7 +310,7 @@ export async function applySongLinkUpdate(
   if (pending) {
     // Removing or rewriting an existing link is a correction to data everyone
     // else sees, so it goes to the moderation queue and writes nothing.
-    await submitSongEdit(userId, songId, { links: processedLinks })
+    await submitCatalogSuggestion(userId, songId, { links: processedLinks })
     return { success: true, pending: true }
   }
 

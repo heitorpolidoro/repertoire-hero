@@ -2,30 +2,32 @@
 
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
-  submitSongEdit,
-  getPendingSongEdits,
-  reviewSongEdit,
+  submitCatalogSuggestion,
+  getPendingCatalogSuggestions,
+  reviewCatalogSuggestionGroup,
 } from '@/lib/moderation'
-import type { SongEdit } from '@/types/database'
+import type { CatalogSuggestion, PendingCatalogSuggestionGroup } from '@/types/database'
 
-export async function submitSongEditAction(
+export async function submitCatalogSuggestionAction(
   songId: string,
   data: Record<string, unknown>
-): Promise<SongEdit> {
+): Promise<CatalogSuggestion[]> {
   const userId = await getRequiredUserId()
-  return submitSongEdit(userId, songId, data)
+  return submitCatalogSuggestion(userId, songId, data)
 }
 
-export async function getPendingSongEditsAction(): Promise<SongEdit[]> {
+export async function getPendingCatalogSuggestionsAction(): Promise<
+  PendingCatalogSuggestionGroup[]
+> {
   const adminUserId = await getRequiredUserId()
-  return getPendingSongEdits(adminUserId)
+  return getPendingCatalogSuggestions(adminUserId)
 }
 
-export async function reviewSongEditAction(
-  editId: string,
+export async function reviewCatalogSuggestionGroupAction(
+  groupId: string,
   action: 'approve' | 'reject',
   reason?: string
-): Promise<SongEdit> {
+): Promise<CatalogSuggestion[]> {
   const adminUserId = await getRequiredUserId()
-  return reviewSongEdit(adminUserId, editId, action, reason)
+  return reviewCatalogSuggestionGroup(adminUserId, groupId, action, reason)
 }

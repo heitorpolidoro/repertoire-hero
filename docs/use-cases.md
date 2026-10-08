@@ -739,10 +739,17 @@ personal level, so rejection there is a notice and nothing more.
   cannot arise through the queue. It needs a catalog write that bypasses the queue, and
   the only one planned is direct admin editing on a screen that does not exist yet.
   Revisit when it does.
-- `global_song_edits` targets `global_songs` by `song_id`, and its payload is validated
-  against a closed list of that table's columns — which is what makes interpolating a
-  column name into the `UPDATE` safe. Reaching four tables means a table+id target and a
-  per-table column list. The safety property has to survive the generalisation.
+
+**Settled (RH-107).** The queue is `catalog_suggestions`: one row per proposed
+`(target_table, target_id, target_column)`, tied to its submission by `group_id`, and
+the closed column allowlist that makes interpolating a column name into the `UPDATE`
+safe is now keyed by the **pair** rather than by the column alone
+(`CATALOG_SUGGESTION_COLUMNS` in `src/lib/catalogSuggestionPayload.ts`, mirrored as a
+row-wise CHECK by `migrations/0021_catalog_suggestions.sql`). Only `songs` is admitted
+so far — widening it to `albums`, `song_versions` or `song_links` is one `ALTER … CHECK`
+plus an allowlist entry, and belongs to the task that builds the surface that submits
+them. `status` gained `superseded`, so approving a value for a column closes the
+competing proposals for that column without pretending anyone refused them.
 
 ---
 

@@ -71,9 +71,9 @@ import {
   uploadBandCoverAction,
 } from '../bands'
 import {
-  submitSongEditAction,
-  getPendingSongEditsAction,
-  reviewSongEditAction,
+  submitCatalogSuggestionAction,
+  getPendingCatalogSuggestionsAction,
+  reviewCatalogSuggestionGroupAction,
 } from '../moderation'
 import {
   getUserPlaylistsAction,
@@ -158,9 +158,9 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   uploadBandCoverAction: { run: () => uploadBandCoverAction(emptyFormData()), mode: 'envelope' },
 
   // --- moderation.ts ---
-  submitSongEditAction: { run: () => submitSongEditAction(SONG_ID, { title: 'x' }), mode: 'throws' },
-  getPendingSongEditsAction: { run: () => getPendingSongEditsAction(), mode: 'throws' },
-  reviewSongEditAction: { run: () => reviewSongEditAction('edit-1', 'approve'), mode: 'throws' },
+  submitCatalogSuggestionAction: { run: () => submitCatalogSuggestionAction(SONG_ID, { title: 'x' }), mode: 'throws' },
+  getPendingCatalogSuggestionsAction: { run: () => getPendingCatalogSuggestionsAction(), mode: 'throws' },
+  reviewCatalogSuggestionGroupAction: { run: () => reviewCatalogSuggestionGroupAction('group-1', 'approve'), mode: 'throws' },
 
   // --- playlists.ts ---
   getUserPlaylistsAction: { run: () => getUserPlaylistsAction(), mode: 'throws' },
