@@ -6,7 +6,7 @@ name: repertoire-hero
 # down), so the file has to exist for any of them to behave.
 #
 # The connection variable is POSTGRES_URL, not DATABASE_URL, on purpose: the host-side
-# tooling (scripts/migrate.mjs, scripts/deduplicate-songs.mjs, vitest.config.ts) reads
+# tooling (scripts/migrate.mjs, vitest.config.ts) reads
 # DATABASE_URL from .env.local, and a compose-network host (postgres:5432) under that name
 # would be ambiguous. `app` maps it in as DATABASE_URL=${POSTGRES_URL}.
 

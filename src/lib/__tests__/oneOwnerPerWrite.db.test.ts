@@ -215,7 +215,10 @@ describe.skipIf(!RUN_DB_TESTS)('one write reaches exactly one owner (real databa
     })
 
     const ownBefore = await count('SELECT count(*)::int AS count FROM user_songs WHERE user_id = $1', [adminId])
-    const bandBefore = await count('SELECT count(*)::int AS count FROM band_songs')
+    const bandBefore = await count(
+      'SELECT count(*)::int AS count FROM band_songs WHERE band_id = $1',
+      [bandId],
+    )
 
     const response = await importPOST(
       new NextRequest(new URL('http://localhost/api/spotify/playlists/rh126-personal/import'), {
@@ -228,13 +231,17 @@ describe.skipIf(!RUN_DB_TESTS)('one write reaches exactly one owner (real databa
     const playlist = (await response.json()) as { id: string }
 
     // The version ids this import actually created, read before the playlist is
-    // cleaned up. ER5 mandates the unscoped `band_songs` count below, and that
-    // count is only deterministic when nothing else writes the table: the DB
+    // cleaned up. The `band_songs` before/after pair above is scoped to the band
+    // this suite seeded (`WHERE band_id = $1`, RH-105 / ER14). It used to be an
+    // unscoped global count, which made the whole file nondeterministic: the DB
     // suites run in parallel threads (`vitest.config.ts` fixes no
-    // `fileParallelism`) and three other files insert `band_songs` under the
-    // same `RUN_DB_TESTS=1`. So the scoped assertion is the one that cannot
-    // race, and if the global one ever fails while this one passes, the cause
-    // is a concurrent worker rather than a band row this import wrote.
+    // `fileParallelism`) and other files insert and delete `band_songs` under the
+    // same `RUN_DB_TESTS=1`, so the difference measured other workers as much as
+    // the import under test and drifted in both directions. Scoped to `bandId`
+    // the pair still says "this personal import wrote no row to the band the
+    // actor administers", which is the conservation fact it was always for, and
+    // the `version_id = ANY($1)` assertion below still covers the general
+    // one-owner invariant over the versions this import actually created.
     const importedVersions = await query<{ version_id: string }>(
       'SELECT version_id FROM playlist_songs WHERE playlist_id = $1',
       [playlist.id],
@@ -245,7 +252,10 @@ describe.skipIf(!RUN_DB_TESTS)('one write reaches exactly one owner (real databa
     await query('DELETE FROM playlists WHERE id = $1', [playlist.id])
 
     const ownAfter = await count('SELECT count(*)::int AS count FROM user_songs WHERE user_id = $1', [adminId])
-    const bandAfter = await count('SELECT count(*)::int AS count FROM band_songs')
+    const bandAfter = await count(
+      'SELECT count(*)::int AS count FROM band_songs WHERE band_id = $1',
+      [bandId],
+    )
 
     expect(ownAfter - ownBefore).toBe(2)
     expect(importedVersionIds).toHaveLength(2)

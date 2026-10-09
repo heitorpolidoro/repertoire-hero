@@ -77,11 +77,12 @@ later; starting permissive and tightening is the harder direction, so it starts 
 is exporting it and routing the band branch of every repertoire write through it, in
 place of `assertBandMember`.
 
-One interaction worth naming: the practice button writes two rows, the presser's own and
-the band's. Under this rule a non-admin tapping it in a band playlist records their own
-practice and leaves the band's date untouched — the band's only advances when an admin
-taps. Correct under the rule, and a reason the rule may not survive contact with a real
-rehearsal.
+One interaction worth naming: the practice button writes only the presser's own row. You
+rehearsed, not the group. The band's own date is a separate write, and an admin's, so a
+non-admin tapping it in a band playlist records their own practice and leaves the band's
+date untouched — the band's only advances when an admin taps. That is the one-owner rule
+rather than an exception to it: the tap has exactly one owner and it is the musician who
+tapped.
 
 ---
 
@@ -118,7 +119,7 @@ personal thing in the app.
 **Steps** — one transaction:
 
 1. `songs` — find by `(lower(artist), lower(sanitized title))`; create if absent
-2. `albums` — find by name; create if absent
+2. `albums` — find by `(lower(artist), lower(name))`; create if absent
 3. `song_versions` — find; create if absent
 4. `user_songs` or `band_songs` — insert, status `unknown`
 
