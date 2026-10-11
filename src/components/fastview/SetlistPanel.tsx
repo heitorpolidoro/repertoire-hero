@@ -2,15 +2,16 @@
 
 import type { ReactNode } from 'react'
 import { SetlistRow, type SetlistRowVariant } from './SetlistRow'
-import type { PlaylistEntry } from '@/lib/playlistNav'
+import type { SetlistEntry } from '@/lib/playlistNav'
 
 export interface SetlistPanelProps {
-  playlistName: string
+  /** What the queue calls itself: a playlist's name, a practice session's. */
+  queueLabel: string
   /** Right-hand side of the header: the drawer's close button, the sidebar's counter. */
   trailing: ReactNode
   /** The header row's classes, which is all the two surfaces disagree about. */
   headerClassName: string
-  entries: PlaylistEntry[]
+  entries: SetlistEntry[]
   /** The route's `song_versions.id`, matched against each entry's own (RH-132). */
   currentVersionId: string
   variant: SetlistRowVariant
@@ -23,7 +24,7 @@ export interface SetlistPanelProps {
  * markup the two surfaces used to duplicate character for character.
  */
 export function SetlistPanel({
-  playlistName,
+  queueLabel,
   trailing,
   headerClassName,
   entries,
@@ -36,8 +37,8 @@ export function SetlistPanel({
       <div className={headerClassName}>
         <div className="flex items-center gap-2 min-w-0 pr-2">
           <span className="text-base shrink-0">🎵</span>
-          <h3 className="font-bold text-gray-900 text-sm truncate" title={playlistName}>
-            {playlistName}
+          <h3 className="font-bold text-gray-900 text-sm truncate" title={queueLabel}>
+            {queueLabel}
           </h3>
         </div>
         {trailing}

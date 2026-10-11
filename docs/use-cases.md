@@ -819,10 +819,85 @@ rule in one place — the write already knows which song it wrote.
   playlist. With the origin and the owner context both inside the queue, the address is
   just the version.
 
+- **A queue keeps no position, and the opening line's "a position in it" is derived.** The
+  first paragraph of this section calls a queue "an ordered list of versions, an owner
+  context, and a position in it", which reads as a conflict with "No progress is kept"
+  above. It is not one, and RH-133 settles it in writing:
+
+  A queue keeps no position: the current place is derived at read time by matching the versionId of the route against the stored entries.
+
+  Nothing is written back as the musician moves, which is exactly what "No progress is
+  kept" requires; the position is a *read* of the stored list against the current route.
+
+- **Owner context: three sources, one order** (RH-133). `?bandId=` in the URL, the queue's
+  recorded `owner`, and the `localStorage` band context (`bandContextStore`) can all name
+  an owner. The order is:
+
+  When the URL carries a bandId query parameter, that value wins: it decides the owner for everything Fast View does, whatever else is stored.
+
+  A recorded queue owner applies only when the URL carries no bandId at all.
+
+  Fast View never reads the stored band context itself, because where that preference matters it has already been serialised into the bandId of the URL by the link that was clicked, which makes the URL the single channel through which any owner choice reaches this screen.
+
+  The last sentence is about the **channel**, not about absence: the store does reach Fast
+  View, laundered through the URL. On the dashboard path `RepertoireDashboard` reads the
+  stored context and serialises it into the Fast View href at the moment the link is
+  rendered; on the playlist path the href carries the playlist's own server-derived
+  `band_id`. Fast View reads `?bandId=` once, from `searchParams`. Reading the store again
+  there would read the same source twice, and would let a drifting preference override a
+  URL the musician explicitly opened - a shared or bookmarked link, or a playlist link
+  whose band came from the row.
+
+- **The queue carries context, not authority.** `sessionStorage` is client-writable, so a
+  forged owner has to be answered for rather than assumed away. A queue-derived owner can
+  only ever become a `?bandId=` on a later navigation - no more than a musician can
+  already do by typing one into the address bar - and never a write argument: Fast View
+  threads the `bandId` it gives `updateStatus` and `updateLyrics` from `searchParams`
+  alone. Every band-scoped read and write then re-checks membership server-side through
+  `assertBandMember`, which fails closed with "Access denied: not a member of this band".
+
+- **"One song, opened alone" is enforced twice, because the store outlives the
+  navigation** (RH-133). The queue lives in `sessionStorage`, which is tab-wide and dies
+  only with the tab, so "no queue" cannot mean "nothing was ever written" — a playlist
+  walked ten minutes ago is still there. Two rules together make the table row above true:
+
+  1. **A queue applies to a route only when it holds that route's own version.** Fast View
+     treats a stored queue that does not list the song on screen as no queue at all: no
+     position indicator, no list, no prev/next, and Back walks browser history instead of
+     pushing the queue's recorded origin. This is what keeps the chrome a function of the
+     URL and the queue *together*, rather than of tab-wide state alone.
+  2. **An entry point that opens a song alone clears the queue as it navigates.** The
+     repertoire dashboard does, because rule 1 cannot cover the one case where the stale
+     queue happens to list the very song being opened — the same song, reached from a
+     playlist and then from the dashboard, would otherwise come back with the playlist's
+     setlist and its Back target.
+
+  Rule 1 is the one that does not depend on every future entry point remembering anything;
+  rule 2 is the one that covers the overlap. Neither is sufficient alone.
+
+- **The *Not in repertoire* chip is unreachable from a queue, by decision** (RH-126,
+  RH-133). The setlist row still draws it, and still draws it only for a `repertoireId` of
+  exactly `null` — "the owner holds no row" — never for an absent one, because "I was not
+  told" is a different statement. But a queue entry carries only version id, title and
+  artist, so a queue-fed setlist never tells. The chip is therefore drawn nowhere in the
+  running app today. That is a real, accepted loss of the explanation RH-126 designed for
+  why a row shows no progress: it is the price of a queue that needs no network, and it
+  comes back the moment a source that *does* know the owner's rows feeds the chrome.
+
 **Open**
 - The tab dying takes the queue with it. A phone that locks and discards the tab mid-
   rehearsal therefore restarts, which is the accepted cost of not persisting. Worth
   revisiting only if it turns out to happen often.
+- **A new tab opened from the context menu keeps the queue** (RH-133). *Open Link in New
+  Tab* dispatches no click event, so rule 2 above — the dashboard's clear — never runs, and
+  the new tab starts from a copy of `sessionStorage` with the queue still in it. Rule 1
+  covers most of it: the opened song is usually one the stale queue does not hold, so the
+  chrome and the Back target stay absent. What is left uncovered is exactly rule 2's case —
+  a song that *is* in the stale queue, opened alone in a new tab, comes back wearing the
+  old playlist's setlist. Ordinary activation is unaffected, including middle- and
+  cmd-click, where the clear runs in the originating tab before the copy is taken. Fixing
+  it would need the queue to record the route it was built for and be re-validated on read,
+  which is more machinery than the residue justifies today.
 
 ---
 

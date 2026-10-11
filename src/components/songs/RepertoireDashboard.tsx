@@ -10,6 +10,7 @@ import { useHydrated } from "@/hooks/useHydrated";
 import { useBandRole, type BandRole } from "@/hooks/useBandRole";
 import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
 import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
+import { clearSongQueue } from "@/lib/songQueue";
 import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
 import SongResultItem from "@/components/songs/SongResultItem";
 import { StatusNotes } from "@/components/ui/StatusNotes";
@@ -360,8 +361,19 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
                   key={song.id}
                   className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 transition-colors"
                 >
+                  {/* RH-133: a song opened from here is opened alone, so the
+                      tab's song queue is dropped as the link is followed —
+                      otherwise the same song, clicked from a playlist and then
+                      from this list, would keep that playlist's setlist chrome
+                      and its Back target. The playlist path writes a queue at
+                      this same point (`PlaylistSongList.onOpenFastView`). This
+                      cannot cover a context-menu *Open Link in New Tab*, which
+                      dispatches no click event and hands the new tab a copy of
+                      the queue; recorded under **Open** in `docs/use-cases.md`
+                      *Walk a queue of songs*. */}
                   <Link
                     href={`/songs/${song.version_id}/fast-view${bandContext.type === 'band' ? `?bandId=${bandContext.id}` : ''}`}
+                    onClick={clearSongQueue}
                     className="flex flex-1 items-center gap-3 min-w-0 focus:outline-none"
                   >
                     {/* Cover image or status color square */}

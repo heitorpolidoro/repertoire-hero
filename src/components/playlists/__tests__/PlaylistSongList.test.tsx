@@ -18,13 +18,18 @@
  * `No songs matching "<query>".`.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { PlaylistSongList, type PlaylistSongListProps } from '@/components/playlists/PlaylistSongList'
+import { readSongQueue } from '@/lib/songQueue'
 import type { TagEditorController } from '@/hooks/useTagEditor'
 import type { PlaylistSong, Repertoire, SongStatus } from '@/types/database'
 
 afterEach(cleanup)
+
+beforeEach(() => {
+  sessionStorage.clear()
+})
 
 /**
  * One row, keyed by the **version** it names (RH-125). `song.id` is derived, so
@@ -92,6 +97,7 @@ function props(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSongList
     filteredSongs: overrides.filteredSongs ?? songs,
     repertoireMap: new Map(),
     playlistId: 'playlist-1',
+    queueLabel: 'Saturday gig',
     bandId: null,
     activeTagFilter: null,
     songFilterQuery: '',
@@ -166,7 +172,7 @@ describe('PlaylistSongList', () => {
     ])
   })
 
-  it('links a row to its version Fast View, carrying returnTo and the band id', () => {
+  it('links a row to its version Fast View, carrying the band id and no return parameter', () => {
     render(
       <PlaylistSongList
         {...props({
@@ -178,9 +184,7 @@ describe('PlaylistSongList', () => {
 
     const link = within(songList()).getByRole('link', { name: /Kashmir/ })
     // The entry's `version_id`, never the owner row's id (RH-132 ER15).
-    expect(link.getAttribute('href')).toBe(
-      '/songs/song-1/fast-view?returnTo=/playlists/playlist-1&bandId=band-9',
-    )
+    expect(link.getAttribute('href')).toBe('/songs/song-1/fast-view?bandId=band-9')
   })
 
   /**
@@ -198,9 +202,7 @@ describe('PlaylistSongList', () => {
 
     const row = within(songList()).getByRole('listitem')
     const link = within(row).getByRole('link', { name: /Kashmir/ })
-    expect(link.getAttribute('href')).toBe(
-      '/songs/song-1/fast-view?returnTo=/playlists/playlist-1&bandId=band-9',
-    )
+    expect(link.getAttribute('href')).toBe('/songs/song-1/fast-view?bandId=band-9')
     expect(within(row).getByText('Kashmir')).toBeDefined()
   })
 
@@ -208,7 +210,7 @@ describe('PlaylistSongList', () => {
     render(<PlaylistSongList {...props()} />)
 
     const link = within(songList()).getByRole('link', { name: /Kashmir/ })
-    expect(link.getAttribute('href')).toBe('/songs/song-1/fast-view?returnTo=/playlists/playlist-1')
+    expect(link.getAttribute('href')).toBe('/songs/song-1/fast-view')
   })
 
   it('renders the song duration when the song carries one', () => {
@@ -391,5 +393,140 @@ describe('two versions of one song (RH-125 ER18)', () => {
     // differ, which a song-keyed map could not produce.
     expect(within(rows[0]).getByText('encore')).toBeDefined()
     expect(within(rows[1]).getByText('soundcheck')).toBeDefined()
+  })
+})
+
+/**
+ * RH-133 ER10 — the queue a row click writes is the **playlist**, not the view.
+ *
+ * The list holds two lists: `songs`, every song of the playlist, and
+ * `filteredSongs`, what survived the page's tag and text filters — and it
+ * renders the second. Writing the variable already in scope on the render line
+ * is the obvious mistake, and it ships a setlist that silently shortens to
+ * whatever text was left in the filter box, mid-gig. So the length asserted
+ * below is derived from the fixture and the excluded song is named: a
+ * subset-length assertion would pass the broken version.
+ */
+describe('the song queue a row click writes (RH-133 ER10)', () => {
+  const SONGS = [
+    playlistSong('v-1', { title: 'Kashmir', position: 0 }),
+    playlistSong('v-2', { title: 'Black Dog', position: 1 }),
+    playlistSong('v-3', { title: 'Roxanne', position: 2 }),
+  ]
+
+  /** The filter leaves one row of three on screen. */
+  function renderFiltered(overrides: Partial<PlaylistSongListProps> = {}) {
+    return render(
+      <PlaylistSongList
+        {...props({
+          songs: SONGS,
+          filteredSongs: [SONGS[0]],
+          songFilterQuery: 'kash',
+          ...overrides,
+        })}
+      />,
+    )
+  }
+
+  function openRow(name: RegExp) {
+    fireEvent.click(within(songList()).getByRole('link', { name }))
+  }
+
+  it('stores every song of the playlist, not the filtered view', () => {
+    renderFiltered()
+    expect(within(songList()).getAllByRole('listitem')).toHaveLength(1)
+
+    openRow(/Kashmir/)
+
+    const queue = readSongQueue()
+    expect(queue).not.toBeNull()
+    expect(queue?.entries).toHaveLength(SONGS.length)
+    // A song the filter excluded is in the queue — which is the whole point.
+    expect(queue?.entries.map((entry) => entry.versionId)).toContain('v-3')
+  })
+
+  it('stores the playlist in playlist order, whatever order the prop arrives in', () => {
+    render(
+      <PlaylistSongList
+        {...props({ songs: [SONGS[2], SONGS[0], SONGS[1]], filteredSongs: [SONGS[0]] })}
+      />,
+    )
+
+    openRow(/Kashmir/)
+
+    expect(readSongQueue()?.entries.map((entry) => entry.versionId)).toEqual(['v-1', 'v-2', 'v-3'])
+  })
+
+  it('records the playlist as the origin and its label, with no band context', () => {
+    renderFiltered()
+
+    openRow(/Kashmir/)
+
+    expect(readSongQueue()).toMatchObject({
+      originHref: '/playlists/playlist-1',
+      label: 'Saturday gig',
+      owner: { type: 'personal' },
+    })
+  })
+
+  it('records the band as the queue owner on a band playlist', () => {
+    renderFiltered({ bandId: 'band-9' })
+
+    openRow(/Kashmir/)
+
+    expect(readSongQueue()?.owner).toEqual({ type: 'band', bandId: 'band-9' })
+  })
+
+  it('stores only the three navigation fields per entry', () => {
+    renderFiltered()
+
+    openRow(/Kashmir/)
+
+    for (const entry of readSongQueue()?.entries ?? []) {
+      expect(Object.keys(entry).sort()).toEqual(['artist', 'title', 'versionId'])
+    }
+    expect(readSongQueue()?.entries[0]).toEqual({
+      versionId: 'v-1',
+      title: 'Kashmir',
+      artist: 'Led Zeppelin',
+    })
+  })
+
+  /**
+   * RH-133 round 2 — `song` is optional on `PlaylistSong`, and an entry whose
+   * catalog row did not join has neither of the two strings a setlist row
+   * draws. Storing it would draw a blank, unidentifiable line, so it is the one
+   * thing the writer leaves out.
+   */
+  it('leaves out a row whose catalog song did not join, and nothing else', () => {
+    const unjoined: PlaylistSong = { ...playlistSong('v-4', { position: 3 }), song: undefined }
+    const songs = [...SONGS, unjoined]
+    render(<PlaylistSongList {...props({ songs, filteredSongs: [SONGS[0]] })} />)
+
+    openRow(/Kashmir/)
+
+    const entries = readSongQueue()?.entries ?? []
+    expect(entries.map((entry) => entry.versionId)).toEqual(['v-1', 'v-2', 'v-3'])
+    expect(entries).toHaveLength(songs.length - 1)
+    expect(entries.map((entry) => entry.title)).not.toContain('')
+  })
+
+  /**
+   * RH-133 round 3 — the predicate is `Boolean(ps.song)`, not
+   * `ps.song !== undefined`. The declared type is `song?: Song`, but the join
+   * arrives as JSON off the wire, where a missing relation is as likely to be
+   * `null`; an undefined-only check would let that through and store the blank
+   * row the test above exists to prevent.
+   */
+  it('leaves out a row whose catalog song came back null', () => {
+    const nullJoin = { ...playlistSong('v-4', { position: 3 }), song: null } as unknown as PlaylistSong
+    const songs = [...SONGS, nullJoin]
+    render(<PlaylistSongList {...props({ songs, filteredSongs: SONGS })} />)
+
+    openRow(/Kashmir/)
+
+    const entries = readSongQueue()?.entries ?? []
+    expect(entries.map((entry) => entry.versionId)).toEqual(['v-1', 'v-2', 'v-3'])
+    expect(entries).toHaveLength(songs.length - 1)
   })
 })

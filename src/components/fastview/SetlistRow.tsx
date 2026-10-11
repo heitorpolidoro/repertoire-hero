@@ -1,6 +1,6 @@
 'use client'
 
-import type { PlaylistEntry } from '@/lib/playlistNav'
+import type { SetlistEntry } from '@/lib/playlistNav'
 
 /**
  * Where the row is rendered. The two surfaces are pixel-identical except for two
@@ -12,7 +12,7 @@ export type SetlistRowVariant = 'drawer' | 'sidebar'
 export interface SetlistRowProps {
   /** Zero-based position in the setlist; rendered one-based. */
   index: number
-  entry: PlaylistEntry
+  entry: SetlistEntry
   isCurrent: boolean
   variant: SetlistRowVariant
   /** Called with the entry's `versionId` — the Fast View address (RH-132). */
@@ -33,7 +33,11 @@ const IDLE_CLASSES = 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100'
  * it can be the current song and carry the ▶ NOW pill.
  *
  * The muted *Not in repertoire* chip stays: it is still true, and it is what
- * tells the musician why the row shows no progress.
+ * tells the musician why the row shows no progress. It is drawn for a
+ * `repertoireId` of exactly `null` — "the owner holds no row" — and not for an
+ * absent one: a queue-sourced entry (RH-133) carries no repertoire field at
+ * all, because the queue stores only what navigating needs, and "I was not
+ * told" is not the same statement as "there is no row".
  */
 export function SetlistRow({ index, entry, isCurrent, variant, onSelect }: SetlistRowProps) {
   const isSidebar = variant === 'sidebar'
@@ -61,7 +65,7 @@ export function SetlistRow({ index, entry, isCurrent, variant, onSelect }: Setli
       {/* The mockup's option B (`docs/tasks/RH-126-mock.html`): a muted chip
           saying *why* there is no progress, rather than an `Unknown` chip that
           looks exactly like a song the musician owns and has not started. */}
-      {!entry.repertoireId && (
+      {entry.repertoireId === null && (
         <span className="text-[10px] font-medium text-gray-400 bg-white border border-dashed border-gray-300 px-2 py-0.5 rounded-full shrink-0">
           Not in repertoire
         </span>

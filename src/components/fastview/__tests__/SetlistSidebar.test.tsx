@@ -12,7 +12,7 @@ const COLUMN_SONGS: PlaylistEntry[] = [
   { repertoireId: 'sb-3', versionId: 'v-sb-3', songId: 'tune-3', title: 'Freebird', artist: null },
 ]
 
-const NAV = computePlaylistNav(COLUMN_SONGS, 'v-sb-2', 'pl-sidebar', 'Sunday matinee')
+const NAV = computePlaylistNav(COLUMN_SONGS, 'v-sb-2', 'Sunday matinee')
 
 function renderSidebar(props: Partial<React.ComponentProps<typeof SetlistSidebar>> = {}) {
   const onSelect = vi.fn()
@@ -36,6 +36,21 @@ describe('SetlistSidebar', () => {
 
     const empty = renderSidebar({ entries: [] })
     expect(empty.container.innerHTML).toBe('')
+  })
+
+  /**
+   * RH-133 ER11 — the renamed label is rendered, not merely spelled.
+   *
+   * `nav.queueLabel` replaced the old playlist-specific name field, so a queue
+   * that is not a playlist can name itself. A rename nothing renders would
+   * surface only as a type error, which no gate command runs.
+   */
+  it('renders the queueLabel of the queue it was given', () => {
+    const nav = { ...(NAV as NonNullable<typeof NAV>), queueLabel: 'Practice session' }
+    renderSidebar({ nav })
+
+    expect(screen.getByText('Practice session')).toBeDefined()
+    expect(screen.queryByText('Sunday matinee')).toBeNull()
   })
 
   it('carries the desktop sidebar classes required by AGENTS.md', () => {

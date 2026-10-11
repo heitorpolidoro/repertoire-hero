@@ -19,6 +19,12 @@ import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
 import { ALL_STATUSES, STATUS_CONFIG } from '@/lib/statusConfig'
 import { resolveSongFields } from '@/lib/songResolution'
+import {
+  readSongQueue,
+  writeSongQueue,
+  SONG_QUEUE_KEY,
+  type SongQueue,
+} from '@/lib/songQueue'
 import type { SongStatus } from '@/types/database'
 import RepertoireDashboard, {
   type RepertoireDashboardActions,
@@ -377,5 +383,78 @@ describe('RepertoireDashboard off user_songs and band_songs (RH-124 ER15)', () =
     // the row the dashboard is handed carries it.
     expect(USER_ROW.key).toBe('G')
     expect(USER_ROW.lyrics).toBe('the composition words')
+  })
+})
+
+/**
+ * RH-133 round 2 — the dashboard drops the tab's song queue.
+ *
+ * `sessionStorage` is tab-wide and dies only with the tab, while a song opened
+ * from this list is opened alone: `docs/use-cases.md` § *Walk a queue of songs*
+ * says "one song, opened alone | no queue, and no setlist chrome". Without the
+ * clear, a playlist walked earlier in the same tab would still be in the store,
+ * and the same song reopened from here would come back with that playlist's
+ * setlist chrome, its prev/next and its Back target.
+ *
+ * `usePlaylistNav` also scopes a queue to the route's own version, which covers
+ * every *other* song; this clear is what covers the same song, and it is the
+ * exported `clearSongQueue`'s one production caller.
+ */
+describe('RepertoireDashboard and the tab song queue (RH-133)', () => {
+  const SONG = {
+    id: 'rep-9',
+    user_id: 'user-1',
+    band_id: null,
+    song_id: 'song-9',
+    status: 'learning' as SongStatus,
+    tags: [],
+    version_id: 'version-9',
+    key: null,
+    tuning: null,
+    map: null,
+    lyrics: null,
+    last_practiced: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    song: { id: 'song-9', title: 'Pais e Filhos', artist: 'Legião Urbana', album: null },
+  }
+
+  const STALE_QUEUE: SongQueue = {
+    entries: [
+      { versionId: 'version-9', title: 'Pais e Filhos', artist: 'Legião Urbana' },
+      { versionId: 'version-10', title: 'Eduardo e Mônica', artist: 'Legião Urbana' },
+    ],
+    owner: { type: 'band', bandId: 'band-stale' },
+    originHref: '/playlists/pl-1',
+    label: 'Saturday gig',
+  }
+
+  beforeEach(async () => {
+    sessionStorage.clear()
+    getRepertoireAction.mockReset()
+    getRepertoireAction.mockResolvedValue([SONG])
+    useBandContextStore.getState().setUserContext()
+    useRepertoireStore.setState({ songs: [SONG] as never, searchQuery: '', selectedStatus: null })
+    await act(async () => {
+      render(<RepertoireDashboard actions={NOOP_ACTIONS} />)
+    })
+  })
+
+  it('clears a queue left over from a playlist when a song is opened from the list', () => {
+    writeSongQueue(STALE_QUEUE)
+    // The precondition, asserted: the stale queue does hold this very song, so
+    // route scoping alone would not drop it.
+    expect(readSongQueue()?.entries.map((entry) => entry.versionId)).toContain('version-9')
+
+    fireEvent.click(screen.getByRole('link', { name: /Pais e Filhos/ }))
+
+    expect(readSongQueue()).toBeNull()
+    expect(sessionStorage.getItem(SONG_QUEUE_KEY)).toBeNull()
+  })
+
+  it('is a no-op when the tab holds no queue at all', () => {
+    fireEvent.click(screen.getByRole('link', { name: /Pais e Filhos/ }))
+
+    expect(readSongQueue()).toBeNull()
   })
 })

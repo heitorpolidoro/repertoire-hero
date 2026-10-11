@@ -1,12 +1,12 @@
 'use client'
 
 import { SetlistPanel } from './SetlistPanel'
-import type { PlaylistEntry, PlaylistNav } from '@/lib/playlistNav'
+import type { SetlistEntry, PlaylistNav } from '@/lib/playlistNav'
 
 export interface SetlistDrawerProps {
   open: boolean
   nav: PlaylistNav | null
-  entries: PlaylistEntry[]
+  entries: SetlistEntry[]
   /** The route's `song_versions.id` (RH-132). */
   currentVersionId: string
   onClose: () => void
@@ -34,7 +34,7 @@ export function SetlistDrawer({
       <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={onClose} />
       <div className="relative z-10 bg-white rounded-t-2xl max-h-[80vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
         <SetlistPanel
-          playlistName={nav.playlistName}
+          queueLabel={nav.queueLabel}
           headerClassName="flex items-center justify-between px-5 py-4 border-b border-gray-100"
           trailing={
             <button

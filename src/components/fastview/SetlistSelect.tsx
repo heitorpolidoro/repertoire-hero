@@ -1,10 +1,10 @@
 'use client'
 
-import type { PlaylistEntry, PlaylistNav } from '@/lib/playlistNav'
+import type { SetlistEntry, PlaylistNav } from '@/lib/playlistNav'
 
 export interface SetlistSelectProps {
   nav: PlaylistNav | null
-  entries: PlaylistEntry[]
+  entries: SetlistEntry[]
   /** The route's `song_versions.id` — what the options are valued by (RH-132). */
   currentVersionId: string
   onSelect: (versionId: string) => void

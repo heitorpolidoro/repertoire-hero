@@ -298,9 +298,14 @@ Signing out is already handled — `signOutAndPurge` clears the context before
 `authClient.signOut()`, so a second account on the same browser does not inherit the
 first one's band.
 
-Not investigated: the Fast View also takes context from the URL as `?bandId=`, so a
-bookmark or a shared link carries it independently of the store. Which one wins when they
-disagree, and what a stale link does, is unknown.
+Decided by RH-133, in `docs/use-cases.md` *Walk a queue of songs* -> **Decided**: the
+Fast View also takes context from the URL as `?bandId=`, so a bookmark or a shared link
+carries it independently of the store, and a queue can now name a third owner. `?bandId=`
+wins whenever it is present, a recorded queue owner applies only when the URL carries
+none, and Fast View never reads the stored band context itself - because the URL is the
+single channel through which any owner choice, including a stored preference, reaches that
+screen. A stale link therefore opens in the band it names, and `assertBandMember` is what
+refuses it server-side if the musician is no longer a member.
 
 ### Stop the Fast View dropping songs silently
 *High. Folded into "Address the Fast View by version and navigate a queue" below — kept

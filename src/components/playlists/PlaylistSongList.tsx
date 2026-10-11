@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useRef } from "react";
+import { Fragment, useCallback, useRef } from "react";
 import { PlaylistSongReorderRow } from "@/components/playlists/PlaylistSongReorderRow";
 import {
   PlaylistSongRow,
@@ -8,6 +8,7 @@ import {
 } from "@/components/playlists/PlaylistSongRow";
 import { usePlaylistReorderDrag } from "@/hooks/usePlaylistReorderDrag";
 import { sortPlaylistSongs } from "@/lib/playlistDetail";
+import { writeSongQueue } from "@/lib/songQueue";
 import type { PlaylistSong, Repertoire } from "@/types/database";
 
 export interface PlaylistSongListProps extends PlaylistSongHandlers {
@@ -18,6 +19,11 @@ export interface PlaylistSongListProps extends PlaylistSongHandlers {
   /** The owner's repertoire, keyed by `version_id` (RH-125). */
   repertoireMap: Map<string, Repertoire>;
   playlistId: string;
+  /**
+   * What the setlist chrome should call this queue — the playlist's name. Not
+   * derived here: the list is handed every string it draws.
+   */
+  queueLabel: string;
   bandId: string | null;
   /** Only used to word the no-match message; the filtering happens on the page. */
   activeTagFilter: string | null;
@@ -51,6 +57,7 @@ export function PlaylistSongList({
   filteredSongs,
   repertoireMap,
   playlistId,
+  queueLabel,
   bandId,
   activeTagFilter,
   songFilterQuery,
@@ -61,6 +68,48 @@ export function PlaylistSongList({
 }: PlaylistSongListProps) {
   const containerRef = useRef<HTMLElement | null>(null);
   const ordered = sortPlaylistSongs(filteredSongs);
+
+  /**
+   * RH-133 — written as a row is opened, before its `<Link>` navigation
+   * proceeds, so Fast View finds the setlist in `sessionStorage` on arrival and
+   * fetches nothing.
+   *
+   * **Built from `songs`, deliberately not from `filteredSongs`.** `ordered`
+   * above is the filtered view, and it is the variable in scope on the render
+   * line below; using it here would ship a setlist that silently shortens to
+   * whatever text was left in the filter box. The queue is the playlist, in
+   * playlist order, whatever is on screen.
+   *
+   * Only the three navigation fields travel — no lyrics, key, status or tags —
+   * which is what keeps the chrome working with no network.
+   *
+   * A row whose catalog `song` did not join is left out, and it is the **only**
+   * thing left out. `song` is optional on `PlaylistSong`, and an entry with no
+   * joined row has no title and no artist — the only two things a setlist row
+   * draws — so storing it would draw a blank, unlabelled line the musician
+   * cannot identify. The queue's writer rejects nothing else: no filter, no
+   * ordering, no owner-row condition.
+   *
+   * Leaving it out costs that one row its chrome: opened from the playlist it
+   * is a song the queue does not hold, so route-scoping in `usePlaylistNav`
+   * gives it no setlist and sends Back through browser history rather than to
+   * `/playlists/<id>`. Accepted — an unidentifiable blank line in every other
+   * song's setlist is the worse of the two.
+   */
+  const openFastView = useCallback(() => {
+    writeSongQueue({
+      entries: sortPlaylistSongs(songs)
+        .filter((ps) => Boolean(ps.song))
+        .map((ps) => ({
+          versionId: ps.version_id,
+          title: ps.song?.title ?? "",
+          artist: ps.song?.artist ?? null,
+        })),
+      owner: bandId ? { type: "band", bandId } : { type: "personal" },
+      originHref: `/playlists/${playlistId}`,
+      label: queueLabel,
+    });
+  }, [bandId, playlistId, queueLabel, songs]);
   const drag = usePlaylistReorderDrag({
     orderedIds: ordered.map((ps) => ps.id),
     onReorder: onReorderSongs,
@@ -108,8 +157,8 @@ export function PlaylistSongList({
                 {...rowProps}
                 playlistSong={ps}
                 entry={repertoireMap.get(ps.version_id)}
-                playlistId={playlistId}
                 bandId={bandId}
+                onOpenFastView={openFastView}
               />
             ),
           )}

@@ -16,7 +16,7 @@ const TRACKS: PlaylistEntry[] = [
 ]
 
 function navAt(index: number) {
-  return computePlaylistNav(TRACKS, TRACKS[index].versionId, 'pl-controls', 'Open mic')
+  return computePlaylistNav(TRACKS, TRACKS[index].versionId, 'Open mic')
 }
 
 describe('SetlistPill', () => {
@@ -99,7 +99,7 @@ describe('SetlistSelect', () => {
     ]
     render(
       <SetlistSelect
-        nav={computePlaylistNav(gapped, 'v-ct-9', 'pl-controls', 'Open mic')}
+        nav={computePlaylistNav(gapped, 'v-ct-9', 'Open mic')}
         entries={gapped}
         currentVersionId="v-ct-9"
         onSelect={onSelect}

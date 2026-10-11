@@ -12,7 +12,7 @@ const SHEET_ENTRIES: PlaylistEntry[] = [
   { repertoireId: 'dr-c', versionId: 'v-dr-c', songId: 'sng-c', title: 'Coda', artist: null },
 ]
 
-const NAV = computePlaylistNav(SHEET_ENTRIES, 'v-dr-b', 'pl-drawer', 'Saturday gig')
+const NAV = computePlaylistNav(SHEET_ENTRIES, 'v-dr-b', 'Saturday gig')
 
 function renderDrawer(props: Partial<React.ComponentProps<typeof SetlistDrawer>> = {}) {
   const onClose = vi.fn()
@@ -51,6 +51,15 @@ describe('SetlistDrawer', () => {
     expect(screen.getByText('Coda')).toBeDefined()
     // Three rows plus the close button.
     expect(screen.getAllByRole('button')).toHaveLength(4)
+  })
+
+  /** RH-133 ER11 — the renamed label is rendered, not merely spelled. */
+  it('renders the queueLabel of the queue it was given', () => {
+    const nav = { ...(NAV as NonNullable<typeof NAV>), queueLabel: 'Hand-picked set' }
+    renderDrawer({ nav })
+
+    expect(screen.getByText('Hand-picked set')).toBeDefined()
+    expect(screen.queryByText('Saturday gig')).toBeNull()
   })
 
   it('closes on the backdrop click and on the close button', () => {
@@ -93,7 +102,7 @@ describe('SetlistDrawer', () => {
     renderDrawer({
       entries: gapped,
       currentVersionId: 'v-dr-x',
-      nav: computePlaylistNav(gapped, 'v-dr-x', 'pl-drawer', 'Saturday gig'),
+      nav: computePlaylistNav(gapped, 'v-dr-x', 'Saturday gig'),
     })
 
     // Exactly one ▶ NOW pill in the whole panel, and it is on the second row.

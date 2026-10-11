@@ -17,7 +17,6 @@ import {
   offlineFirst,
   orderSnapshotCandidates,
   OFFLINE_WRITE_MESSAGE,
-  OfflineUnavailableError,
   type OfflineFirstPorts,
 } from '@/lib/offlineFirst'
 import { createOfflineStore, type OfflineStore } from '@/lib/offlineStore'
@@ -284,40 +283,33 @@ describe('offlineFirst — the error policy', () => {
 
   it('rethrows the original error when the offline reader itself throws', async () => {
     const failure = networkError()
+    const store = await seededStore(ONE_PLAYLIST)
     const wrapped = offlineFirst(
-      { getPlaylistDetailsWithEntries: () => Promise.reject(failure) },
-      // Nothing downloaded, so the offline reader throws OfflineUnavailableError.
-      await onlinePorts(),
+      { getResolvedEntryForVersion: () => Promise.reject(failure) },
+      {
+        // The snapshot store itself is broken, so the offline reader throws
+        // rather than answering. The caller must then get the truth it would
+        // have got without this decorator: the network failure, not the
+        // storage one.
+        store: {
+          ...store,
+          listOfflinePlaylists: () => Promise.reject(new Error('IndexedDB is gone')),
+        },
+        isOffline: () => false,
+      },
     )
 
-    await expect(wrapped.getPlaylistDetailsWithEntries('pl-1', null)).rejects.toBe(failure)
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', null)).rejects.toBe(failure)
   })
 })
 
+/**
+ * RH-133 removed `getPlaylistDetailsWithEntries` from `OFFLINE_READERS`: the
+ * setlist is the tab's own `sessionStorage` queue now, so there is no setlist
+ * read to answer from a snapshot, online or off. The two cases that pinned that
+ * reader went with it; everything below is the entry and file reads, unchanged.
+ */
 describe('offlineFirst — the offline readers', () => {
-  it('answers getPlaylistDetailsWithEntries from the matching snapshot', async () => {
-    const wrapped = offlineFirst(
-      { getPlaylistDetailsWithEntries: () => Promise.reject(new Error('unreachable')) },
-      await offlinePorts(ONE_PLAYLIST),
-    )
-
-    await expect(wrapped.getPlaylistDetailsWithEntries('pl-1', null)).resolves.toEqual({
-      name: 'Friday Set',
-      entries: [entry('rep-1', 'Song rep-1'), entry('rep-2', 'Song rep-2')],
-    })
-  })
-
-  it('throws OfflineUnavailableError for a playlist that was never downloaded', async () => {
-    const wrapped = offlineFirst(
-      { getPlaylistDetailsWithEntries: () => Promise.reject(new Error('unreachable')) },
-      await offlinePorts(ONE_PLAYLIST),
-    )
-
-    await expect(wrapped.getPlaylistDetailsWithEntries('pl-missing', null)).rejects.toBeInstanceOf(
-      OfflineUnavailableError,
-    )
-  })
-
   /**
    * RH-132 ER5b — the offline entry reader finds a v6 song by its `versionId`.
    *

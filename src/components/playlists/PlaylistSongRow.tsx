@@ -35,15 +35,25 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
    * mastery status and the tags it carries.
    */
   entry?: Repertoire;
-  playlistId: string;
   /** The band being browsed, or `null` in personal context. */
   bandId: string | null;
+  /**
+   * Called as the row is opened, before the `<Link>` navigation proceeds. The
+   * list uses it to write the tab's song queue, because a row knows only its
+   * own song and the setlist is the whole playlist (RH-133).
+   */
+  onOpenFastView: () => void;
 }
 
 /**
  * One song of `/playlists/[id]`: identity (always linked to Fast View),
  * duration, mastery status, the remove button and the per-song tag row. Moved
  * out of the page by RH-68 with its markup unchanged.
+ *
+ * RH-133 shortened the href: the deleted playlist return parameter it used to
+ * carry is gone, because the origin Back goes to is recorded in the tab's song
+ * queue instead — which the list writes through `onOpenFastView` as this row is
+ * opened. `?bandId=` stays, and is still the only owner the destination reads.
  *
  * RH-132 made the link unconditional. Fast View is addressed by
  * `song_versions.id` now and the owner comes from `?bandId=`, so a row the
@@ -55,18 +65,19 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
 export function PlaylistSongRow({
   playlistSong: ps,
   entry,
-  playlistId,
   bandId,
   tagEditor,
   onStatusChange,
   onRemoveSong,
+  onOpenFastView,
 }: PlaylistSongRowProps) {
 
   return (
     <li className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 hover:shadow transition-all group">
       <div className="flex items-center gap-3">
         <Link
-          href={`/songs/${ps.version_id}/fast-view?returnTo=/playlists/${playlistId}${bandId ? `&bandId=${bandId}` : ''}`}
+          href={`/songs/${ps.version_id}/fast-view${bandId ? `?bandId=${bandId}` : ''}`}
+          onClick={onOpenFastView}
           className="flex-1 flex items-center gap-3 min-w-0"
         >
           <PlaylistSongIdentity song={ps.song} label={ps.label} linked />

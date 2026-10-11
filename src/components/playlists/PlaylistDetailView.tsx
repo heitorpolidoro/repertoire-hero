@@ -180,6 +180,7 @@ export function PlaylistDetailView({
         filteredSongs={detail.filteredSongs}
         repertoireMap={detail.repertoireMap}
         playlistId={detail.playlist.id}
+        queueLabel={detail.playlist.name}
         bandId={playlist.band_id}
         activeTagFilter={detail.activeTagFilter}
         songFilterQuery={detail.songFilterQuery}

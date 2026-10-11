@@ -4,13 +4,13 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useToast } from '@/hooks/useToast'
 import { useOfflineStatus } from '@/hooks/useOfflineStatus'
 import { useWakeLock } from '@/hooks/useWakeLock'
-// The seven bundles, offline-first. Imported from the one composition root that
-// wraps them (RH-80) instead of from the four `fastView*Actions.ts` files,
-// which are unchanged and keep their other consumers.
+// The six bundles, offline-first. Imported from the one composition root that
+// wraps them (RH-80) instead of from the three `fastView*Actions.ts` files,
+// which are unchanged and keep their other consumers. The setlist needs none:
+// RH-133 made it a `sessionStorage` queue the controller reads locally.
 import {
   OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS,
   OFFLINE_FIRST_PDF_STAGE_ACTIONS,
-  OFFLINE_FIRST_PLAYLIST_NAV_ACTIONS,
   OFFLINE_FIRST_SONG_ENTRY_ACTIONS,
   OFFLINE_FIRST_SONG_LINKS_ACTIONS,
   OFFLINE_FIRST_SONG_STATUS_ACTIONS,
@@ -44,7 +44,13 @@ import { FastViewOverlays } from '@/components/fastview/FastViewOverlays'
  * Fast View — the stripped-down reading page a musician props on a music stand.
  *
  * A composition root: it reads the route, wires the seven controllers to each
- * other and to their Server Action bundles, and lays the sections out. Every
+ * other and to their Server Action bundles, and lays the sections out.
+ *
+ * `queryBandId` is the page's **only** owner value, and it comes from
+ * `searchParams` alone: it is what every write below is given, so no
+ * client-writable source can become a write argument. The setlist controller
+ * resolves its own href parameter from the tab's queue (RH-133); the page does
+ * not read the queue and does not import it. Every
  * decision, every effect and every write lives in `src/hooks` (state) and
  * `src/lib` (pure logic), and every pixel in `src/components/fastview`
  * (RH-38, closed by RH-52).
@@ -75,7 +81,6 @@ export default function FastViewPage() {
   const { versionId } = useParams<{ versionId: string }>()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const returnTo = searchParams.get('returnTo')
   const queryBandId = searchParams.get('bandId')
 
   // The page's one Toast and its single offline reader — see the docblock.
@@ -145,14 +150,13 @@ export default function FastViewPage() {
     notify: showToast,
   })
 
-  // Playlist navigation: the setlist fetch, the drawer, the slide-out and every
-  // router push the setlist UI can trigger live in this controller (RH-48).
+  // Setlist navigation: the tab's song queue, the drawer, the slide-out and
+  // every router push the setlist UI can trigger live in this controller
+  // (RH-48, fed by the queue since RH-133 instead of by a playlist fetch).
   // The arrow keys stay off while either Stage Mode surface is up.
   const playlist = usePlaylistNav({
     currentVersionId: versionId,
-    returnTo,
     bandId: queryBandId,
-    actions: OFFLINE_FIRST_PLAYLIST_NAV_ACTIONS,
     navigate: (href) => router.push(href),
     navigateBack: () => router.back(),
     keyboardEnabled: !pdfStage.isOpen && !lyrics.isStageOpen,

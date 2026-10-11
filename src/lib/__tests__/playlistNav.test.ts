@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  playlistIdFromReturnTo,
   computePlaylistNav,
   fastViewHref,
   slideDirection,
@@ -24,96 +23,83 @@ const MAIN_CLASSES =
   'min-h-screen px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out '
 
 function navAt(index: number): PlaylistNav {
-  const nav = computePlaylistNav(ENTRIES, ENTRIES[index].versionId, 'pl-1', 'Gig')
+  const nav = computePlaylistNav(ENTRIES, ENTRIES[index].versionId, 'Gig')
   if (!nav) throw new Error('fixture entry is not in the fixture playlist')
   return nav
 }
 
-describe('playlistIdFromReturnTo', () => {
-  it('extracts the playlist id from a /playlists/:id returnTo', () => {
-    expect(playlistIdFromReturnTo('/playlists/abc-123')).toBe('abc-123')
-    expect(playlistIdFromReturnTo('/playlists/9f2c_7')).toBe('9f2c_7')
-  })
-
-  it('returns null for null, an empty string and a non-playlist returnTo', () => {
-    expect(playlistIdFromReturnTo(null)).toBeNull()
-    expect(playlistIdFromReturnTo('')).toBeNull()
-    expect(playlistIdFromReturnTo('/songs')).toBeNull()
-    expect(playlistIdFromReturnTo('/playlists')).toBeNull()
-  })
-
-  it('returns null for a nested path below /playlists/:id', () => {
-    expect(playlistIdFromReturnTo('/playlists/abc-123/edit')).toBeNull()
-    expect(playlistIdFromReturnTo('/playlists/abc 123')).toBeNull()
-  })
-})
-
 describe('computePlaylistNav', () => {
   it('reports position, total, previous and next for a middle entry', () => {
-    expect(computePlaylistNav(ENTRIES, 'v-2', 'pl-1', 'Gig')).toEqual({
+    expect(computePlaylistNav(ENTRIES, 'v-2', 'Gig')).toEqual({
       prevId: 'v-1',
       nextId: 'v-3',
       position: 2,
       total: 3,
-      playlistId: 'pl-1',
-      playlistName: 'Gig',
+      queueLabel: 'Gig',
     })
   })
 
-  it('reports no previous for the first entry and no next for the last', () => {
-    expect(computePlaylistNav(ENTRIES, 'v-1', 'pl-1', 'Gig')).toMatchObject({
+  /** RH-133 ER5 — the ends are absent, and neither end sees the other. */
+  it('reports no previous for the first entry and no next for the last, with no wraparound', () => {
+    expect(computePlaylistNav(ENTRIES, 'v-1', 'Gig')).toMatchObject({
       prevId: null,
       nextId: 'v-2',
       position: 1,
     })
-    expect(computePlaylistNav(ENTRIES, 'v-3', 'pl-1', 'Gig')).toMatchObject({
+    expect(computePlaylistNav(ENTRIES, 'v-3', 'Gig')).toMatchObject({
       prevId: 'v-2',
       nextId: null,
       position: 3,
     })
+    // Stated as its own assertion: a wrapping implementation would name the
+    // opposite end here rather than nothing.
+    expect(computePlaylistNav(ENTRIES, 'v-1', 'Gig')?.prevId).not.toBe('v-3')
+    expect(computePlaylistNav(ENTRIES, 'v-3', 'Gig')?.nextId).not.toBe('v-1')
   })
 
   it('returns null when the entry list is empty', () => {
-    expect(computePlaylistNav([], 'v-1', 'pl-1', 'Gig')).toBeNull()
+    expect(computePlaylistNav([], 'v-1', 'Gig')).toBeNull()
   })
 
   it('returns null when the current version id is not in the list', () => {
-    expect(computePlaylistNav(ENTRIES, 'v-99', 'pl-1', 'Gig')).toBeNull()
+    expect(computePlaylistNav(ENTRIES, 'v-99', 'Gig')).toBeNull()
   })
 
   it('matches on the version id, never on the owner row id', () => {
     // The route param is a `song_versions.id` since RH-132; an owner row id is
     // not an address any more and must not resolve to a position.
-    expect(computePlaylistNav(ENTRIES, 'rep-2', 'pl-1', 'Gig')).toBeNull()
+    expect(computePlaylistNav(ENTRIES, 'rep-2', 'Gig')).toBeNull()
   })
 
-  it('carries the playlist id and name through unchanged', () => {
-    const nav = computePlaylistNav(ENTRIES, 'v-1', 'pl-42', 'Saturday • set 2')
-    expect(nav?.playlistId).toBe('pl-42')
-    expect(nav?.playlistName).toBe('Saturday • set 2')
+  it('carries the queue label through unchanged', () => {
+    const nav = computePlaylistNav(ENTRIES, 'v-1', 'Saturday • set 2')
+    expect(nav?.queueLabel).toBe('Saturday • set 2')
+  })
+
+  it('labels a queue that is not a playlist at all', () => {
+    // RH-133: the field is the *queue's* label, so a practice session or a
+    // hand-picked selection can name itself without pretending to be a
+    // playlist.
+    expect(computePlaylistNav(ENTRIES, 'v-2', 'Practice session')?.queueLabel).toBe(
+      'Practice session',
+    )
   })
 })
 
 describe('fastViewHref', () => {
-  it('preserves returnTo and bandId in that order', () => {
-    expect(fastViewHref('v-2', '/playlists/pl-1', 'band-7')).toBe(
-      '/songs/v-2/fast-view?returnTo=%2Fplaylists%2Fpl-1&bandId=band-7',
-    )
+  it('carries the band id and nothing else', () => {
+    expect(fastViewHref('v-2', 'band-7')).toBe('/songs/v-2/fast-view?bandId=band-7')
   })
 
-  it('omits an absent returnTo and an absent bandId', () => {
-    expect(fastViewHref('v-2', null, null)).toBe('/songs/v-2/fast-view?')
-    expect(fastViewHref('v-2', '', '')).toBe('/songs/v-2/fast-view?')
-    expect(fastViewHref('v-2', null, 'band-7')).toBe('/songs/v-2/fast-view?bandId=band-7')
-    expect(fastViewHref('v-2', '/playlists/pl-1', null)).toBe(
-      '/songs/v-2/fast-view?returnTo=%2Fplaylists%2Fpl-1',
-    )
+  it('keeps the bare trailing ? when there is no band id', () => {
+    // Byte-for-byte deliberate (RH-48): the `?` survives so a bookmark made by
+    // either version of the page stays comparable.
+    expect(fastViewHref('v-2', null)).toBe('/songs/v-2/fast-view?')
+    expect(fastViewHref('v-2', '')).toBe('/songs/v-2/fast-view?')
   })
 
-  it('percent-encodes the returnTo value', () => {
-    expect(fastViewHref('v-2', '/playlists/a b&c', null)).toBe(
-      '/songs/v-2/fast-view?returnTo=%2Fplaylists%2Fa+b%26c',
-    )
+  it('percent-encodes the band id', () => {
+    expect(fastViewHref('v-2', 'band 7&8')).toBe('/songs/v-2/fast-view?bandId=band+7%268')
   })
 })
 
@@ -218,10 +204,20 @@ describe('slideOutClassName', () => {
 })
 
 describe('backTarget', () => {
-  it('pushes the returnTo path when there is one, and falls back to history when there is not', () => {
+  it('pushes the recorded origin when there is one, and falls back to history when there is not', () => {
     expect(backTarget('/playlists/pl-1')).toEqual({ kind: 'push', href: '/playlists/pl-1' })
     expect(backTarget(null)).toEqual({ kind: 'back' })
     expect(backTarget('')).toEqual({ kind: 'back' })
+  })
+
+  it('pushes a non-playlist origin exactly as recorded, with no route-shape special case', () => {
+    // RH-133: the origin is part of the queue, so the band screen a practice
+    // session started from is pushed verbatim — nothing infers a playlist.
+    expect(backTarget('/bands/band-7')).toEqual({ kind: 'push', href: '/bands/band-7' })
+    expect(backTarget('/songs/v-9/fast-view?bandId=band-7')).toEqual({
+      kind: 'push',
+      href: '/songs/v-9/fast-view?bandId=band-7',
+    })
   })
 })
 
@@ -245,7 +241,7 @@ describe('computePlaylistNav with entries the owner holds no row for (RH-132 ER3
   ]
 
   it('answers for a current entry carrying repertoireId: null, counting every entry', () => {
-    const nav = computePlaylistNav(GAPPED, 'v-2', 'pl-1', 'Gig')
+    const nav = computePlaylistNav(GAPPED, 'v-2', 'Gig')
 
     expect(nav).not.toBeNull()
     expect(nav).toMatchObject({ position: 2, total: GAPPED.length })
@@ -253,16 +249,16 @@ describe('computePlaylistNav with entries the owner holds no row for (RH-132 ER3
 
   it('names the immediately adjacent entries, even when they hold no owner row', () => {
     // `v-2` is no longer stepped over: it has an address of its own.
-    expect(computePlaylistNav(GAPPED, 'v-1', 'pl-1', 'Gig')).toMatchObject({
+    expect(computePlaylistNav(GAPPED, 'v-1', 'Gig')).toMatchObject({
       prevId: null,
       nextId: 'v-2',
     })
-    expect(computePlaylistNav(GAPPED, 'v-3', 'pl-1', 'Gig')).toMatchObject({
+    expect(computePlaylistNav(GAPPED, 'v-3', 'Gig')).toMatchObject({
       prevId: 'v-2',
       nextId: 'v-4',
     })
     // The last entry holds no row either, and is still a position in the list.
-    expect(computePlaylistNav(GAPPED, 'v-4', 'pl-1', 'Gig')).toMatchObject({
+    expect(computePlaylistNav(GAPPED, 'v-4', 'Gig')).toMatchObject({
       prevId: 'v-3',
       nextId: null,
       position: 4,
@@ -270,6 +266,6 @@ describe('computePlaylistNav with entries the owner holds no row for (RH-132 ER3
   })
 
   it('never matches the empty string against an entry', () => {
-    expect(computePlaylistNav(GAPPED, '', 'pl-1', 'Gig')).toBeNull()
+    expect(computePlaylistNav(GAPPED, '', 'Gig')).toBeNull()
   })
 })

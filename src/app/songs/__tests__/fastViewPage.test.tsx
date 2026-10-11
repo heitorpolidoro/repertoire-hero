@@ -12,7 +12,7 @@
  * Follows the `src/app/join/__tests__/joinPage.test.tsx` precedent: the suite
  * sits one level above the bracketed segment, so no glob has to cope with
  * `[versionId]`, and the page's one composition root
- * (`@/app/fastViewOfflineActions`) is mocked so the seven bundles are spies.
+ * (`@/app/fastViewOfflineActions`) is mocked so the six bundles are spies.
  * Mocking that module is also what keeps the server-action graph — and the `pg`
  * pool behind it — out of a jsdom test.
  */
@@ -39,11 +39,10 @@ const actions = {
   deleteTab: vi.fn(),
   getAnnotations: vi.fn(),
   saveAnnotations: vi.fn(),
-  getPlaylistDetailsWithEntries: vi.fn(),
 }
 
 /**
- * The seven bundles, as spies.
+ * The six bundles, as spies.
  *
  * Each bundle object is built **once**, which is the stable identity the real
  * composition root gets from its module-scope constants (F21): a fresh object
@@ -85,9 +84,6 @@ vi.mock('@/app/fastViewOfflineActions', () => {
       getAnnotations: call('getAnnotations'),
       saveAnnotations: call('saveAnnotations'),
     },
-    OFFLINE_FIRST_PLAYLIST_NAV_ACTIONS: {
-      getPlaylistDetailsWithEntries: call('getPlaylistDetailsWithEntries'),
-    },
   }
 })
 
@@ -120,6 +116,7 @@ vi.mock('@/hooks/useOfflineStatus', () => ({ useOfflineStatus: () => false }))
 vi.mock('@/hooks/useWakeLock', () => ({ useWakeLock: () => undefined }))
 
 import FastViewPage from '../[versionId]/fast-view/page'
+import { writeSongQueue } from '@/lib/songQueue'
 
 afterEach(cleanup)
 
@@ -173,8 +170,8 @@ const TAB: SongFile = {
 
 beforeEach(() => {
   for (const spy of Object.values(actions)) spy.mockReset()
+  sessionStorage.clear()
   searchParams.delete('bandId')
-  searchParams.delete('returnTo')
   actions.getResolvedEntryForVersion.mockResolvedValue(NO_OWNER_ROW)
   actions.getPersonalEntryForSong.mockResolvedValue(null)
   actions.getTabs.mockResolvedValue([TAB])
@@ -182,7 +179,8 @@ beforeEach(() => {
   actions.updateLinks.mockResolvedValue({ success: true })
   actions.updateLyrics.mockResolvedValue(undefined)
   actions.getAnnotations.mockResolvedValue({ data: {} })
-  actions.getPlaylistDetailsWithEntries.mockResolvedValue({ name: 'Gig', entries: [] })
+  push.mockReset()
+  back.mockReset()
 })
 
 /**
@@ -374,5 +372,108 @@ describe('Fast View at a version the band holds (RH-132 ER10)', { timeout: 30_00
     await waitFor(() => expect(actions.getPersonalEntryForSong).toHaveBeenCalled())
     expect(actions.getPersonalEntryForSong).toHaveBeenCalledWith('song-1')
     expect(actions.getPersonalEntryForSong).not.toHaveBeenCalledWith(ROUTE_VERSION_ID)
+  })
+})
+
+/**
+ * RH-133 ER4 — Back, and the absence of setlist chrome, at the page.
+ *
+ * The controller's own suite drives the queue directly; what only the page can
+ * show is that the rendered Back button is wired to it and that a song opened
+ * alone renders no setlist pixels at all.
+ */
+describe('Fast View and the tab song queue (RH-133 ER4)', { timeout: 30_000 }, () => {
+  function seedQueue(originHref: string) {
+    writeSongQueue({
+      entries: [
+        { versionId: ROUTE_VERSION_ID, title: 'Spoonman', artist: 'Soundgarden' },
+        { versionId: 'next-version', title: 'Black Hole Sun', artist: 'Soundgarden' },
+      ],
+      owner: { type: 'personal' },
+      originHref,
+      label: 'Saturday gig',
+    })
+  }
+
+  function pressBack() {
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  }
+
+  it('pushes the recorded playlist origin when Back is pressed', async () => {
+    seedQueue('/playlists/pl-1')
+    await renderPage()
+
+    pressBack()
+
+    expect(push).toHaveBeenCalledWith('/playlists/pl-1')
+    expect(back).not.toHaveBeenCalled()
+  })
+
+  it('pushes a recorded non-playlist origin when Back is pressed', async () => {
+    seedQueue('/bands/band-7')
+    await renderPage()
+
+    pressBack()
+
+    expect(push).toHaveBeenCalledWith('/bands/band-7')
+    expect(back).not.toHaveBeenCalled()
+  })
+
+  it('walks browser history back when there is no queue', async () => {
+    await renderPage()
+
+    pressBack()
+
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('renders no setlist chrome at all for a song opened with no queue', async () => {
+    await renderPage()
+
+    expect(screen.queryByLabelText(/setlist/i)).toBeNull()
+    // The mobile pill, the position indicator and the desktop sidebar: every
+    // surface that would name a place in a setlist.
+    expect(screen.queryByText(/Setlist \(/)).toBeNull()
+    expect(screen.queryByText(/^\d+ \/ \d+$/)).toBeNull()
+    expect(document.querySelector('aside')).toBeNull()
+  })
+
+  /**
+   * RH-133 round 2 — the regression the first round shipped. One tab: a
+   * playlist writes a queue, the musician goes back and opens a song from the
+   * dashboard instead. That song is opened alone, so it must carry neither the
+   * playlist's chrome nor its Back target, even though the queue is still in
+   * `sessionStorage`.
+   */
+  it('renders no chrome and walks history back for a route the stale queue does not hold', async () => {
+    writeSongQueue({
+      entries: [
+        { versionId: 'other-version-1', title: 'Spoonman', artist: 'Soundgarden' },
+        { versionId: 'other-version-2', title: 'Black Hole Sun', artist: 'Soundgarden' },
+      ],
+      owner: { type: 'band', bandId: 'band-stale' },
+      originHref: '/playlists/pl-1',
+      label: 'Saturday gig',
+    })
+    await renderPage()
+
+    expect(screen.queryByLabelText(/setlist/i)).toBeNull()
+    expect(screen.queryByText(/Setlist \(/)).toBeNull()
+    expect(screen.queryByText('Saturday gig')).toBeNull()
+    expect(document.querySelector('aside')).toBeNull()
+
+    pressBack()
+
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('renders the setlist label and position when the tab holds a queue', async () => {
+    seedQueue('/playlists/pl-1')
+    await renderPage()
+
+    expect(screen.getByText(/Setlist \(1\/2\)/)).toBeDefined()
+    expect(screen.getAllByText('Saturday gig').length).toBeGreaterThan(0)
   })
 })

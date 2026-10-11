@@ -64,29 +64,16 @@
  * offered.
  */
 
-import {
-  offlineTabToSongFile,
-  type OfflineSnapshot,
-  type OfflineSongSnapshot,
-} from '@/lib/offlineSnapshot'
+import { offlineTabToSongFile, type OfflineSongSnapshot } from '@/lib/offlineSnapshot'
 import { OFFLINE_STORE, type OfflinePlaylistSummary, type OfflineStore } from '@/lib/offlineStore'
 
 /** The single message every refused offline write carries. */
 export const OFFLINE_WRITE_MESSAGE = 'You are offline. This change cannot be saved until you reconnect.'
 
-/**
- * "There is no offline copy of this playlist."
- *
- * Thrown only by the offline `getPlaylistDetailsWithEntries` reader, where
- * `null` is not an option: `usePlaylistNav`'s existing `.catch` absorbs it into
- * `nav === null`, which is exactly "no setlist to show".
- */
-export class OfflineUnavailableError extends Error {
-  constructor(message = 'This playlist is not available offline.') {
-    super(message)
-    this.name = 'OfflineUnavailableError'
-  }
-}
+// `OfflineUnavailableError` lived here until RH-133. It was thrown by exactly
+// one reader — the setlist read, where `null` was not an option — and that
+// reader is gone: the setlist is the tab's own `sessionStorage` queue now, so
+// nothing could raise it and nothing caught it.
 
 /** The two things the decorator cannot compute for itself. */
 export interface OfflineFirstPorts {
@@ -186,29 +173,20 @@ async function findSongBySongId(
   return null
 }
 
-function detailsFromSnapshot(snapshot: OfflineSnapshot) {
-  return {
-    name: snapshot.playlistName,
-    entries: snapshot.songs.map((song) => song.entry),
-  }
-}
-
 type OfflineReader = (ports: OfflineFirstPorts, args: unknown[]) => Promise<unknown>
 
 /**
- * The five reads Fast View makes, answered from the snapshot.
+ * The four reads Fast View makes, answered from the snapshot.
  *
  * The snapshot is resolved from the action's own arguments and never from page
  * state — that is what lets the wrapping happen once, at module scope, with the
- * stable object identities the seven controllers depend on.
+ * stable object identities the six controllers depend on.
  */
 const OFFLINE_READERS: Record<string, OfflineReader> = {
-  getPlaylistDetailsWithEntries: async (ports, [playlistId]) => {
-    const snapshot = await ports.store.readOfflineSnapshot(String(playlistId))
-    if (!snapshot) throw new OfflineUnavailableError()
-    return detailsFromSnapshot(snapshot)
-  },
-
+  // RH-133 removed the setlist read that used to head this list: the setlist is
+  // the tab's own song queue now (`src/lib/songQueue.ts`), read straight out of
+  // `sessionStorage`, so the chrome needs no action at all — online or off.
+  //
   // Version-addressed since RH-132. `null` means "this version is in no
   // downloaded playlist", which `useSongEntry` reads as the not-found screen —
   // offline, rendered as "not downloaded".
