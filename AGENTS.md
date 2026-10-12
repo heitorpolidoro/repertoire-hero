@@ -497,6 +497,13 @@ the other half - `both dictionaries expose the same key set` - so a landing-copy
 edit cannot land in one dictionary only. There is no third test, and none is
 needed.
 
+One block of application copy is the spec-mandated exception (RH-111): the
+correction-outcome banner on the signed-in home reads `suggestionOutcomes.*` from
+both dictionaries. It does so through `getSuggestionOutcomeCopy` in `src/lib/i18n.ts`,
+called by the Server Component `src/app/page.tsx` and passed to the banner as a
+prop, so no component calls `getDictionary` and the guard above still holds. Do not
+widen it into app-wide i18n as a side effect.
+
 Two consequences are deliberate, and are not bugs to fix in passing:
 
 - A `pt-BR` visitor sees a Portuguese landing page and an English application.

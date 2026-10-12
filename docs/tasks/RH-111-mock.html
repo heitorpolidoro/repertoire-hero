@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-111 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6">
+<div class="max-w-xl mx-auto space-y-4">
+<h1 class="text-lg font-bold">My repertoire</h1>
+<div id="banner" class="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 text-sm space-y-3">
+ <div class="flex justify-between"><strong>What happened to your corrections</strong>
+ <button onclick="document.getElementById('banner').remove()" class="text-slate-400">✕</button></div>
+ <div><p class="font-semibold">Bad — Michael Jackson</p>
+  <ul class="mt-1 space-y-1 text-xs">
+   <li><span class="text-emerald-400">Approved</span> · Title</li>
+   <li><span class="text-rose-400">Not accepted</span> · Album — "Cover art does not match the release"</li>
+   <li><span class="text-amber-400">Replaced</span> · Key — another correction was chosen instead</li></ul></div>
+ <div><p class="font-semibold">Hotel California — Eagles</p>
+  <ul class="mt-1 text-xs"><li><span class="text-emerald-400">Approved</span> · Artist</li></ul></div>
+ <button onclick="document.getElementById('banner').remove()" class="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold">Got it</button>
+</div>
+<div class="rounded-xl bg-slate-800 p-4 text-sm text-slate-400">Repertoire list...</div>
+</div></body></html>

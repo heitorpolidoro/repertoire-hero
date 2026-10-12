@@ -190,10 +190,32 @@ export interface CatalogSuggestion {
   status: EditStatus;
   reviewed_by: string | null;
   rejection_reason: string | null;
+  /** When the requester dismissed the outcome notice; null while unseen (RH-111). */
+  acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
   song?: Song;
   requester?: Profile;
+}
+
+/** A field's fate for the requester (RH-111); `replaced` is `superseded`, never `refused`. */
+export type SuggestionOutcome = 'approved' | 'refused' | 'replaced';
+
+/** One field of a decided submission; `reason` is set only on a `refused` one. */
+export interface SuggestionOutcomeField {
+  id: string;
+  column: string;
+  outcome: SuggestionOutcome;
+  reason: string | null;
+}
+
+/** One submission's unseen outcomes, grouped under its song. */
+export interface SuggestionOutcomeGroup {
+  group_id: string;
+  song_id: string;
+  title: string;
+  artist: string;
+  fields: SuggestionOutcomeField[];
 }
 
 /**

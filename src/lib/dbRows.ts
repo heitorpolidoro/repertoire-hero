@@ -142,3 +142,15 @@ export interface SpotifyTokenRow {
   refresh_token: string
   expires_at: string
 }
+
+/** `UNSEEN_SUGGESTION_OUTCOMES_SQL` (RH-111): one decided field of one submission, with its song. */
+export interface SuggestionOutcomeRow {
+  id: string
+  group_id: string
+  song_id: string
+  target_column: string
+  status: 'approved' | 'rejected' | 'superseded'
+  rejection_reason: string | null
+  title: string
+  artist: string
+}

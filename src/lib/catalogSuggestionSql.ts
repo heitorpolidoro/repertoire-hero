@@ -22,7 +22,9 @@
  * and the statement in one place.
  */
 
+import type { SuggestionOutcomeRow } from '@/lib/dbRows'
 import { songLinksJson } from '@/lib/songLinksSql'
+import type { SuggestionOutcomeGroup } from '@/types/database'
 
 /**
  * The only target table the allowlist admits, as a SQL literal.
@@ -151,6 +153,86 @@ export const SUPERSEDE_SUGGESTIONS_SQL = `
      AND target_column = ANY($4::text[])
      AND status = 'pending'
 `
+
+/**
+ * RH-111 — one requester's decided, still-unseen rows, with the song they were
+ * about. `$1` is the requester, bound by `getUnseenSuggestionOutcomes` from the
+ * session and never from a caller.
+ *
+ * `pending` is excluded (nothing was decided), and so is anything already
+ * acknowledged. A superseded row's `rejection_reason` is projected as NULL
+ * whatever the column holds: it was passed over, not refused, and no reason can
+ * leak into a "replaced" line.
+ */
+export const UNSEEN_SUGGESTION_OUTCOMES_SQL = `
+  SELECT c.id,
+         c.group_id,
+         c.target_id AS song_id,
+         c.target_column,
+         c.status,
+         CASE WHEN c.status = 'rejected' THEN c.rejection_reason END AS rejection_reason,
+         s.title,
+         s.artist
+    FROM catalog_suggestions c
+    JOIN songs s ON s.id = c.target_id
+   WHERE c.requested_by = $1
+     AND c.target_table = '${SUGGESTION_TARGET_TABLE}'
+     AND c.status <> 'pending'
+     AND c.acknowledged_at IS NULL
+   ORDER BY c.updated_at ASC, c.group_id ASC, c.target_column ASC
+`
+
+/**
+ * RH-111 — marks the listed rows seen. Scoped by `requested_by = $1` inside the
+ * statement, so an id that belongs to someone else matches nothing and changes
+ * nothing; `acknowledged_at IS NULL` keeps a repeat call from moving the stamp,
+ * which is what makes the acknowledgement idempotent.
+ */
+export const ACKNOWLEDGE_SUGGESTION_OUTCOMES_SQL = `
+  UPDATE catalog_suggestions
+     SET acknowledged_at = now()
+   WHERE requested_by = $1
+     AND id = ANY($2::uuid[])
+     AND status <> 'pending'
+     AND acknowledged_at IS NULL
+`
+
+const OUTCOME_OF_STATUS = {
+  approved: 'approved',
+  rejected: 'refused',
+  superseded: 'replaced',
+} as const
+
+/**
+ * Folds the flat unseen rows back into one entry per submission, keeping the
+ * query's order for both the groups and their fields. Pure.
+ */
+export function groupSuggestionOutcomes(
+  rows: readonly SuggestionOutcomeRow[],
+): SuggestionOutcomeGroup[] {
+  const groups = new Map<string, SuggestionOutcomeGroup>()
+  for (const row of rows) {
+    const key = `${row.group_id}:${row.song_id}`
+    let group = groups.get(key)
+    if (!group) {
+      group = {
+        group_id: row.group_id,
+        song_id: row.song_id,
+        title: row.title,
+        artist: row.artist,
+        fields: [],
+      }
+      groups.set(key, group)
+    }
+    group.fields.push({
+      id: row.id,
+      column: row.target_column,
+      outcome: OUTCOME_OF_STATUS[row.status],
+      reason: row.status === 'rejected' ? row.rejection_reason : null,
+    })
+  }
+  return [...groups.values()]
+}
 
 /** A fan-out INSERT: its statement text and the parameters it binds. */
 export interface SuggestionInsert {

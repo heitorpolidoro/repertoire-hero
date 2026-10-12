@@ -720,6 +720,14 @@ personal level, so rejection there is a notice and nothing more.
 - Losing is not being refused, and the requester is told which happened. Their correction
   was passed over for another, not judged wrong, and they still get the offer to keep
   their value personally where the field allows one.
+
+  **Built (RH-111):** the notice. On the signed-in home a dismissible banner lists, per
+  submission and per field, what was approved, refused (with the admin's reason when one
+  was given) and replaced; a replaced field never reads as refused and never shows a
+  reason. Dismissing acknowledges exactly the rows it listed (`acknowledged_at`), so
+  they do not return while rows decided later still appear. **Still pending:** the offer
+  to keep a refused or replaced value as a personal override, which waits for the
+  personal level and is owned by a follow-up task.
 - Counts are evidence. Five requesters behind one spelling and one behind another is a
   screen that reads itself, and it is what an admin should see first.
 - Moderation stays with `is_system_admin`. If the queue outgrows one person, that is a

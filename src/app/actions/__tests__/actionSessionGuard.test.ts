@@ -74,6 +74,8 @@ import {
   submitCatalogSuggestionAction,
   getPendingCatalogSuggestionsAction,
   reviewCatalogSuggestionGroupAction,
+  getUnseenSuggestionOutcomesAction,
+  acknowledgeSuggestionOutcomesAction,
 } from '../moderation'
 import {
   getUserPlaylistsAction,
@@ -161,6 +163,8 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   submitCatalogSuggestionAction: { run: () => submitCatalogSuggestionAction(SONG_ID, { title: 'x' }), mode: 'throws' },
   getPendingCatalogSuggestionsAction: { run: () => getPendingCatalogSuggestionsAction(), mode: 'throws' },
   reviewCatalogSuggestionGroupAction: { run: () => reviewCatalogSuggestionGroupAction('group-1', 'approve'), mode: 'throws' },
+  getUnseenSuggestionOutcomesAction: { run: () => getUnseenSuggestionOutcomesAction(), mode: 'throws' },
+  acknowledgeSuggestionOutcomesAction: { run: () => acknowledgeSuggestionOutcomesAction(['row-1']), mode: 'throws' },
 
   // --- playlists.ts ---
   getUserPlaylistsAction: { run: () => getUserPlaylistsAction(), mode: 'throws' },

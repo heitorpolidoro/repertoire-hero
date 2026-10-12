@@ -5,8 +5,14 @@ import {
   submitCatalogSuggestion,
   getPendingCatalogSuggestions,
   reviewCatalogSuggestionGroup,
+  getUnseenSuggestionOutcomes,
+  acknowledgeSuggestionOutcomes,
 } from '@/lib/moderation'
-import type { CatalogSuggestion, PendingCatalogSuggestionGroup } from '@/types/database'
+import type {
+  CatalogSuggestion,
+  PendingCatalogSuggestionGroup,
+  SuggestionOutcomeGroup,
+} from '@/types/database'
 
 export async function submitCatalogSuggestionAction(
   songId: string,
@@ -21,6 +27,16 @@ export async function getPendingCatalogSuggestionsAction(): Promise<
 > {
   const adminUserId = await getRequiredUserId()
   return getPendingCatalogSuggestions(adminUserId)
+}
+
+export async function getUnseenSuggestionOutcomesAction(): Promise<SuggestionOutcomeGroup[]> {
+  const userId = await getRequiredUserId()
+  return getUnseenSuggestionOutcomes(userId)
+}
+
+export async function acknowledgeSuggestionOutcomesAction(ids: string[]): Promise<number> {
+  const userId = await getRequiredUserId()
+  return acknowledgeSuggestionOutcomes(userId, ids)
 }
 
 export async function reviewCatalogSuggestionGroupAction(

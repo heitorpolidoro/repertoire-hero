@@ -30,6 +30,24 @@
     "polishing": "Aprimorando",
     "mastered": "Dominado"
   },
+  "suggestionOutcomes": {
+    "title": "O que aconteceu com as suas correções",
+    "approved": "Aprovada. Sua alteração já está no catálogo.",
+    "refused": "Não foi aceita.",
+    "replaced": "Substituída por outra correção.",
+    "reasonLabel": "Motivo:",
+    "gotIt": "Entendi",
+    "dismiss": "Dispensar",
+    "fields": {
+      "title": "Título",
+      "artist": "Artista",
+      "album": "Álbum",
+      "standard_key": "Tom",
+      "cover_url": "Capa",
+      "duration_seconds": "Duração",
+      "links": "Links"
+    }
+  },
   "landing": {
     "badge": "Feito para Músicos & Bandas",
     "title": "Domine seu Setlist.",

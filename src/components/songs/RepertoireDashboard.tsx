@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import type { SongStatus, Repertoire, Song } from "@/types/database";
@@ -32,6 +32,8 @@ export interface RepertoireDashboardActions extends SongFormActions {
 
 interface RepertoireDashboardProps {
   actions: RepertoireDashboardActions;
+  /** RH-111: the page-built correction-outcome banner, shown under the header. */
+  outcomeBanner?: ReactNode;
 }
 
 /** The context the server renders with: it cannot know the browser's band. */
@@ -50,7 +52,7 @@ const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
 const SPOTIFY_DEBOUNCE_MS = 500;
 
 
-function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
+function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProps) {
   const {
     isLoading,
     searchQuery,
@@ -324,6 +326,8 @@ function RepertoireDashboard({ actions }: RepertoireDashboardProps) {
           })}
         </div>
       </header>
+
+      {outcomeBanner}
 
       {/* Song list */}
       <section

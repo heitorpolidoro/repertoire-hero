@@ -114,7 +114,7 @@ const eslintConfig = defineConfig([
   // handler reference adds no branch. A pinned file may grow if its pin grows
   // with it — clause (e) requires the pin to equal the file's worst number, not
   // that the number never move.
-  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 536], "max-lines": ["error", 590] } },
+  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 538], "max-lines": ["error", 594] } },
   // RH-97: the link rows moved into `SongLinksEditor.tsx`, one populated shared
   // field into `SharedCatalogField.tsx` and the refusal notice into
   // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog

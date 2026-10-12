@@ -30,6 +30,24 @@
     "polishing": "Polishing",
     "mastered": "Mastered"
   },
+  "suggestionOutcomes": {
+    "title": "What happened to your corrections",
+    "approved": "Approved. Your change is now in the catalog.",
+    "refused": "Not accepted.",
+    "replaced": "Replaced by another correction.",
+    "reasonLabel": "Reason:",
+    "gotIt": "Got it",
+    "dismiss": "Dismiss",
+    "fields": {
+      "title": "Title",
+      "artist": "Artist",
+      "album": "Album",
+      "standard_key": "Key",
+      "cover_url": "Cover",
+      "duration_seconds": "Duration",
+      "links": "Links"
+    }
+  },
   "landing": {
     "badge": "Built for Musicians & Bands",
     "title": "Master Your Setlist.",

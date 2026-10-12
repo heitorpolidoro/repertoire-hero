@@ -8,8 +8,17 @@ import {
   updateSongTagsAction,
 } from "@/app/actions/repertoire";
 import { getBandRoleAction } from "@/app/actions/bands";
-import { submitCatalogSuggestionAction } from "@/app/actions/moderation";
+import { cookies, headers } from "next/headers";
+import {
+  acknowledgeSuggestionOutcomesAction,
+  getUnseenSuggestionOutcomesAction,
+  submitCatalogSuggestionAction,
+} from "@/app/actions/moderation";
+import { COOKIE_NAME, getSuggestionOutcomeCopy, resolveLocale } from "@/lib/i18n";
 import LandingPage from "@/components/landing/LandingPage";
+import SuggestionOutcomeBanner, {
+  type SuggestionOutcomeBannerActions,
+} from "@/components/songs/SuggestionOutcomeBanner";
 import RepertoireDashboard, {
   type RepertoireDashboardActions,
 } from "@/components/songs/RepertoireDashboard";
@@ -28,6 +37,11 @@ const REPERTOIRE_DASHBOARD_ACTIONS: RepertoireDashboardActions = {
   updateSongTags: updateSongTagsAction,
   submitCatalogSuggestion: submitCatalogSuggestionAction,
   getBandRole: getBandRoleAction,
+};
+
+/** RH-111: the banner's one write, injected for the same reason (F21). */
+const SUGGESTION_OUTCOME_ACTIONS: SuggestionOutcomeBannerActions = {
+  acknowledge: acknowledgeSuggestionOutcomesAction,
 };
 
 /**
@@ -51,5 +65,28 @@ export default async function HomePage() {
     return <LandingPage />;
   }
 
-  return <RepertoireDashboard actions={REPERTOIRE_DASHBOARD_ACTIONS} />;
+  const [outcomes, cookieStore, headerStore] = await Promise.all([
+    getUnseenSuggestionOutcomesAction(),
+    cookies(),
+    headers(),
+  ]);
+  const copy = getSuggestionOutcomeCopy(
+    resolveLocale({
+      cookieValue: cookieStore.get(COOKIE_NAME)?.value,
+      acceptLanguage: headerStore.get("accept-language"),
+    }),
+  );
+
+  return (
+    <RepertoireDashboard
+      actions={REPERTOIRE_DASHBOARD_ACTIONS}
+      outcomeBanner={
+        <SuggestionOutcomeBanner
+          groups={outcomes}
+          copy={copy}
+          actions={SUGGESTION_OUTCOME_ACTIONS}
+        />
+      }
+    />
+  );
 }

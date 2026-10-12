@@ -24,9 +24,13 @@ import {
   type CatalogSuggestionValue,
 } from '@/lib/catalogSuggestionPayload'
 import { logger } from '@/lib/logger'
+import type { SuggestionOutcomeRow } from '@/lib/dbRows'
 import {
+  ACKNOWLEDGE_SUGGESTION_OUTCOMES_SQL,
   APPROVE_SUGGESTION_GROUP_SQL,
   PENDING_SUGGESTION_GROUPS_SQL,
+  UNSEEN_SUGGESTION_OUTCOMES_SQL,
+  groupSuggestionOutcomes,
   REJECT_SUGGESTION_GROUP_SQL,
   SUGGESTION_GROUP_SQL,
   SUGGESTION_TARGET_TABLE,
@@ -38,6 +42,7 @@ import type {
   CatalogSuggestion,
   PendingCatalogSuggestionGroup,
   SongLink,
+  SuggestionOutcomeGroup,
 } from '@/types/database'
 
 /**
@@ -177,6 +182,46 @@ export async function getPendingCatalogSuggestions(
     }
     logger.error('Failed to fetch pending catalog suggestions', err, { adminUserId })
     throw new Error(`Failed to fetch pending catalog suggestions: ${err.message}`)
+  }
+}
+
+/**
+ * RH-111 — what became of the caller's own corrections, per field, until they
+ * dismiss it. Scoped by `userId` inside the statement: the session user is the
+ * only requester whose rows can be read, so no `checkSystemAdmin` applies and
+ * none is wanted.
+ */
+export async function getUnseenSuggestionOutcomes(
+  userId: string,
+): Promise<SuggestionOutcomeGroup[]> {
+  try {
+    const res = await query<SuggestionOutcomeRow>(UNSEEN_SUGGESTION_OUTCOMES_SQL, [userId])
+    return groupSuggestionOutcomes(res.rows)
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to fetch suggestion outcomes', err, { userId })
+    throw new Error(`Failed to fetch suggestion outcomes: ${err.message}`)
+  }
+}
+
+/**
+ * RH-111 — marks exactly the listed outcome rows seen. An id that is not the
+ * caller's matches nothing (the statement filters on `requested_by`), and a
+ * second call over the same ids changes nothing more. Returns the number of
+ * rows acknowledged.
+ */
+export async function acknowledgeSuggestionOutcomes(
+  userId: string,
+  ids: readonly string[],
+): Promise<number> {
+  if (ids.length === 0) return 0
+  try {
+    const res = await query(ACKNOWLEDGE_SUGGESTION_OUTCOMES_SQL, [userId, [...ids]])
+    return res.rowCount ?? 0
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('Failed to acknowledge suggestion outcomes', err, { userId })
+    throw new Error(`Failed to acknowledge suggestion outcomes: ${err.message}`)
   }
 }
 

@@ -56,6 +56,20 @@ export function resolveLocale(options: {
   return parseAcceptLanguage(acceptLanguage)
 }
 
+/** The signed-in home's correction-outcome banner copy (RH-111). */
+export type SuggestionOutcomeCopy = typeof enDict.suggestionOutcomes
+
+/**
+ * Banner copy for the signed-in home, resolved on the server and handed to the
+ * banner as a prop. It is deliberately not a `getDictionary` call site: the
+ * application UI is not dictionary-driven (AGENTS.md, "Internationalisation"),
+ * and this one block of copy is the single, spec-mandated exception, so the
+ * client component never reads a dictionary itself.
+ */
+export function getSuggestionOutcomeCopy(locale: Locale): SuggestionOutcomeCopy {
+  return (dictionaries[locale] || dictionaries[DEFAULT_LOCALE]).suggestionOutcomes
+}
+
 export function getDictionary(locale: Locale) {
   return dictionaries[locale] || dictionaries[DEFAULT_LOCALE]
 }
