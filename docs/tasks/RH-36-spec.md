@@ -1,532 +1,284 @@
-# RH-36 - Introduzir helper de transacao real e tornar escritas multi-statement atomicas
+# RH-37 - Mover acesso a dados das Server Actions para src/lib (integration and close-out)
 
-Baseline for every line number, count and command in this document is HEAD =
-`6ec6301` ("fix(RH-35): authorize Spotify playlist route handlers against the
-caller").
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+RH-37 was split once, into RH-45, RH-46 and RH-47. All three are `done` and
+merged (`a493731`, `51151d7`, `201a090`). A task is split at most once, so this
+is not a second split: it is the reduced-scope spec for what is left after the
+three parts, which is integration verification plus the documentation close-out.
+Baseline: `201a090`, version `0.1.74-202609071451`, clean tree.
 
 ## Scope
 
-This task introduces a real transaction helper in `src/lib/db.ts` and converts
-every multi-statement write in the tree that depends on atomicity to use it. It
-covers the four findings of `docs/plans/code-quality-review.md` section 5 T3:
+This task covers exactly two things.
 
-- F4 (review line ~265): `BEGIN`, the statements and `COMMIT` are issued through
-  the pool-level `query()` helper in three code paths (`updateSong`,
-  `updateEmail`, `reviewGlobalSongEdit`), so none of them is atomic and each
-  leaks a connection idle in transaction.
-- F9 (~305): the Spotify pull resync deletes every `playlist_songs` row and then
-  re-inserts them in a separate statement, outside any transaction.
-- F18 (~377): `addSongToPlaylist` computes `position` with `SELECT COUNT(*)`
-  then `INSERT`, a read-modify-write with nothing serialising it and no
-  constraint behind it.
-- F19 (~385): `ensureInRepertoire` runs two statements per band member per
-  track, using check-then-insert with a `23505` catch.
+1. **Integration verification.** Prove that the three parts compose at
+   `201a090`: findings F8, F21 and F22 of `docs/plans/code-quality-review.md` are
+   all satisfied simultaneously, the mechanical guards each part introduced still
+   pass together in one run, and every static gate, the whole suite, the
+   production build and the SSR smoke spec are green at the same commit. Nothing
+   here changes behaviour; the verification is the deliverable, and its evidence
+   is the Expected Results below.
+2. **Documentation close-out.** Mark F8, F21, F22 and task T4 (section 5) as
+   resolved in `docs/plans/code-quality-review.md`, with the commit ids, and
+   record the two factual corrections the split analysis turned up.
 
-Concretely it delivers: `withTransaction` and a `Queryable` type in
-`src/lib/db.ts`; the conversion of the three F4 paths, the pull resync and
-`addSongToPlaylist`; the set-based rewrite of `ensureInRepertoire`; migration
-`0007_add_playlist_song_position_unique.sql` adding `UNIQUE (playlist_id,
-position)` after repairing existing duplicate positions; a mechanical guard test
-forbidding bare `BEGIN`/`COMMIT`/`ROLLBACK` through `query()`; four new test
-files (two of them real-database); a one-paragraph `# Transactions` convention
-in `AGENTS.md`; and the version bump.
+**This task changes no code.** The refactoring was delivered by RH-45 (SQL out of
+`src/app/actions/*` into `src/lib`, dev profiles route on the shared pool),
+RH-46 (`TabDrawingStage` and `AppLayout` inverted to props) and RH-47
+(`SongForm`, `CorrectionModal` and `useBandAdmin` inverted, plus the ESLint
+`no-restricted-imports` rule). Not one line under `src/`, `migrations/`, `e2e/`,
+`eslint.config.mjs` or `vitest.config.ts` moves here - ER8 states that as a
+checkable result.
 
-It does NOT change any authorization behaviour. The RH-35 ownership guards in
-`src/app/api/spotify/playlists/[id]/sync/route.ts`
-(`resolveSpotifyRouteAccess`, `resolveOwnedPlaylist`, and their position before
-any read or write) are preserved verbatim; the RH-34 `assertPlaylistAccess`
-call at the head of `addSongToPlaylist` stays outside the new transaction, so a
-refusal still happens before the first write. No user-visible feature changes:
-the same rows are written on the success path, the same error messages surface,
-and the sync response body (`{ added, removed }`) is unchanged.
+## State at 201a090
 
-## Audit at 6ec6301
+Every claim below was re-measured from the repository root at `201a090` while
+writing this spec, on a clean tree (`git status --porcelain` prints nothing).
 
-**Path 1 - `updateSong` (`src/lib/songs.ts:242-303`, F4).** Runs
-`await query('BEGIN')`, an `UPDATE global_songs` (fill-if-empty on title,
-artist, album, standard_key, cover_url, duration_seconds, links), an
-`UPDATE repertoire` (status, tags, personal_key), then `await query('COMMIT')`;
-the catch runs `await query('ROLLBACK')`. `query()` is `pool.query()`
-(`src/lib/db.ts:23-25`), which checks out an arbitrary idle connection per call
-and returns it immediately, so the four statements may run on up to four
-different connections. Each `UPDATE` is therefore autocommitted on its own
-connection. A failure of the repertoire `UPDATE` leaves the shared catalog row
-already filled in with data from an edit that the owner's own repertoire row
-never received, and the `ROLLBACK` lands on a connection that never saw
-`BEGIN` (Postgres answers with a `25P01` warning, not an error, so nothing in
-the logs marks it). The connection that did receive `BEGIN` goes back to the
-pool *idle in transaction*, holding its snapshot and locks until
-`idleTimeoutMillis` (30000 ms) reaps it; with `max: 10` a burst exhausts the
-pool.
+**F8 - SQL in the Server Action layer. Closed by RH-45 (`a493731`).**
+`grep -c "query(" src/app/actions/*.ts` prints:
 
-**Path 2 - `updateEmail` (`src/lib/profile.ts:71-83`, F4).** Same shape, two
-statements: `UPDATE "user" SET email = ...` (the Better Auth table) and
-`UPDATE profiles SET email = ...`. A failure between them leaves the identity
-the user signs in with and the identity the app displays permanently
-disagreeing, with no error visible on the Better Auth side. `profiles.email` is
-`NOT NULL` but not unique (migration `0001_initial_schema.sql:83-90`), so
-nothing repairs the split afterwards.
+```
+src/app/actions/bands.ts:0
+src/app/actions/moderation.ts:0
+src/app/actions/playlists.ts:0
+src/app/actions/profile.ts:0
+src/app/actions/repertoire.ts:0
+src/app/actions/tabs.ts:0
+```
 
-**Path 3 - `reviewGlobalSongEdit` (`src/lib/moderation.ts:159-181`, F4).** The
-approve branch wraps `UPDATE global_songs SET <narrowed fields>` and
-`UPDATE global_song_edits SET status = 'approved'` in an inner
-`try { query('BEGIN') ... } catch { query('ROLLBACK') }`. A failure of the
-second statement leaves the shared catalog already rewritten while the edit
-stays `pending` in the moderation queue, so an admin who approves it again
-applies the same edit twice; a failure of the first leaves the edit marked
-approved with nothing applied. Both are silent.
+`grep -rn "@/lib/db" src/app/actions/*.ts` prints nothing and exits 1. At
+`059d4c3` the same commands printed `playlists.ts:2`, `repertoire.ts:5`,
+`tabs.ts:6` (13 sites) and three import lines. The statements now live in
+`src/lib/tabs.ts`, `src/lib/songs.ts`, `src/lib/playlists.ts` and
+`src/lib/devProfiles.ts`.
 
-**Path 4 - pull resync (`src/app/api/spotify/playlists/[id]/sync/route.ts:96-101`,
-F9).** After a long sequence of Spotify network calls and per-track upserts,
-the handler runs `DELETE FROM playlist_songs WHERE playlist_id = $1` and then,
-as a separate statement, the bulk insert built by `buildPlaylistSongsInsert`. A
-Postgres error, a serverless timeout or a malformed bulk insert between the two
-leaves the playlist permanently empty with no record of what it held. The
-window is not theoretical: it opens after every network round trip in the
-handler has already happened.
+**F22 - a route handler with its own Postgres client. Closed by RH-45.**
+`grep -rln "new Client" src` prints nothing and exits 1. At `059d4c3` it printed
+exactly `src/app/api/dev/profiles/route.ts`. `src/lib/db.ts` constructs a
+`new Pool`, never a client, so an empty result is the correct expectation rather
+than a one-path result.
 
-**Path 5 - `addSongToPlaylist` (`src/lib/playlists.ts:146-184`, F18).** Up to
-five statements with nothing serialising them: for a band playlist a
-`SELECT` + `INSERT` on the band repertoire row, a `SELECT` + `INSERT` on the
-caller's repertoire row, then
-`SELECT COUNT(*) as count FROM playlist_songs WHERE playlist_id = $1` and an
-`INSERT` of `count + 1` as `position`. Two failure modes. Concurrency: two adds
-read the same count and insert the same position, and the ordering the whole
-feature is built on becomes ambiguous. Sequence: `removeSongFromPlaylist`
-(`src/lib/playlists.ts:186-197`) deletes a row without renumbering, so
-positions 1,2,3 minus position 1 leaves 2,3 and the next add computes
-`COUNT(*) + 1 = 3`, a duplicate, with no concurrency at all. Nothing in the
-schema objects: `playlist_songs` has `uq_playlist_song UNIQUE (playlist_id,
-song_id)` (migration `0001_initial_schema.sql:265-271`) and no constraint on
-`position`. A failure part way through also leaves the song in a repertoire but
-not in the playlist.
+**F21 - inward imports. Closed by RH-46 (`51151d7`) and RH-47 (`201a090`).**
+`grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints
+nothing and exits 1 (the pipeline's exit status is `grep -v`'s). At `059d4c3`
+the same command printed five lines. The enforcement rule exists in
+`eslint.config.mjs` (lines 23-36 at `201a090`): `no-restricted-imports` set to
+`error`, `patterns[0].group` is `["@/app/*", "@/app/**"]`, `files` is
+`["src/components/**", "src/lib/**", "src/hooks/**"]` and `ignores` is
+`["**/__tests__/**"]`. I proved it bites: a probe file
+`src/lib/rh37RuleProbe.ts` importing `getBandsAction` from `@/app/actions/bands`
+made `npx eslint src/lib/rh37RuleProbe.ts` print
 
-**Path 6 - `ensureInRepertoire` (`src/lib/spotifyPlaylistSync.ts:131-172`,
-F19).** For a band owner: one `SELECT` and possibly one `INSERT` for the band
-row, one `SELECT` for the member list, then one `SELECT` and possibly one
-`INSERT` per member. For a 3-member band that is 3 statements plus up to 6 more,
-per track, inside the per-track `await` loop of the sync and import routes,
-on a pool capped at 10. Each insert is wrapped in a `try/catch` that swallows
-`23505`, which is an admission that the check-then-act was never sound. That
-catch is also actively unsafe once the code runs inside a transaction: a
-`23505` aborts the whole transaction, so swallowing it and continuing produces
-`25P02 current transaction is aborted` on the next statement rather than the
-intended no-op.
+```
+  1:1  error  '@/app/actions/bands' import is restricted from being used by a pattern. src/components, src/hooks and src/lib must not import from the App Router tree. Pass the Server Action down from the page as a prop or an injected dependency (F21/RH-47)  no-restricted-imports
+```
+
+followed by `1 problem (1 error, 0 warnings)`. The probe was deleted and
+`git status --porcelain -- src` prints nothing.
+
+**The twelve guard and inversion suites exist and pass together.** I confirmed
+each file is present and ran all twelve in one invocation:
+`src/app/actions/__tests__/actionDataAccessGuard.test.ts` (RH-45),
+`src/app/actions/__tests__/actionAuthorizationGuard.test.ts`,
+`src/app/actions/__tests__/actionSessionGuard.test.ts`,
+`src/lib/__tests__/transactionGuard.test.ts`,
+`src/lib/__tests__/tabs.test.ts`,
+`src/lib/__tests__/devProfiles.test.ts`,
+`src/app/actions/__tests__/authzTabs.db.test.ts` (RH-45),
+`src/components/tabs/__tests__/TabDrawingStage.test.tsx`,
+`src/components/layout/__tests__/AppLayout.test.tsx` (RH-46),
+`src/components/songs/__tests__/SongForm.test.tsx`,
+`src/components/songs/__tests__/CorrectionModal.test.tsx`,
+`src/hooks/__tests__/useBandAdmin.test.tsx` (RH-47). The run reports
+`Test Files  12 passed (12)` and `Tests  146 passed (146)`, with no `failed` and
+no `skipped` segment.
+
+**Gate baselines, all measured at `201a090`.**
+
+- `npx vitest run`: `Test Files  59 passed (59)`, `Tests  736 passed (736)`, no
+  skipped. This needs Postgres at
+  `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
+  applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`; without
+  them six DB-backed files skip 51 tests.
+- `npx eslint .`: final summary line `29 problems (12 errors, 17 warnings)`.
+- `./node_modules/.bin/tsc --noEmit`: exits 0, prints nothing. Use that exact
+  binary path; `npx tsc` is intercepted by a shell hook in this environment.
+- `npm run lint:dead` (knip): clean, no output beyond the npm banner.
+- `npm run lint:dup` (jscpd): `Found 19 clones.`, Total row 239 duplicated lines,
+  `0.88%`, against the 2 % threshold.
+- `npm run audit`: `found 0 vulnerabilities`.
+- `npx next build`: exits 0.
+- `npx playwright test e2e/ssr-smoke.spec.ts`: `4 passed`.
+
+**The two factual corrections, re-measured against the review's own baseline.**
+`docs/plans/code-quality-review.md` is pinned to `13da8b2` (its first line says
+so). I measured that commit directly rather than trusting either the finding or
+the dispatch note, and the two inaccuracies are not the same kind of thing:
+
+- **F8's "Fifteen SQL statements" was correct at `13da8b2`.**
+  `git show 13da8b2:src/app/actions/<f>.ts | grep -c "query("` gives
+  `repertoire.ts` 6, `tabs.ts` 7, `playlists.ts` 2 - fifteen. `checkAccess` also
+  genuinely existed there: `git show 13da8b2:src/app/actions/tabs.ts` declares it
+  at L11 and calls it at L39, L91, L128 and L149. Both statements went stale
+  later, in RH-34 and RH-36, and were already stale at `059d4c3` (13 sites, no
+  `checkAccess`). So the honest correction is a dated note, **not** a rewrite:
+  editing the heading to say "Thirteen" would replace a true statement about
+  `13da8b2` with a false one.
+- **F21's "the two inward dependencies" was wrong at `13da8b2` itself.**
+  `git grep -n "@/app/" 13da8b2 -- src/components src/lib src/hooks`, minus
+  `__tests__`, returns five lines, not two. The cause is mechanical and worth
+  recording: the M4 command quoted in section 2.5 is
+  `grep -rn "from '@/app" src/lib src/hooks src/components`, with a **single**
+  quote in the pattern, and `SongForm.tsx`, `CorrectionModal.tsx` and
+  `useBandAdmin.ts` all write their import source in double quotes. The grep
+  could not have seen them.
 
 ## Approach
 
-### 1. `withTransaction` and `Queryable` in `src/lib/db.ts`
+### 1. `docs/plans/code-quality-review.md` - six added lines, nothing removed
 
-Add, keeping `pool` and `query` exactly as they are:
+The edit is **purely additive**: six new lines, no line deleted, no line
+reworded. That is a deliberate mechanical choice and it is what ER6 checks with
+`git diff --numstat`. Rationale: section 2 of the document is an explicitly
+dated measurement of `13da8b2` and section 3's findings are its analysis;
+rewriting either would destroy the audit trail and, in F8's case, would inject a
+new error (see State above). A dated `**Correction (RH-37):**` line carries the
+same information, says when the claim stopped being true, and leaves the
+original measurable claim intact.
 
-```ts
-import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg'
+Each new line is a single line in the file, appended at the end of the finding
+block it belongs to, so every closed finding ends with a `**Status:**` line.
 
-/** Anything that can run a parameterized statement: the pool, or one client
- *  checked out of it inside `withTransaction`. */
-export interface Queryable {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>>
-}
+**After F8's `**Remediation:**` line (L303 at `201a090`), append these two
+lines, in this order:**
 
-export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect()
-  try {
-    await client.query('BEGIN')
-    const result = await fn(client)
-    await client.query('COMMIT')
-    return result
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK')
-    } catch {
-      // The connection is already unusable; release() below discards it.
-    }
-    throw error
-  } finally {
-    client.release()
-  }
-}
+```
+**Correction (RH-37):** The counts above were accurate at this document's pinned baseline `13da8b2` and had drifted before the remediation started. At `059d4c3`, the commit RH-45 branched from, the count was thirteen, not fifteen (`repertoire.ts` 5, `tabs.ts` 6, `playlists.ts` 2), and the `checkAccess` helper described above no longer existed: RH-34 had already replaced it with `assertRepertoireAccess` in `src/lib/songs.ts`, which every tab action already called, so no authorization helper had to be re-homed.
+**Status:** Resolved by RH-45 (`a493731`). Every statement now lives in `src/lib` (`tabs.ts`, `songs.ts`, `playlists.ts`, `devProfiles.ts`) and the actions are session resolution plus delegation plus `revalidatePath`; at `201a090`, `grep -c "query(" src/app/actions/*.ts` prints `0` for all six files and `grep -rn "@/lib/db" src/app/actions/*.ts` prints nothing. Re-entry is blocked by `src/app/actions/__tests__/actionDataAccessGuard.test.ts`.
 ```
 
-Three points the reviewer should check. The `release()` is in a `finally`, so
-the connection returns to the pool on every path, including the one where
-`ROLLBACK` itself throws (that is the case that leaks today). The `ROLLBACK`
-failure is swallowed under the `S1` convention of AGENTS.md with the one-line
-comment above, because the original error is the one worth propagating and the
-broken connection is discarded by `release()`. `withTransaction` rethrows the
-original error unwrapped: the L1 log-then-wrap stays at each call site, so the
-thrown message text does not change anywhere.
+**After F21's `**Remediation:**` line (L407 at `201a090`), append these two
+lines, in this order:**
 
-This exact code was typechecked against the repository's `tsconfig.json` while
-writing this spec: `Pool` and `PoolClient` both satisfy `Queryable`
-structurally, so `pool` can be passed as a default argument where a `Queryable`
-is expected and `npx tsc --noEmit` exits 0 with no emitted file.
-
-Do not export anything that is not consumed - `npm run lint:dead` (knip) fails
-on an unused export. `Queryable` earns its export in step 6.
-
-### 2. F4 path 1: `updateSong` (`src/lib/songs.ts`)
-
-Replace the `query('BEGIN')` / `query('COMMIT')` / `query('ROLLBACK')` frame
-with one `withTransaction` call inside the existing `try`, so the L1 catch and
-its `Failed to update song: ${err.message}` message are untouched:
-
-```ts
-try {
-  await withTransaction(async (client) => {
-    await client.query(songSql, [ ... ])
-    await client.query(repSql, [ ... ])
-  })
-} catch (error) { /* unchanged L1 block */ }
+```
+**Correction (RH-37):** There were five inward dependencies, not two. The M4 command quoted in section 2.5 greps for `from '@/app` with a single quote, so it missed the double-quoted imports at `src/components/songs/SongForm.tsx:16`, `src/components/songs/CorrectionModal.tsx:5` and `src/hooks/useBandAdmin.ts:11`, all three of which were already present at `13da8b2`.
+**Status:** Resolved by RH-46 (`51151d7`) and RH-47 (`201a090`). All five now receive their server calls as props or as one injected actions object, and at `201a090`, `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing. The rule this remediation asks for is the `no-restricted-imports` block in `eslint.config.mjs`, banning `@/app/*` and `@/app/**` under `src/components/**`, `src/lib/**` and `src/hooks/**` with `**/__tests__/**` exempt.
 ```
 
-The two SQL strings, their parameter arrays and the fill-if-empty semantics do
-not change.
+**After F22's `**Remediation:**` line (L415 at `201a090`), append this line:**
 
-### 3. F4 path 2: `updateEmail` (`src/lib/profile.ts`)
-
-Same conversion, two `client.query` calls in the callback. The catch keeps its
-current shape and its `Failed to update email: ${message}` text.
-
-### 4. F4 path 3: `reviewGlobalSongEdit` (`src/lib/moderation.ts`)
-
-Delete the inner `try`/`catch` that issued `BEGIN`/`ROLLBACK` and return the
-row out of the callback:
-
-```ts
-return await withTransaction(async (client) => {
-  if (setClauses.length > 0) {
-    values.push(edit.song_id)
-    await client.query(`UPDATE global_songs SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`, values)
-  }
-  const res = await client.query(updateEditSql, [adminUserId, editId])
-  return res.rows[0] as GlobalSongEdit
-})
+```
+**Status:** Resolved by RH-45 (`a493731`). The route now calls `listDevProfiles()` from `src/lib/devProfiles.ts`, which uses the shared pool through `query()`, and keeps its `NODE_ENV` 404 guard; at `201a090`, `grep -rln "new Client" src` prints nothing.
 ```
 
-The outer catch, including the L1a re-throw list (`Access denied`,
-`Global song edit not found`, `Edit request is already reviewed`), stays as is.
-`checkSystemAdmin` and the `SELECT * FROM global_song_edits` read stay outside
-the transaction, where they are today.
+**After T4's `**Covers:** F8, F21, F22` line (L517 at `201a090`), append this
+line:**
 
-### 5. F9: the pull resync (`src/app/api/spotify/playlists/[id]/sync/route.ts`)
-
-Wrap only the destructive pair in one transaction, leaving every RH-35 guard,
-the Spotify fetches, the per-track `findOrCreateGlobalSong` /
-`ensureInRepertoire` loop, the added/removed counting and the trailing
-`UPDATE playlists SET last_synced_at = now()` exactly where they are:
-
-```ts
-await withTransaction(async (client) => {
-  await client.query('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
-  if (spotifySongIdsInOrder.length > 0) {
-    const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifySongIdsInOrder)
-    await client.query(sql, values)
-  }
-})
+```
+**Status:** Delivered by RH-45 (`a493731`), RH-46 (`51151d7`) and RH-47 (`201a090`); integrated and verified by RH-37. All three findings it covers are closed.
 ```
 
-A failing insert now rolls the delete back, so the playlist keeps its previous
-rows and the R1 catch answers 500 as before. `buildPlaylistSongsInsert` is not
-modified. Delete-then-insert (rather than the upsert the F9 remediation
-mentions as an alternative) is deliberate: it is the smallest change that makes
-the path atomic, and inside a single transaction the deletes precede the
-inserts, so the new `UNIQUE (playlist_id, position)` constraint of step 7 is
-never transiently violated and does not need to be deferrable.
+The T4 marker deliberately uses `Delivered` rather than `Resolved`, so that
+`grep -c "^\*\*Status:\*\* Resolved"` counts the three findings and nothing else,
+and `grep -c "^\*\*Status:\*\* Delivered"` counts the one task. Neither prefix
+occurs anywhere in the document today (`grep -c "^\*\*Status:\*\*"` prints `0` at
+`201a090`), so the counts in ER6 are unambiguous.
 
-### 6. F19: set-based `ensureInRepertoire` (`src/lib/spotifyPlaylistSync.ts`)
+Do not touch any other finding, the section 2 measurement tables, the section 4
+priority table, or any other T-task block.
 
-Replace the loop and the three `23505` catches with `ON CONFLICT DO NOTHING`
-(the bare form, which covers the partial unique indexes
-`uq_repertoire_user_song` and `uq_repertoire_band_song`), and accept an
-optional `Queryable` so the helper can later be called inside a transaction:
+### 2. AGENTS.md - no change
 
-```ts
-export async function ensureInRepertoire(
-  songId: string,
-  owner: { userId?: string; bandId?: string },
-  db: Queryable = pool,
-): Promise<void> {
-  if (owner.bandId) {
-    await db.query(
-      "INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
-      [owner.bandId, songId],
-    )
-    await db.query(
-      "INSERT INTO repertoire (user_id, song_id, status) SELECT bm.user_id, $1, 'unknown' FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING",
-      [songId, owner.bandId],
-    )
-  } else if (owner.userId) {
-    await db.query(
-      "INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING",
-      [owner.userId, songId],
-    )
-  }
-}
-```
+I checked both places the dispatch pointed at, and the convention is already
+stated twice, mechanically and by name:
 
-Statement count per call goes from `3 + 2N` to exactly 2 for a band owner and
-from 1 or 2 to exactly 1 for a personal owner; the owner-with-neither case still
-issues none. Behaviour is preserved: the same band row and the same one row per
-member end up present, and the `AFTER UPDATE OF status` trigger
-`trg_sync_band_repertoire` (migration `0001_initial_schema.sql:309-312`) does
-not fire on inserts, so band aggregate status is unaffected exactly as today.
-Both call sites (`sync/route.ts:76`, `import/route.ts:86`) keep their current
-two-argument call. Batching `findOrCreateGlobalSong` across the track list is
-explicitly out of scope (see below).
+- The `A2 - thin Server Actions` paragraph (AGENTS.md L226-L230) already says
+  that the action layer holds no data access at all - no `query()` call, no
+  `@/lib/db` import under `src/app/actions/*.ts`, no hand-rolled `pg` client
+  under `src/` outside `src/lib/db.ts` - and names
+  `src/app/actions/__tests__/actionDataAccessGuard.test.ts` as the enforcer.
+  That covers F8 and F22. (Added by RH-45.)
+- The `**Import direction (F21).**` bullet at the end of the
+  **Testing & quality** list (AGENTS.md L97) already says nothing under
+  `src/components`, `src/hooks` or `src/lib` may import from `@/app/*`, names
+  the `no-restricted-imports` block in `eslint.config.mjs` as the enforcer, and
+  records the `__tests__` exemption and `src/app/bandAdminActions.ts` as the
+  pattern. That covers F21. (Added by RH-47.)
 
-### 7. F18: position in SQL plus a constraint
+A third restatement would add nothing, so **AGENTS.md is not edited and is not on
+the ER8 whitelist**. If a reviewer disagrees, the change belongs in a follow-up,
+not here: adding it would widen this task's diff for no mechanical gain.
 
-`src/lib/playlists.ts`, `addSongToPlaylist`: keep `assertPlaylistAccess` where
-it is (outside and before the transaction) and run the rest in one
-`withTransaction`. Drop the check-then-insert on repertoire in favour of
-`ON CONFLICT DO NOTHING` - inside a transaction a swallowed `23505` would abort
-everything that follows - and compute the position in the insert:
+### 3. Version bump
 
-```sql
-INSERT INTO playlist_songs (playlist_id, song_id, position)
-SELECT $1, $2, COALESCE(MAX(position), 0) + 1 FROM playlist_songs WHERE playlist_id = $1
-```
+`package.json` goes from `0.1.74-202609071451` to `0.1.75-YYYYMMDDHHmm` with the
+local-time stamp of the commit. The Version Bumping Rule in AGENTS.md applies to
+every commit that merges to master, documentation-only ones included.
 
-For a band playlist that is the band repertoire insert, the caller's repertoire
-insert and the playlist insert (3 statements); for a personal playlist, 2. The
-set of rows written is identical to today's. The L1 catch and its
-`Failed to add song to playlist: ${err.message}` text are unchanged.
+### 4. Running the verification
 
-What serialises two concurrent adds is the constraint below, not the `SELECT`:
-under `READ COMMITTED` the second insert cannot see the first's uncommitted row,
-computes the same `position`, and then blocks on the unique index until the
-first transaction ends - at which point it fails with `23505` on
-`uq_playlist_song_position` instead of writing a duplicate. That block is the
-observable the concurrency test of step 9 must wait for (via the waiting
-backend's own `pg_locks` row) before it lets the first transaction commit;
-releasing earlier lets the second insert start after the commit, read the
-committed row, and legitimately compute the next position.
-
-New migration `migrations/0007_add_playlist_song_position_unique.sql` - the
-seventh file, continuing the four-digit numbering that
-`src/lib/__tests__/migrationsSingleSource.test.ts` enforces, and the only
-migrations directory:
-
-```sql
--- RH-36 (F18): playlist ordering is only meaningful if positions are unique
--- within a playlist. Existing rows can already hold duplicates: positions were
--- assigned as COUNT(*) + 1 while removals never renumbered, so a delete
--- followed by an add produced a collision. Renumber every playlist to a
--- contiguous 1..n in its current order first, then add the constraint.
-WITH renumbered AS (
-    SELECT id, row_number() OVER (PARTITION BY playlist_id ORDER BY position, id) AS rn
-    FROM playlist_songs
-)
-UPDATE playlist_songs ps
-SET    position = r.rn
-FROM   renumbered r
-WHERE  ps.id = r.id
-AND    ps.position <> r.rn;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_playlist_song_position') THEN
-        ALTER TABLE playlist_songs
-            ADD CONSTRAINT uq_playlist_song_position UNIQUE (playlist_id, position);
-    END IF;
-END
-$$;
-```
-
-`scripts/migrate.mjs` already wraps each file in `BEGIN`/`COMMIT` and records it
-in `_migrations`, so it is applied once by `npm run db:migrate` and by
-`docker/init-migrations.sh` on first boot; the `IF NOT EXISTS` guard makes a
-manual re-apply a no-op as well. A plain (non-deferrable) constraint is correct
-here because no code path renumbers positions in place: the only bulk rewrite is
-the resync of step 5, whose deletes and inserts share one transaction.
-
-### 8. Convention note in `AGENTS.md`
-
-Add one new top-level section `# Transactions`, placed immediately after
-`# Error Handling Conventions` and before `# UI & UX Behavioral Directives`,
-one paragraph: every multi-statement write that must be atomic goes through
-`withTransaction` from `@/lib/db`, which checks one client out of the pool and
-issues `BEGIN`/`COMMIT`/`ROLLBACK` on that client; `query()` is
-`pool.query()` and issuing transaction control through it is forbidden and
-enforced by `src/lib/__tests__/transactionGuard.test.ts`; inside a transaction,
-an expected duplicate is handled with `ON CONFLICT DO NOTHING` and never by
-catching `23505`, because a caught `23505` leaves the transaction aborted.
-
-### 9. Test plan
-
-Four new files, plus updates to the suites whose `@/lib/db` mocks or statement
-expectations change.
-
-**`src/lib/__tests__/withTransaction.test.ts`** (no database). Drives a fake
-client through `vi.spyOn(pool, 'connect')`: commit path returns the callback
-result and issues `BEGIN` then `COMMIT`; a throwing callback issues `ROLLBACK`
-and rethrows the original error object; `release()` is called on both paths and
-also when `ROLLBACK` itself rejects. The statement assertions read the mock's
-recorded arguments (for example
-`expect(queryMock.mock.calls.map((c) => c[0])).toEqual(['BEGIN', 'COMMIT'])`)
-rather than invoking `query` with a transaction-control literal, so this file
-too stays clear of the banned form.
-
-**`src/lib/__tests__/transactionGuard.test.ts`** (no database). Uses the
-existing scanner `findViolations(pattern, { skip })` from
-`src/lib/__tests__/test-helpers.ts` with `skip: 'src/lib/db.ts'` and a pattern
-matching a transaction-control keyword passed as a string literal to a `query(`
-call, asserting zero violations; a second test feeds the detector a sample
-line built by string concatenation (as `errorHandlingStyle.test.ts` does) so
-the file never contains the banned literal itself and a plain grep does not
-flag it.
-
-`findViolations` accepts exactly one `skip` path
-(`src/lib/__tests__/test-helpers.ts:309-326`), and that one path is spent on
-`src/lib/db.ts`. So the ban is absolute for every other file under `src/`,
-**test files included**: no new or edited test may write
-`client.query('BEGIN')`, `query('COMMIT')` or any other transaction-control
-literal. Where a test needs a transaction of its own - the concurrency case
-below is the only one - it opens it with `withTransaction`, never by hand.
-
-**`src/lib/__tests__/transactionAtomicity.db.test.ts`** (real database,
-`describe.skipIf(!SERVICE_ROLE_KEY)` like the other `*.db.test.ts` files, users
-created with `createTestUser` from `test-helpers.ts` and torn down in
-`afterAll`). Fault injection is done at the database, not by mocking: a
-`BEFORE UPDATE`/`BEFORE INSERT` trigger whose `WHEN` clause names exactly the
-one fixture row, calling a function that does
-`RAISE EXCEPTION 'RH-36 injected failure'`, created in the test and dropped in
-`afterEach`. Scoping the trigger by row id matters because vitest runs files in
-parallel workers and these tables are shared with the other database suites.
-The four cases: the repertoire update of `updateSong` fails and `global_songs`
-must be unchanged; the `profiles` update of `updateEmail` fails and the
-`"user"` row must be unchanged; the `global_song_edits` update of
-`reviewGlobalSongEdit` fails and `global_songs` must be unchanged with the edit
-still `pending`; and, after those failures,
-`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'idle in transaction'`
-is 0 (polled, because `pg_stat_activity` is updated at statement boundaries).
-
-The same file carries the two F18 position cases. The first is the
-removal-then-add sequence, which produces a duplicate position today. The
-second is the concurrent add, and it must be built out of two overlapping
-`withTransaction` calls coordinated by a promise barrier - not out of two
-clients checked out of `pool` with a hand-written `BEGIN`, which the guard of
-ER2 forbids in every file but `src/lib/db.ts`. Shape: the first
-`withTransaction` callback runs the position-computing insert for song A,
-resolves a barrier promise the test awaits, then awaits a release promise the
-test resolves later, so the transaction stays open; while it is open the test
-starts a second `withTransaction` for song B and does not await it, whose
-callback publishes its own backend pid (`SELECT pg_backend_pid()`, resolved
-into a second barrier promise) before running the same insert; under
-`READ COMMITTED` that insert cannot see A's uncommitted row, computes the same
-position and blocks on the unique index; the test waits for the block to be
-real before releasing anything, by polling
-`SELECT count(*)::int FROM pg_locks WHERE pid = <pid> AND NOT granted` through
-the pool-level `query()` helper until it is at least 1, bounded at 50 polls of
-100 ms with an explicit failure when the bound is exhausted; only then does it
-resolve the release promise, so A commits while B is already waiting, and the
-second call rejects with `23505` on `uq_playlist_song_position`, which
-`withTransaction` rolls back and rethrows unwrapped.
-
-The poll is load-bearing, not defensive: without it the second call is still
-inside `pool.connect()` when the release resolves, its insert then opens a
-fresh `READ COMMITTED` snapshot that already contains A's committed row,
-computes `MAX(position) + 1 = 2` and commits, and the test passes against the
-buggy and the fixed code alike. It must be scoped to the second transaction's
-own pid. A database-wide count over `pg_locks` or `pg_stat_activity` is not a
-substitute: `*.db.test.ts` files run against one shared database in parallel
-vitest workers, so an unrelated suite's lock would release the barrier early.
-Bounding the poll matters for the same reason ER3(d) bounds its own: a wait
-that never becomes true must fail with a readable assertion rather than hang
-until the vitest timeout. Because this test holds a transaction open while a
-second one blocks, keep it clear of `pool` exhaustion - it needs three
-connections at once (two transactions and the polling `query()`), well inside
-`max: 10`.
-
-**`src/lib/__tests__/spotifySyncAtomicity.db.test.ts`** (real database). Mocks
-`@/lib/auth-session`, `@/lib/spotifyAuth` and `global.fetch` exactly as
-`src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts` already does (reuse its
-`oneTrackPage` fixture shape), and drives `POST` of the sync route. Case 1
-(F9): a `BEFORE INSERT` trigger scoped to the fixture playlist makes the
-re-insert fail; the response is 500 and the playlist still holds its original
-rows in their original order with `last_synced_at` still NULL. Case 2 (F19): a
-pull on a band playlist with three members leaves one band repertoire row and
-three member rows for the synced song, and answers `{ added: 1, removed: 0 }`.
-
-**Existing suites that must be updated.** Their `vi.mock('@/lib/db', ...)`
-factories must gain `withTransaction: async (fn) => fn({ query })` - passing a
-fake client whose `query` is the same mock function - so their existing
-per-statement assertions keep working with the `BEGIN`/`COMMIT` calls gone:
-`src/lib/__tests__/moderation.test.ts` (also renumber the
-`toHaveBeenNthCalledWith(4, ...)` assertion to 3),
-`src/lib/__tests__/errors.test.ts` and `src/lib/__tests__/edge_cases.test.ts`
-(their SQL dispatchers must match `insert into playlist_songs` before any
-`from playlist_songs` branch, since the new insert contains both, and the
-`count(*) as count from playlist_songs` branch is dead),
-`src/lib/__tests__/spotifyPlaylistSync.test.ts` (add `pool` to the mocked
-module, replace the per-member expectations with the two set-based statements,
-drop the `23505`-swallow cases). `src/lib/__tests__/songs.test.ts`,
-`src/lib/__tests__/profile.test.ts` and `src/lib/__tests__/playlists.test.ts`
-are real-database suites and should keep passing unchanged; adjust them only if
-they assert on a statement whose text changed. The header comment of
-`src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts` says the resync has no
-transaction "(finding F4 / RH-36)" - update that sentence.
+Everything in the Expected Results is a re-run, not a change. Run the whole set
+once after the documentation edit and the version bump are in the tree, so the
+evidence describes the commit that will actually merge. The whole-suite,
+coverage-free path is the long pole; the DB precondition in ER4 is not optional,
+because without it six files skip 51 tests and the counts in ER3 and ER4 cannot
+be reached.
 
 ## Expected Results
 
-ER1 - `src/lib/db.ts` exports `withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T>`, which checks a client out of the pool with `pool.connect()`, issues `BEGIN`, runs `fn(client)`, issues `COMMIT` and returns the callback result; when `fn` throws it issues `ROLLBACK` and rethrows the original error unwrapped; and it calls `client.release()` in a `finally` on every path, including the path where `ROLLBACK` itself rejects. Verify: `grep -n 'export async function withTransaction' src/lib/db.ts` prints exactly one line, and `npx vitest run src/lib/__tests__/withTransaction.test.ts` prints `Test Files  1 passed (1)` and `Tests  4 passed (4)` with 0 failed and 0 skipped. That file needs no database (it stubs `pool.connect` with `vi.spyOn`) and must contain tests named exactly `commits and returns the callback result`, `rolls back and rethrows when the callback throws`, `releases the client when the callback throws`, and `releases the client even when ROLLBACK itself fails`.
+ER1 - The three findings hold simultaneously at the merge commit, checked from the repository root. `grep -c "query(" src/app/actions/*.ts` prints exactly these six lines and nothing else: `src/app/actions/bands.ts:0`, `src/app/actions/moderation.ts:0`, `src/app/actions/playlists.ts:0`, `src/app/actions/profile.ts:0`, `src/app/actions/repertoire.ts:0`, `src/app/actions/tabs.ts:0`. `grep -rn "@/lib/db" src/app/actions/*.ts` prints nothing and exits with status 1 (check with `; echo $?`). `grep -rln "new Client" src` prints nothing and exits with status 1. `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing and exits with status 1. Together these are findings F8, F22 and F21 of `docs/plans/code-quality-review.md`, satisfied at one commit; at `059d4c3` the same four commands printed, respectively, three non-zero counts totalling 13, three import lines, `src/app/api/dev/profiles/route.ts`, and five inward-import lines.
 
-ER2 - No file under `src/` other than `src/lib/db.ts` passes a bare transaction-control statement to a query function. Verify: `grep -rn -E "query\('(BEGIN|COMMIT|ROLLBACK)'\)" src` prints exactly three lines, all of them in `src/lib/db.ts` (`client.query('BEGIN')`, `client.query('COMMIT')`, `client.query('ROLLBACK')`), and `grep -rn -E "query\('(BEGIN|COMMIT|ROLLBACK)'\)" src | grep -c -v '^src/lib/db.ts:'` prints `0`. At `6ec6301` the same first command printed nine lines across `src/lib/moderation.ts`, `src/lib/profile.ts` and `src/lib/songs.ts`. The rule is also enforced mechanically: `npx vitest run src/lib/__tests__/transactionGuard.test.ts` prints `Test Files  1 passed (1)` and `Tests  2 passed (2)`, one test asserting the scan of `src/` (with `src/lib/db.ts` skipped) reports zero violations and one asserting the detector does match a sample offending line.
+ER2 - The import-direction rule is present in ESLint and is proved to bite, and the probe leaves no trace. `eslint.config.mjs` contains a config object whose `files` is exactly `["src/components/**", "src/lib/**", "src/hooks/**"]`, whose `ignores` is `["**/__tests__/**"]`, and whose `rules` sets `"no-restricted-imports"` to `"error"` with a `patterns` entry whose `group` contains both `"@/app/*"` and `"@/app/**"`. Then, from the repository root: `printf "import { getBandsAction } from '@/app/actions/bands'\n\nexport const probe = getBandsAction\n" > src/lib/rh37RuleProbe.ts` followed by `npx eslint src/lib/rh37RuleProbe.ts` prints a final summary line reading exactly `1 problem (1 error, 0 warnings)`, and the reported problem line names the rule id `no-restricted-imports` and quotes the import source `'@/app/actions/bands'`. Then `rm src/lib/rh37RuleProbe.ts`, after which `test ! -e src/lib/rh37RuleProbe.ts && echo restored` prints `restored` and `git status --porcelain -- src` prints nothing. Scoping that status check to `src` is deliberate: an unscoped run also reports this task's own documentation changes and would fail a correct implementation.
 
-ER3 - The three F4 paths are atomic and leak nothing. Verify with `SUPABASE_SERVICE_ROLE_KEY=local DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npx vitest run src/lib/__tests__/transactionAtomicity.db.test.ts`, which must print `Test Files  1 passed (1)` and at least `Tests  6 passed (6)` with 0 failed and 0 skipped (run `npm run db:migrate` first). The file must contain, and pass, these four tests, each injecting the failure with a `BEFORE UPDATE` trigger scoped by a `WHEN` clause to the single fixture row and dropped afterwards: (a) `updateSong leaves global_songs untouched when the repertoire update fails` - fixture is a `global_songs` row with `album` and `standard_key` NULL plus a `repertoire` row for a fresh test user with `status = 'unknown'`, `tags = '{}'`, `personal_key` NULL; the trigger is on `repertoire`; `updateSong` is called with a non-empty album, key `C`, status `learning` and tags `['rh36']`; the call rejects with a message starting `Failed to update song:` and afterwards `SELECT album, standard_key FROM global_songs WHERE id = <song>` still returns two NULLs and `SELECT status, tags, personal_key FROM repertoire WHERE id = <entry>` still returns `unknown`, `{}`, NULL; (b) `updateEmail leaves the user row untouched when the profiles update fails` - trigger on `profiles`; the call rejects with a message starting `Failed to update email:` and `SELECT email FROM "user" WHERE id = <user>` still returns the original address; (c) `reviewGlobalSongEdit leaves global_songs untouched when marking the edit reviewed fails` - fixture is a system-admin profile and a `pending` `global_song_edits` row proposing a new title, trigger on `global_song_edits`; the call rejects with a message starting `Failed to review global song edit:` and afterwards the `global_songs` title is the original and `SELECT status FROM global_song_edits WHERE id = <edit>` is still `pending`; (d) `leaves no connection idle in transaction after a failed write` - after the three failures above, `SELECT count(*)::int FROM pg_stat_activity WHERE datname = current_database() AND state = 'idle in transaction'` is `0` (polled up to 20 times at 100 ms because `pg_stat_activity` updates at statement boundaries).
+ER3 - The guards and inversion suites from all three parts pass together in one run. `npx vitest run src/app/actions/__tests__/actionDataAccessGuard.test.ts src/app/actions/__tests__/actionAuthorizationGuard.test.ts src/app/actions/__tests__/actionSessionGuard.test.ts src/lib/__tests__/transactionGuard.test.ts src/lib/__tests__/tabs.test.ts src/lib/__tests__/devProfiles.test.ts src/app/actions/__tests__/authzTabs.db.test.ts src/components/tabs/__tests__/TabDrawingStage.test.tsx src/components/layout/__tests__/AppLayout.test.tsx src/components/songs/__tests__/SongForm.test.tsx src/components/songs/__tests__/CorrectionModal.test.tsx src/hooks/__tests__/useBandAdmin.test.tsx` exits 0 and reports `Test Files  12 passed (12)` and `Tests  146 passed (146)`, with no `failed` and no `skipped` segment on either line. All twelve files must exist; a missing path makes vitest fail rather than silently pass. This run includes a real-database suite (`authzTabs.db.test.ts`), so it needs the same database preconditions as ER4: Postgres at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied (`npm run db:migrate`) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` or the environment. Without them that file skips and the `skipped` condition above fails even for a correct tree.
 
-ER4 - A failing re-insert in the Spotify pull resync leaves the playlist intact. Verify with `SUPABASE_SERVICE_ROLE_KEY=local DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npx vitest run src/lib/__tests__/spotifySyncAtomicity.db.test.ts`, which must print `Test Files  1 passed (1)` and at least `Tests  2 passed (2)`, 0 failed, 0 skipped. It must contain a test named `a failing playlist_songs insert leaves the original playlist rows intact` whose fixture is a personal playlist owned by a fresh test user, linked to Spotify (`spotify_playlist_id` set) and holding two `playlist_songs` rows at positions 1 and 2, with the session and the Spotify token mocked and `global.fetch` stubbed to return a one-track page; a `BEFORE INSERT` trigger on `playlist_songs` with `WHEN (NEW.playlist_id = <playlist>)` raising an exception is installed and dropped afterwards; the test calls `POST` of `src/app/api/spotify/playlists/[id]/sync/route.ts` with body `{"direction":"pull"}` and asserts the response status is `500`, then that `SELECT song_id, position FROM playlist_songs WHERE playlist_id = <playlist> ORDER BY position` still returns exactly the original two rows in the original order, and that `SELECT last_synced_at FROM playlists WHERE id = <playlist>` is still NULL.
+ER4 - The whole suite is green and has not shrunk. With Postgres running at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied (`npm run db:migrate`) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` or the environment, `npx vitest run` exits 0 reporting at least 59 test files passed and at least 736 tests passed, with 0 failed and 0 skipped. Those are the exact counts at the `201a090` baseline (`Test Files  59 passed (59)`, `Tests  736 passed (736)`), and since this task adds no test they are equalities in practice; they are stated as floors only so an unrelated concurrent addition cannot fail the result. Without the two preconditions six DB-backed files skip 51 tests and the run does not count.
 
-ER5 - Migration `migrations/0007_add_playlist_song_position_unique.sql` exists, repairs duplicate positions before constraining them, and applies cleanly on top of the existing schema. Verify on a throwaway database: `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c 'DROP DATABASE IF EXISTS rh36_probe'` then `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c 'CREATE DATABASE rh36_probe'`; apply the first six files with `for f in migrations/000[1-6]_*.sql; do psql postgresql://postgres:postgres@127.0.0.1:54322/rh36_probe -v ON_ERROR_STOP=1 -q -f "$f" || echo FAILED; done` (prints no `FAILED`); seed a colliding pair with `psql postgresql://postgres:postgres@127.0.0.1:54322/rh36_probe -v ON_ERROR_STOP=1 -q -c "INSERT INTO \"user\" (id, name, email) VALUES ('11111111-1111-1111-1111-111111111111','RH36','rh36@example.com'); INSERT INTO profiles (id, email) VALUES ('11111111-1111-1111-1111-111111111111','rh36@example.com'); INSERT INTO global_songs (id, title, artist) VALUES ('22222222-2222-2222-2222-222222222222','A','X'),('33333333-3333-3333-3333-333333333333','B','X'); INSERT INTO playlists (id, user_id, name) VALUES ('44444444-4444-4444-4444-444444444444','11111111-1111-1111-1111-111111111111','P'); INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ('44444444-4444-4444-4444-444444444444','22222222-2222-2222-2222-222222222222',1),('44444444-4444-4444-4444-444444444444','33333333-3333-3333-3333-333333333333',1);"`; then `psql postgresql://postgres:postgres@127.0.0.1:54322/rh36_probe -v ON_ERROR_STOP=1 -q -f migrations/0007_add_playlist_song_position_unique.sql` exits 0, after which `psql postgresql://postgres:postgres@127.0.0.1:54322/rh36_probe -At -c "SELECT position FROM playlist_songs WHERE playlist_id='44444444-4444-4444-4444-444444444444' ORDER BY position"` prints exactly `1` then `2`, and `psql postgresql://postgres:postgres@127.0.0.1:54322/rh36_probe -At -c "SELECT count(*)::int FROM pg_constraint WHERE conname = 'uq_playlist_song_position'"` prints `1`; re-running the same `-f migrations/0007_...` command exits 0 again (idempotent). Drop the probe with `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c 'DROP DATABASE rh36_probe'`. `scripts/migrate.mjs` overwrites `DATABASE_URL` from `.env.local` (line 24), so `npm run db:migrate` always targets the test database and the runner check must make itself repeatable there: run `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "DELETE FROM _migrations WHERE name = '0007_add_playlist_song_position_unique.sql'"` and then `npm run db:migrate`, which must print `Executing migration: 0007_add_playlist_song_position_unique.sql` followed by `Migration successful: 0007_add_playlist_song_position_unique.sql` even though the constraint is already present (that is the idempotence of the `IF NOT EXISTS` guard, re-applied against a live schema); running `npm run db:migrate` once more, without the `DELETE`, prints `Skipping migration: 0007_add_playlist_song_position_unique.sql (already executed)` instead.
+ER5 - Every static gate is exactly at its `201a090` baseline, run from the repository root. `./node_modules/.bin/tsc --noEmit` exits 0 and prints nothing (use that exact binary path; `npx tsc` is intercepted by a shell hook in this environment). `npx eslint .` prints a final summary line reading exactly `29 problems (12 errors, 17 warnings)`, unchanged, because this task edits no file ESLint lints. `npm run lint:dead` exits 0 and reports no unused files, exports or dependencies. `npm run lint:dup` exits 0 and prints `Found 19 clones.` with a Total row showing 239 duplicated lines and a duplication percentage below 2 %. `npm run audit` exits 0 and prints `found 0 vulnerabilities`.
 
-ER6 - Playlist positions are computed in SQL and collisions are rejected loudly. Verify: `grep -c 'COALESCE(MAX(position), 0) + 1' src/lib/playlists.ts` prints `1` and `grep -c 'COUNT(\*) as count FROM playlist_songs' src/lib/playlists.ts` prints `0` (it printed `1` at `6ec6301`). The suite from ER3, `src/lib/__tests__/transactionAtomicity.db.test.ts`, must also contain and pass: (a) `assigns MAX(position) + 1 so a removal does not produce a duplicate position` - add three songs to a fresh personal playlist with `addSongToPlaylist`, remove the one at position 1 with `removeSongFromPlaylist`, add a fourth, then assert `SELECT position FROM playlist_songs WHERE playlist_id = <playlist> ORDER BY position` returns exactly `2, 3, 4` (at `6ec6301` the fourth add produced a second row at position 3); (b) `rejects two concurrent inserts that would take the same position` - on a fresh empty personal playlist, and without writing any transaction-control literal anywhere in the file (ER2 bans it outside `src/lib/db.ts`, and the guard skips only that one path), open two overlapping transactions with `withTransaction`, in exactly these four steps: (1) the first callback runs the position-computing insert for song A, resolves a barrier promise the test awaits, then awaits a release promise the test controls, so its transaction stays open; (2) while it is open the test starts a second `withTransaction` and does not await it, whose callback first runs `SELECT pg_backend_pid()` and publishes that pid to the test (resolving a second barrier promise with it) and only then runs the same position-computing insert for song B, which under READ COMMITTED cannot see A's uncommitted row, computes the same position and blocks on the unique index; (3) the test awaits the published pid and then, on the pool-level `query()` helper rather than on either transaction's client, polls `SELECT count(*)::int FROM pg_locks WHERE pid = <pid> AND NOT granted` until it is at least `1`, up to 50 times at 100 ms, and fails the test with an explicit assertion if the bound is exhausted, so a second transaction that never blocks fails fast instead of hanging until the vitest timeout - the poll must be scoped to that one pid and must not be a database-wide `pg_stat_activity` or `pg_locks` count, because `*.db.test.ts` files share one database with other suites running in parallel vitest workers and an unrelated worker would satisfy an unscoped count; (4) only after the poll succeeds does the test resolve the release promise, so the first transaction commits while the second is already waiting on its lock. It then asserts the second `withTransaction` promise rejects with a Postgres error whose message contains `uq_playlist_song_position`, after which `SELECT song_id, position FROM playlist_songs WHERE playlist_id = <playlist>` returns exactly one row, song A at position 1. Without step (3) this test does not fail on the code under test: the second call is still inside `pool.connect()` when the release resolves, so its insert takes a fresh READ COMMITTED snapshot after A commits, sees A's row, computes `MAX(position) + 1 = 2` and succeeds.
+ER6 - The review document records the close-out and the two corrections, additively. `grep -c "^\*\*Status:\*\* Resolved" docs/plans/code-quality-review.md` prints `3`, one for each of F8, F21 and F22; `grep -n "^\*\*Status:\*\* Resolved" docs/plans/code-quality-review.md` shows those three lines and each names at least one of the commit ids `a493731`, `51151d7` and `201a090`. `grep -c "^\*\*Status:\*\* Delivered" docs/plans/code-quality-review.md` prints `1`, the marker on `### T4 - Move data access out of the Server Action layer into src/lib` in section 5, and that line names all three of `a493731`, `51151d7` and `201a090`. `grep -c "^\*\*Correction (RH-37):\*\*" docs/plans/code-quality-review.md` prints `2`, and `grep -c "thirteen, not fifteen" docs/plans/code-quality-review.md` and `grep -c "five inward dependencies, not two" docs/plans/code-quality-review.md` each print `1`. The edit is purely additive and adds exactly six lines: `git diff --numstat 201a090 -- docs/plans/code-quality-review.md` prints exactly `6	0	docs/plans/code-quality-review.md` (six insertions, zero deletions), so no finding's analysis prose, no section 2 measurement table and no section 4 row was reworded.
 
-ER7 - `ensureInRepertoire` issues one statement per band instead of two per member, with unchanged results. Verify: `npx vitest run src/lib/__tests__/spotifyPlaylistSync.test.ts` prints `Test Files  1 passed (1)` with 0 failed and 0 skipped, and contains a test named `issues exactly two statements for a band owner regardless of member count` asserting the mocked `query` is called exactly twice for `ensureInRepertoire('song-1', { bandId: 'band-1' })` - the first an `INSERT INTO repertoire (band_id, song_id, status)` ending in `ON CONFLICT DO NOTHING`, the second an `INSERT INTO repertoire (user_id, song_id, status) SELECT ... FROM band_members ... ON CONFLICT DO NOTHING` - plus a test named `issues exactly one statement for a personal owner`; at `6ec6301` the band case issued 3 + 2N statements for N members. The results are unchanged end to end: the suite from ER4, `src/lib/__tests__/spotifySyncAtomicity.db.test.ts`, contains and passes `seeds the band row and every member repertoire row on a pull`, which pulls a one-track Spotify playlist into a band playlist whose band has three members and asserts the JSON response body equals `{"added":1,"removed":0}`, `SELECT count(*)::int FROM repertoire WHERE song_id = <song> AND band_id = <band>` is `1`, and `SELECT count(*)::int FROM repertoire WHERE song_id = <song> AND user_id IS NOT NULL` is `3`.
+ER7 - The application still builds and server-renders at the merge commit. `npx next build` exits 0 with no error output, and `npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed`. Both were green at `201a090` and this task changes no code, so a failure here means something outside the task's footprint moved.
 
-ER8 - The whole suite is green against a live database. With `npm run db:migrate` applied to `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, `SUPABASE_SERVICE_ROLE_KEY=local DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npx vitest run` reports at least `51 passed` test files and at least `632 passed` tests, with `0 failed` and no skipped tests (baseline at `6ec6301`: 47 files, 624 tests, 0 skipped). The four new files `src/lib/__tests__/withTransaction.test.ts`, `src/lib/__tests__/transactionGuard.test.ts`, `src/lib/__tests__/transactionAtomicity.db.test.ts` and `src/lib/__tests__/spotifySyncAtomicity.db.test.ts` all appear in the run and pass.
-
-ER9 - The static gates hold. `npx tsc --noEmit` exits 0 and prints nothing, and `git status --porcelain` reports no new untracked build artifact afterwards. `npx eslint .` prints the summary line `30 problems (12 errors, 18 warnings)` - identical to `6ec6301`, so the change adds no new lint problem (the command exits 1 at the baseline too; the summary line, not the exit code, is the check). `npm run lint:dup` exits 0 and reports at most 21 clones and at most 1.20 % duplicated lines (baseline: 19 clones, 239 duplicated lines, 0.99 %). `npm run lint:dead` exits 0 with no unused files, exports or dependencies reported - in particular `withTransaction` and `Queryable` are both consumed. `npm run audit` reports `found 0 vulnerabilities`.
-
-ER10 - The coverage gate holds. `SUPABASE_SERVICE_ROLE_KEY=local DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:coverage` exits 0, prints no line containing `does not meet global threshold`, and its `All files` row shows statements at least 80, branches at least 65, functions at least 78 and lines at least 80 (the four thresholds configured in `vitest.config.ts`). Cite the four numbers from the `All files` row of the run you perform; per-file numbers, if cited, may be read from `coverage/coverage-final.json`, because the text table omits files at 100 %.
-
-ER11 - Authorized behaviour is unchanged. `SUPABASE_SERVICE_ROLE_KEY=local DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npx vitest run src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts src/app/actions/__tests__/authzPlaylists.db.test.ts src/app/actions/__tests__/authzRepertoire.db.test.ts src/app/actions/__tests__/authzBands.db.test.ts` reports `Test Files  4 passed (4)` with 0 failed and 0 skipped, so the RH-34 and RH-35 ownership guards still refuse foreign resources before any write. `npx next build` exits 0. `npx playwright test e2e/ssr-smoke.spec.ts` prints `4 passed`.
-
-ER12 - Version, landing copy and the convention note. `node -p "require('./package.json').version"` prints a value matching `^0\.1\.71-[0-9]{12}$` and strictly greater than the baseline `0.1.70-202609062348`. This task ships no selling point (transaction safety is internal correctness), so the landing page is untouched: `git diff --stat 6ec6301 -- src/components/landing src/i18n/dictionaries` prints nothing. `AGENTS.md` gains exactly one new top-level section: `grep -c '^# Transactions$' AGENTS.md` prints `1`, that section sits between `# Error Handling Conventions` and `# UI & UX Behavioral Directives`, is a single paragraph, and mentions `withTransaction`, that `query()` must never carry `BEGIN`, `COMMIT` or `ROLLBACK`, and that an expected duplicate inside a transaction is handled with `ON CONFLICT DO NOTHING` rather than by catching `23505`.
-
-ER13 - The change stays inside its scope. `git diff --name-only 6ec6301` lists only paths from this whitelist (not every path is required, but no path outside it may appear): `docs/tasks/RH-36-spec.md`, `docs/suggestions-log.md`, `package.json`, `AGENTS.md`, `migrations/0007_add_playlist_song_position_unique.sql`, `src/lib/db.ts`, `src/lib/songs.ts`, `src/lib/profile.ts`, `src/lib/moderation.ts`, `src/lib/playlists.ts`, `src/lib/spotifyPlaylistSync.ts`, `src/app/api/spotify/playlists/[id]/sync/route.ts`, `src/lib/__tests__/withTransaction.test.ts`, `src/lib/__tests__/transactionGuard.test.ts`, `src/lib/__tests__/transactionAtomicity.db.test.ts`, `src/lib/__tests__/spotifySyncAtomicity.db.test.ts`, `src/lib/__tests__/moderation.test.ts`, `src/lib/__tests__/errors.test.ts`, `src/lib/__tests__/edge_cases.test.ts`, `src/lib/__tests__/spotifyPlaylistSync.test.ts`, `src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts`, `src/lib/__tests__/songs.test.ts`, `src/lib/__tests__/profile.test.ts`, `src/lib/__tests__/playlists.test.ts`, `src/lib/__tests__/test-helpers.ts`. In particular no file under `src/components/`, `src/app/**/page.tsx`, `e2e/` or `.github/` is modified, and no second migrations directory is created (`npx vitest run src/lib/__tests__/migrationsSingleSource.test.ts` passes).
+ER8 - The version was bumped and the blast radius is documentation only. `node -p "require('./package.json').version"` prints a string matching `^0\.1\.75-20[0-9]{10}$` (patch 75, then a 12-digit `YYYYMMDDHHmm` local-time stamp), which is strictly greater than the `0.1.74-202609071451` at `201a090`. `git diff --name-only 201a090` prints a subset of exactly this whitelist and nothing else: `docs/plans/code-quality-review.md`, `docs/tasks/RH-36-spec.md`, `docs/suggestions-log.md`, `package.json`. `AGENTS.md` is deliberately absent: the two conventions this task would have documented are already stated in AGENTS.md, in the `A2 - thin Server Actions` paragraph (which names `actionDataAccessGuard.test.ts`) and in the `**Import direction (F21).**` bullet of the Testing & quality list (which names the `no-restricted-imports` block in `eslint.config.mjs`). `git diff --name-only 201a090 -- src migrations e2e eslint.config.mjs vitest.config.ts` prints nothing, so no source file, migration, end-to-end spec, lint config or test config was touched. This task ships no user-facing feature, so it is not a selling point, and `git diff --stat 201a090 -- src/components/landing src/i18n/dictionaries` prints nothing.
 
 ## Out of Scope
 
-- **Batching `findOrCreateGlobalSong` across the track list** (the second half of
-  the F19 remediation). It is a latency optimisation on a different axis
-  (per-track network and catalog round trips), it changes the sanitisation and
-  duplicate-detection path that RH-13 owns, and it can be measured on its own.
-  This task only removes the per-member fan-out inside `ensureInRepertoire`.
-- **Replacing the resync with an upsert that preserves `playlist_songs` ids**
-  (the alternative in F9). Delete-then-insert inside a transaction removes the
-  data-loss window, which is the finding. Id churn has no consumer today (no
-  table references a `playlist_songs` id) and changing the shape would require
-  a deferrable constraint, which the constraint in step 7 deliberately is not.
-- **Renumbering positions on removal.** `removeSongFromPlaylist` keeps leaving a
-  gap; `MAX(position) + 1` handles gaps correctly and the constraint tolerates
-  them. Contiguity is a product decision, not an integrity one.
-- **The other transaction-shaped call sites that are single-statement writes.**
-  Nothing that currently issues exactly one statement is wrapped, because a
-  single statement is already atomic in Postgres.
-- **F8 (SQL in the Server Action layer), F5/F1-F3 (authorization) and the
-  `global_song_edits` payload validation of F17.** They are separate tasks
-  (T4, T1/T2, and the F17 remediation respectively); this task must not change
-  any authorization predicate or validation rule.
-- **CI workflow changes.** The new tests run under the existing `vitest` and
-  `Coverage (vitest)` jobs, which already start a `postgres:16` service and run
-  `npm run db:migrate` first.
+- **Any further refactoring.** The `src/store/repertoireStore.ts` import of
+  `@/app/actions/repertoire` (RH-47's recorded suggestion), server-side fetching
+  of the band list in the root layout (RH-46's), a typed `query<T>` helper
+  (RH-40 / F16) and the fast-view decomposition (RH-38 / F6) all stay where they
+  are. ER8 forbids touching `src/` at all.
+- **Widening the ESLint rule.** It bans `@/app/*` and `@/app/**` under three
+  directories and exempts `__tests__`. It is not extended to `src/store`, to
+  relative-path escapes such as `../../app/actions/x`, or to any other
+  direction. `eslint.config.mjs` is not edited.
+- **Closing any other finding.** Only F8, F21, F22 and T4 get markers. F1-F7,
+  F9-F20 and F23-F26 keep their current text even where later tasks have in fact
+  addressed them; sweeping the whole document is a separate piece of work with
+  its own evidence requirements.
+- **Rewriting the review's measured baseline.** Section 2's tables and section
+  4's priority rows describe `13da8b2` and stay as measured. The corrections are
+  additive, dated lines in section 3.
+- **A new AGENTS.md section.** See Approach 2: already covered twice.
+- **`npm run test:coverage`.** No file inside `coverage.include`
+  (`src/lib/**/*.ts`, `src/app/actions/*.ts`, `src/hooks/**/*.ts`,
+  `src/proxy.ts`) changes, so the coverage numbers cannot move and gating on
+  them here would only re-run RH-47's ER10. ER4's full-suite run is the
+  regression signal.
+- **`e2e/songs-crud.spec.ts`.** All three of its tests are red at `201a090` for
+  reasons unrelated to this work (tracked as RH-44), so it cannot distinguish a
+  correct implementation from a broken one. ER7 gates on `e2e/ssr-smoke.spec.ts`
+  only.
 
 ## Post-merge checks (orchestrator)
 
-Not expected results, and not verifiable before merge: confirm the `Coverage
-(vitest)` and `Duplication (jscpd)` GitHub Actions jobs are green on the merge
-commit, and that the Vercel deployment ran `node scripts/migrate.mjs` (the
-`build` script) so `0007_add_playlist_song_position_unique.sql` is recorded in
-`_migrations` on the production database.
+- RH-37 is fully delivered once this merges: RH-45, RH-46, RH-47 and this
+  close-out together satisfy T4. No successor task is implied.
+- The corrections recorded in F8 and F21 are worth carrying into how the next
+  review is measured: an inward-import grep must match both quote styles
+  (`grep -rn "@/app/"`, not `grep -rn "from '@/app"`), and any finding that
+  quotes a count should name the commit the count was taken at, as this
+  document's own header does.

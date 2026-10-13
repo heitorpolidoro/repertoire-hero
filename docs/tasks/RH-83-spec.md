@@ -1,8 +1,10 @@
 # RH-84 — Let the musician choose the band or personal lyrics version when editing
 
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
 > **Filename mapping.** This is the spec for Meridian board task **RH-83**. Spec
 > filenames in this repository run one ahead of the board id, so board `RH-83`
-> is documented at `docs/tasks/RH-84-spec.md` and its mockup at
+> is documented at `docs/tasks/RH-83-spec.md` and its mockup at
 > `docs/tasks/RH-83-mock.html`. Measured at HEAD `376b3a2`.
 
 ## Scope

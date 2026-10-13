@@ -4,7 +4,7 @@
 
 
 > **Filename mapping.** This file is `docs/tasks/RH-72-spec.md` but specifies **board task RH-72**.
-> `docs/tasks/RH-72-spec.previous.md` was already taken by an earlier task, so in this repository the spec
+> `docs/tasks/RH-71-spec.md` was already taken by an earlier task, so in this repository the spec
 > filenames run one ahead of the board id. Read `RH-72-spec.md` as "the spec for RH-72".
 
 ## Scope

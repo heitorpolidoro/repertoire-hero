@@ -1,469 +1,530 @@
-# RH-64 — Server Components parte 4/5: reduzir useBandAdmin a dados mais comandos de intencao
+# RH-65 — Server Components parte 5/5: tornar src/proxy.ts uma conveniencia de redirect estreita e documentada
 
-Parent: RH-41 (F14, part 4 of 5). Depends on RH-63 (`35d6f66`, done).
-Baseline for every measurement in this document: `35d6f66`
-(`feat(RH-63): convert /playlists to a Server Component with client islands`).
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-41 (F10, part 5 of 5). Depends on RH-64 (`6aa099c`, done).
+Baseline for every measurement in this document: `6aa099c`
+(`feat(RH-64): reduce useBandAdmin to data plus intent commands`).
 
 ## Scope
 
-Redesign the interface of exactly one module — `src/hooks/useBandAdmin.ts`, 370
-lines, one hook function of 298 lines returning **39 members, ten of them raw
-`set*` state setters** — into data plus intent-named commands, and rewrite the
-two consumers that destructure it (`src/app/bands/[id]/page.tsx`,
-`src/app/profile/page.tsx`) against the new surface.
+Rewrite exactly one module - `src/proxy.ts`, 55 lines - so that it stops being
+an expensive, repo-wide session gate and becomes a narrow, declared redirect
+convenience, and rewrite its suite `src/lib/__tests__/proxy.test.ts` against the
+new behaviour. Three things change and nothing else:
 
-This is F14 and nothing else. It is not a Server Components task: `/bands/[id]`
-and `/profile` stay `"use client"`, keep their mount-time load effect, and keep
-the `// eslint-disable-next-line react-hooks/set-state-in-effect` that guards it
-(the comment moves with no line of the effect it guards, and is not relocated to
-a new file). Part 4 was chained after part 3 only because the board runs one
-task at a time; it shares no code with parts 1-3.
+1. **Session resolution.** The `fetch` to the app's own
+   `/api/auth/get-session` (with an `AbortController`, a 3000 ms timeout and a
+   `catch` that treats every failure as "unauthenticated") is replaced by a
+   direct, synchronous read of the Better Auth session cookie through
+   `getSessionCookie` from `better-auth/cookies`. No network call, no timeout,
+   no failure mode.
+2. **The matcher.** The single negative-lookahead pattern that matches every
+   path in the application except a handful of asset extensions is replaced by
+   an explicit allow-list of the twelve routes that actually need a redirect.
+   The list is in `## Approach` below and is reproduced verbatim in the file.
+3. **The declaration.** A top-of-file comment states that `src/proxy.ts` is not
+   an authorization boundary and that no page, action or route handler may rely
+   on it; AGENTS.md records the same declaration, and gains the architecture
+   bullet that names the Server Component page pattern RH-62 and RH-63
+   established.
 
-Three things come with the redesign and are part of this task:
+One route relies on the proxy for its authorization today and therefore changes
+with it: `src/app/api/spotify/search/route.ts` has no session check of its own
+and is reachable only because the current matcher covers `/api/**`. It gains a
+`getRequiredUserId()` prologue answering `401`, which is the concrete half of
+F10's "so no action or route may rely on it".
 
-1. **The `setBand` / `setError` / `setCopied` escape hatches the pages use.**
-   `/bands/[id]`'s regenerate-invite flow (page lines 80-96) writes the hook's
-   band, error and copied state directly. Those three writes become two intent
-   commands (`invite.applyNewCode(code)` and `reportError(message)`) plus
-   `dismissError()`; no raw setter survives on the surface.
-2. **The pure state transitions** the hook performs inline today (seeding the
-   edit draft from a band, trimming it back into an update payload, patching the
-   loaded band, dropping a removed member), which move to a new
-   `src/lib/bandAdminState.ts` next to the existing `src/lib/bandAdminLoad.ts`
-   and get unit tests of their own.
-3. **The complexity ratchet.** `src/hooks/useBandAdmin.ts` carries a per-file
-   override (`max-lines-per-function: 298`). The hook function comes under the
-   base budget of 200, so that entry is **deleted**, `MAX_OVERRIDES` goes
-   `21 -> 20` and AGENTS.md's "past 21 entries" follows it in the same commit.
-   The two pages keep their overrides but must be **re-pinned** to their new
-   worst numbers, because `complexityBudget.test.ts` fails on a ceiling that is
-   not exactly the file's current number.
+**Behaviour is preserved for every page route, signed in and signed out.** The
+complete unauthenticated HTTP table measured at `6aa099c` (see `## Audit`) must
+come out byte-identical afterwards, with exactly two deliberate exceptions,
+both under `/api/`: `/api/spotify/search` answers `401` instead of a `307` to
+an HTML login page, and `/api/spotify/playlists` answers its own
+`{"connected":false}` instead of that same `307`. For a signed-in user nothing
+changes anywhere.
 
-Behaviour is preserved, flow by flow. The complete inventory of what the hook
-drives today, all of which must behave identically after the change:
+This is F10 and nothing else. It is not a page conversion, it does not touch
+`useBandAdmin`, and it does not close any finding in
+`docs/plans/code-quality-review.md`.
 
-- load the band and its playlists on mount, under either load policy;
-- the not-found branch (`/bands` replaces the route; `/profile` shows a banner);
-- copy the invite link, with the `Copied!` label reverting after 2000 ms;
-- regenerate the invite link (`/bands/[id]` only) and show the new code;
-- open the edit modal seeded from the band; edit name, description and colour;
-  pick and client-side-compress a cover image and preview it;
-- save the edit: refuse a blank name, surface an upload failure without saving,
-  patch the loaded band on success, sync the active band context in
-  `bandContextStore` when the edited band is the active one, close the modal;
-- cancel the edit modal;
-- delete the band, leave the band, remove a member — each staged as an in-page
-  `ConfirmPanel` confirmation, confirmed or dismissed, with the member removal
-  toasting on success and every failure landing in the shared error banner;
-- open the new-playlist form, type a name, cancel it, or submit it and navigate
-  to the created playlist.
+## Audit at 6aa099c
 
-No user-visible behaviour changes. No Server Action signature changes, no
-`src/app/actions/bands.ts` change, no `src/lib/bands.ts` change, no
-`src/lib/bandAdminLoad.ts` change, no `src/app/bandAdminActions.ts` change, no
-markup unification between the two pages (F14's remediation says explicitly:
-"Keep the two pages' markup separate as they are today").
+### `src/proxy.ts` - 55 lines
 
-## Audit at 35d6f66
+Next.js 16 renamed Middleware to Proxy; `src/proxy.ts` is that file
+(`node_modules/next/dist/docs/01-app/01-getting-started/16-proxy.md:15`,
+"Starting with Next.js 16, Middleware is now called Proxy to better reflect its
+purpose. The functionality remains the same"). `npm run build` at `6aa099c`
+prints `f Proxy (Middleware)` under the route table, so it is wired.
 
-### `src/hooks/useBandAdmin.ts` — 370 lines, hook function 298 lines
+The file holds one `PUBLIC_PATHS` array (line 3), one exported `async function
+proxy` (lines 5-49) and one `config.matcher` (lines 51-55). Its shape today:
 
-The returned object (lines 329-369) has 39 members. Ten are raw setters —
-`setBand`, `setError`, `setEditing`, `setEditName`, `setEditDesc`,
-`setEditColor`, `setCopied`, `setShowNewPlaylist`, `setNewPlaylistName`,
-`setPendingAction` — measured with
-`grep -cE "^[[:space:]]*set[A-Z][A-Za-z]*,$" src/hooks/useBandAdmin.ts`, which
-prints `10`.
+- `isPublicPath` is `pathname === '/'` or a prefix hit on `/login`, `/signup`,
+  `/forgot-password`, `/reset-password`, `/api/auth/`, `/api/dev/`, `/join/`.
+- `skipSession` is a prefix hit on `/api/auth/`, `/api/dev/`, `/join/` only.
+  Every other matched path - including `/`, every API route under
+  `/api/spotify/`, and any 404 path - performs the session round trip.
+- The session round trip is `fetch(new URL('/api/auth/get-session',
+  request.url), { headers: { cookie: ... }, signal })` behind a 3000 ms
+  `AbortController`. Its `catch` (line 28) is what F10 calls failing open: any
+  network error, any 5xx, and the 3-second timeout all resolve to `user =
+  null`, and because `null` means "redirect to /login" the practical effect of
+  a slow or unreachable database is that every navigation in the app becomes a
+  `307` to `/login`. There is no caching of any kind, so a single navigation
+  that triggers a prefetch resolves the session more than once.
+- Unauthenticated and not public: `307` to `/login`, with the original query
+  string preserved by `request.nextUrl.clone()` and `redirect=<pathname>`
+  appended.
+- Authenticated and on one of the four auth pages: `307` to `/`, again with the
+  original query string preserved.
+- The matcher is a single string,
+  `'/((?!_next/static|_next/image|favicon.ico|pdf\\.worker\\.min\\.mjs|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'`.
 
-Internal state, in file order: `band`, `playlists`, `loading`, `error` (86-89);
-the edit-modal six, `editing`, `editName`, `editDesc`, `editCoverFile`,
-`editCoverPreview`, `editColor`, plus `saving` (92-98); `copied` (101); the
-new-playlist three, `showNewPlaylist`, `newPlaylistName`, `creatingPlaylist`
-(104-106); and `pendingAction` / `actionBusy` (109-110). `editCoverFile` is the
-only piece of state the hook does **not** export today.
+### The route inventory and who redirects whom
 
-Three `useEffect` (`grep -c "useEffect(" src/hooks/useBandAdmin.ts` prints `3`):
-two ref-syncs for `onNotFound` and `actions` (116-118, 124-126) and the load
-effect at 161-164, which carries the inline
-`react-hooks/set-state-in-effect` disable at line 162 — the only such comment
-under `src/hooks`.
+`npm run build` at `6aa099c` reports 27 entries. The page routes and how an
+unauthenticated visitor is turned away today:
 
-Handlers: `handleCopyInvite` (173-177), `openEdit` (179-186),
-`handleEditCoverChange` (188-195), `handleSaveEdit` (197-246),
-`handleDelete` / `handleLeave` / `handleRemoveMember` (248-262),
-`confirmPendingAction` (264-314, a three-arm switch), `handleCreatePlaylist`
-(316-327). Derived: `currentMember`, `isAdmin`, `inviteUrl` (166-171).
+| Route | Kind | Who redirects |
+| --- | --- | --- |
+| `/` | client page, renders `LandingPage` when signed out | nobody, and nobody may |
+| `/login` `/signup` `/forgot-password` `/reset-password` | client pages | proxy, in reverse: a signed-in visitor goes to `/` |
+| `/profile` `/settings` | client pages | proxy |
+| `/bands/[id]` `/playlists/[id]` | client pages | proxy |
+| `/songs/search` `/songs/[id]/fast-view` | page and client page | proxy |
+| `/bands` `/playlists` `/admin/moderation` | async Server Components (RH-62, RH-63) | proxy first; each page also calls `redirect("/login")` as defence in depth |
+| `/join/[code]` | async Server Component, deliberately anonymous | nobody |
+| `/api/**` | route handlers | proxy for `/api/spotify/*`; `/api/auth/*` and `/api/dev/*` are skipped |
 
-`BandAdminActions` (21-38) is the eight-action injected dependency object from
-RH-47/F21; it is **not changed by this task**, and neither is
-`src/app/bandAdminActions.ts` (27 lines), which builds it. `regenerateBandInviteCodeAction`
-is deliberately *not* one of the eight: `/bands/[id]` imports it directly,
-because the regenerate affordance exists on that page only.
+Measured, with a fresh `npm run build`, `export BETTER_AUTH_SECRET="$(grep
+'^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2-)"`, `npx next start -p 3401 -H
+127.0.0.1` and no cookie sent - this is the table the change must preserve:
 
-Its override in `eslint.config.mjs` is
-`{ name: "complexity-budget/override", files: ["src/hooks/useBandAdmin.ts"], rules: { "max-lines-per-function": ["error", 298] } }`
-— one rule, the hook function's own length. There is no `complexity`,
-`max-depth`, `max-params` or `max-lines` violation in the file.
+```
+/                          200
+/login                     200
+/signup                    200
+/bands                     307 -> /login?redirect=%2Fbands
+/playlists                 307 -> /login?redirect=%2Fplaylists
+/admin/moderation          307 -> /login?redirect=%2Fadmin%2Fmoderation
+/profile                   307 -> /login?redirect=%2Fprofile
+/settings                  307 -> /login?redirect=%2Fsettings
+/songs/search              307 -> /login?redirect=%2Fsongs%2Fsearch
+/songs/abc/fast-view       307 -> /login?redirect=%2Fsongs%2Fabc%2Ffast-view
+/bands/abc                 307 -> /login?redirect=%2Fbands%2Fabc
+/playlists/abc             307 -> /login?redirect=%2Fplaylists%2Fabc
+/join/ABCDEF               200
+/api/auth/get-session      200
+/icon.jpg                  200
+/api/spotify/search?q=x    307 -> /login?q=x&redirect=%2Fapi%2Fspotify%2Fsearch
+/api/spotify/playlists     307 -> /login?redirect=%2Fapi%2Fspotify%2Fplaylists
+/nope                      307 -> /login?redirect=%2Fnope
+```
 
-### The two consumers
+The same table with a syntactically invalid session cookie
+(`better-auth.session_token=garbage.value`) gives `/profile` `307`, `/bands`
+`307` and `/login` `200`: the current file resolves the session for real, so a
+cookie that does not correspond to a live session is exactly as good as no
+cookie. That is the one behaviour a presence check cannot reproduce, and
+`## Approach` decides it explicitly.
 
-`src/app/bands/[id]/page.tsx` — 508 lines, a single 490-line component with one
-40-line destructuring statement (lines 25-64) naming 39 members. Override:
-`complexity 30 / max-lines-per-function 490 / max-lines 508`. It additionally
-owns two local `useState` (`confirmingRegenerate`, `regenerating`) and
-`handleRegenerateInvite` (80-96), which calls `setError(null)`, then
-`regenerateBandInviteCodeAction(bandId)`, then `setBand(prev => ({ ...prev,
-invite_code: newCode }))`, `setCopied(false)`, `setConfirmingRegenerate(false)`
-and a toast — and `setError(message)` on failure. That function is the only
-reason `setBand`, `setCopied` and the error writer are on the hook's surface at
-all.
+### Why the three Server Component pages must stay matched
 
-`src/app/profile/page.tsx` — 723 lines holding three components. Only
-`BandProfileView` (34-427, the 394-line worst function) touches the hook, in two
-destructuring statements (50-57 and 59-63) naming 30 members. Override:
-`complexity 23 / max-lines-per-function 394 / max-lines 723`. `PersonalProfileView`
-(432-655, 224 lines) and `ProfilePage` (660-723) are **untouched by this task**
-and keep their own local `useState`, including their own `setError`.
+`/bands`, `/playlists` and `/admin/moderation` each call `redirect("/login")`
+themselves, so it is tempting to drop them from the matcher. Measured, that is
+wrong. `src/app/loading.tsx` exists, which puts a Suspense boundary above every
+segment, and in a streaming context Next.js does not answer a Server Component
+`redirect()` with a `307` - it flushes the loading shell and emits a client-side
+meta refresh. Verified on a scratch Next.js 16 app built from this repository's
+own `node_modules`, with a root `loading.tsx` and a page that awaits `headers()`
+and then redirects: `curl -o /dev/null -w '%{http_code}'` prints `200`, and the
+document contains
 
-Measured setter usage:
-`grep -cE "setBand|setError|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" 'src/app/bands/[id]/page.tsx'`
-prints `25`. The same command on `src/app/profile/page.tsx` prints `24`, but
-seven of those are `PersonalProfileView`'s own local `setError`; excluding
-`setError`, `grep -cE "setBand|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" src/app/profile/page.tsx`
-prints `14`, and `grep -c "setError" src/app/profile/page.tsx` prints `10`
-(lines 43, 51 and 87 in `BandProfileView`; 438, 461, 468, 490, 499, 507 and 526
-in `PersonalProfileView`).
+```
+<meta id="__next-page-redirect" http-equiv="refresh" content="1;url=/login?redirect=%2Fbands"/>
+```
 
-### Duplication between the two pages
+behind the `Carregando...` spinner. So removing those three from the matcher
+would turn an immediate `307` into a one-second client-side bounce through a
+spinner. They stay matched, their own `redirect("/login")` stays defence in
+depth, and the header comments in `src/app/bands/page.tsx:20-22` and
+`src/app/playlists/page.tsx:30-32` ("`src/proxy.ts` already answers an
+unauthenticated request with a 307 to /login; the redirect below is defence in
+depth") remain true and are not edited.
 
-`npm run lint:dup` reports four clones spanning exactly this pair, all of them
-markup F14 tells us to leave alone: `bands/[id] 165-174` vs `profile 158-167`
-(the delete `ConfirmPanel`), `284-293` vs `243-252` (the remove-member panel),
-`408-423` vs `262-277` (the leave-band panel) and `436-469` vs `353-387` (34
-lines of edit-modal form). They survive this task by design. The rewritten
-destructuring in the two pages must not create a *fifth* clone: the two
-statements name different subsets in a different order and must stay that way.
+### Why `/` must stay unmatched
 
-### Tests and gates at 35d6f66
+`/` is public today (`pathname === '/'`) and must stay public: `src/app/page.tsx`
+renders `<LandingPage />` when `authClient.useSession()` has no user
+(`src/app/page.tsx:635-636`), so a redirect there would delete the marketing
+page. F10's objection to `/` being public was that Server Actions bound to the
+dashboard POST to `/` and several actions did not resolve their own session -
+F1, F2 and F7. Those are closed: every exported Server Action is proved to
+resolve a session and to refuse to run without one by
+`src/app/actions/__tests__/actionSessionGuard.test.ts` (which mocks `@/lib/db`
+to throw, so reaching the database at all without a session fails) and
+`src/app/actions/__tests__/actionAuthorizationGuard.test.ts`. Next's own
+documentation makes the same point about matchers and Server Functions
+(`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md:249-251`):
+"Always verify authentication and authorization inside each Server Function
+rather than relying on Proxy alone."
 
-`src/hooks/__tests__/useBandAdmin.test.tsx` — 517 lines, five `describe` blocks,
-**29 tests** (`rtk proxy npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx`
-prints `Tests  29 passed (29)`). It is jsdom (`// @vitest-environment jsdom` as
-the literal first line), calls `afterEach(cleanup)`, mocks only
-`@/lib/auth-client` and `@/lib/imageCompressor`, injects the eight actions as
-`vi.fn()` spies, and drives the real `useBandContextStore`. Its
-`captureUnhandledRejection` helper (128-146) exists because
-`BANDS_PAGE_LOAD_POLICY.catchLoadErrors === false` lets a load failure reject
-unhandled by design; that helper and that guarantee are kept verbatim.
+Keeping `/` out of the matcher is also what removes the self-`fetch` from the
+landing page and the dashboard entirely, and it is load bearing for the
+stale-cookie recovery described in `## Approach`.
 
-Other gates, all verified at `35d6f66`: `rtk proxy npx vitest run`
-99 files / 1114 tests / 0 failed / 0 skipped (Postgres at
-`postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
-applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`);
-`rtk proxy npx eslint .` `22 problems (8 errors, 14 warnings)`; `npm run lint:dup`
-18 clones / 231 duplicated lines / `0.65 %` lines / `0.70 %` tokens;
-`npm run lint:dead` clean; `./node_modules/.bin/tsc --noEmit` clean;
-`npm run test:coverage` statements `97.43`, branches `85.52`, functions `99.43`,
-lines `97.99` against thresholds 80 / 65 / 78 / 80, with
-`hooks/useBandAdmin.ts` at `98.6` statements and `95` functions;
-`eslint.config.mjs` holds exactly 21 override entries and
-`src/lib/__tests__/complexityBudget.test.ts` sets `MAX_OVERRIDES = 21` across 6
-tests, one named `lists at most 21 per-file overrides, each naming a file that
-exists`; `AGENTS.md:94` ends on "and on the list growing past 21 entries";
-`package.json` version `0.1.93-202609091437`. Playwright: `e2e/bands-confirm.spec.ts`
-(3 tests) and `e2e/server-pages.spec.ts` (4 tests) are green;
-`e2e/songs-crud.spec.ts` and `e2e/fast-view-mobile.spec.ts` are red at baseline
-(RH-44) and nothing here gates on them.
+### `better-auth/cookies` in the installed version
+
+`better-auth` is `1.6.22`. `node_modules/better-auth/package.json` exports
+`./cookies`, and `require.resolve('better-auth/cookies')` resolves to
+`node_modules/better-auth/dist/cookies/index.mjs`, which exports
+`getSessionCookie(request: Request | Headers, config?) => string | null`
+(declared at `dist/cookies/index.d.mts:99-103`). Its implementation
+(`dist/cookies/index.mjs:207-217`) reads the `cookie` header, parses it, and
+returns the first hit among `__Secure-better-auth.session_token`,
+`better-auth.session_token` and `better-auth-session_token`. It performs no
+I/O, no signature verification and no database access.
+
+Import-graph check: walking every relative and `@better-auth/core` import
+reachable from `dist/cookies/index.mjs` reaches 28 files and **zero** Node
+built-ins, so the module is runtime-agnostic. It is also moot for correctness:
+`proxy.md:253` records that "Proxy defaults to using the Node.js runtime" in
+Next.js 16, so the Edge-Runtime reasoning in the current file's comment
+(lines 9-12) is itself stale. The reason not to import `@/lib/auth` remains
+cost, not runtime: it would open a `pg` pool and hit the database on every
+matched request, which is the opposite of what F10 asks for.
+
+Behaviour verified directly against `NextRequest` from this repository's
+`next/server`:
+
+```
+no cookie                                        -> null
+better-auth.session_token=abc.def                -> "abc.def"
+__Secure-better-auth.session_token=abc.def       -> "abc.def"
+foo=bar                                          -> null
+better-auth.session_token=                       -> null
+```
+
+`src/lib/auth.ts` sets no `advanced.cookiePrefix` and no custom cookie name, and
+`dist/cookies/index.mjs:210` defaults the prefix to `better-auth`, so the names
+`getSessionCookie` looks for are the ones this app issues. Confirmed against the
+running app at `6aa099c`: `POST /api/auth/sign-in/email` answers
+`set-cookie: better-auth.session_token=<token>.<signature>; Max-Age=604800;
+Path=/; HttpOnly; SameSite=Lax`.
+TypeScript resolves the subpath types because `tsconfig.json` sets
+`moduleResolution: "bundler"`.
+
+### `src/lib/__tests__/proxy.test.ts` - 87 lines, 7 tests
+
+The existing suite lives at `src/lib/__tests__/proxy.test.ts` (node
+environment, no jsdom preamble), imports `{ proxy as middleware }` from
+`../../proxy`, and stubs `fetch` globally with `vi.stubGlobal` because the
+current implementation calls the session endpoint. Its seven tests are:
+`should redirect unauthenticated users to /login for private paths`, `should
+allow unauthenticated users to access public paths without redirect`, `should
+allow unauthenticated users to access API auth paths without redirect`, `should
+redirect authenticated users on /login to root /`, `should redirect
+authenticated users on /signup to root /`, `should allow authenticated users to
+access private paths without redirect`, `should treat fetch failure as
+unauthenticated and redirect to /login`. Every one of them is written in terms
+of the mocked `fetch`, so the whole file is rewritten rather than amended.
+
+### The other file that reads the matcher
+
+`src/lib/__tests__/pdfWorkerAsset.test.ts:70-73` compiles each entry of
+`proxyConfig.matcher` with `new RegExp('^' + matcher + '$')` and asserts, at
+lines 127-137, that no pattern matches `/pdf.worker.min.mjs` and that at least
+one matches `/songs/1/fast-view`. This constrains the new matcher: every entry
+must still be a valid regular-expression source. The allow-list in
+`## Approach` satisfies it (`^/songs/(.*)$` matches `/songs/1/fast-view`; none
+of the twelve matches `/pdf.worker.min.mjs`), so **that file is not edited**,
+and its continuing to pass is the cheapest available proof that the new matcher
+is well formed.
+
+### `src/app/api/spotify/search/route.ts` - the one route relying on the proxy
+
+Of the ten route handlers, `/api/auth/[...all]` is Better Auth's own,
+`/api/dev/profiles` 404s outside development, `/api/auth/spotify/*` are already
+outside the proxy's session check (`skipSession` covers `/api/auth/`),
+`/api/spotify/playlists` resolves `getRequiredUserId()` itself and degrades to
+`{"connected":false}`, and the three `/api/spotify/playlists/[id]/*` handlers go
+through `resolveSpotifyRouteAccess` in `src/lib/spotifyRouteAuth.ts`. That
+leaves `src/app/api/spotify/search/route.ts`, whose `GET` (line 66) checks
+`SPOTIFY_CLIENT_ID`, then the `q` parameter, then calls Spotify with a Client
+Credentials token. It has no session check at all. No test imports it; the
+only caller is `searchSpotify` in `src/lib/spotify.ts:23`, used by
+`src/app/page.tsx:172` and `src/app/playlists/[id]/page.tsx:375`, both of which
+run in a signed-in browser.
+
+### Gates at 6aa099c
+
+- `rtk proxy npx vitest run`: `Test Files 100 passed (100)`, `Tests 1138 passed
+  (1138)`, 0 failed, 0 skipped (Postgres at
+  `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
+  applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`).
+- `rtk proxy npx eslint .`: `22 problems (8 errors, 14 warnings)`.
+- `./node_modules/.bin/tsc --noEmit`: clean.
+- `npm run lint:dead`: clean. `npm run audit`: clean.
+- `npm run lint:dup`: `Found 18 clones.`, `Total:` row `18` clones,
+  `231 (0.64%)` duplicated lines, `1359 (0.70%)` duplicated tokens.
+- `npm run test:coverage`: statements `97.58`, branches `86.26`, functions
+  `99.73`, lines `98.07` against thresholds 80 / 65 / 78 / 80. Per file,
+  `src/proxy.ts` is at `96.4` statements, `75` functions, `94.4` branches - the
+  missing function is the `() => controller.abort()` timeout arrow, which no
+  test can reach.
+- `eslint.config.mjs` holds exactly `20` `complexity-budget/override` entries,
+  `MAX_OVERRIDES = 20` in `src/lib/__tests__/complexityBudget.test.ts`, and
+  AGENTS.md line 94 ends on "past 20 entries". `src/proxy.ts` carries no
+  override and needs none.
+- `package.json` version `0.1.94-202609091542`.
+- Playwright: `e2e/bands-confirm.spec.ts` (4 tests, with the known intermittent
+  `Loading...` flake logged under RH-64), `e2e/server-pages.spec.ts` (4),
+  `e2e/ssr-smoke.spec.ts` (4) and `e2e/auth.spec.ts --grep credentials` (2) are
+  green. `e2e/songs-crud.spec.ts` and `e2e/fast-view-mobile.spec.ts` are red at
+  baseline (RH-44). The two `e2e/auth.spec.ts` tests that navigate to `/` and
+  wait for `/login` are red at baseline too - `/` is public and renders the
+  landing page - and this task neither fixes nor touches them.
 
 ## Approach
 
-### The new surface: 19 members, none of them a setter
+### `src/proxy.ts`
+
+The file becomes a declaration comment, one constant, one synchronous exported
+function and the matcher. No `async`, no `await`, no `fetch`, no
+`AbortController`, no `setTimeout`, no `try`/`catch` - there is nothing left
+that can fail.
 
 ```ts
-export interface BandAdminController {
-  // data
-  currentUserId: string | null;
-  band: Band | null;
-  playlists: Playlist[];
-  loading: boolean;
-  error: string | null;
-  isAdmin: boolean;
-  isMember: boolean;
-  editDraft: BandEditDraft | null;
-  saving: boolean;
-  invite: BandInviteController;
-  pending: BandPendingController;
-  newPlaylist: NewPlaylistController;
-  // intent commands
-  dismissError: () => void;
-  reportError: (message: string) => void;
-  startEdit: () => void;
-  updateDraft: (patch: Partial<BandEditDraft>) => void;
-  pickCoverFile: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  saveEdit: (e: React.FormEvent) => Promise<void>;
-  cancelEdit: () => void;
-}
-```
+import { NextResponse, type NextRequest } from 'next/server'
+import { getSessionCookie } from 'better-auth/cookies'
 
-with three small sub-controllers, each one a piece of state and the commands
-that are the only legal way to move it:
+/**
+ * NOT AN AUTHORIZATION BOUNDARY (RH-65, code-quality review F10).
+ *
+ * This file is a redirect convenience and nothing else. It answers one
+ * question, from the request headers alone: does this request carry a Better
+ * Auth session cookie? It never validates that cookie, never asks the
+ * database, and never talks to the app over HTTP.
+ *
+ * A present cookie therefore proves nothing: it may be expired, revoked or
+ * signed by a different secret. A page, a Server Action or a route handler
+ * that skips its own session check because "the proxy already redirects" is a
+ * bug. Every Server Action resolves its own session
+ * (src/app/actions/__tests__/actionSessionGuard.test.ts), every route handler
+ * under src/app/api/ answers its own 401, and the three Server Component pages
+ * call redirect("/login") themselves. That is where authorization lives.
+ *
+ * What this file buys is that a signed-out visitor who types /profile gets an
+ * immediate 307 instead of a client-rendered page that would sit on a spinner.
+ * The matcher below is an allow-list of exactly the routes that need that.
+ * A new private page route does not inherit the redirect - add it here.
+ */
 
-```ts
-export interface BandInviteController {
-  url: string;
-  copied: boolean;
-  copy: () => Promise<void>;
-  /** After /bands/[id] regenerates the code: patch the band and drop `copied`. */
-  applyNewCode: (code: string) => void;
-}
+const AUTH_PAGES = ['/login', '/signup', '/forgot-password', '/reset-password']
 
-export interface BandPendingController {
-  action: PendingAction | null;
-  busy: boolean;
-  requestDelete: () => void;
-  requestLeave: () => void;
-  requestRemove: (member: BandMember) => void;
-  confirm: () => Promise<void>;
-  dismiss: () => void;
-}
+export function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  const isAuthPage = AUTH_PAGES.includes(pathname)
+  const hasSessionCookie = getSessionCookie(request) !== null
 
-export interface NewPlaylistController {
-  open: boolean;
-  name: string;
-  creating: boolean;
-  toggle: () => void;
-  changeName: (name: string) => void;
-  close: () => void;
-  submit: (e: React.FormEvent) => Promise<void>;
-}
-```
-
-Why this shape, member by member:
-
-- **`editDraft` is `BandEditDraft | null`, not a draft plus an `editing` flag.**
-  `null` means "the modal is closed", so the two states that could disagree
-  (`editing === true` with a draft from a previous band) cannot be expressed,
-  and the page's `{editing && (<form>...)}` becomes `{editDraft && (<form>...)}`
-  with TypeScript narrowing `editDraft.name` inside. This is the encapsulation
-  F14 says the extraction was supposed to buy. `saving` stays a sibling because
-  it is not a draft field.
-- **`editDraft` / `updateDraft(patch)` keep exactly the names F14 and the task's
-  own expected results ask for**, and they are flat rather than nested under an
-  `edit` object for that reason. `updateDraft({ name: e.target.value })`
-  replaces `setEditName`, `updateDraft({ description })` replaces `setEditDesc`,
-  `updateDraft({ color })` replaces `setEditColor`, and `pickCoverFile` is the
-  one draft field the page cannot set directly (it goes through
-  `compressImageFile`).
-- **`invite`, `pending` and `newPlaylist` are grouped** because each is a
-  self-contained widget whose state is meaningless without its commands: an
-  `invite.copied` that anything but `invite.copy()` can set is exactly the bug
-  class F14 describes. Grouping is also what turns 39 members into 19: the
-  eleven flat members those three replace (`inviteUrl`, `copied`,
-  `pendingAction`, `actionBusy`, `showNewPlaylist`, `newPlaylistName`,
-  `creatingPlaylist`, plus the four handlers that fed them) become three.
-- **`isMember` replaces `currentMember`.** Both pages use the member object for
-  one thing only — `!isAdmin && currentMember` on `/bands/[id]:297` and
-  `currentMember &&` on `/profile:257`, i.e. "is the signed-in user in this
-  band". Returning the whole `BandMember` invited a second, unmanaged source of
-  truth about the member list.
-- **`reportError` is a command, not `setError` renamed.** It takes a `string`,
-  never a functional updater and never `null`; clearing is `dismissError()`.
-  `/bands/[id]`'s regenerate catch calls `reportError(message)`, its prologue
-  calls `dismissError()`, and `/profile`'s `onNotFound` becomes
-  `() => reportError("Band not found.")` — the same string it sets today.
-- **`invite.applyNewCode(code)` is what removes `setBand` from the surface.**
-  It patches `band.invite_code` and clears `copied` in one call, which is
-  precisely what the page does today in two.
-
-`PendingAction` keeps its current three-arm shape
-(`deleteBand` / `leaveBand` / `removeMember`) and moves to `src/lib/bandAdminState.ts`
-so both the hook and its sub-hook can name it without a hook-to-hook type
-import.
-
-The full sorted key list of the returned object — the thing ER1 pins — is:
-`band`, `cancelEdit`, `currentUserId`, `dismissError`, `editDraft`, `error`,
-`invite`, `isAdmin`, `isMember`, `loading`, `newPlaylist`, `pending`,
-`pickCoverFile`, `playlists`, `reportError`, `saveEdit`, `saving`, `startEdit`,
-`updateDraft`.
-
-### New files
-
-**`src/lib/bandAdminState.ts`** — pure state transitions, no React, sibling to
-the existing `src/lib/bandAdminLoad.ts` and inside the coverage universe:
-
-```ts
-export type PendingAction =
-  | { kind: "deleteBand" }
-  | { kind: "leaveBand" }
-  | { kind: "removeMember"; member: BandMember };
-
-export interface BandEditDraft {
-  name: string;
-  description: string;
-  coverPreview: string | null;
-  color: string;
-}
-
-export interface BandUpdatePayload {
-  name: string;
-  description: string | null;
-  cover_url: string | null;
-  color: string;
-}
-
-export function draftFromBand(band: Band | null): BandEditDraft;
-export function isDraftNameBlank(draft: BandEditDraft): boolean;
-export function draftToBandUpdate(draft: BandEditDraft, coverUrl: string | null): BandUpdatePayload;
-export function applyBandUpdate(band: Band, update: BandUpdatePayload): Band;
-export function withoutMember(band: Band, memberId: string): Band;
-export function withInviteCode(band: Band, code: string): Band;
-export function buildInviteUrl(origin: string, inviteCode: string | null | undefined): string;
-```
-
-Each one is a verbatim lift of logic that is inline in the hook today:
-`draftFromBand` is `openEdit`'s five `set*` calls (lines 180-184, including the
-`?? DEFAULT_BAND_COLOR` fallback), `draftToBandUpdate` is the trimming at
-216-221, `applyBandUpdate` is the `setBand((prev) => ...)` patch at 223-233,
-`withoutMember` is the members filter at 292-299, and `buildInviteUrl` is the
-`typeof window !== "undefined"` expression at 168-171 with the origin passed in
-so the function itself is pure and testable.
-
-**`src/hooks/useBandEdit.ts`** — the edit-modal controller: `editDraft`,
-`saving`, `startEdit`, `updateDraft`, `pickCoverFile`, `saveEdit`, `cancelEdit`,
-plus the internal `editCoverFile`. It owns the `compressImageFile` call, the
-`uploadBandCover` / `updateBand` sequence, the `bandContextStore` sync (hook
-lines 235-238) and the save-error fallback message. Takes one options object
-(so `max-params` 4 is not at risk).
-
-**`src/hooks/useBandPendingAction.ts`** — the destructive-action controller:
-`action`, `busy`, `requestDelete`, `requestLeave`, `requestRemove`, `confirm`,
-`dismiss`, holding the three-arm switch verbatim including its
-per-arm fallback messages (`Failed to delete band`, `Failed to leave band`,
-`Failed to remove member`), the `onGone()` navigation, the success toast, and
-the rule that `requestLeave` is a no-op without a session user.
-
-`src/hooks/useBandAdmin.ts` becomes the composition root: session, the four data
-`useState`, the two ref-syncs, `load` and its effect, the derived `isAdmin` /
-`isMember`, the internal `patchBand`, `dismissError` / `reportError`, the
-invite and new-playlist state (small enough to stay inline), the two sub-hook
-calls, and the 19-member return. This mirrors the Fast View precedent recorded
-in AGENTS.md: a composition root wiring controller hooks, with the pure
-decisions in `src/lib`.
-
-The hook function must land **under 200 lines** so its override can be deleted.
-If it does not, the implementer extracts `src/hooks/useBandInvite.ts` and/or
-`src/hooks/useNewPlaylistForm.ts` on the same pattern (both are listed as
-permitted files) rather than re-pinning the override at a lower number — the
-ratchet is expected to shrink by one entry here, and ER7 requires it.
-
-No new file may take a complexity override, so every new file is clean under
-`complexity` 15, `max-depth` 4, `max-lines-per-function` 200, `max-params` 4 and
-`max-lines` 400, and none of them may import from `@/app/*` (F21).
-
-### The two pages
-
-`/bands/[id]` destructures the 19 members in place of 39. `handleRegenerateInvite`
-becomes:
-
-```tsx
-async function handleRegenerateInvite() {
-  setRegenerating(true);
-  dismissError();
-  try {
-    const newCode = await regenerateBandInviteCodeAction(bandId);
-    invite.applyNewCode(newCode);
-    setConfirmingRegenerate(false);
-    showToast("Invite link regenerated. The old link no longer works.", "success");
-  } catch (err) {
-    reportError(err instanceof Error ? err.message : "Failed to regenerate invite link");
-  } finally {
-    setRegenerating(false);
+  // No cookie on a gated route: send them to /login, remembering where they
+  // were headed. `clone()` keeps the original query string, as before.
+  if (!hasSessionCookie && !isAuthPage) {
+    const loginUrl = request.nextUrl.clone()
+    loginUrl.pathname = '/login'
+    loginUrl.searchParams.set('redirect', pathname)
+    return NextResponse.redirect(loginUrl)
   }
+
+  // A cookie on an auth page: they are (probably) already signed in.
+  if (hasSessionCookie && isAuthPage) {
+    const homeUrl = request.nextUrl.clone()
+    homeUrl.pathname = '/'
+    return NextResponse.redirect(homeUrl)
+  }
+
+  return NextResponse.next()
 }
 ```
 
-The remaining rewrites are mechanical and identical in both pages:
-`copied` -> `invite.copied`, `inviteUrl` -> `invite.url`,
-`handleCopyInvite` -> `invite.copy`, `pendingAction` -> `pending.action`,
-`actionBusy` -> `pending.busy`, `confirmPendingAction` -> `pending.confirm`,
-`() => setPendingAction(null)` -> `pending.dismiss`,
-`handleDelete` -> `pending.requestDelete`, `handleLeave` -> `pending.requestLeave`,
-`handleRemoveMember` -> `pending.requestRemove`, `openEdit` -> `startEdit`,
-`{editing && ...}` -> `{editDraft && ...}`, `editName` -> `editDraft.name`,
-`editDesc` -> `editDraft.description`, `editColor` -> `editDraft.color`,
-`editCoverPreview` -> `editDraft.coverPreview`,
-`onChange={(e) => setEditName(e.target.value)}` -> `onChange={(e) => updateDraft({ name: e.target.value })}`,
-`onChange={setEditColor}` -> `onChange={(color) => updateDraft({ color })}`,
-`handleEditCoverChange` -> `pickCoverFile`, `handleSaveEdit` -> `saveEdit`,
-`() => setEditing(false)` -> `cancelEdit`,
-`showNewPlaylist` -> `newPlaylist.open`, `setShowNewPlaylist(!showNewPlaylist)` -> `newPlaylist.toggle`,
-`newPlaylistName` -> `newPlaylist.name`,
-`(e) => setNewPlaylistName(e.target.value)` -> `(e) => newPlaylist.changeName(e.target.value)`,
-`() => setShowNewPlaylist(false)` -> `newPlaylist.close`,
-`creatingPlaylist` -> `newPlaylist.creating`, `handleCreatePlaylist` -> `newPlaylist.submit`,
-`currentMember` -> `isMember`, and in `/profile` only,
-`onDismiss={() => setError(null)}` -> `onDismiss={dismissError}` and
-`onNotFound: () => setError("Band not found.")` -> `onNotFound: () => reportError("Band not found.")`.
+Both `clone()` calls and the `redirect=<pathname>` parameter are copied
+verbatim from the current file so the `Location` headers in the audit table come
+out identical, query string included.
 
-Every string, class name, emoji and element in both pages stays byte-identical
-otherwise. `PersonalProfileView` and `ProfilePage` are not touched.
+### The narrowed matcher
 
-### eslint, the ratchet and AGENTS.md
+```ts
+export const config = {
+  matcher: [
+    // Auth pages: a visitor who already carries a session cookie is sent home.
+    '/login',
+    '/signup',
+    '/forgot-password',
+    '/reset-password',
+    // Client-rendered private routes: nothing on the server turns a signed-out
+    // visitor away, so without this they would sit on a spinner.
+    '/profile',
+    '/settings',
+    '/bands/(.*)',
+    '/playlists/(.*)',
+    '/songs/(.*)',
+    // Server Component routes that redirect themselves. They stay here because
+    // src/app/loading.tsx makes their own redirect() a streamed meta refresh
+    // (HTTP 200 behind a spinner) rather than a 307 - see the audit above.
+    '/admin/(.*)',
+    '/bands',
+    '/playlists',
+  ],
+}
+```
 
-- `src/hooks/useBandAdmin.ts`'s override entry is **deleted**. That leaves 20
-  entries; `MAX_OVERRIDES` goes `21 -> 20`, the test title becomes
-  `lists at most 20 per-file overrides, each naming a file that exists`, and
-  `AGENTS.md:94` ends on "past 20 entries". This is the RH-55 / RH-62 / RH-63
-  precedent exactly (`b024a87` 24 -> 23, `6e32874` 23 -> 22, `35d6f66` 22 -> 21),
-  each a numstat of one insertion and one deletion in AGENTS.md and nothing more.
-  If `next dev`/`next build` regenerates the `<!-- BEGIN:nextjs-agent-rules -->`
-  block, that regeneration is reverted before the commit.
-- The two page overrides are **re-pinned, not left alone**. Both files shrink
-  (the destructuring statements lose ~20 and ~8 lines respectively), and
-  `complexityBudget.test.ts`'s last test fails on any ceiling that is not exactly
-  the file's current worst number. The recipe: delete the file's override entry,
-  run `rtk proxy npx eslint '<file>'`, read the three numbers out of the reported
-  messages ("Function has a complexity of N", "has too many lines (N)"), and put
-  the entry back with exactly those numbers. Note that `src/app/profile/page.tsx`'s
-  `max-lines-per-function` ceiling cannot drop below `224`: `PersonalProfileView`
-  is untouched and is itself over the base budget of 200.
-- The repo eslint total stays `22 problems (8 errors, 14 warnings)`: none of the
-  8 errors or 14 warnings is in a file this task owns, and no new problem may
-  appear.
+Twelve entries, every one a literal path or an anchored regular-expression
+source, which is what keeps `pdfWorkerAsset.test.ts` working unchanged. Written
+in the file in the order above; sorted, the list is `/admin/(.*)`, `/bands`,
+`/bands/(.*)`, `/forgot-password`, `/login`, `/playlists`, `/playlists/(.*)`,
+`/profile`, `/reset-password`, `/settings`, `/signup`, `/songs/(.*)`.
 
-### Test plan
+Deliberately **not** matched, each for a stated reason:
 
-**`src/hooks/__tests__/useBandAdmin.test.tsx`** is rewritten against the new
-surface, keeping its jsdom preamble, its `afterEach(cleanup)`, its two module
-mocks, its injected action spies, its `captureUnhandledRejection` helper and its
-`useBandContextStore.setState({ context: { type: 'user' } })` reset. It keeps
-every behaviour the 29 baseline tests assert — the mapping is one-to-one, only
-the accessor changes (`result.current.editName` becomes
-`result.current.editDraft?.name`, `result.current.handleDelete()` becomes
-`result.current.pending.requestDelete()`, and so on) — and adds tests for the
-three flows that had no coverage because they were setter writes on the page:
-`invite.applyNewCode`, `reportError`/`dismissError`, and `cancelEdit`. Plus one
-structural test that pins the whole surface. The named tests ER5 requires are
-listed there; the file stays under the 800-line test budget.
+- `/` - public by design (landing page for signed-out visitors, dashboard for
+  signed-in ones), and the one route whose render is guaranteed to call
+  `/api/auth/get-session` on the client.
+- `/join/(.*)` - the invite route is anonymous on purpose.
+- `/api/(.*)` - a `307` to an HTML login page is not a useful answer to a
+  `fetch`, and F10 says no route may rely on the proxy. Each handler already
+  owns its answer; `/api/spotify/search` is made to own its answer below.
+- everything else - `/_next/*`, `/icon.jpg`, `/favicon.ico`, `robots.txt`, and
+  any path that is not a route at all. `/nope` stops being a `307` to `/login`
+  and becomes the `404` it always was.
 
-**`src/lib/__tests__/bandAdminState.test.ts`** — node environment, no mocks,
-pure functions, named tests in ER4.
+### What changes for a visitor, exactly
 
-**The two sub-hooks are covered through the composition hook**, which is how
-they are wired in production; dedicated suites for them are permitted but not
-required. Their per-file coverage is asserted directly in ER9, so "covered
-through the parent" is a measured claim, not an assumption.
+For a signed-in visitor: nothing, anywhere. For a signed-out visitor with no
+cookie: nothing on any page route (the audit table is reproduced exactly), and
+under `/api/` the two deliberate changes named in `## Scope`. `/nope` becomes a
+`404`.
 
-**End to end**, `e2e/bands-confirm.spec.ts` gains one test,
-`rename a band through the edit modal`, which is the only proof that the largest
-interface change (`editDraft` / `updateDraft` / `saveEdit`) still works in a real
-browser: create a band through the existing `createBand` helper, click
-`getByTitle('Edit band')`, fill the modal's first text input with a new unique
-name, click `Save`, assert the modal is gone and the page heading shows the new
-name, assert no native dialog fired (`trackDialogs`), then delete the band
-through the inline confirmation to clean up. It is green at `35d6f66` too — this
-is a refactor, so a regression net is the right kind of test, not a
-red-before/green-after one.
+For a visitor carrying a session cookie that is not backed by a live session -
+the only case a presence check cannot reproduce - the behaviour differs and the
+difference is accepted:
+
+- On a gated private route the request now passes through instead of being
+  bounced. The page's own `authClient.useSession()` resolves to no user and it
+  renders its signed-out state. That is the cost of the file no longer being an
+  authorization boundary, and it is exactly what the declaration comment says.
+- On an auth page the visitor is bounced to `/`. Because `/` is not matched, it
+  renders, and `authClient.useSession()` issues `GET /api/auth/get-session`,
+  which - for a cookie whose signature verifies but whose session row is gone
+  or expired - answers `null` **and** sends a `Set-Cookie` that clears the stale
+  token (`node_modules/better-auth/dist/api/routes/session.mjs:180-189`). This
+  was measured against the real app at `6aa099c`: sign in over
+  `/api/auth/sign-in/email`, delete the matching row from `session`, replay the
+  same cookie against `/api/auth/get-session`, and the answer carries
+  `set-cookie: better-auth.session_token=; Max-Age=0; Path=/; HttpOnly;
+  SameSite=Lax`. The next click on "Sign in" therefore reaches `/login`
+  normally. Keeping `/` and `/api/auth/(.*)` out of the matcher is what makes
+  that recovery reachable, and matcher test 15 pins it.
+- The residual case is a cookie whose signature does **not** verify at all -
+  hand-crafted, or issued under a rotated `BETTER_AUTH_SECRET`. Better Auth
+  does not clear that one, so the visitor is bounced off the auth pages until
+  the cookie expires or is cleared by hand. This is the failure mode of the
+  presence check Better Auth itself documents for Next.js middleware, and
+  closing it means verifying the cookie's HMAC in the proxy. That is not in
+  this task; the implementer records it in `docs/suggestions-log.md` as a
+  follow-up candidate, together with the option of a `/login?signout=1` escape
+  hatch.
+
+### `src/app/api/spotify/search/route.ts`
+
+A session prologue is added as the **first** statement of `GET`, above the
+`SPOTIFY_CLIENT_ID` check, so the answer is deterministic in an environment
+with no Spotify credentials:
+
+```ts
+try {
+  await getRequiredUserId()
+} catch {
+  return NextResponse.json({ error: 'Not authenticated', code: 401 }, { status: 401 })
+}
+```
+
+`getRequiredUserId` comes from `@/lib/auth-session`, the same import
+`/api/spotify/playlists/route.ts` uses. The envelope shape (`error` plus `code`,
+a fixed message, never the raw exception text) is convention R1 from AGENTS.md.
+Nothing else in the file changes: the search itself, the token cache, the
+`400` on a missing `q` and the existing `catch` are untouched.
+
+### `src/lib/__tests__/proxy.test.ts`
+
+Rewritten in place, staying in the node environment with no jsdom preamble and
+keeping the `import { proxy as middleware } from '../../proxy'` entry point.
+`vi.stubGlobal('fetch', ...)` and the `mockSession` helper are deleted; in their
+place the suite installs a `vi.spyOn(globalThis, 'fetch')` purely so that one
+test can assert it is never called. Requests are built as
+`new NextRequest(new URL('http://localhost/profile'), { headers: { cookie: '...' } })`,
+which is verified to drive `getSessionCookie` correctly.
+
+Seventeen tests in two `describe` blocks. Session resolution:
+
+1. `redirects a cookieless request for a private route to /login with the path in the redirect param`
+2. `passes a request that carries a Better Auth session cookie straight through`
+3. `accepts the __Secure- prefixed session cookie used in production`
+4. `treats an empty session cookie value as no session`
+5. `ignores unrelated cookies when deciding whether a session cookie is present`
+6. `resolves the session without ever calling fetch`
+7. `preserves the original query string when it redirects to /login`
+8. `redirects a request carrying a session cookie away from /login to the root`
+9. `redirects a request carrying a session cookie away from /signup to the root`
+10. `leaves a cookieless request for /login untouched`
+11. `leaves a cookieless request for /forgot-password and /reset-password untouched`
+12. `passes a present but unvalidated session cookie through to the page, which owns the authorization decision`
+
+Matcher:
+
+13. `matches every client-rendered private route`
+14. `matches the four auth pages`
+15. `does not match /, the invite route or any route under /api`
+16. `does not match static assets, the pdf worker or an unknown path`
+17. `lists exactly twelve matcher entries, each a valid regular-expression source`
+
+Tests 13-17 compile `config.matcher` the same way `pdfWorkerAsset.test.ts` does
+(`new RegExp('^' + entry + '$')`) and assert against an explicit table of paths,
+so the allow-list cannot be widened or narrowed without the test saying so.
+
+### AGENTS.md
+
+Four edits, all inside the existing text:
+
+1. The architecture diagram line
+   `├─ src/proxy.ts  (Next.js middleware — session gate on every request)`
+   becomes a line saying it is a Next.js Proxy that redirects on an allow-list
+   of routes and is not an authorization boundary.
+2. The "Session gating" key-decision bullet is replaced by a **"Redirect
+   convenience, not an authorization boundary"** bullet carrying the same
+   declaration as the file header: `src/proxy.ts` checks only for the presence
+   of the Better Auth session cookie, reads it directly from the request
+   headers (never through a `fetch` to the app), runs on an explicit twelve-
+   entry allow-list, and may not be relied on by any page, Server Action or
+   route handler; a new private page route must be added to the matcher to get
+   the redirect.
+3. A new key-decision bullet names the Server Component page pattern that RH-62
+   and RH-63 established, which parts 3 and 4 asked part 5 to settle:
+   `/bands`, `/admin/moderation` and `/playlists` are async Server Components
+   that read through `src/lib` directly, call `redirect("/login")` themselves,
+   and inject their Server Actions into `"use client"` islands under
+   `src/components/<area>/` as a typed actions object - the same
+   import-direction rule (F21) that Fast View follows. New read-only page
+   routes follow it. The three route names must sit on one physical line of
+   the file, in the order `/bands`, `/admin/moderation`, `/playlists`, because
+   ER8 greps for them that way.
+4. The directory-structure line
+   `└── proxy.ts                    Next.js middleware — session-gates all non-public routes`
+   is updated to describe the allow-list.
+
+Nothing else in AGENTS.md moves. If `next dev` or `next build` regenerates the
+`<!-- BEGIN:nextjs-agent-rules -->` block, that regeneration is reverted before
+the commit.
 
 ### Whitelist
 
@@ -472,114 +533,108 @@ Required:
 ```
 AGENTS.md
 docs/tasks/RH-64-spec.md
-e2e/bands-confirm.spec.ts
-eslint.config.mjs
 package.json
-src/app/bands/[id]/page.tsx
-src/app/profile/page.tsx
-src/hooks/__tests__/useBandAdmin.test.tsx
-src/hooks/useBandAdmin.ts
-src/hooks/useBandEdit.ts
-src/hooks/useBandPendingAction.ts
-src/lib/__tests__/bandAdminState.test.ts
-src/lib/__tests__/complexityBudget.test.ts
-src/lib/bandAdminState.ts
+src/app/api/spotify/search/route.ts
+src/lib/__tests__/proxy.test.ts
+src/proxy.ts
 ```
 
 Permitted but not required, and nothing else:
 
 ```
 docs/suggestions-log.md
-src/hooks/__tests__/useBandEdit.test.tsx
-src/hooks/__tests__/useBandPendingAction.test.tsx
-src/hooks/useBandInvite.ts
-src/hooks/useNewPlaylistForm.ts
 ```
 
-**Landing Page Rule decision.** This is an internal controller refactor with no
-user-visible change at all; bands and shared playlists are already on the
-landing page as selling points. The landing copy must not change; ER10 asserts
-that mechanically.
+**Landing Page Rule decision.** This task ships no user-visible feature: it is
+middleware plumbing plus a documentation declaration. It is not a selling
+point, the landing copy must not change, and ER12 asserts that mechanically.
 
-**Version.** Bump `package.json` to `0.1.94-YYYYMMDDHHmm` with a real local
-timestamp (from `0.1.93-202609091437`).
+**Version.** Bump `package.json` to `0.1.95-YYYYMMDDHHmm` with a real local
+timestamp (from `0.1.94-202609091542`).
 
 ## Expected Results
 
-ER1 - `src/hooks/useBandAdmin.ts` returns data plus intent commands and no raw state setter. `grep -cE "^[[:space:]]*set[A-Z][A-Za-z]*,$" src/hooks/useBandAdmin.ts` prints `0` (it printed `10` at `35d6f66`, one line for each of `setBand`, `setError`, `setEditing`, `setEditName`, `setEditDesc`, `setEditColor`, `setCopied`, `setShowNewPlaylist`, `setNewPlaylistName` and `setPendingAction`), and the same command prints `0` for each of `src/hooks/useBandEdit.ts` and `src/hooks/useBandPendingAction.ts`, so the setters were removed rather than pushed one file down. (Other hooks under `src/hooks/` - `useTabLibrary.ts`, `useSongLinks.ts`, `useLyricsEditor.ts` - do return setters at `35d6f66` and are outside this task; they must not be edited.) The file declares the surface as a named exported type: `grep -c "export interface BandAdminController" src/hooks/useBandAdmin.ts` prints `1`, and `grep -cE "editDraft|updateDraft" src/hooks/useBandAdmin.ts` prints a number greater than or equal to `2`.
+ER1 - `src/proxy.ts` declares in its own text that it is not an authorization boundary. `grep -c "NOT AN AUTHORIZATION BOUNDARY" src/proxy.ts` prints `1` (it printed `0` at `6aa099c`), and that string appears inside a comment block in the first 20 lines of the file: `head -20 src/proxy.ts | grep -c "NOT AN AUTHORIZATION BOUNDARY"` also prints `1`. The comment names who does own the decision: `grep -c "actionSessionGuard" src/proxy.ts` prints a number greater than or equal to `1`, and `grep -cE "never validates|proves nothing|may not be relied on|skips its own session check" src/proxy.ts` prints a number greater than or equal to `1`.
 
-ER2 - The returned surface is exactly 19 members, down from 39, and its shape is pinned by a test rather than by a reviewer counting. `rtk proxy npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx` exits `0`, and among its tests there is one named exactly `exposes 19 members, none of them a state setter`, which asserts that `Object.keys(result.current).sort()` equals exactly `['band', 'cancelEdit', 'currentUserId', 'dismissError', 'editDraft', 'error', 'invite', 'isAdmin', 'isMember', 'loading', 'newPlaylist', 'pending', 'pickCoverFile', 'playlists', 'reportError', 'saveEdit', 'saving', 'startEdit', 'updateDraft']` and that no key starts with `set`. Two further tests in that file, named exactly `groups the invite widget into url, copied, copy and applyNewCode` and `groups the destructive confirmation into action, busy, requestDelete, requestLeave, requestRemove, confirm and dismiss`, assert the sorted key sets of `result.current.invite` and `result.current.pending` the same way, and a third named exactly `groups the new playlist form into open, name, creating, toggle, changeName, close and submit` does it for `result.current.newPlaylist`.
+ER2 - The session is resolved from the request's own cookies, with no call back into the application and no timeout. `grep -c "better-auth/cookies" src/proxy.ts` prints `1` and `grep -c "getSessionCookie" src/proxy.ts` prints a number greater than or equal to `1`. `grep -cE "fetch\(|AbortController|setTimeout|get-session|await |async " src/proxy.ts` prints `0` (at `6aa099c` the same command prints `6`: the file fetched `/api/auth/get-session` behind a 3000 ms `AbortController` from an `async function`). `grep -c "@/lib/auth" src/proxy.ts` prints `0`, so the Postgres-backed Better Auth instance is still not imported here. `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing.
 
-ER3 - The two consumers read only the new interface, and no hook state setter name survives in either. `grep -cE "setBand|setError|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" 'src/app/bands/[id]/page.tsx'` prints `0` (was `25`). `grep -cE "setBand|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" src/app/profile/page.tsx` prints `0` (was `14`), and `grep -c "setError" src/app/profile/page.tsx` prints exactly `7` (was `10`) - the three occurrences inside `BandProfileView` are gone and the seven inside `PersonalProfileView`, which owns its own `useState` and is not part of this task, are untouched. Both pages name the new commands: `grep -cE "invite\.|pending\.|newPlaylist\.|editDraft|updateDraft|startEdit|cancelEdit|saveEdit|pickCoverFile|dismissError|reportError" 'src/app/bands/[id]/page.tsx'` and the same command on `src/app/profile/page.tsx` each print a number greater than or equal to `20` (each printed `0` at `35d6f66`). `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing.
+ER3 - The matcher is an explicit allow-list of exactly twelve routes. Running `node -e "const s=require('fs').readFileSync('src/proxy.ts','utf8');const m=/matcher:\s*\[([\s\S]*?)\]/.exec(s);const e=[...m[1].matchAll(/'([^']+)'/g)].map(x=>x[1]).sort();console.log(e.length);console.log(e.join(' '))"` prints `12` on the first line and, on the second line, exactly `/admin/(.*) /bands /bands/(.*) /forgot-password /login /playlists /playlists/(.*) /profile /reset-password /settings /signup /songs/(.*)`. At `6aa099c` the same command prints `1` on the first line and, on the second, the single negative-lookahead pattern that begins `/((?!_next/static|_next/image|favicon.ico|`. `grep -c "PUBLIC_PATHS" src/proxy.ts` prints `0` (it printed `2` at `6aa099c`): the matcher is now the list, so the second, hand-maintained public-path list is gone.
 
-ER4 - The pure state transitions live in the domain layer and are unit-tested. `test -f src/lib/bandAdminState.ts` exits `0`; `grep -cE "^export (function|type|interface) " src/lib/bandAdminState.ts` prints a number greater than or equal to `7`; `grep -c "PendingAction" src/lib/bandAdminState.ts` prints a number greater than or equal to `1`; and `grep -rn "@/app/" src/lib src/hooks src/components | grep -v __tests__` prints nothing at all, so the import direction of F21 still holds. `rtk proxy npx vitest run src/lib/__tests__/bandAdminState.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  11 passed (11)` with `0 failed`, its tests named exactly: `seeds an edit draft from a loaded band`, `falls back to the default colour and empty strings for a band with null fields`, `seeds an empty draft from a null band`, `reports a whitespace-only draft name as blank`, `trims the draft into an update payload and nulls an empty description`, `applies an update payload to a band without touching its other fields`, `drops one member from a band and leaves the rest`, `returns the band unchanged when no member matches`, `replaces the invite code on a band`, `builds an invite url from an origin and an invite code`, `builds an invite url with an empty code when the band has none`.
+ER4 - The rewritten suite covers the new session resolution and the new matcher. `rtk proxy npx vitest run src/lib/__tests__/proxy.test.ts` exits `0` printing `Test Files  1 passed (1)` and a `Tests  N passed (N)` line with `N` greater than or equal to `17` and `0 failed` (it printed `Tests  7 passed (7)` at `6aa099c`). The file's literal first line is not `// @vitest-environment jsdom`, and `grep -c "vi.stubGlobal" src/lib/__tests__/proxy.test.ts` prints `0` (it printed `1` at `6aa099c`, where the whole suite was written against a mocked `fetch`). Among its tests these are present with exactly these names: `redirects a cookieless request for a private route to /login with the path in the redirect param`, `passes a request that carries a Better Auth session cookie straight through`, `accepts the __Secure- prefixed session cookie used in production`, `treats an empty session cookie value as no session`, `ignores unrelated cookies when deciding whether a session cookie is present`, `resolves the session without ever calling fetch`, `preserves the original query string when it redirects to /login`, `redirects a request carrying a session cookie away from /login to the root`, `redirects a request carrying a session cookie away from /signup to the root`, `leaves a cookieless request for /login untouched`, `leaves a cookieless request for /forgot-password and /reset-password untouched`, `passes a present but unvalidated session cookie through to the page, which owns the authorization decision`, `matches every client-rendered private route`, `matches the four auth pages`, `does not match /, the invite route or any route under /api`, `does not match static assets, the pdf worker or an unknown path`, `lists exactly twelve matcher entries, each a valid regular-expression source`.
 
-ER5 - Every user-visible band flow still behaves as it did, proved by the rewritten hook suite. `rtk proxy npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx` exits `0` printing `Test Files  1 passed (1)` and a `Tests  N passed (N)` line with `N` greater than or equal to `32` and `0 failed` (it printed `Tests  29 passed (29)` at `35d6f66`). The file's literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, and among its tests these are present with exactly these names: `loads the band and its playlists, then clears loading`, `copies the invite URL and flags the copied state`, `applies a regenerated invite code to the band and clears the copied flag`, `startEdit seeds the draft from the loaded band`, `updateDraft patches one draft field and leaves the others alone`, `pickCoverFile compresses the chosen file and previews it in the draft`, `saveEdit sends the trimmed draft, patches the band and syncs the active band context`, `saveEdit refuses a blank name and leaves the draft open`, `saveEdit surfaces a cover upload failure without calling updateBand`, `cancelEdit closes the draft without calling updateBand`, `requestRemove stages the confirmation, then drops the member and toasts on confirm`, `requestDelete navigates away through onGone and banners a bare failure`, `requestLeave navigates away through onGone and banners a bare failure`, `requestLeave does nothing without a session user`, `dismiss clears the staged confirmation without calling any action`, `submit creates the band playlist and navigates to it`, `submit banners the failure and clears the creating flag`, `reportError shows a message in the shared banner and dismissError clears it`. The suite still contains the `captureUnhandledRejection` helper and a test asserting that `BANDS_PAGE_LOAD_POLICY` lets a load failure reject unhandled, because that documented difference between the two pages is unchanged.
+ER5 - The new matcher is still machine-readable by the guard that already reads it, and that guard was not weakened to make this task pass. `git diff 6aa099c -- src/lib/__tests__/pdfWorkerAsset.test.ts` prints nothing, and `rtk proxy npx vitest run src/lib/__tests__/pdfWorkerAsset.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  7 passed (7)` with `0 failed`, including the untouched test named `exempts the worker path from the session-gating middleware matcher`, which compiles every matcher entry with `new RegExp` and asserts that none of them matches `/pdf.worker.min.mjs` while at least one still matches `/songs/1/fast-view`.
 
-ER6 - Every static gate holds at its baseline value. `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, unchanged from `35d6f66`. `rtk proxy npx eslint src/hooks src/lib/bandAdminState.ts 'src/app/bands/[id]/page.tsx'` exits `0` with no output (it does at `35d6f66` too), which for `src/hooks` means every hook file - including the new ones and `useBandAdmin.ts` after its override is deleted - is clean under the base budget with no per-file relaxation. `rtk proxy npx eslint src/app/profile/page.tsx` prints `1 problem (1 error, 0 warnings)`, exactly as it does at `35d6f66`: the `react-hooks/set-state-in-effect` error on `ProfilePage`'s tab-sync effect, which belongs to a component this task does not touch and is one of the repo's 8 errors. `npm run lint:dead` exits `0` with no unused file, export or dependency reported. `npm run lint:dup` exits `0` with the `Total:` row reporting at most `19` clones and at most `0.70 %` duplicated lines (it reported `18` clones, `231` duplicated lines and `0.65 %` at `35d6f66`; the four surviving clones between the two band pages are markup F14 deliberately leaves separate). `npm run audit` exits `0` with `0` high or critical advisories. `grep -c "set-state-in-effect" src/hooks/useBandAdmin.ts` prints `1` and `grep -rc "set-state-in-effect" src/hooks/useBandEdit.ts src/hooks/useBandPendingAction.ts` prints `0` for each file that exists among those two - the one inline suppression stays on the load effect it has always guarded and is not copied into a new file.
+ER6 - The unauthenticated HTTP behaviour of every page route is unchanged. Build once (`npm run build`), then `export BETTER_AUTH_SECRET="$(grep '^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2-)"` and `export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, and serve it with `./node_modules/.bin/next start -p 3401 -H 127.0.0.1`. With no cookie sent, `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' <url>` prints, for each url in turn: `http://127.0.0.1:3401/` prints `200`; `http://127.0.0.1:3401/login` prints `200`; `http://127.0.0.1:3401/signup` prints `200`; `http://127.0.0.1:3401/join/ABCDEF` prints `200`; `http://127.0.0.1:3401/icon.jpg` prints `200`; `http://127.0.0.1:3401/api/auth/get-session` prints `200`; `http://127.0.0.1:3401/bands` prints `307 http://127.0.0.1:3401/login?redirect=%2Fbands`; `http://127.0.0.1:3401/playlists` prints `307 http://127.0.0.1:3401/login?redirect=%2Fplaylists`; `http://127.0.0.1:3401/admin/moderation` prints `307 http://127.0.0.1:3401/login?redirect=%2Fadmin%2Fmoderation`; `http://127.0.0.1:3401/profile` prints `307 http://127.0.0.1:3401/login?redirect=%2Fprofile`; `http://127.0.0.1:3401/settings` prints `307 http://127.0.0.1:3401/login?redirect=%2Fsettings`; `http://127.0.0.1:3401/songs/search` prints `307 http://127.0.0.1:3401/login?redirect=%2Fsongs%2Fsearch`; `http://127.0.0.1:3401/songs/abc/fast-view` prints `307 http://127.0.0.1:3401/login?redirect=%2Fsongs%2Fabc%2Ffast-view`; `http://127.0.0.1:3401/bands/abc` prints `307 http://127.0.0.1:3401/login?redirect=%2Fbands%2Fabc`; `http://127.0.0.1:3401/playlists/abc` prints `307 http://127.0.0.1:3401/login?redirect=%2Fplaylists%2Fabc`. Every one of those fifteen values is the value measured at `6aa099c` with the same commands.
 
-ER7 - The complexity ratchet shrinks by exactly one entry and the two page overrides are re-pinned. `grep -c "src/hooks/useBandAdmin.ts" eslint.config.mjs` prints `0` (the `src/hooks/useTabLibrary.ts` entry is a different string and must survive). The count of lines matching `complexity-budget/override` in `eslint.config.mjs` is `20` (it was `21`). `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints `1`. `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits `0` printing `Tests  6 passed (6)`, including the test now named `lists at most 20 per-file overrides, each naming a file that exists` and the test named `pins every override ceiling to the current worst number in its file`, whose passing is the mechanical proof that each remaining ceiling equals its file's current number. In `eslint.config.mjs` the entry for `src/app/bands/\[id\]/page.tsx` names a `complexity` ceiling of at most `30`, a `max-lines-per-function` ceiling of at most `490` and a `max-lines` ceiling strictly less than `508`, and the entry for `src/app/profile/page.tsx` names a `complexity` ceiling of at most `23`, a `max-lines-per-function` ceiling of at most `394` and a `max-lines` ceiling strictly less than `723` (those six numbers are the `35d6f66` values). `grep -c "past 20 entries" AGENTS.md` prints `1` and `grep -c "past 21 entries" AGENTS.md` prints `0`; and `git diff --numstat 35d6f66 -- AGENTS.md` prints exactly one line whose three tab-separated fields are `1`, `1` and `AGENTS.md` - one insertion, one deletion, no other line touched, so a regenerated `nextjs-agent-rules` block was reverted before the commit.
+ER7 - The matcher really did stop covering everything, and the one route that relied on it now answers for itself. Against the same server as ER6 and with no cookie sent: `curl -sS -o /dev/null -w '%{http_code}\n' 'http://127.0.0.1:3401/api/spotify/search?q=x'` prints `401` (at `6aa099c` it printed `307` with `redirect_url` `http://127.0.0.1:3401/login?q=x&redirect=%2Fapi%2Fspotify%2Fsearch`), and `curl -sS 'http://127.0.0.1:3401/api/spotify/search?q=x'` prints a JSON body containing `"code":401`. `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3401/nope` prints `404` (it printed `307` at `6aa099c`). In the source, `grep -c "getRequiredUserId" src/app/api/spotify/search/route.ts` prints a number greater than or equal to `1` (it printed `0` at `6aa099c`), and `git diff --numstat 6aa099c -- src/app/api/spotify/search/route.ts` prints exactly one line whose three tab-separated fields are a number of insertions no greater than `12`, the deletion count `0`, and the path `src/app/api/spotify/search/route.ts`, so the guard was added and nothing else in that handler was rewritten. `git diff 6aa099c -- src/app/api/spotify/playlists src/app/api/auth src/app/api/dev src/lib/spotifyRouteAuth.ts` prints nothing: no other handler is touched.
 
-ER8 - End to end, run with `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1"` against a fresh `npx next build`, `BETTER_AUTH_SECRET` exported from `.env.local` and Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied: `npx playwright test e2e/bands-confirm.spec.ts --reporter=list` exits `0` printing `4 passed`, with the three RH-16 tests still green (`delete band via the inline confirmation`, `cancel keeps the band`, `Escape dismisses the confirmation`) and one new test green, named exactly `rename a band through the edit modal`, which creates a band through the UI, opens the modal from the `Edit band` control, types a new unique name, clicks `Save`, asserts the page heading then shows the new name and that no native `dialog` event fired, and deletes the band again to clean up. Under the same server `npx playwright test e2e/server-pages.spec.ts --reporter=list` exits `0` printing `4 passed` and `npx playwright test e2e/ssr-smoke.spec.ts --reporter=list` exits `0` printing `4 passed`, both unchanged from `35d6f66`. No file under `e2e/` other than `e2e/bands-confirm.spec.ts` is modified: `git diff --name-only 35d6f66 -- e2e` prints exactly `e2e/bands-confirm.spec.ts`. (`e2e/songs-crud.spec.ts` and `e2e/fast-view-mobile.spec.ts` are red at `35d6f66` for reasons tracked in RH-44 and are not part of this result.)
+ER8 - AGENTS.md records the same declaration and settles the server-page pattern. `grep -c "not an authorization boundary" AGENTS.md` prints a number greater than or equal to `1` (it printed `0` at `6aa099c`), and the sentence that said the proxy "calls the Better Auth session endpoint via `fetch`" is gone: `grep -c "calls the Better Auth session endpoint via" AGENTS.md` prints `0` (it printed `1` at `6aa099c`). `grep -c "session gate on every request" AGENTS.md` prints `0` and `grep -c "session-gates all non-public routes" AGENTS.md` prints `0` (each printed `1` at `6aa099c`), so the architecture diagram and the directory map were corrected too. Separately, AGENTS.md now names the Server Component page pattern: a single line of AGENTS.md contains all three route names in order, so `grep -c "/bands.*/admin/moderation.*/playlists" AGENTS.md` prints a number greater than or equal to `1` (it printed `0` at `6aa099c`), and `grep -c "Server Component" AGENTS.md` prints a number greater than or equal to `3` (it printed `2` at `6aa099c`).
 
-ER9 - The whole suite and the coverage gate hold, with Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. `rtk proxy npx vitest run` exits `0` reporting `Test Files` passed greater than or equal to `100` (was 99; at least one new suite), `Tests` passed greater than or equal to `1128` (was 1114; at least 3 more hook tests, 4 surface tests and 11 state tests), `0 failed` and `0 skipped`. `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`). Reading per-file numbers out of the artefact this repo actually emits, `coverage/coverage-final.json` (there is no `coverage/coverage-summary.json`), the command `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (/\/src\/(hooks\/useBand|lib\/bandAdminState)/.test(k)) console.log(k.split('/src/').pop(), pct(Object.values(c[k].s)), pct(Object.values(c[k].f)))"` prints one line per file, each with a statement percentage and a function percentage of at least `90`, and the set of file names it prints includes `lib/bandAdminState.ts`, `hooks/useBandAdmin.ts`, `hooks/useBandEdit.ts` and `hooks/useBandPendingAction.ts`. (That command shape is verified at `35d6f66`, where the equivalent one-liner aimed at `/src/hooks/` prints `hooks/useBandAdmin.ts 98.6 95` among nine lines.)
+ER9 - Every static gate holds at its `6aa099c` value. `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, unchanged. `rtk proxy npx eslint src/proxy.ts src/lib/__tests__/proxy.test.ts src/app/api/spotify/search/route.ts` exits `0` with no output, as it does at `6aa099c`, which for `src/proxy.ts` means it is clean under the base complexity budget with no per-file relaxation: `grep -c "src/proxy.ts" eslint.config.mjs` prints `0` and the count of lines matching `complexity-budget/override` in `eslint.config.mjs` is still `20`. `git diff 6aa099c -- eslint.config.mjs src/lib/__tests__/complexityBudget.test.ts` prints nothing, and `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits `0` printing `Tests  6 passed (6)`. `npm run lint:dead` exits `0` with no unused file, export or dependency reported. `npm run lint:dup` exits `0` with a `Total:` row reporting at most `18` clones and at most `0.65 %` duplicated lines (it reported `18` clones, `231` duplicated lines and `0.64 %` at `6aa099c`). `npm run audit` exits `0` with `0` high or critical advisories.
 
-ER10 - Release hygiene. `package.json` version is `0.1.94-YYYYMMDDHHmm` with a real local timestamp, sorting above `0.1.93-202609091437`. `git diff 35d6f66 -- src/components/landing src/i18n/dictionaries` prints nothing: an internal controller refactor changes nothing a musician would choose the app for, and bands are already a landing selling point. `git diff 35d6f66 -- src/lib/bandAdminLoad.ts src/app/bandAdminActions.ts src/app/actions/bands.ts src/lib/bands.ts src/lib/bands.server.ts src/proxy.ts src/store docs/plans/code-quality-review.md` prints nothing, so the injected-action wiring, the load policies, the data layer, the middleware, the stores and the review document are all byte-identical. And `git diff --name-only 35d6f66 | sort` lists only paths drawn from this closed set and no others: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-64-spec.md`, `e2e/bands-confirm.spec.ts`, `eslint.config.mjs`, `package.json`, `src/app/bands/[id]/page.tsx`, `src/app/profile/page.tsx`, `src/hooks/__tests__/useBandAdmin.test.tsx`, `src/hooks/__tests__/useBandEdit.test.tsx`, `src/hooks/__tests__/useBandPendingAction.test.tsx`, `src/hooks/useBandAdmin.ts`, `src/hooks/useBandEdit.ts`, `src/hooks/useBandInvite.ts`, `src/hooks/useBandPendingAction.ts`, `src/hooks/useNewPlaylistForm.ts`, `src/lib/__tests__/bandAdminState.test.ts`, `src/lib/__tests__/complexityBudget.test.ts`, `src/lib/bandAdminState.ts` - any other path fails this result.
+ER10 - The whole suite and the coverage gate hold, with Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. `rtk proxy npx vitest run` exits `0` reporting `Test Files  100 passed (100)` (unchanged; this task adds no new suite), `Tests` passed greater than or equal to `1148` (was `1138`; at least ten new tests in the rewritten proxy suite), `0 failed` and `0 skipped`. `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`). Reading the per-file numbers out of the artefact this repository actually emits, `coverage/coverage-final.json` (there is no `coverage/coverage-summary.json`), the command `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (k.endsWith('/src/proxy.ts')) console.log(k.split('/src/').pop(), pct(Object.values(c[k].s)), pct(Object.values(c[k].f)))"` prints exactly one line, `proxy.ts` followed by a statement percentage of at least `96` and a function percentage of exactly `100`. At `6aa099c` that same one-liner prints `proxy.ts 96.4 75`, the missing function being the abort-timeout arrow that no test could reach.
+
+ER11 - End to end, with a fresh `npm run build`, `export BETTER_AUTH_SECRET="$(grep '^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2-)"`, Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, and `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1"`: `npx playwright test e2e/server-pages.spec.ts --reporter=list` exits `0` printing `4 passed`; `npx playwright test e2e/ssr-smoke.spec.ts --reporter=list` exits `0` printing `4 passed`; `npx playwright test e2e/auth.spec.ts --grep credentials --reporter=list` exits `0` printing `2 passed`; and `npx playwright test e2e/bands-confirm.spec.ts --reporter=list --retries=1` exits `0` printing `4 passed` (this file carries a known intermittent `Loading...` failure logged under RH-64, which is why one retry is allowed and why a flaky-but-passing run satisfies this result). All four sets are green at `6aa099c` under the same commands. `git diff --name-only 6aa099c -- e2e` prints nothing: no end-to-end spec is added or edited by this task. (`e2e/songs-crud.spec.ts` and `e2e/fast-view-mobile.spec.ts` are red at `6aa099c` for reasons tracked in RH-44, and the two `e2e/auth.spec.ts` tests that navigate to `/` expecting a bounce to `/login` are red at `6aa099c` as well because `/` renders the landing page; none of them is part of this result.)
+
+ER12 - Release hygiene. `package.json` version is `0.1.95-YYYYMMDDHHmm` with a real local timestamp, sorting above `0.1.94-202609091542`. `git diff 6aa099c -- src/components/landing src/i18n/dictionaries` prints nothing: middleware plumbing plus a documentation declaration is not something a musician would choose the app for, so the Landing Page Rule requires no copy change. `git diff 6aa099c -- docs/plans/code-quality-review.md src/app/bands src/app/playlists src/app/admin src/app/page.tsx src/app/layout.tsx src/app/loading.tsx src/hooks src/components src/store src/lib/auth.ts src/lib/auth-session.ts next.config.ts vitest.config.ts` prints nothing, so the F10 status line (owned by the RH-41 close-out), the three Server Component pages, the client pages, the hooks, the components, the stores, the Better Auth wiring and both build configs are all byte-identical. And `git diff --name-only 6aa099c | sort` lists only paths drawn from this closed set and no others: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-64-spec.md`, `package.json`, `src/app/api/spotify/search/route.ts`, `src/lib/__tests__/proxy.test.ts`, `src/proxy.ts` - any other path fails this result.
 
 ## Out of Scope
 
-- **Converting `/bands/[id]` or `/profile` into Server Components.** They keep
-  `"use client"`, the mount load effect and its inline
-  `react-hooks/set-state-in-effect` suppression. F15's five-part split covered
-  `/bands`, `/admin/moderation` (RH-62) and `/playlists` (RH-63) only; these two
-  routes were never in it, and rendering them on the server would delete the
-  hook this task is redesigning rather than fix its interface.
-- **`src/proxy.ts`**, its matcher, its `PUBLIC_PATHS` list and its
-  session-over-fetch strategy - RH-65, part 5 of 5 (F10).
 - **The `Status:` lines for F10, F14 and F15 in
-  `docs/plans/code-quality-review.md`.** RH-41's own record assigns the
-  docs-only close-out of all three findings to the parent, once the five parts
-  have landed; that file must not be touched here, and ER10 pins it.
-- **Changing `BandAdminActions` or `src/app/bandAdminActions.ts`.** The eight
-  injected Server Actions keep their names and signatures.
-  `regenerateBandInviteCodeAction` stays a direct import in `/bands/[id]` and
-  does not become a ninth injected action: the affordance exists on one page,
-  and moving the flow into a hook shared with `/profile` would put page-specific
-  state (`confirmingRegenerate`, `regenerating`) into shared code.
-- **`src/lib/bandAdminLoad.ts`.** `BandAdminLoadPolicy`, both policy constants
-  and `resolveLoadErrorMessage` are unchanged; `onNotFound` stays a required
-  option rather than becoming a policy-carried message.
-- **De-duplicating the four jscpd clones between `/bands/[id]` and `/profile`**
-  (the three `ConfirmPanel` blocks and the 34-line edit-modal form). F14's
-  remediation says to keep the two pages' markup separate; extracting a shared
-  `BandEditModal` component is a UI change with its own review surface and
-  belongs to a separate task.
-- **Decomposing either page.** `BandDetailPage` stays one component, and
-  `src/app/profile/page.tsx` keeps its three; only the destructuring statements,
-  the accessor names and `handleRegenerateInvite` change. `PersonalProfileView`
-  and `ProfilePage` are not edited at all.
-- **Lowering either page's `complexity` ceiling by restructuring its JSX.** The
-  ceilings are re-pinned to whatever the mechanical rewrite produces; chasing a
-  lower number by rewriting conditional rendering is a different task.
-- **Adding `revalidatePath` anywhere, or any change to `src/app/actions/bands.ts`**,
-  which would drag the `actionSessionGuard` / `actionAuthorizationGuard` /
-  `actionDataAccessGuard` suites into a refactor whose subject is the hook layer.
-- **Any AGENTS.md edit other than the single word `21` -> `20`** in the F20
-  complexity-budget sentence on line 94. The directory map's one-line
-  description of `src/hooks/useBandAdmin.ts` is still accurate and the new
-  sibling hooks are not added to it (recorded as a suggestion instead).
-- **Fixing the pre-existing red e2e specs** (`songs-crud`, `fast-view-mobile`)
-  or the 8 eslint errors and 14 warnings that make up today's repo total, none
-  of which is in a file this task touches.
+  `docs/plans/code-quality-review.md`.** RH-41's record assigns the docs-only
+  close-out of all three findings to the parent, once the five parts have
+  landed ("Aguarda as cinco filhas para receber uma spec nova de escopo
+  reduzido, so de integracao e verificacao: conferir a tabela de rotas final de
+  npx next build e fechar F10, F14 e F15"). That file must not be touched here;
+  ER12 pins it.
+- **Verifying the session cookie's signature, or validating the session at
+  all.** The proxy checks presence and nothing else, by design and by
+  declaration. The known consequence - a cookie signed under a rotated
+  `BETTER_AUTH_SECRET` bounces its owner off the auth pages until it expires -
+  is recorded in `docs/suggestions-log.md`, not fixed here. Adding HMAC
+  verification would make the file asynchronous again and would blur the very
+  statement ER1 requires it to make.
+- **A request-scoped session cache.** F10 offers it as an alternative to the
+  self-`fetch`; with the fetch gone there is nothing left to cache, and a cache
+  would reintroduce the database dependency this task removes.
+- **Converting `/profile`, `/settings`, `/bands/[id]`, `/playlists/[id]` or
+  `/songs/[id]/fast-view` into Server Components**, or making them redirect
+  themselves. They stay `"use client"`; the proxy keeps redirecting them, which
+  is the whole reason they are in the matcher. Their remaining `useEffect` data
+  loading is F15 work that RH-41's split deliberately left out.
+- **Removing `/bands`, `/playlists` or `/admin/moderation` from the matcher on
+  the grounds that they redirect themselves.** Measured and rejected in
+  `## Audit`: with `src/app/loading.tsx` present, their own `redirect()` is a
+  streamed `200` plus a one-second meta refresh, not a `307`.
+- **Deleting or moving `src/app/loading.tsx`**, which is what would change that
+  measurement. It is a global loading UI with its own product behaviour and its
+  own review surface.
+- **Changing `/api/spotify/search` beyond the session prologue** - the Client
+  Credentials token cache, the `400` on a missing `q`, the response shape and
+  the error handling are untouched - and **changing any other route handler**,
+  all of which already answer for themselves.
+- **Adding an end-to-end spec for the redirect.** ER6 and ER7 pin the same
+  behaviour at the HTTP layer with `curl`, which is cheaper, exact about the
+  `Location` header, and does not depend on the signed-in Playwright fixture.
+- **Fixing the two red `e2e/auth.spec.ts` redirect tests** (they navigate to
+  `/`, which is public and renders the landing page) or the pre-existing red
+  `songs-crud` / `fast-view-mobile` specs and the 8 eslint errors and 14
+  warnings that make up today's repo total. None is in a file this task owns.
+- **Any AGENTS.md edit beyond the four described in `## Approach`.** The
+  complexity-budget sentence, the coverage-universe paragraph and the error
+  handling conventions are unchanged; the ratchet does not move, because
+  `src/proxy.ts` never had an override.
 
 ## Post-merge checks (orchestrator)
 
-After the Vercel deployment of the merge commit, a signed-in smoke pass should
-confirm on a real band that: the invite link copies and the button reverts from
-`Copied!`; regenerating the invite link replaces the code in the field and the
-`Copied!` state resets; editing name, description, colour and cover saves and
-the band name in the context switcher updates when that band is the active
-context; removing a member toasts and the row disappears; and creating a band
-playlist navigates to `/playlists/<id>`. The same five flows should be spot
-checked on the `/profile` band tab, which shares the hook but not the markup. No
-expected result above depends on any of this.
+After the Vercel deployment of the merge commit, a signed-out browser should
+confirm that the marketing landing page still renders at `/`, that typing
+`/profile` lands on `/login?redirect=%2Fprofile` and that signing in from there
+returns to `/profile`; and that `/join/<a real invite code>` still renders the
+invite page without a session. A signed-in browser should confirm that
+navigating between `/`, `/bands`, `/playlists`, a band, a playlist and a song's
+Fast View is unchanged, that typing `/login` while signed in still lands on the
+dashboard, and that the Spotify search box on the dashboard still returns
+tracks (the one call that now depends on the new `401` prologue answering for a
+real session). Signing out and then reloading `/bands` should give the login
+page. No expected result above depends on any of this.

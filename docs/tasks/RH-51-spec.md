@@ -1,633 +1,520 @@
-# RH-51 - Fast View parte 4/5: extrair letras, editor, auto-import e Stage Mode de letra
+# RH-52 — Fast View parte 5/5: extrair entrada de musica, status, links e o shell da pagina
 
-Part 4 of 5 of the RH-38 decomposition of `src/app/songs/[id]/fast-view/page.tsx`
-(parent RH-38; RH-25 T5, covers F6). Baseline for every measurement in this spec
-is `bf0c97e` ("refactor(RH-50): extract the Fast View PDF Stage Mode overlay"),
-where the page is 964 lines and `FastViewPage` has an ESLint cyclomatic
-complexity of 54.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-38 (Fast View decomposition, T5 of `docs/plans/code-quality-review.md`).
+Part 5 of 5, the last slice. Baseline: `aaf9a21`
+(`refactor(RH-51): extract Fast View lyrics editor, auto-import and lyrics Stage Mode`).
 
 ## Scope
 
-This task moves the **lyrics half** of the Fast View page out of the page and
-nothing else. Concretely it covers:
+This task finishes the decomposition of `src/app/songs/[id]/fast-view/page.tsx`
+by moving the four regions RH-48..RH-51 deliberately left behind — the song
+entry load with its band/personal reconciliation, the status dropdown and its
+write, the links section (add with label auto-fill, delete through the
+moderation queue) and the page's own shell (loading / not-found placeholders,
+tags, the overlay stack) — into `src/lib`, `src/hooks` and
+`src/components/fastview`, and reduces the page to a composition root that pins
+the FINAL budget for the whole parent task:
 
-- `parseLyricsMarkdown` (page lines 30-40) moved into `src/lib/lyricsMarkdown.ts`,
-  with the escaping / XSS tests it has never had;
-- the lyrics/version-selection helpers (`hasDifferentPersonalLyrics`,
-  `displayedLyrics`, the save-target resolution buried inside `handleSaveLyrics`)
-  and the Stage Mode font-size clamp extracted as pure functions in
-  `src/lib/lyricsEditor.ts`, which also declares the controller contract;
-- one controller hook `src/hooks/useLyricsEditor.ts` owning the edit state, the
-  save (through an injected `updateLyrics`), the auto-import (through an injected
-  `fetchLyrics`), the band/personal switch, the Stage Mode font size and dark
-  mode, and the lyrics Stage Mode open/close **including the lyrics-half popstate
-  effect that RH-50 deliberately left on the page**, reusing
-  `src/lib/stageHistory.ts` unchanged;
-- three presentational components under `src/components/fastview/`:
-  `LyricsSection.tsx`, `LyricsEditorPanel.tsx` and `LyricsStageOverlay.tsx`;
-- one new composition root `src/app/fastViewLyricsActions.ts` wiring
-  `updateLyricsAction`, `fetchLyricsAction` and `addSongAction`;
-- unit tests for the two lib modules, `renderHook` tests for the controller with
-  injected fake actions, and jsdom tests for the components.
+- `FastViewPage` at complexity **at most 15** and **at most 200 lines**;
+- **no function anywhere in the page file** over complexity 15, over 200 lines,
+  or nested deeper than 4 blocks;
+- the page **file** strictly under **400 lines**.
 
-It is a behaviour-preserving refactor: no user-visible change, no schema change,
-no change to `TabDrawingStage`, `usePdfStage`, `useTabLibrary` or any RH-20 /
-RH-28 guard test.
+It also removes the last `@typescript-eslint/no-explicit-any` error in the page
+(`handleStatusChange(statusKey as any)` at line 433), by giving the status
+dropdown a typed option list in `src/lib`.
 
-What this task does **not** cover: the page's `entry` / `personalEntry` state,
-the entry load, the status dropdown, the links section and the page shell, all of
-which are RH-52 (part 5); the second pre-existing ESLint error in the page
-(`@typescript-eslint/no-explicit-any` in the status dropdown), which belongs to
-RH-52 and stays exactly as it is; the two red RH-44 e2e specs; and any landing
-page copy.
+What this task does **not** cover:
 
-## Audit at bf0c97e
+- **F26.** Its second half is already closed at this baseline — RH-48 pulled all
+  four `window.location.search` reads into `useSearchParams()` (see "The F26 read
+  at `aaf9a21`" below). This task must **preserve** that: the band id keeps
+  coming from `useSearchParams()` and keeps appearing in the load effect's
+  dependency array, now inside `useSongEntry`. No new `window.location` read may
+  appear anywhere.
+- **Closing F6 / F26 in `docs/plans/code-quality-review.md`.** That file must not
+  be edited here; the parent RH-38 owns the integration close-out and the
+  re-measurement of the whole page after this slice lands.
+- Any change to `src/app/actions/**`, `src/lib/songs.ts`, the moderation
+  pipeline (RH-34), `migrations/`, `eslint.config.mjs` (the complexity budgets in
+  the shared config are RH-39/F20) or `vitest.config.ts`.
+- Any behaviour change. This is a pure refactor: every Toast string, every
+  class-for-class layout contract in AGENTS.md (Link Card UI, Fast View Playlist
+  Layout) and every observable interaction stays identical. In particular the
+  `pending` moderation path keeps the deleted link on screen.
+- Converting the page to a Server Component (T8), fixing the missing "next"
+  desktop arrow, or touching the landing page (an internal refactor is not a
+  selling point, so the Landing Page Rule resolves to "no landing copy change").
 
-Every lyrics-related site in `src/app/songs/[id]/fast-view/page.tsx` (964 lines),
-with its line range and its destination.
+## Audit at aaf9a21
 
-| Lines | What is there today | Destination |
+`git log --oneline -1` prints `aaf9a21 refactor(RH-51): extract Fast View lyrics
+editor, auto-import and lyrics Stage Mode`.
+`wc -l "src/app/songs/[id]/fast-view/page.tsx"` prints `658`.
+
+```
+rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx" \
+  --rule '{"complexity":["error",15],"max-lines-per-function":["error",200],"max-depth":["error",4]}'
+```
+
+prints exactly three errors:
+
+```
+   92:16  error  Function 'FastViewPage' has too many lines (567). Maximum allowed is 200  max-lines-per-function
+   92:16  error  Function 'FastViewPage' has a complexity of 30. Maximum allowed is 15     complexity
+  433:74  error  Unexpected any. Specify a different type                                  @typescript-eslint/no-explicit-any
+```
+
+`max-depth` is already clean. Plain `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx"`
+prints `1 problem (1 error, 0 warnings)` — the `any` at `433:74`. Whole-tree
+`rtk proxy npx eslint .` prints `25 problems (11 errors, 14 warnings)`.
+
+### Every region still in the page, with line ranges
+
+| Lines | Region | Destination |
 |---|---|---|
-| 8 | the `@/app/actions/repertoire` import list, which includes `updateLyricsAction`, `fetchLyricsAction` and `addSongAction` | all three drop off the page import and are wired in `src/app/fastViewLyricsActions.ts`. `addSongAction` has no other page use (its only call site is `handleSaveLyrics` line 287; the tab library reaches it through `TAB_LIBRARY_ACTIONS`), so leaving it in the page import would raise a fresh `no-unused-vars` warning |
-| 12 | `import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'` | moves to `src/hooks/useLyricsEditor.ts`; the page keeps no Stage Mode history code |
-| 30-40 | `function parseLyricsMarkdown(text)`: escapes `&`, `<`, `>`, then rewrites `**bold**`, `*em*`, `__u__` and `[chord]`; holds the `prefer-const` error on `let html` | moves to `src/lib/lyricsMarkdown.ts`; the `let` binding is dropped, which retires that ESLint error |
-| 112-116 | `// Lyrics state` plus `isEditingLyrics`, `lyricsText`, `savingLyrics`, `fetchingLyrics` | become `isEditing`, `draft`, `saving`, `fetching` inside `useLyricsEditor` |
-| 135-138 | `// Stage mode states` plus `isStageMode` (136), `lyricsFontSize` (137, initial `18`), `isStageDarkMode` (138) | become `isStageOpen`, `fontSize`, `isDarkMode` inside `useLyricsEditor` |
-| 141-142 | `personalEntry` / `loadingPersonal` state | **stays** on the page (RH-52). `personalEntry` is passed into the hook; `loadingPersonal` is passed into `LyricsSection` |
-| 143 | `const [showPersonalLyrics, setShowPersonalLyrics] = useState(false)` | becomes `showPersonalLyrics` inside `useLyricsEditor` |
-| 178-194 | the lyrics-half popstate effect RH-50 left behind: `if (!isStageMode) return`, `window.history.pushState(stageHistoryState(), '')`, a `handlePopState` clearing `isStageMode`, subscribe/unsubscribe on `popstate` | moves verbatim into `useLyricsEditor`, keyed on `isStageOpen` |
-| 196-201 | `closeStageMode`: clears `isStageMode`, then `if (isStageHistoryEntry(window.history.state)) window.history.back()` | becomes `closeStage()` inside `useLyricsEditor`, character for character |
-| 215 | `setLyricsText(data.lyrics ?? '')` inside the entry-load effect | **deleted**, see "The load-time draft seed" below |
-| 272 | `const hasDifferentPersonalLyrics = !!(entry.band_id && personalEntry && personalEntry.lyrics && personalEntry.lyrics !== entry.lyrics)` | becomes `hasDifferentPersonalLyrics(entry, personalEntry)` in `src/lib/lyricsEditor.ts` |
-| 273 | `const displayedLyrics = (entry.band_id && showPersonalLyrics && personalEntry) ? personalEntry.lyrics : entry.lyrics` | becomes `selectDisplayedLyrics(entry, personalEntry, showPersonalLyrics)` in `src/lib/lyricsEditor.ts` |
-| 275-308 | `handleSaveLyrics`: picks `targetId`/`targetBandId`, creates the personal entry with `addSongAction` when the member has none, calls `updateLyricsAction`, updates `personalEntry` **or** `entry`, leaves edit mode, toasts `Lyrics saved successfully!` / `Failed to save lyrics` | becomes `save()` inside `useLyricsEditor`; the target choice becomes `resolveLyricsSaveTarget` in `src/lib/lyricsEditor.ts`; the two state updates become the injected callbacks below |
-| 310-330 | `handleAutoImportLyrics`: refuses without an artist, calls `fetchLyricsAction(artist, title)`, writes the result into the draft, toasts the four verbatim messages | becomes `autoImport()` inside `useLyricsEditor` |
-| 665-802 | the whole `<section aria-label="Lyrics">`: heading with the Band/Personal badge (670-680), Stage Mode and Edit/Add buttons (682-704), the version-switcher banner (708-719), the editor block (721-783) and the read-only viewer with its skeleton and empty state (784-801) | splits into `LyricsSection.tsx` (heading, badge, buttons, banner, viewer) and `LyricsEditorPanel.tsx` (the 721-783 editor block) |
-| 833-912 | the lyrics Stage Mode overlay: full-screen root with `style={{ fontSize: \`${lyricsFontSize}px\` }}` and the light/dark surface classes, the sticky header with the title and `Tom: {key}`, the dark-mode toggle, the `A-` / `A+` buttons (`Math.max(12, prev - 2)` / `Math.min(36, prev + 2)`), the red close button calling `closeStageMode`, and the `dangerouslySetInnerHTML` lyrics body | moves verbatim to `LyricsStageOverlay.tsx` |
-| 789, 908 | the two `dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(displayedLyrics) }}` sites | move with their components; both import `parseLyricsMarkdown` from `@/lib/lyricsMarkdown` |
+| 1-31 | `'use client'` + imports (5 entry/status/link actions on line 8) | rewritten |
+| 33-74 | `getLinkIcon(url)` — 5 branches returning 5 different SVGs | `src/components/fastview/LinkIcon.tsx` |
+| 76-87 | `tabLibraryEntryInputs(entry, personalEntry)` (RH-49 helper) | folded into `SongEntryController` (`entryBandId` / `songId` / `personalRepertoireId`) |
+| 89-90 | `type PendingDelete = { kind: 'link'; url: string }` | replaced by `pendingDeleteUrl: string \| null` in `SongLinksController` |
+| 93-97 | `useParams` / `useRouter` / `useSearchParams` + `returnTo` + `queryBandId` | **stays** in the page |
+| 99-101 | `entry`, `loading`, `notFound` state | `useSongEntry` |
+| 103-105 | `isStatusDropdownOpen`, `updatingStatus` | `useSongStatus` |
+| 107-109 | `pendingDelete`, `deleteBusy` | `useSongLinks` |
+| 111-112 | `useToast()` | **stays** (one Toast for the page; RH-38 invariant) |
+| 114-118 | `isAddingLink`, `newLinkLabel`, `newLinkUrl`, `savingLink` | `useSongLinks` |
+| 120-122 | `personalEntry`, `loadingPersonal` | `useSongEntry` |
+| 124-135 | `useTabLibrary(...)` call (RH-49) | **stays**, inputs rewired |
+| 137-144 | `usePdfStage(...)` call (RH-50) | **stays** |
+| 146-155 | `usePlaylistNav(...)` call (RH-48) | **stays** |
+| 157-170 | `useLyricsEditor(...)` call (RH-51), with two inline `prev ? {...} : null` patchers | **stays**, patchers replaced by `song.applyEntryLyrics` / `song.applyPersonalLyrics` |
+| 172-209 | the load effect: `getSongEntry(id, queryBandId)`, `setNotFound`, and the band-context `getPersonalEntryForSongAction` reconciliation with `logger.error`; deps `[id, queryBandId]` | `useSongEntry` |
+| 211-217 | `loading` early return (`min-h-screen ... aria-busy`, `Loading...`) | `SongLoading` |
+| 219-232 | `notFound \|\| !entry` early return (`Song not found` + `← Back`) | `SongNotFound` |
+| 234-238 | derived `title` / `artist` / `key` / `cfg` / `links` | `songIdentity()` in lib (`cfg` moves into `StatusDropdown`, `links` into `SongLinksController`) |
+| 240-254 | `handleStatusChange(newStatus)` | `useSongStatus.change` |
+| 256-303 | `handleAddLink(e)` — duplicate check, blank-label auto-fetch, append, patch, reset form | `useSongLinks.submit` (the `e.preventDefault()` moves into `AddLinkForm`) |
+| 305-311 | `handleDeleteLink(url)` — cancels the tab confirmation, then opens the link one | `useSongLinks.requestDelete` + one wiring arrow in the page |
+| 313-350 | `confirmPendingDelete()` — `updateSongLinksAction` returning `{ success, pending }`; on `pending` the link stays visible with a warning Toast | `useSongLinks.confirmDelete` |
+| 352-395 | root fragment, `SetlistDrawer`, `PlaylistPrevArrow`, layout `div`/`main` with the touch handlers, back button, `SetlistPill`, `SetlistSelect` | **stays** |
+| 397-461 | "Song details" section: title/artist/key + the status trigger, the backdrop and the `Object.entries(STATUS_CONFIG)` list (the `as any` is at 433) | `SongIdentityHeader` + `StatusDropdown` |
+| 463-468 | `TabLibrarySection` | **stays** |
+| 470-571 | "Links" section: heading + `+ Add Link`, the link cards (`getLinkIcon`, external-link SVG, `h-4 w-px bg-gray-200` divider, delete button), the empty state and the add form | `LinksSection` + `LinkIcon` + `AddLinkForm` |
+| 573-574 | `LyricsSection` | **stays** |
+| 576-591 | "Tags" section | `SongTagsSection` |
+| 592-604 | `SwipeHint`, `SetlistSidebar` | **stays** |
+| 605-655 | the overlay stack: `LyricsStageOverlay`, `PdfStageOverlay`, `TabDestinationModal`, `TabDeleteConfirm`, the link `ConfirmPanel`, the `Toast` | `FastViewOverlays` (+ `LinkDeleteConfirm`) |
 
-Untouched by this task and confirmed as such: `entry` / `setEntry` (108),
-`loading` / `notFound` (109-110), the status dropdown (119-120, 333-346,
-498-545), the links state and handlers (130-133, 348-442, 563-663), the tab
-library and PDF stage wiring (148-165), the playlist wiring (169-176), the entry
-load effect (203-241) apart from its line 215, the tags section (805-819) and
-every overlay from line 914 on.
+Five `useState` groups (13 `useState` calls), one `useEffect`, four handlers and
+about 250 lines of JSX are what this slice moves.
 
-Measured baselines used by the Expected Results (all at `bf0c97e`):
+### The F26 read at `aaf9a21`
 
-- `wc -l "src/app/songs/[id]/fast-view/page.tsx"` prints `964`.
-- `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx" --rule '{"complexity":["error",15]}'`
-  prints three problem lines, one of which is
-  `Function 'FastViewPage' has a complexity of 54. Maximum allowed is 15`.
-- `rtk proxy npx eslint .` prints `26 problems (12 errors, 14 warnings)`;
-  `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx"` prints
-  `2 problems (2 errors, 0 warnings)` (the `prefer-const` this task retires, plus
-  the RH-52 `no-explicit-any`).
-- `grep -c "parseLyricsMarkdown\|updateLyricsAction\|fetchLyricsAction\|lyricsFontSize\|isStageMode\|popstate" "src/app/songs/[id]/fast-view/page.tsx"`
-  prints `14`.
-- `npm run lint:dup` prints `Found 18 clones.` with 230 duplicated lines (0.76%).
-- `npx vitest run` reports 74 files / 884 tests / 0 skipped, with Postgres up.
+`grep -c "window.location" "src/app/songs/[id]/fast-view/page.tsx"` already
+prints `0`. Line 95-97 reads
 
-A throwaway copy of the page with exactly the regions above removed and the
-wiring of section 6 added measures **674 lines** and `FastViewPage` **complexity
-30**, which is where the bounds in ER7 come from.
+```ts
+const searchParams = useSearchParams()
+const returnTo = searchParams.get('returnTo')
+const queryBandId = searchParams.get('bandId')
+```
 
-### The RH-52 boundary for `entry` / `personalEntry` (explicit contract)
+and the load effect's dependency array (line 209) is already `[id, queryBandId]`,
+i.e. it already carries the search-params-derived value. RH-48 pulled the whole
+of F26 forward (see its spec's "F26 scope note"), so the second half is closed
+before this task starts. RH-52's obligation is **conservation**: the load effect
+moves into `useSongEntry` and its dependency array must still carry the band id
+that the page derived from `useSearchParams()`, so a navigation that changes only
+`?bandId=` still refetches. ER6 verifies this by grep plus a `renderHook`
+rerender test (ER3), not by trusting the move.
 
-The page keeps owning `entry` and `personalEntry` (RH-52 owns them for good).
-`useLyricsEditor` therefore **reads** both as options and **never** holds a copy;
-when a save changes lyrics it hands the new text back through three injected
-callbacks, each the exact `setState` call the page makes today:
+### Existing guards this slice must not break
 
-| Hook option | Page passes | Replaces page code |
-|---|---|---|
-| `onEntryLyricsSaved(lyrics)` | `(lyrics) => setEntry(prev => prev ? { ...prev, lyrics } : null)` | line 299 |
-| `onPersonalLyricsSaved(lyrics)` | `(lyrics) => setPersonalEntry(prev => prev ? { ...prev, lyrics } : null)` | line 297 |
-| `onPersonalEntryCreated(created)` | `setPersonalEntry` | line 288 |
-
-`onPersonalEntryCreated` is deliberately the same name and the same shape as
-`useTabLibrary`'s option (RH-49), because it is the same event: this controller
-called `addSong` and the page must adopt the row it got back. Two separate
-"lyrics saved" callbacks rather than one with a target flag, because the page's
-two updaters are genuinely different setters and a flag would only re-encode the
-branch the hook already resolved.
-
-Nothing else crosses the boundary: the hook does not read `entry.status`,
-`entry.tags` or `entry.song.links`, and it never calls `router`.
-
-### The load-time draft seed (explicit decision)
-
-Page line 215 seeds `lyricsText` from the freshly loaded entry. That write is
-**unobservable**: the textarea only exists while `isEditingLyrics` is true, and
-the sole way into that state is the Edit/Add button at 692-703, which itself does
-`setLyricsText(displayedLyrics ?? '')` first. `handleAutoImportLyrics` and
-`handleSaveLyrics` are likewise reachable only from inside the editor. So the
-draft's value before the Edit button is pressed can never reach the screen or the
-server.
-
-**Decision.** The line is deleted rather than reproduced as an effect in the
-hook. `draft` starts as `''`, and `startEditing()` seeds it from the currently
-displayed lyrics exactly as the button does today. ER4 pins that seeding with a
-named test, so the equivalence is checked and not merely asserted here.
+- `src/app/actions/__tests__/actionSessionGuard.test.ts` (44 `mode: '` entries),
+  `actionAuthorizationGuard.test.ts`, `actionDataAccessGuard.test.ts`: no Server
+  Action is added, deleted or re-signed here.
+- `src/lib/__tests__/errorHandlingStyle.test.ts` and `noBrowserDialogs.test.ts`
+  walk all of `src/`: no `catch (x: any)`, no `console.error` in a catch, no
+  `alert`/`confirm` in the new files.
+- `eslint.config.mjs` `no-restricted-imports`: nothing new under
+  `src/components`, `src/hooks` or `src/lib` may import `@/app/*`.
+- `knip` (`ignoreExportsUsedInFile: true`): every new export must have a
+  non-test consumer, or `npm run lint:dead` fails.
+- Coverage `include` covers `src/lib/**/*.ts` and `src/hooks/**/*.ts`
+  automatically, so each new module carries its own unit test file.
 
 ## Approach
 
-### 1. `src/lib/lyricsMarkdown.ts` (new)
+Three pure modules in `src/lib`, three controllers in `src/hooks`, one Server
+Action composition root in `src/app`, nine presentational components in
+`src/components/fastview`. Same shape as RH-48..RH-51: decisions in `lib` (node
+tests, no DOM), state and effects in `hooks` (jsdom `renderHook` tests, actions
+injected), markup in `components` (jsdom render tests, zero logic), controller
+types declared in `lib` so components never import `src/hooks`.
 
-Pure, no DOM, no React, default `node` test environment. One export:
-
-```ts
-/**
- * The Fast View lyrics mini-markdown, rendered to HTML.
- *
- * The three escapes run FIRST and in this order (`&` before `<` and `>`), so
- * user text can never introduce markup and an escaped entity can never be
- * double-escaped. Everything emitted afterwards is markup this function chose.
- */
-export function parseLyricsMarkdown(text: string): string
-```
-
-The body is page lines 31-39 with the `let html = ... ; return html` binding
-replaced by a direct `return text.replace(...)...` chain. The replacement order,
-the four markup rules and the chord badge's class string
-(`text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 text-xs font-semibold select-all`)
-are moved character for character. Dropping the binding is what retires the
-page's `prefer-const` error; no other ESLint problem is touched.
-
-**XSS safety.** The security property this module carries is: after the three
-escapes, no `<` or `>` from `text` survives, so a pasted `<script>`,
-`<img onerror=...>` or `</div>` is inert text. It has never had a test. This task
-adds them (ER2).
-
-Tests: `src/lib/__tests__/lyricsMarkdown.test.ts`, default `node` environment
-(the file must **not** contain `@vitest-environment`, which is itself proof the
-module touches no DOM). One constraint on the fixtures: the repository guard
-`src/lib/__tests__/noBrowserDialogs.test.ts` scans every `.ts`/`.tsx` under
-`src/` for `alert(` and `confirm(` outside comments, so the injection fixtures
-must not spell those calls - use `<script>document.title = 'pwned'</script>` and
-`<img src=x onerror=boom()>`. Eleven tests, names in ER2.
-
-### 2. `src/lib/lyricsEditor.ts` (new)
-
-Pure decision helpers plus the controller contract, following exactly the
-`src/lib/tabLibrary.ts` pattern from RH-49. No DOM, no React value import (the
-only React reference is an erased `import type`, and here there is none), no
-`@/app/*` import.
+### `src/lib/songEntry.ts`
 
 ```ts
-/** The slice of a repertoire row the lyrics helpers read. `Repertoire` fits structurally. */
-export interface LyricsSource {
-  band_id: string | null
-  lyrics: string | null
-}
+export interface SongIdentity { title: string; artist: string; key: string | null }
 
-export const LYRICS_FONT_MIN = 12
-export const LYRICS_FONT_MAX = 36
-export const LYRICS_FONT_DEFAULT = 18
-export const LYRICS_FONT_STEP = 2
+/** `entry.song?.title ?? '(untitled)'`, `entry.song?.artist ?? ''`, `entry.personal_key ?? entry.song?.standard_key ?? null`. */
+export function songIdentity(entry: Repertoire | null): SongIdentity
 
-/** Clamps a Stage Mode font size into [LYRICS_FONT_MIN, LYRICS_FONT_MAX]. */
-export function clampLyricsFontSize(size: number): number
+/** True only in band context and only once the entry's song id is known. */
+export function shouldLoadPersonalEntry(bandId: string | null, songId: string | null | undefined): boolean
 
-/** `current + delta`, clamped. The A- / A+ buttons pass -/+ LYRICS_FONT_STEP. */
-export function stepLyricsFontSize(current: number, delta: number): number
+/** Immutable patchers; each returns the input unchanged (or null) when there is nothing to patch. */
+export function withStatus(entry: Repertoire | null, status: SongStatus): Repertoire | null
+export function withSongLinks(entry: Repertoire | null, links: SongLink[]): Repertoire | null
+export function withLyrics(entry: Repertoire | null, lyrics: string): Repertoire | null
 
-/** True when a band entry's member has their own, non-empty, different lyrics. */
-export function hasDifferentPersonalLyrics(
-  entry: LyricsSource | null,
-  personalEntry: LyricsSource | null,
-): boolean
-
-/** Which lyrics text is on screen: the personal version only in a band, only when selected, only when loaded. */
-export function selectDisplayedLyrics(
-  entry: LyricsSource | null,
-  personalEntry: LyricsSource | null,
-  showPersonalLyrics: boolean,
-): string | null
-
-/** Where a lyrics save is issued. A null `repertoireId` means "create the personal entry first". */
-export interface LyricsSaveTarget {
-  repertoireId: string | null
-  /** The `bandId` argument of `updateLyrics`; null for a personal row. */
-  bandId: string | null
-  /** True when the saved text belongs to the page's `personalEntry` state rather than `entry`. */
-  toPersonalEntry: boolean
-}
-
-export function resolveLyricsSaveTarget(args: {
-  entryId: string
-  entryBandId: string | null
-  personalRepertoireId: string | null
-  showPersonalLyrics: boolean
-}): LyricsSaveTarget
-
-/** Everything `useLyricsEditor` exposes, declared here so the components never import `src/hooks`. */
-export interface LyricsEditorController {
-  /** `entry.band_id` is set: drives the Band/Personal badge. */
-  isBandEntry: boolean
-  displayedLyrics: string | null
-  hasDifferentPersonalLyrics: boolean
-  showPersonalLyrics: boolean
-  toggleVersion: () => void
-  isEditing: boolean
-  draft: string
-  setDraft: (text: string) => void
-  startEditing: () => void
-  cancelEditing: () => void
-  saving: boolean
-  save: () => Promise<void>
-  fetching: boolean
-  autoImport: () => Promise<void>
-  isStageOpen: boolean
-  openStage: () => void
-  closeStage: () => void
-  fontSize: number
-  increaseFont: () => void
-  decreaseFont: () => void
-  isDarkMode: boolean
-  toggleDarkMode: () => void
-}
-```
-
-Semantics, transcribed from the page:
-
-- `hasDifferentPersonalLyrics` is page line 272 verbatim, with a null `entry`
-  yielding `false`.
-- `selectDisplayedLyrics` is page line 273 verbatim, with a null `entry` yielding
-  `null`.
-- `resolveLyricsSaveTarget` is page lines 281-292: when `entryBandId` is set
-  **and** `showPersonalLyrics` is true it returns
-  `{ repertoireId: personalRepertoireId, bandId: null, toPersonalEntry: true }`
-  (a null `personalRepertoireId` being the "create it" signal), otherwise
-  `{ repertoireId: entryId, bandId: entryBandId, toPersonalEntry: false }`.
-
-Note the deliberate naming: the controller field is `isStageOpen`, not
-`isStageMode`, and `fontSize`, not `lyricsFontSize`. That is what lets ER6 assert
-a flat `0` for the page's Stage Mode greps instead of an unfalsifiable
-"the remaining matches are only prop names".
-
-Tests: `src/lib/__tests__/lyricsEditor.test.ts`, default `node` environment,
-eighteen tests, names in ER3.
-
-### 3. `src/hooks/useLyricsEditor.ts` (new) - the single controller
-
-```ts
-/**
- * The lyrics Server Actions the controller calls. Injected rather than imported,
- * so `src/hooks` never points back into the App Router tree (F21).
- * Required and never defaulted - a default would have to import that tree.
- */
-export interface LyricsEditorActions {
-  updateLyrics: (repertoireId: string, lyrics: string, bandId: string | null) => Promise<void>
-  fetchLyrics: (artist: string, title: string) => Promise<string | null>
-  /** Creates the member's own entry the first time they save personal lyrics. */
-  addSong: (songId: string) => Promise<Repertoire>
-}
-
-export interface UseLyricsEditorOptions {
-  /** The route's entry; null until it loads. Owned by the page (RH-52). */
+export interface SongEntryController {
   entry: Repertoire | null
-  /** The member's own entry in band context, else null. Owned by the page (RH-52). */
   personalEntry: Repertoire | null
-  /** `entry.song?.title ?? '(untitled)'` - the auto-import query and its toast. */
-  songTitle: string
-  /** `entry.song?.artist ?? ''` - the auto-import query and its toast. */
-  artist: string
-  /** Required, never defaulted - see `src/app/fastViewLyricsActions.ts` (F21). */
-  actions: LyricsEditorActions
-  onEntryLyricsSaved: (lyrics: string) => void
-  onPersonalLyricsSaved: (lyrics: string) => void
-  onPersonalEntryCreated: (entry: Repertoire) => void
-  /** `showToast` from the page's `useToast`. */
-  notify: (message: string, tone: ToastTone) => void
-}
-
-export function useLyricsEditor(options: UseLyricsEditorOptions): LyricsEditorController
-```
-
-Internal state, one per page state it replaces: `isEditing`, `draft`, `saving`,
-`fetching`, `showPersonalLyrics`, `isStageOpen`, `fontSize` (initial
-`LYRICS_FONT_DEFAULT`, i.e. 18) and `isDarkMode`. Derived, per render:
-`const displayed = selectDisplayedLyrics(entry, personalEntry, showPersonalLyrics)`.
-
-`save()` is page lines 276-308 with the target choice delegated:
-
-```ts
-if (!entry) return
-try {
-  setSaving(true)
-  const target = resolveLyricsSaveTarget({
-    entryId: entry.id,
-    entryBandId: entry.band_id,
-    personalRepertoireId: personalEntry?.id ?? null,
-    showPersonalLyrics,
-  })
-  let repertoireId = target.repertoireId
-  if (repertoireId === null) {
-    const created = await actions.addSong(entry.song_id)
-    onPersonalEntryCreated(created)
-    repertoireId = created.id
-  }
-  await actions.updateLyrics(repertoireId, draft, target.bandId)
-  if (target.toPersonalEntry) onPersonalLyricsSaved(draft)
-  else onEntryLyricsSaved(draft)
-  setIsEditing(false)
-  notify('Lyrics saved successfully!', 'success')
-} catch {
-  notify('Failed to save lyrics', 'error')
-} finally {
-  setSaving(false)
-}
-```
-
-`autoImport()` is page lines 311-330 with `actions.fetchLyrics` in place of the
-direct import. All six Toast strings are preserved character for character,
-tone included:
-
-| Message | Tone | Where |
-|---|---|---|
-| `Lyrics saved successfully!` | `success` | `save`, page 302 |
-| `Failed to save lyrics` | `error` | `save`, page 304 |
-| `Artist name is required to search for lyrics.` | `warning` | `autoImport`, page 313 |
-| `Lyrics imported online!` | `success` | `autoImport`, page 321 |
-| `` Lyrics not found online for "${songTitle}" by "${artist}". You can still paste them below. `` | `warning` | `autoImport`, page 323 |
-| `Failed to import lyrics from web. You can still paste them below.` | `error` | `autoImport`, page 326 |
-
-Stage Mode, reusing `@/lib/stageHistory` exactly as `usePdfStage` does and with
-no change to that module:
-
-```ts
-const openStage = useCallback(() => setIsStageOpen(true), [])
-
-const closeStage = useCallback(() => {
-  setIsStageOpen(false)
-  if (isStageHistoryEntry(window.history.state)) window.history.back()
-}, [])
-
-useEffect(() => {
-  if (!isStageOpen) return
-  window.history.pushState(stageHistoryState(), '')
-  const handlePopState = () => setIsStageOpen(false)
-  window.addEventListener('popstate', handlePopState)
-  return () => {
-    window.removeEventListener('popstate', handlePopState)
-  }
-}, [isStageOpen])
-```
-
-This is the lyrics half RH-50 left on the page, moved unchanged; after this task
-the literal `{ stageMode: true }` still exists only in `src/lib/stageHistory.ts`
-and its test, and both stage controllers push and test the same marker.
-
-The remaining members are one-liners: `startEditing` sets `draft` to
-`displayed ?? ''` then `isEditing` true; `cancelEditing` does the same and sets
-`isEditing` false (page 754-757); `toggleVersion` flips `showPersonalLyrics`
-(page 713); `increaseFont` / `decreaseFont` are
-`setFontSize(prev => stepLyricsFontSize(prev, +/- LYRICS_FONT_STEP))`, which is
-`Math.min(36, prev + 2)` / `Math.max(12, prev - 2)`; `toggleDarkMode` flips
-`isDarkMode` (page 857). `isBandEntry` is `!!entry?.band_id`.
-
-Tests: `src/hooks/__tests__/useLyricsEditor.test.tsx`, first line exactly
-`// @vitest-environment jsdom`, `afterEach(cleanup)` plus
-`afterEach(() => vi.restoreAllMocks())`, built with `renderHook` from
-`@testing-library/react`, following `src/hooks/__tests__/usePdfStage.test.tsx`.
-Stubbing, exactly:
-
-- **actions**: a `makeActions()` factory returning
-  `{ updateLyrics: vi.fn().mockResolvedValue(undefined), fetchLyrics: vi.fn().mockResolvedValue('imported'), addSong: vi.fn().mockResolvedValue(PERSONAL_ENTRY) }`.
-  Nothing under `@/app/actions` is imported by the test.
-- **entries**: plain `Repertoire` literals; the band case is
-  `{ id: 'band-rep', band_id: 'band-1', song_id: 'song-1', lyrics: 'band words', ... }`
-  with a personal entry `{ id: 'personal-rep', band_id: null, lyrics: 'my words', ... }`.
-- **callbacks**: `vi.fn()` for `notify` and the three save callbacks; the Toast
-  strings are asserted off `notify.mock.calls`.
-- **history**: jsdom's real `window.history`; `vi.spyOn(window.history, 'pushState')`
-  counts the pushes, a back press is
-  `act(() => { window.dispatchEvent(new PopStateEvent('popstate')) })`, and the
-  "close from the toolbar" case spies on `window.history.back` and drives the two
-  branches by leaving the pushed entry in place versus calling
-  `window.history.replaceState({}, '')` first.
-
-Eighteen tests, names in ER4.
-
-### 4. `src/components/fastview/LyricsSection.tsx` (new)
-
-`'use client'`, presentational: no `useState`, no `useEffect`, no `useRef`, no
-Server Action import, no `@/app/*` import.
-
-```ts
-export interface LyricsSectionProps {
-  controller: LyricsEditorController
-  /** True while the member's own entry is still loading. Page state (RH-52). */
+  loading: boolean
   loadingPersonal: boolean
+  notFound: boolean
+  identity: SongIdentity
+  /** The three tab-library inputs, replacing the page's `tabLibraryEntryInputs`. */
+  entryBandId: string | null
+  songId: string | null
+  personalRepertoireId: string | null
+  adoptPersonalEntry: (entry: Repertoire) => void
+  applyStatus: (status: SongStatus) => void
+  applyLinks: (links: SongLink[]) => void
+  applyEntryLyrics: (lyrics: string) => void
+  applyPersonalLyrics: (lyrics: string) => void
 }
 ```
 
-It carries page lines 666-720 and 784-801 verbatim: the `aria-label="Lyrics"`
-section, the heading, the `👤 Personal` / `👥 Band` badge (rendered only when
-`controller.isBandEntry`), the `🔍 Stage Mode` button (rendered only when
-`controller.displayedLyrics && !controller.isEditing`), the `Edit`/`Add` button,
-the blue version-switcher banner (rendered only when
-`controller.hasDifferentPersonalLyrics && !controller.isEditing`), and, when not
-editing, the white card holding either the `dangerouslySetInnerHTML` lyrics, the
-five-bar skeleton (`loadingPersonal`) or `No lyrics added yet.`. When
-`controller.isEditing` it renders `<LyricsEditorPanel controller={controller} />`.
+`withStatus(null, s)` is `null` and `withSongLinks(entry, links)` returns `entry`
+untouched when `entry.song` is undefined — exactly the `prev ? ... : null` and
+`if (!prev || !prev.song) return prev` guards the page has today (lines 246,
+284-293, 330-339).
 
-It takes the controller object rather than flat props for the same reason
-`TabLibrarySection` does (RH-49): the controller type is declared in
-`src/lib/lyricsEditor.ts`, so `src/components` types it without ever importing
-`src/hooks`.
-
-### 5. `src/components/fastview/LyricsEditorPanel.tsx` (new)
-
-`'use client'`, presentational, props `{ controller: LyricsEditorController }`.
-Page lines 722-783 verbatim: the textarea bound to `controller.draft` /
-`controller.setDraft` and disabled while `controller.saving`, the
-`✨ Auto-import` button (disabled while `controller.fetching || controller.saving`,
-showing `Importing...` with its spinner), and the `Cancel` / `Save` pair (`Save`
-showing `Saving...` with its spinner).
-
-The two spinner `<svg>`s in those buttons are byte-identical apart from their
-colour class, so they are rendered by a module-local
-`function ButtonSpinner({ className }: { className: string })` emitting
-`className={\`animate-spin h-3.5 w-3.5 ${className}\`}` and the same two paths.
-The rendered DOM is unchanged; the point is that moving two 8-line identical
-blocks into one file must not hand `jscpd` a new clone (ER8 pins the duplication
-budget).
-
-### 6. `src/components/fastview/LyricsStageOverlay.tsx` (new)
-
-`'use client'`, presentational:
+### `src/lib/songStatus.ts`
 
 ```ts
-export interface LyricsStageOverlayProps {
-  controller: LyricsEditorController
-  songTitle: string
-  songKey?: string | null
+export interface SongStatusOption { status: SongStatus; label: string; bgColor: string }
+/** Built from STATUS_ORDER + STATUS_CONFIG, so the dropdown is typed `SongStatus` end to end. */
+export const STATUS_OPTIONS: SongStatusOption[]
+/** `Status updated to ${STATUS_CONFIG[status]?.label ?? status}` — the exact string at line 248. */
+export function statusUpdatedMessage(status: SongStatus): string
+
+export interface SongStatusController {
+  status: SongStatus
+  updating: boolean
+  isDropdownOpen: boolean
+  toggleDropdown: () => void
+  closeDropdown: () => void
+  change: (status: SongStatus) => Promise<void>
 }
 ```
 
-Renders `null` unless `controller.isStageOpen && controller.displayedLyrics`,
-which is page line 834's guard verbatim. Everything else is page lines 835-911
-moved character for character: the root `fixed inset-0 z-50 ...` div with
-`style={{ fontSize: \`${controller.fontSize}px\` }}` and the
-`bg-gray-950 text-gray-100` / `bg-white text-gray-900` swap on
-`controller.isDarkMode`; the sticky header with the truncated `songTitle` and
-`Tom: {songKey}`; the `☀️ Claro` / `🌙 Escuro` toggle, the `A-` and `A+`
-buttons and the red `✕` close button, wired to `controller.toggleDarkMode`,
-`controller.decreaseFont`, `controller.increaseFont` and `controller.closeStage`;
-and the `font-mono` body with
-`dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(controller.displayedLyrics) }}`.
+`STATUS_OPTIONS` is what removes the `as any`: the dropdown maps over a
+`SongStatus`-typed array instead of `Object.entries(STATUS_CONFIG)`. It must
+preserve today's render order, which is `STATUS_CONFIG`'s insertion order and is
+identical to `STATUS_ORDER` (`unknown, learning, practicing, polishing,
+mastered`). `src/lib/statusConfig.ts` itself is not modified.
 
-Tests for sections 4-6: `src/components/fastview/__tests__/LyricsSection.test.tsx`
-(covering the section and the editor panel, thirteen tests) and
-`src/components/fastview/__tests__/LyricsStageOverlay.test.tsx` (seven tests).
-Both have `// @vitest-environment jsdom` as their literal first line and call
-`afterEach(cleanup)`, per AGENTS.md. Each builds a `controller` fixture as a
-plain object of `vi.fn()`s satisfying `LyricsEditorController`, so no hook and no
-action is ever imported. Names in ER5.
-
-### 7. `src/app/fastViewLyricsActions.ts` (new) - composition root
-
-A new sibling rather than an extension of `fastViewTabActions.ts` or
-`fastViewNavActions.ts`: those two wire `@/app/actions/tabs` and
-`@/app/actions/playlists` respectively, while these three actions come from
-`@/app/actions/repertoire`. Adding a third file keeps each composition root equal
-to "one Fast View controller family, one actions module", which is the rule
-RH-48/RH-49/RH-50 already follow.
+### `src/lib/songLinks.ts`
 
 ```ts
-import { updateLyricsAction, fetchLyricsAction, addSongAction } from '@/app/actions/repertoire'
-import type { LyricsEditorActions } from '@/hooks/useLyricsEditor'
+/** Compares against `url.trim()`, as line 263 does. */
+export function isDuplicateLinkUrl(links: SongLink[], url: string): boolean
+/** `label || fetchedTitle || url` — the `finalLabel || newLinkUrl.trim()` fallback at line 277. */
+export function resolveLinkLabel(label: string, fetchedTitle: string, url: string): string
+export function appendLink(links: SongLink[], link: SongLink): SongLink[]
+export function removeLinkByUrl(links: SongLink[], url: string): SongLink[]
 
-/**
- * The lyrics Server Actions injected into `useLyricsEditor` by the Fast View
- * page. Module-level, so the object identity is stable and no effect of the
- * controller can be restarted by a re-render (RH-51, following the
- * `src/app/bandAdminActions.ts` pattern from F21).
- */
-export const LYRICS_EDITOR_ACTIONS: LyricsEditorActions = {
-  updateLyrics: updateLyricsAction,
-  fetchLyrics: fetchLyricsAction,
-  addSong: addSongAction,
+export interface SongLinksController {
+  links: SongLink[]                      // `entry?.song?.links ?? []`
+  isAdding: boolean
+  startAdding: () => void
+  cancelAdding: () => void               // also clears both inputs (lines 552-555)
+  label: string
+  setLabel: (value: string) => void
+  url: string
+  setUrl: (value: string) => void
+  saving: boolean
+  submit: () => Promise<void>            // DOM-free: `preventDefault` stays in AddLinkForm
+  pendingDeleteUrl: string | null
+  deleteBusy: boolean
+  requestDelete: (url: string) => void
+  confirmDelete: () => Promise<void>
+  cancelDelete: () => void
 }
 ```
 
-`updateLyricsAction(repertoireId, lyrics, bandId?)` and
-`addSongAction(songId, bandId?)` have optional trailing parameters, so they
-satisfy the stricter interface signatures directly; no wrapper lambda is needed
-and none should be added (a lambda would break the stable identity).
+### `src/hooks/useSongEntry.ts`
 
-### 8. `src/app/songs/[id]/fast-view/page.tsx` (modified)
+```ts
+export interface SongEntryActions {
+  getSongEntry: (repertoireId: string, bandId: string | null) => Promise<Repertoire | null>
+  getPersonalEntryForSong: (songId: string) => Promise<Repertoire | null>
+}
+export interface UseSongEntryOptions {
+  repertoireId: string
+  /** From the page's `useSearchParams().get('bandId')` — F26. */
+  bandId: string | null
+  actions: SongEntryActions
+}
+export function useSongEntry(options: UseSongEntryOptions): SongEntryController
+```
 
-After the move the page:
+One `useEffect`, a byte-for-byte behavioural copy of lines 172-209: a `cancelled`
+flag, `setNotFound(true)` when the entry is missing **and** when the load throws,
+`setLoading(false)` in `finally`, and — only when
+`shouldLoadPersonalEntry(bandId, data.song_id)` — the background
+`getPersonalEntryForSong` whose `.then` adopts the entry, whose `.catch` calls
+`logger.error('Failed to load personal entry', err)` (message unchanged) and
+whose `.finally` clears `loadingPersonal`. **Dependency array `[actions, bandId,
+repertoireId]`** — the F26 conservation point. `identity` is
+`songIdentity(entry)`; the five mutators are `useCallback`s wrapping the `lib`
+patchers.
 
-- drops `updateLyricsAction`, `fetchLyricsAction` and `addSongAction` from the
-  line-8 import and the whole line-12 `@/lib/stageHistory` import;
-- deletes `parseLyricsMarkdown` (30-40), the lyrics state (112-116), the three
-  stage-mode states (136-138), `showPersonalLyrics` (143), the popstate effect
-  and `closeStageMode` (178-201), line 215, the two derived constants (272-273)
-  and both handlers (275-330);
-- adds four imports (`useLyricsEditor`, `LYRICS_EDITOR_ACTIONS`, `LyricsSection`,
-  `LyricsStageOverlay`) and one hook call, placed after the `usePlaylistNav` call
-  so `entry`, `personalEntry` and `showToast` are all in scope:
+### `src/hooks/useSongStatus.ts`
+
+```ts
+export interface SongStatusActions {
+  updateStatus: (repertoireId: string, status: SongStatus, bandId: string | null) => Promise<void>
+}
+export function useSongStatus(options: {
+  entry: Repertoire | null
+  actions: SongStatusActions
+  onStatusSaved: (status: SongStatus) => void   // the page passes `song.applyStatus`
+  notify: (message: string, tone: ToastTone) => void
+}): SongStatusController
+```
+
+`change(next)` reproduces lines 241-254 exactly: return early without an entry;
+`updating` true; `await actions.updateStatus(entry.id, next, entry.band_id)`;
+`onStatusSaved(next)`; close the dropdown; `notify(statusUpdatedMessage(next),
+'success')`; on any throw `notify('Failed to update status', 'error')`;
+`updating` false in `finally`. `status` is `entry?.status ?? 'unknown'`.
+
+### `src/hooks/useSongLinks.ts`
+
+```ts
+export interface SongLinksActions {
+  updateLinks: (repertoireId: string, links: SongLink[]) => Promise<{ success: boolean; pending?: boolean }>
+  fetchUrlTitle: (url: string) => Promise<string>
+}
+export function useSongLinks(options: {
+  entry: Repertoire | null
+  actions: SongLinksActions
+  onLinksSaved: (links: SongLink[]) => void     // the page passes `song.applyLinks`
+  notify: (message: string, tone: ToastTone) => void
+}): SongLinksController
+```
+
+`submit()` (lines 257-303): no entry or no `entry.song` → return; duplicate URL →
+`notify('This URL is already in the links list.', 'warning')` and return **before**
+`saving` is set; otherwise `saving` true, fetch the title **only when the typed
+label is blank** (`actions.fetchUrlTitle(url.trim())`), build the link with
+`resolveLinkLabel`, `await actions.updateLinks(entry.id, appendLink(current, link))`,
+`onLinksSaved(updated)`, close and clear the form,
+`notify('Link added successfully!', 'success')`; `catch (err)` →
+`notify(err instanceof Error ? err.message : 'Failed to add link.', 'error')`;
+`saving` false in `finally`.
+
+`requestDelete(url)` sets `pendingDeleteUrl`. `confirmDelete()` (lines 314-350)
+keeps the moderation semantics of RH-34 intact:
+
+```ts
+const updated = removeLinkByUrl(current, pendingDeleteUrl)
+const result = await actions.updateLinks(entry.id, updated)
+if (result.pending) {
+  // The catalog is shared, so a removal is queued for review: the link stays
+  // on screen until an admin approves it.
+  notify('Link removal submitted for review. It stays visible until an admin approves it.', 'warning')
+} else {
+  onLinksSaved(updated)
+  notify('Link deleted.', 'info')
+}
+```
+
+with `catch { notify('Failed to delete link.', 'error') }`, `pendingDeleteUrl`
+cleared on **every** path (including the failure one, as today) and `deleteBusy`
+cleared in `finally`.
+
+### `src/app/fastViewEntryActions.ts`
+
+Module-level, stable identities, following `src/app/fastViewLyricsActions.ts`:
+
+```ts
+export const SONG_ENTRY_ACTIONS: SongEntryActions = {
+  getSongEntry: getSongEntryAction,
+  getPersonalEntryForSong: getPersonalEntryForSongAction,
+}
+export const SONG_STATUS_ACTIONS: SongStatusActions = { updateStatus: updateSongStatusAction }
+export const SONG_LINKS_ACTIONS: SongLinksActions = {
+  updateLinks: updateSongLinksAction,
+  fetchUrlTitle: fetchUrlTitleAction,
+}
+```
+
+No action in `src/app/actions/repertoire.ts` changes.
+
+### Components (`src/components/fastview/`)
+
+All `'use client'`, all presentational, none holding `useState` / `useEffect` /
+`useRef` and none importing `@/app/*` or `@/hooks/*`:
+
+1. `LinkIcon.tsx` — `<LinkIcon url={...} />`, the five branches of `getLinkIcon`
+   moved verbatim (Spotify `#1DB954`, YouTube `#FF0000`, cifraclub /
+   ultimate-guitar `#FFB600`, Drive/Docs/`.pdf` `text-blue-500`, generic
+   `text-gray-400`).
+2. `StatusDropdown.tsx` — props `{ controller: SongStatusController }`. Trigger
+   button with `STATUS_CONFIG[controller.status]` colours, `disabled` while
+   `updating`, the `fixed inset-0 z-20` backdrop and the `absolute right-0 mt-1
+   w-40 ...` list mapping `STATUS_OPTIONS` (typed, no `as any`), with the colour
+   dot and the `✓` on the selected row.
+3. `SongIdentityHeader.tsx` — props `{ identity: SongIdentity; status:
+   SongStatusController }`; the `<section aria-label="Song details">` with the
+   `h1`, the optional artist line, the `Key:` line and `StatusDropdown`.
+4. `AddLinkForm.tsx` — props `{ controller: SongLinksController }`; the `<form>`
+   whose `onSubmit` does `e.preventDefault()` then `controller.submit()`, the two
+   inputs (same placeholders, `required` on the URL) and the Cancel / `Add` |
+   `Saving...` buttons.
+5. `LinksSection.tsx` — props `{ controller: SongLinksController; onDelete: (url:
+   string) => void }`; heading, `+ Add Link`, the card list (Link Card UI classes
+   preserved: `rounded-xl bg-white border border-gray-200 shadow-sm`, the
+   square-with-arrow SVG, the `h-4 w-px bg-gray-200` divider and the in-card
+   delete button with `aria-label="Delete link"`), the `No links added yet.`
+   empty state and `AddLinkForm`.
+6. `LinkDeleteConfirm.tsx` — the `ConfirmPanel` twin of `TabDeleteConfirm`,
+   message `Delete this link? This can't be undone.`, same anchor classes.
+7. `SongTagsSection.tsx` — props `{ tags: string[] }`; renders `null` when empty.
+8. `SongLoadStates.tsx` — exports `SongLoading` (the `aria-busy` `Loading...`
+   screen) and `SongNotFound` (`{ onBack }`, `Song not found` + `← Back`).
+9. `FastViewOverlays.tsx` — the overlay stack, so the page's return stays inside
+   the 200-line budget. Props: `{ identity, lyrics: LyricsEditorController,
+   pdfStage, tabLibrary: TabLibraryController, links: SongLinksController, toast:
+   { message: string; tone: ToastTone } | null, onDismissToast: () => void }`. It
+   renders `LyricsStageOverlay`, `PdfStageOverlay`, `TabDestinationModal`,
+   `TabDeleteConfirm`, `LinkDeleteConfirm` and `Toast` with exactly the props the
+   page passes today. `usePdfStage` has no controller type in `src/lib`, so
+   `FastViewOverlays` declares a local structural `FastViewPdfStage` interface
+   (`isOpen`, `overlayRef`, `height`, `annotations`, `annotationsError`,
+   `saveAnnotations`, `close`) rather than importing the hook.
+
+### The composition root
+
+The page keeps `useParams` / `useRouter` / `useSearchParams`, `useToast`, seven
+hook calls, two early returns and the JSX skeleton. Verified shape (a throwaway
+copy of exactly this page measured `FastViewPage` at **191 lines / complexity 6**
+in a 221-line file, so the budget has real headroom):
 
 ```tsx
-const lyrics = useLyricsEditor({
-  entry,
-  personalEntry,
-  songTitle: entry?.song?.title ?? '(untitled)',
-  artist: entry?.song?.artist ?? '',
-  actions: LYRICS_EDITOR_ACTIONS,
-  onEntryLyricsSaved: (saved) => setEntry(prev => prev ? { ...prev, lyrics: saved } : null),
-  onPersonalLyricsSaved: (saved) => setPersonalEntry(prev => prev ? { ...prev, lyrics: saved } : null),
-  onPersonalEntryCreated: setPersonalEntry,
-  notify: showToast,
+const { toast, showToast, dismissToast } = useToast()
+const song = useSongEntry({ repertoireId: id, bandId: queryBandId, actions: SONG_ENTRY_ACTIONS })
+const { entry, personalEntry, identity } = song
+const status = useSongStatus({ entry, actions: SONG_STATUS_ACTIONS, onStatusSaved: song.applyStatus, notify: showToast })
+const links  = useSongLinks({ entry, actions: SONG_LINKS_ACTIONS, onLinksSaved: song.applyLinks, notify: showToast })
+const tabLibrary = useTabLibrary({
+  repertoireId: id,
+  entryBandId: song.entryBandId, songId: song.songId, personalRepertoireId: song.personalRepertoireId,
+  actions: TAB_LIBRARY_ACTIONS, onPersonalEntryCreated: song.adoptPersonalEntry,
+  notify: showToast, onDeleteRequested: links.cancelDelete,
 })
+const pdfStage = usePdfStage({ tabId: tabLibrary.activeTabId, repertoireId: tabLibrary.activeTabRepertoireId, actions: PDF_STAGE_ACTIONS })
+const playlist = usePlaylistNav({ currentRepertoireId: id, returnTo, bandId: queryBandId, actions: PLAYLIST_NAV_ACTIONS, navigate: (href) => router.push(href), navigateBack: () => router.back() })
+const lyrics = useLyricsEditor({
+  entry, personalEntry, songTitle: identity.title, artist: identity.artist,
+  actions: LYRICS_EDITOR_ACTIONS,
+  onEntryLyricsSaved: song.applyEntryLyrics, onPersonalLyricsSaved: song.applyPersonalLyrics,
+  onPersonalEntryCreated: song.adoptPersonalEntry, notify: showToast,
+})
+
+if (song.loading) return <SongLoading />
+if (song.notFound || !entry) return <SongNotFound onBack={() => router.back()} />
 ```
 
-  The hook is called above the `if (loading)` / `if (notFound)` early returns,
-  like every other hook on the page, which is why it accepts a null `entry`;
+Two wiring notes:
 
-- replaces lines 665-802 with
-  `<LyricsSection controller={lyrics} loadingPersonal={loadingPersonal} />` and
-  lines 833-912 with
-  `<LyricsStageOverlay controller={lyrics} songTitle={title} songKey={key} />`.
+- **Declaration order matters.** `useSongLinks` is declared *before*
+  `useTabLibrary`, so the tab hook can receive `onDeleteRequested:
+  links.cancelDelete` (RH-49's file is not modified). The opposite direction —
+  the link delete closing the tab confirmation, which line 309 does today — is
+  wired in the JSX instead of through a hook option, avoiding a circular
+  reference: `<LinksSection controller={links} onDelete={(url) => {
+  tabLibrary.cancelDelete(); links.requestDelete(url) }} />`. Mutual exclusion of
+  the two confirmation panels is preserved in both directions.
+- `song.loadingPersonal` feeds both `TabLibrarySection` and `LyricsSection`
+  exactly as `loadingPersonal` does today.
 
-`songTitle` / `artist` are passed as already-resolved strings rather than read
-off `entry` inside the hook so that the auto-import Toast keeps using exactly the
-same `title` / `artist` values the page computes at lines 266-267.
+### Test plan
 
-### 9. Conventions
-
-Import direction (F21): none of `src/lib/lyricsMarkdown.ts`,
-`src/lib/lyricsEditor.ts`, `src/hooks/useLyricsEditor.ts`,
-`src/components/fastview/LyricsSection.tsx`,
-`src/components/fastview/LyricsEditorPanel.tsx` or
-`src/components/fastview/LyricsStageOverlay.tsx` may import from `@/app/*`, and
-nothing under `src/components` or `src/lib` may import `@/hooks/useLyricsEditor`;
-the actions arrive through `LYRICS_EDITOR_ACTIONS`. Error handling: both `catch`
-blocks are the existing binding-less form feeding a Toast (pattern P1 with the
-message fixed at the call site, exactly as today) - no `catch (x: any)`, no
-`console.error`. No native browser dialog is introduced anywhere, test fixtures
-included. No landing-page copy change: this is an internal refactor with no new
-selling point, so `LandingPage.tsx` and both dictionaries stay untouched (ER12).
+Node (default environment, no `@vitest-environment` line):
+`src/lib/__tests__/songEntry.test.ts`, `songStatus.test.ts`, `songLinks.test.ts`.
+jsdom (`// @vitest-environment jsdom` as the literal first line, `afterEach(cleanup)`):
+`src/hooks/__tests__/useSongEntry.test.tsx`, `useSongStatus.test.tsx`,
+`useSongLinks.test.tsx` (all three with `renderHook` and hand-written fake
+actions — no `@/app/actions` import), and
+`src/components/fastview/__tests__/SongIdentityHeader.test.tsx`,
+`LinksSection.test.tsx`, `FastViewShell.test.tsx`.
+The exact test names are the ones enumerated in ER2-ER5; they are the contract,
+not a suggestion.
 
 ## Expected Results
 
-ER1 - From the project root all twelve of these files exist and are non-empty: `src/lib/lyricsMarkdown.ts`, `src/lib/__tests__/lyricsMarkdown.test.ts`, `src/lib/lyricsEditor.ts`, `src/lib/__tests__/lyricsEditor.test.ts`, `src/hooks/useLyricsEditor.ts`, `src/hooks/__tests__/useLyricsEditor.test.tsx`, `src/components/fastview/LyricsSection.tsx`, `src/components/fastview/LyricsEditorPanel.tsx`, `src/components/fastview/LyricsStageOverlay.tsx`, `src/components/fastview/__tests__/LyricsSection.test.tsx`, `src/components/fastview/__tests__/LyricsStageOverlay.test.tsx`, `src/app/fastViewLyricsActions.ts`. `grep -rn "@/app/" src/lib/lyricsMarkdown.ts src/lib/lyricsEditor.ts src/hooks/useLyricsEditor.ts src/components/fastview/LyricsSection.tsx src/components/fastview/LyricsEditorPanel.tsx src/components/fastview/LyricsStageOverlay.tsx` prints nothing and exits with status 1. `grep -rln "from '@/hooks/useLyricsEditor'" src` lists exactly these three paths and no others, in any order: `src/hooks/__tests__/useLyricsEditor.test.tsx`, `src/app/fastViewLyricsActions.ts`, `src/app/songs/[id]/fast-view/page.tsx` (the check matches import specifiers only, so naming the identifier in a doc comment is never a match). `grep -rln "@/hooks/useLyricsEditor" src/components src/lib` prints nothing and exits with status 1, and `grep -rln "LyricsEditorController" src/components/fastview` lists at least `src/components/fastview/LyricsSection.tsx` and `src/components/fastview/LyricsStageOverlay.tsx`, which therefore type the controller through `@/lib/lyricsEditor`. `grep -c "LYRICS_EDITOR_ACTIONS" src/app/fastViewLyricsActions.ts` and `grep -c "LYRICS_EDITOR_ACTIONS" "src/app/songs/[id]/fast-view/page.tsx"` each print a number greater than 0, and `grep -c "updateLyricsAction\|fetchLyricsAction\|addSongAction" src/app/fastViewLyricsActions.ts` prints a number greater than 0.
+ER1 - From the project root all twenty-five of these files exist and are non-empty: `src/lib/songEntry.ts`, `src/lib/__tests__/songEntry.test.ts`, `src/lib/songStatus.ts`, `src/lib/__tests__/songStatus.test.ts`, `src/lib/songLinks.ts`, `src/lib/__tests__/songLinks.test.ts`, `src/hooks/useSongEntry.ts`, `src/hooks/__tests__/useSongEntry.test.tsx`, `src/hooks/useSongStatus.ts`, `src/hooks/__tests__/useSongStatus.test.tsx`, `src/hooks/useSongLinks.ts`, `src/hooks/__tests__/useSongLinks.test.tsx`, `src/app/fastViewEntryActions.ts`, `src/components/fastview/LinkIcon.tsx`, `src/components/fastview/StatusDropdown.tsx`, `src/components/fastview/SongIdentityHeader.tsx`, `src/components/fastview/AddLinkForm.tsx`, `src/components/fastview/LinksSection.tsx`, `src/components/fastview/LinkDeleteConfirm.tsx`, `src/components/fastview/SongTagsSection.tsx`, `src/components/fastview/SongLoadStates.tsx`, `src/components/fastview/FastViewOverlays.tsx`, `src/components/fastview/__tests__/SongIdentityHeader.test.tsx`, `src/components/fastview/__tests__/LinksSection.test.tsx`, `src/components/fastview/__tests__/FastViewShell.test.tsx`. `grep -rn "@/app/" src/lib/songEntry.ts src/lib/songStatus.ts src/lib/songLinks.ts src/hooks/useSongEntry.ts src/hooks/useSongStatus.ts src/hooks/useSongLinks.ts src/components/fastview/LinkIcon.tsx src/components/fastview/StatusDropdown.tsx src/components/fastview/SongIdentityHeader.tsx src/components/fastview/AddLinkForm.tsx src/components/fastview/LinksSection.tsx src/components/fastview/LinkDeleteConfirm.tsx src/components/fastview/SongTagsSection.tsx src/components/fastview/SongLoadStates.tsx src/components/fastview/FastViewOverlays.tsx` prints nothing and exits with status 1. `grep -rln "@/hooks/useSongEntry\|@/hooks/useSongStatus\|@/hooks/useSongLinks" src/components src/lib` prints nothing and exits with status 1, and for each of the three hook names X in `useSongEntry`, `useSongStatus`, `useSongLinks` the command `grep -rln "from '@/hooks/X'" src` lists exactly these three paths and no others, in any order: `src/hooks/__tests__/X.test.tsx`, `src/app/fastViewEntryActions.ts`, `src/app/songs/[id]/fast-view/page.tsx`. `grep -c "SONG_ENTRY_ACTIONS\|SONG_STATUS_ACTIONS\|SONG_LINKS_ACTIONS" src/app/fastViewEntryActions.ts` and the same grep over `src/app/songs/[id]/fast-view/page.tsx` each print a number of at least 3, and `grep -c "getSongEntryAction\|getPersonalEntryForSongAction\|updateSongStatusAction\|updateSongLinksAction\|fetchUrlTitleAction" src/app/fastViewEntryActions.ts` prints a number of at least 5.
 
-ER2 - `npx vitest run src/lib/__tests__/lyricsMarkdown.test.ts --reporter=verbose` exits 0 and reports at least 11 passed and 0 failed tests, among which these exact names all appear and pass: `parseLyricsMarkdown escapes an ampersand before any markup is emitted`, `parseLyricsMarkdown escapes a less-than sign so raw HTML stays inert`, `parseLyricsMarkdown escapes a greater-than sign so raw HTML stays inert`, `parseLyricsMarkdown neutralises an injected script tag`, `parseLyricsMarkdown neutralises an injected img tag with an inline event handler`, `parseLyricsMarkdown wraps a double-asterisk run in strong`, `parseLyricsMarkdown wraps a single-asterisk run in em`, `parseLyricsMarkdown wraps a double-underscore run in u`, `parseLyricsMarkdown renders a bracketed chord as the emerald badge`, `parseLyricsMarkdown spans a line break inside a bold run`, `parseLyricsMarkdown returns an empty string for empty input`. The script-tag test asserts that the output of `parseLyricsMarkdown("<script>document.title = 'pwned'</script>")` contains `&lt;script&gt;` and contains neither the substring `<script` nor the substring `</script`. The file `src/lib/__tests__/lyricsMarkdown.test.ts` does not contain the string `@vitest-environment` at all, which proves the module runs in the default node environment and touches no DOM, and `grep -c "window\.\|document\.createElement" src/lib/lyricsMarkdown.ts` prints `0`.
+ER2 - `npx vitest run src/lib/__tests__/songEntry.test.ts --reporter=verbose` exits 0 and reports at least 12 passed and 0 failed tests, among which these exact names all appear and pass: `shouldLoadPersonalEntry is false outside a band`, `shouldLoadPersonalEntry is false when the song id is not known yet`, `shouldLoadPersonalEntry is true for a band entry with a song id`, `songIdentity falls back to (untitled) when the entry carries no song`, `songIdentity reads the title and the artist from the song`, `songIdentity prefers the personal key over the standard key`, `songIdentity falls back to the standard key when there is no personal key`, `withStatus returns a new entry carrying the new status`, `withStatus returns null for a null entry`, `withSongLinks replaces the song links and leaves the rest of the entry untouched`, `withSongLinks returns the entry unchanged when it carries no song`, `withLyrics returns a new entry carrying the saved lyrics`. The `songIdentity` fallback test asserts the exact triple `{ title: '(untitled)', artist: '', key: null }` for a null entry, and the two `withSongLinks` / `withStatus` tests assert that the input object is not mutated (the original entry still reports its old status and its old links after the call). The file `src/lib/__tests__/songEntry.test.ts` does not contain the string `@vitest-environment` at all, and `grep -c "window\.\|document\." src/lib/songEntry.ts` prints `0`. Separately, `npx vitest run src/lib/__tests__/songStatus.test.ts src/lib/__tests__/songLinks.test.ts --reporter=verbose` exits 0 and reports at least 12 passed and 0 failed tests, among which these exact names all appear and pass: `STATUS_OPTIONS lists the five statuses in mastery order`, `STATUS_OPTIONS carries the label and the badge colour of each status`, `statusUpdatedMessage names the label of the new status`, `statusUpdatedMessage falls back to the raw status when it has no config`, `isDuplicateLinkUrl is false for a url that is not in the list`, `isDuplicateLinkUrl is true for a url already in the list`, `isDuplicateLinkUrl ignores surrounding whitespace on the candidate url`, `resolveLinkLabel keeps the label the musician typed`, `resolveLinkLabel uses the fetched title when the typed label is blank`, `resolveLinkLabel falls back to the url when both the label and the fetched title are blank`, `appendLink adds the link at the end without mutating the input list`, `removeLinkByUrl drops every link with that url and keeps the others`. The order test asserts that `STATUS_OPTIONS.map(o => o.status)` deep-equals `['unknown', 'learning', 'practicing', 'polishing', 'mastered']`, and `statusUpdatedMessage('mastered')` is asserted to be exactly `Status updated to Mastered`. Neither file contains the string `@vitest-environment`.
 
-ER3 - `npx vitest run src/lib/__tests__/lyricsEditor.test.ts --reporter=verbose` exits 0 and reports at least 18 passed and 0 failed tests, among which these exact names all appear and pass: `clampLyricsFontSize keeps a size inside the range untouched`, `clampLyricsFontSize clamps at the lower bound of 12`, `clampLyricsFontSize clamps at the upper bound of 36`, `stepLyricsFontSize increases by two up to the upper bound and no further`, `stepLyricsFontSize decreases by two down to the lower bound and no further`, `hasDifferentPersonalLyrics is false outside a band`, `hasDifferentPersonalLyrics is false when there is no personal entry`, `hasDifferentPersonalLyrics is false when the personal lyrics are empty`, `hasDifferentPersonalLyrics is false when the personal lyrics match the band ones`, `hasDifferentPersonalLyrics is true when a band member has their own different version`, `selectDisplayedLyrics shows the entry lyrics outside a band`, `selectDisplayedLyrics shows the band lyrics while the band version is selected`, `selectDisplayedLyrics shows the personal lyrics while the personal version is selected`, `selectDisplayedLyrics falls back to the band lyrics when no personal entry has loaded`, `resolveLyricsSaveTarget targets the entry itself outside a band`, `resolveLyricsSaveTarget targets the band entry while the band version is selected`, `resolveLyricsSaveTarget targets the personal entry with a null band id while the personal version is selected`, `resolveLyricsSaveTarget asks for a personal entry to be created when the member has none`. The two clamp-bound tests assert exact values: `clampLyricsFontSize(4)` is `12` and `clampLyricsFontSize(99)` is `36`; the two step tests assert `stepLyricsFontSize(34, 2)` is `36`, `stepLyricsFontSize(36, 2)` is `36`, `stepLyricsFontSize(14, -2)` is `12` and `stepLyricsFontSize(12, -2)` is `12`. This file too does not contain the string `@vitest-environment`.
+ER3 - `npx vitest run src/hooks/__tests__/useSongEntry.test.tsx --reporter=verbose` exits 0 and reports at least 11 passed and 0 failed tests, among which these exact names all appear and pass: `loads the entry for the route id and clears the loading flag`, `reports not found when the entry does not exist`, `reports not found when the entry load throws`, `loads the personal entry in band context and exposes it`, `does not load a personal entry outside a band context`, `keeps the entry and clears loadingPersonal when the personal load fails`, `refetches the entry when the band id from the query changes`, `exposes the tab library inputs taken from the two entries`, `applyStatus patches the entry status`, `applyLinks patches the song links`, `adoptPersonalEntry adopts an entry created by another controller`. The refetch test uses `renderHook`'s `rerender` to change only `bandId` (route id unchanged) and asserts the injected `getSongEntry` double was called twice, the second time with the new band id  -  this is the F26 dependency-array proof. The band-context test asserts `getPersonalEntryForSong` was called exactly once with the entry's `song_id`; the personal-failure test asserts the hook still exposes the band entry and ends with `loadingPersonal` false. The first line of the file is exactly `// @vitest-environment jsdom`, it contains `afterEach(cleanup)`, it calls `renderHook`, and `grep -c "@/app/actions" src/hooks/__tests__/useSongEntry.test.tsx` prints `0` because both actions are passed in as test doubles.
 
-ER4 - `npx vitest run src/hooks/__tests__/useLyricsEditor.test.tsx --reporter=verbose` exits 0 and reports at least 18 passed and 0 failed tests, among which these exact names all appear and pass: `starts with the band lyrics, not editing and not in Stage Mode`, `seeds the draft from the displayed lyrics when editing starts`, `cancelling editing restores the draft from the displayed lyrics`, `saves the band lyrics against the entry id and its band id`, `saves the personal lyrics against the personal entry with a null band id`, `creates the personal entry before saving when the member has none`, `reports a save failure with the Failed to save lyrics toast`, `refuses to auto-import without an artist and says so`, `auto-imports lyrics into the draft and reports success`, `reports lyrics not found online with the song title and artist in the toast`, `reports an auto-import failure and keeps the draft`, `switches between the band and the personal lyrics version`, `raises the stage font size by two up to 36 and no further`, `lowers the stage font size by two down to 12 and no further`, `toggles the stage dark mode`, `pushes exactly one history entry when the lyrics stage opens`, `exits the lyrics stage when the browser back button fires popstate`, `closing the lyrics stage goes back only when the Stage Mode history entry is on top`. The six Toast strings are asserted verbatim against the injected `notify` spy: `Lyrics saved successfully!` with tone `success`, `Failed to save lyrics` with tone `error`, `Artist name is required to search for lyrics.` with tone `warning`, `Lyrics imported online!` with tone `success`, `Lyrics not found online for "Song Title" by "Artist Name". You can still paste them below.` with tone `warning` for a fixture whose title is `Song Title` and whose artist is `Artist Name`, and `Failed to import lyrics from web. You can still paste them below.` with tone `error`. The save tests assert the exact `updateLyrics` argument tuples: the band case receives `(<the entry id>, <the draft>, <the entry band id>)` and the personal case receives `(<the personal entry id>, <the draft>, null)`. The first line of the test file is exactly `// @vitest-environment jsdom`, it contains `afterEach(cleanup)`, it calls `renderHook`, it simulates the back button with `new PopStateEvent('popstate')`, and `grep -c "@/app/actions" src/hooks/__tests__/useLyricsEditor.test.tsx` prints `0` because all three actions are passed in as test doubles.
+ER4 - `npx vitest run src/hooks/__tests__/useSongStatus.test.tsx src/hooks/__tests__/useSongLinks.test.tsx --reporter=verbose` exits 0 and reports at least 14 passed and 0 failed tests, among which these exact names all appear and pass: `toggles the status dropdown open and closed`, `writes the new status against the entry id and its band id`, `reports the new status label in a success toast and closes the dropdown`, `reports a status write failure with the Failed to update status toast`, `refuses a duplicate url and does not call the action`, `adds a link with the label the musician typed`, `auto-fills a blank label from the fetched url title`, `falls back to the url when the fetched title is empty`, `closes and clears the add form after a successful add`, `reports the action error message when adding a link fails`, `deletes a link and reports it with the Link deleted toast`, `keeps the link and warns when the removal is queued for review`, `reports a delete failure with the Failed to delete link toast`, `cancelDelete closes the confirmation without calling the action`. The Toast strings are asserted verbatim against the injected `notify` spy: `Status updated to Mastered` with tone `success`, `Failed to update status` with tone `error`, `This URL is already in the links list.` with tone `warning`, `Link added successfully!` with tone `success`, `Link removal submitted for review. It stays visible until an admin approves it.` with tone `warning`, `Link deleted.` with tone `info`, `Failed to delete link.` with tone `error`. The action argument tuples are asserted exactly: `updateStatus` receives `(<the entry id>, 'mastered', <the entry band id>)`; the add case receives `updateLinks(<the entry id>, [...<the existing links>, { label: <the resolved label>, url: <the trimmed url> }])`; the typed-label case additionally asserts `fetchUrlTitle` was never called. The queued-removal test makes `updateLinks` resolve `{ success: true, pending: true }` and asserts that the injected `onLinksSaved` was NOT called (the link stays visible), while the plain case resolves `{ success: true }` and asserts `onLinksSaved` received the list without the removed url. Both files have `// @vitest-environment jsdom` as their literal first line, contain `afterEach(cleanup)`, call `renderHook`, and `grep -c "@/app/actions" src/hooks/__tests__/useSongStatus.test.tsx src/hooks/__tests__/useSongLinks.test.tsx` prints the two lines `src/hooks/__tests__/useSongStatus.test.tsx:0` and `src/hooks/__tests__/useSongLinks.test.tsx:0`.
 
-ER5 - `npx vitest run src/components/fastview --reporter=verbose` exits 0 and reports 0 failed tests across at least ten files, including `src/components/fastview/__tests__/LyricsSection.test.tsx` with at least 13 tests whose names include exactly `LyricsSection renders the lyrics it is given as markup`, `LyricsSection shows the empty state when there are no lyrics`, `LyricsSection shows the loading skeleton while the personal entry loads`, `LyricsSection shows the Band badge for a band entry on the band version`, `LyricsSection shows the Personal badge for a band entry on the personal version`, `LyricsSection shows no ownership badge outside a band`, `LyricsSection offers the version switcher only when a different personal version exists`, `LyricsSection reports the Stage Mode button press`, `LyricsSection reports the Edit button press and labels it Add without lyrics`, `LyricsEditorPanel reports every draft keystroke`, `LyricsEditorPanel reports the auto-import press and shows the importing state`, `LyricsEditorPanel reports the save press and shows the saving state`, `LyricsEditorPanel reports the cancel press`, and including `src/components/fastview/__tests__/LyricsStageOverlay.test.tsx` with at least 7 tests whose names include exactly `LyricsStageOverlay renders nothing while the stage is closed`, `LyricsStageOverlay renders nothing when there are no lyrics`, `LyricsStageOverlay shows the song title and the key in the header`, `LyricsStageOverlay applies the font size it is given to the overlay root`, `LyricsStageOverlay switches between the light and the dark surface`, `LyricsStageOverlay renders the lyrics as markup`, `LyricsStageOverlay reports the font, dark mode and close button presses`. Both files have `// @vitest-environment jsdom` as their literal first line and call `afterEach(cleanup)`. The three components carry no logic and no data access: `grep -c "useState\|useEffect\|useRef\|addEventListener\|history\.\|@/app/\|@/hooks/" src/components/fastview/LyricsSection.tsx src/components/fastview/LyricsEditorPanel.tsx src/components/fastview/LyricsStageOverlay.tsx` prints exactly the three lines `src/components/fastview/LyricsSection.tsx:0`, `src/components/fastview/LyricsEditorPanel.tsx:0` and `src/components/fastview/LyricsStageOverlay.tsx:0`.
+ER5 - `npx vitest run src/components/fastview --reporter=verbose` exits 0 with 0 failed tests across at least thirteen files, including `src/components/fastview/__tests__/SongIdentityHeader.test.tsx` with at least 9 tests whose names include exactly `SongIdentityHeader shows the title and the artist`, `SongIdentityHeader omits the artist line when the song has none`, `SongIdentityHeader shows the key when there is one`, `StatusDropdown shows the current status label on the trigger`, `StatusDropdown reports the trigger press`, `StatusDropdown lists the five statuses in mastery order while open`, `StatusDropdown marks the current status as selected`, `StatusDropdown reports the status the musician picked`, `StatusDropdown disables the trigger while a status write is in flight`; including `src/components/fastview/__tests__/LinksSection.test.tsx` with at least 9 tests whose names include exactly `LinksSection renders one card per link with its label`, `LinksSection shows the empty state when there are no links`, `LinksSection reports the delete press with the url of that link`, `LinksSection opens the add form from the Add Link button`, `LinkIcon renders a distinct icon for Spotify, YouTube, a chord site, a PDF and an unknown url`, `AddLinkForm reports label and url keystrokes`, `AddLinkForm reports the submit without reloading the page`, `AddLinkForm shows the saving state and disables the submit button`, `AddLinkForm reports the cancel press`; and including `src/components/fastview/__tests__/FastViewShell.test.tsx` with at least 6 tests whose names include exactly `SongLoading renders the busy placeholder`, `SongNotFound reports the back press`, `SongTagsSection renders nothing when there are no tags`, `SongTagsSection renders one chip per tag`, `LinkDeleteConfirm renders nothing until a delete is pending`, `LinkDeleteConfirm asks the exact delete question and reports confirm and cancel`. The `LinkDeleteConfirm` test asserts the message text is exactly `Delete this link? This can't be undone.`. All three files have `// @vitest-environment jsdom` as their literal first line and call `afterEach(cleanup)`. The nine new components carry no state, no effects and no data access: `grep -c "useState\|useEffect\|useRef\|addEventListener\|@/app/\|@/hooks/" src/components/fastview/LinkIcon.tsx src/components/fastview/StatusDropdown.tsx src/components/fastview/SongIdentityHeader.tsx src/components/fastview/AddLinkForm.tsx src/components/fastview/LinksSection.tsx src/components/fastview/LinkDeleteConfirm.tsx src/components/fastview/SongTagsSection.tsx src/components/fastview/SongLoadStates.tsx src/components/fastview/FastViewOverlays.tsx` prints exactly nine lines, each ending in `:0`.
 
-ER6 - The page no longer holds any lyrics logic: `grep -c "parseLyricsMarkdown\|updateLyricsAction\|fetchLyricsAction\|lyricsFontSize\|isStageMode\|popstate" "src/app/songs/[id]/fast-view/page.tsx"` prints `0` (it prints `14` at `bf0c97e`), and `grep -c "addSongAction\|displayedLyrics\|hasDifferentPersonalLyrics\|showPersonalLyrics\|lyricsText\|isEditingLyrics\|savingLyrics\|fetchingLyrics\|isStageDarkMode\|closeStageMode\|dangerouslySetInnerHTML\|stageHistoryState\|isStageHistoryEntry\|@/lib/stageHistory" "src/app/songs/[id]/fast-view/page.tsx"` also prints `0`. Each of those identifiers now lives with its owner: `grep -c "popstate" src/hooks/useLyricsEditor.ts` prints `2` (one `addEventListener`, one `removeEventListener`), `grep -c "stageHistoryState\|isStageHistoryEntry" src/hooks/useLyricsEditor.ts` prints a number greater than 0, `grep -c "dangerouslySetInnerHTML" src/components/fastview/LyricsSection.tsx` and `grep -c "dangerouslySetInnerHTML" src/components/fastview/LyricsStageOverlay.tsx` each print `1`, and the history marker is still in exactly one place: `grep -rln "stageMode: true" src` prints only paths drawn from the closed set `src/lib/stageHistory.ts` and `src/lib/__tests__/stageHistory.test.ts`, listing neither the page nor `src/hooks/useLyricsEditor.ts`. The page still renders both new components: `grep -c "LyricsSection\|LyricsStageOverlay" "src/app/songs/[id]/fast-view/page.tsx"` prints a number greater than 0.
+ER6 - The page holds no entry, status or link logic any more: `grep -c "updateSongStatusAction\|updateSongLinksAction\|getPersonalEntryForSongAction\|fetchUrlTitleAction\|getSongEntryAction\|window.location\|getLinkIcon" "src/app/songs/[id]/fast-view/page.tsx"` prints `0` (it prints `8` at `aaf9a21`), and `grep -c "useState\|useEffect\|STATUS_CONFIG\|ConfirmPanel\|@/types/database\|tabLibraryEntryInputs\|PendingDelete" "src/app/songs/[id]/fast-view/page.tsx"` also prints `0`. F26 stays closed and its dependency wiring is visible: `grep -c "const queryBandId = searchParams.get('bandId')" "src/app/songs/[id]/fast-view/page.tsx"` prints `1`, `grep -c "bandId: queryBandId" "src/app/songs/[id]/fast-view/page.tsx"` prints a number of at least 2 (the entry controller and the playlist controller both receive it), `grep -c "useEffect(" src/hooks/useSongEntry.ts` prints `1` (the hook declares exactly one effect; the plain `useEffect` pattern would print `2`, because the `react` import line matches too), and `grep -nE "\}, \[[^]]*bandId[^]]*\]\)" src/hooks/useSongEntry.ts` prints at least one line, i.e. the load effect's dependency array carries the search-params-derived band id. `grep -rn "window.location" src/hooks/useSongEntry.ts src/hooks/useSongStatus.ts src/hooks/useSongLinks.ts src/lib/songEntry.ts src/lib/songStatus.ts src/lib/songLinks.ts` prints nothing and exits with status 1. The page still renders the new pieces: `grep -c "SongIdentityHeader\|LinksSection\|SongTagsSection\|FastViewOverlays\|SongLoading\|SongNotFound" "src/app/songs/[id]/fast-view/page.tsx"` prints a number of at least 6, and `grep -c "tabLibrary.cancelDelete" "src/app/songs/[id]/fast-view/page.tsx"` prints a number of at least 1 (the link delete still closes the tab confirmation), while `grep -c "onDeleteRequested: links.cancelDelete" "src/app/songs/[id]/fast-view/page.tsx"` prints `1` (the tab delete still closes the link confirmation).
 
-ER7 - `rtk proxy npx eslint src/lib/lyricsMarkdown.ts src/lib/lyricsEditor.ts src/hooks/useLyricsEditor.ts src/components/fastview/LyricsSection.tsx src/components/fastview/LyricsEditorPanel.tsx src/components/fastview/LyricsStageOverlay.tsx src/app/fastViewLyricsActions.ts --rule '{"complexity":["error",15],"max-lines-per-function":["error",200]}'` exits 0 and prints no output at all. `wc -l` on each of the twelve files listed in ER1 prints a number strictly less than 400. `wc -l "src/app/songs/[id]/fast-view/page.tsx"` prints a number strictly less than 720 (it prints `964` at `bf0c97e`; a throwaway copy with exactly this spec's regions removed and its wiring added measures 674). The raw output of `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx" --rule '{"complexity":["error",15]}'` contains exactly one line matching `Function 'FastViewPage' has a complexity of N`, and N is at most 34 (it is 54 at `bf0c97e`; the same throwaway copy measures 30). That command's other output lines are not constrained here: `--rule` adds to the flat config rather than replacing it, so the command also reports the page's ordinary problems, which ER8 pins separately.
+ER7 - FINAL BUDGET. `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx" --rule '{"complexity":["error",15],"max-lines-per-function":["error",200],"max-depth":["error",4]}'` prints no output at all (raw, no summary line) and exits 0; at `aaf9a21` the same command prints three errors, including `Function 'FastViewPage' has too many lines (567)` and `has a complexity of 30`. `wc -l "src/app/songs/[id]/fast-view/page.tsx"` prints a number strictly less than `400` (it prints `658` at `aaf9a21`; a throwaway copy of the composition root this spec describes measures 221 lines with `FastViewPage` at 191 lines and complexity 6). The same `--rule` invocation over the sixteen new source files  -  `rtk proxy npx eslint src/lib/songEntry.ts src/lib/songStatus.ts src/lib/songLinks.ts src/hooks/useSongEntry.ts src/hooks/useSongStatus.ts src/hooks/useSongLinks.ts src/app/fastViewEntryActions.ts src/components/fastview/LinkIcon.tsx src/components/fastview/StatusDropdown.tsx src/components/fastview/SongIdentityHeader.tsx src/components/fastview/AddLinkForm.tsx src/components/fastview/LinksSection.tsx src/components/fastview/LinkDeleteConfirm.tsx src/components/fastview/SongTagsSection.tsx src/components/fastview/SongLoadStates.tsx src/components/fastview/FastViewOverlays.tsx --rule '{"complexity":["error",15],"max-lines-per-function":["error",200],"max-depth":["error",4]}'`  -  also prints no output at all and exits 0, and `wc -l` on each of those sixteen files prints a number strictly less than 400.
 
-ER8 - `rtk proxy npx eslint .` prints the summary line `25 problems (11 errors, 14 warnings)` and nothing worse, one error fewer than the `26 problems (12 errors, 14 warnings)` at `bf0c97e` because `parseLyricsMarkdown` no longer uses a `let` binding. `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx"` prints the summary line `1 problem (1 error, 0 warnings)`, that single problem being the `@typescript-eslint/no-explicit-any` error inside the status dropdown (RH-52's, at a possibly shifted line number), and its output contains no `prefer-const` line. `./node_modules/.bin/tsc --noEmit` exits 0 and prints nothing. `npm run lint:dead` exits 0 and reports no unused files, exports, types or dependencies. `npm run lint:dup` exits 0 and prints `Found N clones.` with N at most 20, and the `Total:` row of its table shows a duplicated-lines percentage of at most 0.90% (18 clones, 230 lines, 0.76% at `bf0c97e`). `npm run audit` exits 0 and reports 0 vulnerabilities.
+ER8 - Static gates. `rtk proxy npx eslint "src/app/songs/[id]/fast-view/page.tsx"` prints no output at all and exits 0, i.e. the page is at 0 problems (it prints `1 problem (1 error, 0 warnings)` at `aaf9a21`, the `@typescript-eslint/no-explicit-any` at 433:74). `rtk proxy npx eslint .` prints the summary line `24 problems (10 errors, 14 warnings)` and nothing worse  -  exactly one error fewer than the `25 problems (11 errors, 14 warnings)` at `aaf9a21`, that one error being the page's `any`. `./node_modules/.bin/tsc --noEmit` exits 0 and prints nothing. `npm run lint:dead` exits 0 and reports no unused files, exports, types or dependencies. `npm run lint:dup` exits 0, prints `Found N clones.` with N at most 20, and the `Total:` row of its table shows a duplicated-lines percentage of at most 1.00% (18 clones, 230 lines, 0.73% at `aaf9a21`). `npm run audit` exits 0 and reports 0 vulnerabilities.
 
-ER9 - Nothing owned by RH-20, RH-28, RH-49 or RH-50 changed: `git diff bf0c97e -- src/lib/stageHistory.ts src/lib/__tests__/stageHistory.test.ts src/lib/scrollHost.ts src/lib/__tests__/scrollHost.test.ts src/hooks/usePdfStage.ts src/hooks/__tests__/usePdfStage.test.tsx src/components/fastview/PdfStageOverlay.tsx src/components/fastview/__tests__/PdfStageOverlay.test.tsx src/lib/tabLibrary.ts src/hooks/useTabLibrary.ts src/components/tabs/TabDrawingStage.tsx src/lib/stageInteraction.ts src/lib/annotationMath.ts src/lib/__tests__/erasePersistence.test.ts src/lib/__tests__/stageInteraction.test.ts src/lib/__tests__/annotationMath.test.ts src/lib/__tests__/pdfWorkerAsset.test.ts src/lib/__tests__/noBrowserDialogs.test.ts src/lib/__tests__/errorHandlingStyle.test.ts src/components/tabs/__tests__/TabDrawingStage.test.tsx` prints nothing, and `npx vitest run src/lib/__tests__/stageHistory.test.ts src/lib/__tests__/scrollHost.test.ts src/hooks/__tests__/usePdfStage.test.tsx src/lib/__tests__/erasePersistence.test.ts src/lib/__tests__/stageInteraction.test.ts src/lib/__tests__/annotationMath.test.ts src/lib/__tests__/pdfWorkerAsset.test.ts src/lib/__tests__/noBrowserDialogs.test.ts src/lib/__tests__/errorHandlingStyle.test.ts src/components/tabs/__tests__/TabDrawingStage.test.tsx` exits 0 with 0 failed tests.
+ER9 - Nothing owned by RH-48, RH-49, RH-50, RH-51 or the Stage Mode guards changed: `git diff aaf9a21 -- src/lib/playlistNav.ts src/hooks/usePlaylistNav.ts src/app/fastViewNavActions.ts src/components/fastview/SetlistDrawer.tsx src/components/fastview/SetlistSidebar.tsx src/components/fastview/SetlistSelect.tsx src/components/fastview/SetlistPill.tsx src/components/fastview/SetlistPanel.tsx src/components/fastview/SetlistRow.tsx src/components/fastview/PlaylistPrevArrow.tsx src/components/fastview/SwipeHint.tsx src/lib/tabLibrary.ts src/hooks/useTabLibrary.ts src/app/fastViewTabActions.ts src/components/fastview/TabLibrarySection.tsx src/components/fastview/TabList.tsx src/components/fastview/TabViewer.tsx src/components/fastview/TabUploadForm.tsx src/components/fastview/TabDestinationModal.tsx src/components/fastview/TabDeleteConfirm.tsx src/lib/scrollHost.ts src/lib/stageHistory.ts src/hooks/usePdfStage.ts src/components/fastview/PdfStageOverlay.tsx src/lib/lyricsMarkdown.ts src/lib/lyricsEditor.ts src/hooks/useLyricsEditor.ts src/app/fastViewLyricsActions.ts src/components/fastview/LyricsSection.tsx src/components/fastview/LyricsEditorPanel.tsx src/components/fastview/LyricsStageOverlay.tsx src/lib/statusConfig.ts src/lib/annotationMath.ts src/lib/stageInteraction.ts src/components/tabs/TabDrawingStage.tsx src/components/ui/ConfirmPanel.tsx src/components/ui/Toast.tsx src/hooks/useToast.ts` prints nothing. `npx vitest run src/hooks/__tests__/usePlaylistNav.test.tsx src/hooks/__tests__/useTabLibrary.test.tsx src/hooks/__tests__/usePdfStage.test.tsx src/hooks/__tests__/useLyricsEditor.test.tsx src/hooks/__tests__/useToast.test.tsx src/lib/__tests__/errorHandlingStyle.test.ts src/lib/__tests__/noBrowserDialogs.test.ts src/app/actions/__tests__/actionSessionGuard.test.ts src/app/actions/__tests__/actionAuthorizationGuard.test.ts src/app/actions/__tests__/actionDataAccessGuard.test.ts` exits 0 with 0 failed tests, and `grep -c "mode: '" src/app/actions/__tests__/actionSessionGuard.test.ts` still prints `44`.
 
-ER10 - With a live Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with all migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` exported into the environment (for example `set -a; . ./.env.local; set +a`), `npx vitest run` exits 0 and its summary reports at least 79 test files passed, 0 test files failed, at least 951 tests passed, 0 tests failed and 0 tests skipped (the same command at `bf0c97e` reports 74 files and 884 tests, 0 skipped; this task adds 5 files and at least 67 tests). Under the same precondition, `npm run test:coverage` exits 0 with no threshold error (the configured gates are statements 80, branches 65, functions 78, lines 80) and its `All files` row shows statements at least 90, branches at least 74, functions at least 92 and lines at least 90.
+ER10 - With a live Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with all migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` exported into the environment (for example `set -a; . ./.env.local; set +a`), `npx vitest run` exits 0 and its summary reports at least 88 test files passed, 0 test files failed, at least 1000 tests passed, 0 tests failed and 0 tests skipped (the same command at `aaf9a21` reports 79 files and 952 tests, 0 skipped; this task adds 9 test files and at least 48 tests). Under the same precondition `npm run test:coverage` exits 0 with no threshold error (the configured gates are statements 80, branches 65, functions 78, lines 80) and its `All files` row shows statements at least 90, branches at least 74, functions at least 92 and lines at least 90.
 
-ER11 - Under the same Postgres and `SUPABASE_SERVICE_ROLE_KEY` precondition as ER10, `npx vitest run --coverage --coverage.reporter=json-summary` exits 0 and, in the resulting `coverage/coverage-summary.json`, the entry whose key ends with `src/lib/lyricsMarkdown.ts` reports `statements.pct` 100, `functions.pct` 100, `lines.pct` 100 and `branches.pct` at least 90; the entry whose key ends with `src/lib/lyricsEditor.ts` reports `statements.pct` 100, `functions.pct` 100, `lines.pct` 100 and `branches.pct` at least 90; and the entry whose key ends with `src/hooks/useLyricsEditor.ts` reports `statements.pct` at least 90, `functions.pct` at least 90, `lines.pct` at least 90 and `branches.pct` at least 75. The per-file floors are read from this JSON rather than from the text table because the table can omit a fully covered file.
+ER11 - Under the same Postgres and `SUPABASE_SERVICE_ROLE_KEY` precondition as ER10, `npx vitest run --coverage --coverage.reporter=json-summary` exits 0 and, in the resulting `coverage/coverage-summary.json`, the entries whose keys end with `src/lib/songEntry.ts`, `src/lib/songStatus.ts` and `src/lib/songLinks.ts` each report `statements.pct` 100, `functions.pct` 100, `lines.pct` 100 and `branches.pct` at least 90, and the entries whose keys end with `src/hooks/useSongEntry.ts`, `src/hooks/useSongStatus.ts` and `src/hooks/useSongLinks.ts` each report `statements.pct` at least 90, `functions.pct` at least 90, `lines.pct` at least 90 and `branches.pct` at least 75. The per-file floors are read from this JSON rather than from the text table because the table can omit a fully covered file.
 
-ER12 - `npx next build` exits 0 and its route table lists `/songs/[id]/fast-view` marked `f` (Dynamic, server-rendered on demand). Immediately afterwards, `set -a; . ./.env.local; set +a; PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts --project=chromium` prints `4 passed` and exits 0. `e2e/fast-view-mobile.spec.ts` and `e2e/songs-crud.spec.ts` are not gates here: both are red at `bf0c97e` for the RH-44 `addSong` helper reason (`e2e/helpers.ts`), so their result is recorded but never blocks this task.
+ER12 - `npx next build` exits 0, prints no error mentioning a missing Suspense boundary or `useSearchParams`, and its route table lists `/songs/[id]/fast-view` marked `f` (Dynamic, server-rendered on demand). Immediately afterwards, `set -a; . ./.env.local; set +a; PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts --project=chromium` prints `4 passed` and exits 0. `e2e/fast-view-mobile.spec.ts` and `e2e/songs-crud.spec.ts` are not gates here: both are red at `aaf9a21` for the RH-44 `addSong` helper reason (`e2e/helpers.ts`), so their result is recorded but never blocks this task. The `version` field in `package.json` matches `0.1.80-` followed by exactly twelve digits (it is `0.1.79-202609072030` at `aaf9a21`, and the version may only ever go up). `git diff aaf9a21 -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json` prints nothing and `npx vitest run src/lib/__tests__/landingCopy.test.ts` exits 0 with 0 failed tests: this refactor ships no selling point, so the landing copy is untouched.
 
-ER13 - The `version` field in `package.json` matches `0.1.79-` followed by exactly twelve digits (it is `0.1.78-202609071945` at `bf0c97e`, and the version may only ever go up). `git diff bf0c97e -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json` prints nothing, and `npx vitest run src/lib/__tests__/landingCopy.test.ts` exits 0 with 0 failed tests. `git diff --name-only bf0c97e` lists only paths drawn from this closed set and nothing else: `AGENTS.md`, `package.json`, `docs/tasks/RH-51-spec.md`, `docs/suggestions-log.md`, `src/app/songs/[id]/fast-view/page.tsx`, `src/app/fastViewLyricsActions.ts`, `src/lib/lyricsMarkdown.ts`, `src/lib/__tests__/lyricsMarkdown.test.ts`, `src/lib/lyricsEditor.ts`, `src/lib/__tests__/lyricsEditor.test.ts`, `src/hooks/useLyricsEditor.ts`, `src/hooks/__tests__/useLyricsEditor.test.tsx`, `src/components/fastview/LyricsSection.tsx`, `src/components/fastview/LyricsEditorPanel.tsx`, `src/components/fastview/LyricsStageOverlay.tsx`, `src/components/fastview/__tests__/LyricsSection.test.tsx`, `src/components/fastview/__tests__/LyricsStageOverlay.test.tsx`. In particular that list contains no path under `migrations/`, no `eslint.config.mjs`, no `vitest.config.ts`, no `src/lib/songs.ts`, no path under `src/app/actions/` and no path under `src/components/tabs/`.
+ER13 - `git diff --name-only aaf9a21` lists only paths drawn from this closed set and nothing else: `AGENTS.md`, `package.json`, `docs/tasks/RH-51-spec.md`, `docs/suggestions-log.md`, `src/app/songs/[id]/fast-view/page.tsx`, `src/app/fastViewEntryActions.ts`, `src/lib/songEntry.ts`, `src/lib/__tests__/songEntry.test.ts`, `src/lib/songStatus.ts`, `src/lib/__tests__/songStatus.test.ts`, `src/lib/songLinks.ts`, `src/lib/__tests__/songLinks.test.ts`, `src/hooks/useSongEntry.ts`, `src/hooks/__tests__/useSongEntry.test.tsx`, `src/hooks/useSongStatus.ts`, `src/hooks/__tests__/useSongStatus.test.tsx`, `src/hooks/useSongLinks.ts`, `src/hooks/__tests__/useSongLinks.test.tsx`, `src/components/fastview/LinkIcon.tsx`, `src/components/fastview/StatusDropdown.tsx`, `src/components/fastview/SongIdentityHeader.tsx`, `src/components/fastview/AddLinkForm.tsx`, `src/components/fastview/LinksSection.tsx`, `src/components/fastview/LinkDeleteConfirm.tsx`, `src/components/fastview/SongTagsSection.tsx`, `src/components/fastview/SongLoadStates.tsx`, `src/components/fastview/FastViewOverlays.tsx`, `src/components/fastview/__tests__/SongIdentityHeader.test.tsx`, `src/components/fastview/__tests__/LinksSection.test.tsx`, `src/components/fastview/__tests__/FastViewShell.test.tsx`. In particular that list contains no path under `migrations/`, no `eslint.config.mjs`, no `vitest.config.ts`, no `src/lib/songs.ts`, no `src/lib/statusConfig.ts`, no path under `src/app/actions/`, no path under `src/components/tabs/`, no `docs/plans/code-quality-review.md` and none of the RH-48..RH-51 files listed in ER9.
 
 ## Out of Scope
 
-- The page's `entry` / `personalEntry` / `loading` / `notFound` state, the entry
-  load effect, the status dropdown, the links section, the tags section and the
-  page shell: all RH-52 (part 5).
-- The page's remaining `@typescript-eslint/no-explicit-any` error in the status
-  dropdown - it belongs to the status slice, and fixing it here would move an
-  RH-52 review question into this task.
-- Any change to `src/app/actions/repertoire.ts`, including the shape of
-  `updateLyricsAction`, `fetchLyricsAction` or `addSongAction`, and any change to
-  `src/lib/songs.ts` or the lyrics.ovh integration.
-- Any change to `src/lib/stageHistory.ts`, `usePdfStage`, `useTabLibrary`,
-  `TabDrawingStage` or any RH-20 / RH-28 guard test; this task consumes
-  `stageHistory.ts` exactly as RH-50 shipped it.
-- Sanitising the lyrics HTML beyond today's three escapes (no DOMPurify, no
-  allow-list rewrite): the task is to test the existing escaping, not to change
-  the rendering contract.
-- The two red RH-44 e2e specs, any landing-page copy, and any migration, ESLint
-  or Vitest configuration change.
+- **The RH-38 integration close-out.** Marking F6 and F26 as closed in
+  `docs/plans/code-quality-review.md`, re-measuring the whole page against the
+  original 1586-line / complexity-82 baseline, and the parent's own summary
+  belong to RH-38's final spec. `docs/plans/code-quality-review.md` must not be
+  edited by this task (ER13 forbids it).
+- **RH-39 / F20** — adding `complexity`, `max-depth`, `max-lines-per-function`
+  and `max-params` to `eslint.config.mjs`. This task proves the page passes those
+  thresholds by invoking them with `--rule`; wiring them into the shared config
+  (with the override list for the known offenders in `src/lib` and
+  `src/hooks/useBandAdmin.ts`) is RH-39's job.
+- **T8 / F25** — converting Fast View to a Server Component and dropping the
+  `useEffect` data fetch. The load effect is *moved*, not eliminated.
+- **Server Action changes.** No action is added, deleted, renamed or re-signed;
+  `src/app/actions/repertoire.ts` and the three action guard suites stay as they
+  are.
+- **The missing desktop "next" arrow** and any other latent asymmetry recorded by
+  the RH-38 report. Preserve today's behaviour; do not fix.
+- **Landing copy.** An internal refactor is not a selling point.
+- `e2e/fast-view-mobile.spec.ts` and `e2e/songs-crud.spec.ts` remain red for the
+  RH-44 reason; repairing them is not part of this task.
 
 ## Post-merge checks (orchestrator)
 
-Manual smoke on a phone-sized viewport, matching the task's own last draft
-result: open a song in Fast View, press Add/Edit on the Lyrics section, press
-Auto-import and confirm the toast, type and Save, then reopen and confirm the
-text survived; in a band song with a different personal version, flip the
-`View my lyrics (👤)` / `View Band lyrics (👥)` switch and confirm the badge and
-the body follow; open the lyrics Stage Mode, press `A+` and `A-` past both ends
-to confirm the font stops at 36 and 12, toggle dark mode, and leave with the
-hardware/browser back button rather than the `✕`.
+- Re-run `rtk proxy npx eslint . ` once more on `master` and confirm the summary
+  is `24 problems (10 errors, 14 warnings)`; that number is the input RH-39 will
+  ratchet against.
+- Hand RH-38 the two numbers it needs for its close-out: the page's final
+  `wc -l` and the fact that the `--rule` invocation over the page now prints
+  nothing.

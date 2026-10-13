@@ -1,478 +1,568 @@
-# RH-57 - query tipado parte 4/5: tipar a camada de dados de bands, playlists e profile
+# RH-58 - query tipado parte 5/5: tipar o caminho de dados do Spotify e seus route handlers
 
-Part 4 of 5 of RH-40 (RH-25 F16). Parent: RH-40. Depends on RH-54 (`f92c0f3`, the `DbRow`
-foundation and `src/lib/dbRows.ts`) and RH-56 (`b293e82`), both `done`.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
 
-Baseline for every number in this spec is HEAD = `b293e82`. The numbers in the task's own
-draft `expected_results` (21 call sites, 9 casts) predate RH-55/RH-56 and are stale; every
-count below was re-measured at `b293e82`.
+Part 5 of 5 of RH-40 (RH-25 F16). Parent: RH-40. Depends on RH-54 (`f92c0f3`, the `DbRow`
+foundation and `src/lib/dbRows.ts`) and RH-57 (`9e37072`), both `done`.
+
+Baseline for every number in this spec is HEAD = `9e37072`. The numbers in the task's own draft
+`expected_results` (17 call sites, 2 casts, `src/lib/spotify.ts` and `src/lib/auth.ts` among the
+files) predate RH-55/RH-56/RH-57 and are stale: `src/lib/spotify.ts` holds no `query` call site at
+all, `src/lib/auth.ts` holds exactly one - `src/lib/auth.ts:84` is `await pool.query(`, untyped on
+`pg`'s own `Pool.query` (whose default type argument is `any`), invisible to this spec's greps only
+because the receiver is named `pool`, and it is deliberately excluded from this task (see
+"## Out of Scope" for the reason) - and three sites left over from RH-55 sit in
+`src/lib/moderation.ts`. Every count below was re-measured at `9e37072`.
+
+This is the last slice of F16. RH-40's own close-out is docs-only, so the tree has to end this
+task with zero untyped row-reading call sites anywhere outside the transaction control in
+`src/lib/db.ts` - that is what ER1 pins.
 
 ## Scope
 
-Name the row shape at every remaining untyped `query` / `client.query` call site in
-`src/lib/bands.ts`, `src/lib/bands.server.ts`, `src/lib/playlists.ts` and `src/lib/profile.ts`,
-and delete every `as` cast on a query result in those four files (plus the one redundant
-`as BandMember[]` on `getBandMembers`, which the repo-wide cast inventory counts). Nothing else
-changes: every SQL string, every parameter array, every thrown message and every return value
-stay byte-identical.
+Name the row shape at every remaining untyped `query` / `client.query` / `db.query` call site in
+the Spotify data path (`src/lib/spotifyAuth.ts`, `src/lib/spotifyPlaylistSync.ts` and the four
+route handlers under `src/app/api/**`) and in `src/lib/moderation.ts`, and delete every cast on a
+query result in those files. Nothing else changes: every SQL string, every parameter array, every
+thrown message, every logged tag and every returned value stay byte-identical.
 
 Concretely, this task covers exactly:
 
-1. The 27 untyped call sites: 12 in `src/lib/bands.ts` (lines 41, 115, 123, 162, 179, 194, 210,
-   223, 278, 292, 308, 326), 1 in `src/lib/bands.server.ts` (line 42), 11 in
-   `src/lib/playlists.ts` (lines 10, 81, 124, 138, 159, 163, 168, 179, 197, 289, 292) and 3 in
-   `src/lib/profile.ts` (lines 59, 76, 77).
-2. The 14 casts on query results / domain rows in those files: `bands.ts` lines 54, 121, 218,
-   279, 294, 335 and 348; `bands.server.ts` line 45; `playlists.ts` lines 89, 290, 294, 295,
-   296 and 297.
-3. Four new interfaces in `src/lib/dbRows.ts` (`BandMemberRoleRow`, `JoinBandByInviteRow`,
-   `PlaylistAccessRow`, `PlaylistEntryRow`).
+1. The 14 untyped `query(` / `client.query(` sites: 1 in `src/lib/spotifyAuth.ts` (line 81), 3 in
+   `src/lib/spotifyPlaylistSync.ts` (96, 104, 117), 4 in
+   `src/app/api/spotify/playlists/[id]/sync/route.ts` (49, 103, 107, 178), 1 in
+   `src/app/api/spotify/playlists/[id]/import/route.ts` (112), 1 in
+   `src/app/api/auth/spotify/callback/route.ts` (132), 1 in
+   `src/app/api/auth/spotify/disconnect/route.ts` (19) and 3 in `src/lib/moderation.ts`
+   (32, 142, 150).
+2. The 3 untyped `db.query(` sites in `src/lib/spotifyPlaylistSync.ts` (149, 153, 158) - the
+   `Queryable` spelling of the same helper, in a file this task is already editing (see Approach
+   section 5 for why they are in).
+3. The 5 casts on query results: `src/lib/spotifyPlaylistSync.ts` lines 99, 100 and 125,
+   `src/app/api/spotify/playlists/[id]/sync/route.ts` line 62, and `src/lib/moderation.ts`
+   line 151.
+4. One new interface in `src/lib/dbRows.ts` (`GlobalSongLinksRow`), taking that file from 9
+   exported interfaces to 10.
 
-It does not cover any other module's call sites or casts, and it adds no feature, no migration
-and no UI change. No `eslint.config.mjs` change is expected (see Approach section 5).
+It does not cover the HTTP-response casts in the same files (`src/lib/spotify.ts:30` and friends -
+see the Audit), and it adds no feature, no migration and no UI change. No `eslint.config.mjs`
+change is expected (see Approach section 6).
 
-## Audit at b293e82
+## Audit at 9e37072
 
-### `src/lib/bands.ts` - untyped call sites (12)
+The inventory command is the one RH-57 left behind:
+`grep -rnE 'await (client\.)?query\(' src --include='*.ts' | grep -v __tests__`. At `9e37072` it
+returns 17 lines: the 14 listed below plus `src/lib/db.ts:57`, `:59` and `:63`. That regex matches
+only the `query` / `client.query` receivers; two other receivers exist in the tree and are handled
+explicitly: `db.query(` (three sites in `src/lib/spotifyPlaylistSync.ts`, in scope - see Approach
+section 5) and `pool.query(` (one site, `src/lib/auth.ts:84`, out of scope - see "## Out of Scope").
 
-| Line | Function | Statement (unchanged) | Rows read? | Row type to name |
-|---|---|---|---|---|
-| 41 | `assertBandMember` | `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2` | `res.rowCount`, `res.rows[0].role` | `BandMemberRoleRow` (new) |
-| 115 | `createBand` | `SELECT create_band($1, $2, $3, $4) as band_id` | `res.rows[0].band_id` | inline `{ band_id: string }` |
-| 123 | `createBand` | `UPDATE bands SET color = $1 WHERE id = $2` (no `RETURNING`) | result discarded | `never` |
-| 162 | `updateBand` | `UPDATE bands SET <dynamic> WHERE id = $n` (no `RETURNING`) | `res.rowCount` only | `never` |
-| 179 | `deleteBand` | `DELETE FROM bands WHERE id = $1` | `res.rowCount` only | `never` |
-| 194 | `leaveBand` | `DELETE FROM band_members WHERE band_id = $1 AND user_id = $2` | result discarded | `never` |
-| 210 | `removeBandMember` | `SELECT band_id FROM band_members WHERE id = $1` | `res.rowCount`, `res.rows[0].band_id` | inline `{ band_id: string }` |
-| 223 | `removeBandMember` | `DELETE FROM band_members WHERE id = $1 AND band_id = $2` | result discarded | `never` |
-| 278 | `createBandPlaylist` | `INSERT INTO playlists ... RETURNING id` | `res.rows[0].id` | inline `{ id: string }` |
-| 292 | `joinBandByInviteClient` | `SELECT * FROM join_band_by_invite($1, $2)` | `res.rows[0].band_id` | `JoinBandByInviteRow` (new) |
-| 308 | `regenerateBandInviteCode` | `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2` | `res.rowCount`, `res.rows[0].role` | `BandMemberRoleRow` (new) |
-| 326 | `regenerateBandInviteCode` | `UPDATE bands SET invite_code = ... RETURNING invite_code` | `res.rowCount`, `res.rows[0].invite_code` | inline `{ invite_code: string }` |
+### `src/lib/db.ts` - the three lines that are deliberately left alone
 
-Already typed and untouched: lines 21 and 97 (`query<Band>`), 255 (`query<Playlist>`). Three
-typed call sites today, 15 after this task.
+`await client.query('BEGIN')`, `await client.query('COMMIT')` and `await client.query('ROLLBACK')`
+inside `withTransaction` (`src/lib/db.ts:57`, `:59`, `:63`) are transaction control, not row
+reads: they take no parameters, their `QueryResult` is discarded, and no column is ever read off
+them. Typing them would document nothing. They stay exactly as they are, and every final-state
+grep in this spec filters `src/lib/db.ts` out for that reason.
 
-### `src/lib/bands.server.ts` - untyped call sites (1)
-
-| Line | Function | Statement (unchanged) | Rows read? | Row type to name |
-|---|---|---|---|---|
-| 42 | `joinBandByInviteServer` | `SELECT * FROM join_band_by_invite($1, $2)` | `res.rows[0].band_id`, `.already_member` | `JoinBandByInviteRow` (new) |
-
-Already typed and untouched: line 13 (`query<BandByInviteCodeRow>`). One typed call site today,
-2 after this task. The file already imports from `@/lib/dbRows`, so the new name joins the
-existing import clause and the file's line count does not change.
-
-### `src/lib/playlists.ts` - untyped call sites (11)
+### `src/lib/spotifyAuth.ts` - untyped call sites (1)
 
 | Line | Function | Statement (unchanged) | Rows read? | Row type to name |
 |---|---|---|---|---|
-| 10 | `getUserPlaylists` | `SELECT band_id FROM band_members WHERE user_id = $1` | `res.rows.map(m => m.band_id)` | inline `{ band_id: string }` |
-| 81 | `assertPlaylistAccess` | `SELECT id, user_id, band_id FROM playlists WHERE ...` | `res.rowCount`, `res.rows[0]` (returned to callers) | `PlaylistAccessRow` (new) |
-| 124 | `updatePlaylist` | `UPDATE playlists SET <dynamic> WHERE id = $n` (no `RETURNING`) | `res.rowCount` only | `never` |
-| 138 | `deletePlaylist` | `DELETE FROM playlists WHERE id = $1` | `res.rowCount` only | `never` |
-| 159 | `addSongToPlaylist` | `INSERT INTO repertoire (band_id, ...) ... ON CONFLICT DO NOTHING` | result discarded | `never` |
-| 163 | `addSongToPlaylist` | `INSERT INTO repertoire (user_id, ...) ... ON CONFLICT DO NOTHING` | result discarded | `never` |
-| 168 | `addSongToPlaylist` | `INSERT INTO repertoire (user_id, ...) ... ON CONFLICT DO NOTHING` | result discarded | `never` |
-| 179 | `addSongToPlaylist` | `INSERT INTO playlist_songs ... SELECT $1, $2, COALESCE(MAX(position), 0) + 1 ...` | result discarded | `never` |
-| 197 | `removeSongFromPlaylist` | `DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2` | result discarded | `never` |
-| 289 | `getPlaylistDetailsWithEntries` | `SELECT name FROM playlists WHERE id = $1` | `res.rows[0]?.name` | inline `{ name: string }` |
-| 292 | `getPlaylistDetailsWithEntries` | `SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist FROM playlist_songs ps JOIN ...` | `res.rows.map(...)` | `PlaylistEntryRow` (new) |
+| 81 | `getSpotifyAccessToken` | `UPDATE spotify_tokens SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = now() WHERE user_id = $4` (no `RETURNING`) | result discarded | `never` |
 
-Lines 159, 163, 168 and 179 are `client.query(` calls inside `withTransaction`. Already typed
-and untouched: lines 33, 55 and 238 (`query<Playlist>`). Three typed call sites today, 14 after
-this task.
+Already typed and untouched: line 14 (`query<SpotifyTokenRow>`). One typed call site today, 2
+after this task. The file already imports from `@/lib/dbRows`, so no import line changes. The
+`(await refreshResponse.json()) as { access_token: string; ... }` cast on line 65 is an HTTP
+response body, not a DB row - out of scope (see "The casts" below).
 
-### `src/lib/profile.ts` - untyped call sites (3)
+### `src/lib/spotifyPlaylistSync.ts` - untyped call sites (6)
 
 | Line | Function | Statement (unchanged) | Rows read? | Row type to name |
 |---|---|---|---|---|
-| 59 | `updateProfile` | `UPDATE profiles SET <dynamic> WHERE id = $n` (no `RETURNING`) | `res.rowCount` only | `never` |
-| 76 | `updateEmail` | `UPDATE "user" SET email = $1, "updatedAt" = now() WHERE id = $2::uuid` | result discarded | `never` |
-| 77 | `updateEmail` | `UPDATE profiles SET email = $1 WHERE id = $2::uuid` | result discarded | `never` |
+| 96 | `findOrCreateGlobalSong` | `SELECT id, links FROM global_songs WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2) LIMIT 1` | `rows.length`, `rows[0].id`, `rows[0].links` | `GlobalSongLinksRow` (new) |
+| 104 | `findOrCreateGlobalSong` | `UPDATE global_songs SET links = $1 WHERE id = $2` (no `RETURNING`) | result discarded | `never` |
+| 117 | `findOrCreateGlobalSong` | `INSERT INTO global_songs (title, artist, album, cover_url, duration_seconds, links) VALUES ($1 .. $6) RETURNING id` | `rows[0].id` | inline `{ id: string }` |
+| 149 | `ensureInRepertoire` | `INSERT INTO repertoire (band_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING` | result discarded | `never` |
+| 153 | `ensureInRepertoire` | `INSERT INTO repertoire (user_id, song_id, status) SELECT bm.user_id, $1, 'unknown' FROM band_members bm WHERE bm.band_id = $2 ON CONFLICT DO NOTHING` | result discarded | `never` |
+| 158 | `ensureInRepertoire` | `INSERT INTO repertoire (user_id, song_id, status) VALUES ($1, $2, 'unknown') ON CONFLICT DO NOTHING` | result discarded | `never` |
 
-Lines 76 and 77 are `client.query(` calls inside `withTransaction`. Already typed and untouched:
-line 8 (`query<Profile>`). One typed call site today, 4 after this task. `profile.ts` needs no
-new import and no new interface.
+Lines 149, 153 and 158 are `db.query(` on the injected `Queryable` (the pool by default, a
+transaction client when a caller passes one), which the inventory regex above does not match -
+they are counted here because this task edits the file anyway. Zero typed call sites today, 6
+after this task. The `(await response.json()) as SpotifyTracksPage` cast on line 59 is an HTTP
+response body - out of scope.
 
-### The 14 casts to delete
+### `src/app/api/spotify/playlists/[id]/sync/route.ts` - untyped call sites (4)
 
-`grep -nE 'rows\[0\].* as |\brow\.[a-z_]+ as '` over the four files returns 13 lines today:
+| Line | Statement (unchanged) | Rows read? | Row type to name |
+|---|---|---|---|
+| 49 | `SELECT spotify_playlist_id FROM playlists WHERE id = $1` | `rows[0].spotify_playlist_id` on lines 55 and 62 | inline `{ spotify_playlist_id: string \| null }` |
+| 103 | `DELETE FROM playlist_songs WHERE playlist_id = $1` (inside `withTransaction`) | result discarded | `never` |
+| 107 | the bulk `INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ...` built by `buildPlaylistSongsInsert` (inside `withTransaction`) | result discarded | `never` |
+| 178 | `UPDATE playlists SET last_synced_at = now(), updated_at = now() WHERE id = $1` | result discarded | `never` |
 
-- `src/lib/bands.ts:54` - `return res.rows[0].role as 'admin' | 'member'`
-- `src/lib/bands.ts:121` - `const bandId = res.rows[0].band_id as string`
-- `src/lib/bands.ts:218` - `const bandId = memberRes.rows[0].band_id as string`
-- `src/lib/bands.ts:279` - `return res.rows[0].id as string`
-- `src/lib/bands.ts:294` - `return row ? (row.band_id as string | null) : null`
-- `src/lib/bands.ts:335` - `return res.rows[0].invite_code as string`
-- `src/lib/bands.server.ts:45` - `return { bandId: row.band_id as string, alreadyMember: Boolean(row.already_member) }`
-- `src/lib/playlists.ts:89` - `return res.rows[0] as { id: string; user_id: string | null; band_id: string | null }`
-- `src/lib/playlists.ts:290` - `const name = (playlistRes.rows[0]?.name as string) ?? 'Playlist'`
-- `src/lib/playlists.ts:294` to `297` - `row.repertoire_id as string`, `row.song_id as string`,
-  `row.title as string`, `row.artist as string | null`
+Already typed and untouched: lines 52 (`query<PlaylistSongIdRow>`) and 112
+(`query<PlaylistSongLinksRow>`). Two typed call sites today, 6 after this task. The file already
+imports from `@/lib/dbRows`, and the two new type arguments are inline, so no import line changes.
+`playlists.spotify_playlist_id` is `text` with no `NOT NULL`
+(`migrations/0001_initial_schema.sql:247`), hence the nullable column in the inline type; the
+existing `if (!linkRes.rows[0].spotify_playlist_id) return ...` guard on line 55 is what narrows
+it to `string` for line 62.
 
-The 14th is `src/lib/bands.ts:348` - `return (band.members ?? []) as BandMember[]` in
-`getBandMembers`. It is not a query result cast, but it is redundant on its own terms
-(`Band.members` is already declared `BandMember[] | undefined` in `src/types/database.ts`, so
-`band.members ?? []` is already `BandMember[]`), and it is one of the four lines the repo-wide
-inventory reports. Deleting it is what takes that inventory down to the two lines ER2 pins:
-`grep -rn 'as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as ' src --include='*.ts' | grep -v __tests__`
-returns exactly `src/lib/spotify.ts:30`, `src/lib/bands.ts:348`, `src/lib/moderation.ts:151` and
-`src/lib/playlists.ts:89` today; `spotify.ts:30` belongs to RH-58 and `moderation.ts:151` to the
-RH-40 close-out, so both stay.
+### `src/app/api/spotify/playlists/[id]/import/route.ts` - untyped call sites (1)
 
-The `(error as { code?: string }).code === '23505'` read at `src/lib/bands.ts:338` is the
-sanctioned `E1` pattern from AGENTS.md and is **not** touched.
+| Line | Statement (unchanged) | Rows read? | Row type to name |
+|---|---|---|---|
+| 112 | the bulk `INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES ...` built by `buildPlaylistSongsInsert` | result discarded | `never` |
 
-### Function return shapes from `migrations/`
+Already typed and untouched: line 97 (`query<Playlist>`). One typed call site today, 2 after this
+task. No import change: `never` needs none.
 
-- `create_band(p_name text, p_description text, p_cover_url text, p_user_id uuid)`
-  (`migrations/0001_initial_schema.sql:176-193`) `RETURNS uuid`, non-null on every path that
-  returns at all (it raises when `p_user_id IS NULL`). The call site projects it as
-  `SELECT create_band(...) as band_id`, so the row is a single non-null column:
-  `{ band_id: string }`.
-- `join_band_by_invite(p_invite_code text, p_user_id uuid)` was redefined by
-  `migrations/0004_join_band_by_invite_already_member.sql` as
-  `RETURNS TABLE(band_id uuid, already_member boolean)`, and it returns
-  `SELECT NULL::uuid, NULL::boolean` when the invite code matches no band. Both columns are
-  therefore nullable: `{ band_id: string | null; already_member: boolean | null }`. Both call
-  sites (`bands.ts:292`, `bands.server.ts:42`) already branch on exactly that null, so the
-  interface documents behaviour the code already has.
+### `src/app/api/auth/spotify/callback/route.ts` - untyped call sites (1)
 
-### Existing types that already fit, and the ones that do not
+| Line | Statement (unchanged) | Rows read? | Row type to name |
+|---|---|---|---|
+| 132 | `INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at, spotify_user_id, created_at, updated_at) VALUES ($1 .. $7) ON CONFLICT (user_id) DO UPDATE SET ...` (no `RETURNING`) | result discarded | `never` |
 
-`Band`, `Playlist` and `Profile` from `src/types/database.ts` are already named at the six
-`SELECT *`-style sites and stay as they are. None of the 27 remaining sites projects a full
-domain row: they are single-column projections, set-returning function results, a
-three-column authorization projection, a five-column join projection, or statements that return
-no rows at all. In particular `BandMember` and `PlaylistSong` match no remaining projection -
-the member and song arrays in `bands.ts` and `playlists.ts` are `json_agg` sub-selects inside
-rows already typed as `Band` / `Playlist`. `dbRows.ts` today holds `BandByInviteCodeRow`,
-`PlaylistSongIdRow`, `PlaylistSongLinksRow`, `RepertoireAccessRow` and `SpotifyTokenRow`; none
-of them matches any projection in this task.
+Zero typed call sites today, 1 after. The two `(await ....json()) as {...}` casts on lines 90 and
+103 are HTTP response bodies - out of scope.
+
+### `src/app/api/auth/spotify/disconnect/route.ts` - untyped call sites (1)
+
+| Line | Statement (unchanged) | Rows read? | Row type to name |
+|---|---|---|---|
+| 19 | `DELETE FROM spotify_tokens WHERE user_id = $1` | result discarded | `never` |
+
+Zero typed call sites today, 1 after.
+
+### `src/lib/moderation.ts` - untyped call sites (3)
+
+| Line | Function | Statement (unchanged) | Rows read? | Row type to name |
+|---|---|---|---|---|
+| 32 | `checkSystemAdmin` | `SELECT is_system_admin FROM profiles WHERE id = $1` | `res.rowCount`, `res.rows[0]?.is_system_admin` | inline `{ is_system_admin: boolean }` |
+| 142 | `reviewGlobalSongEdit` | `UPDATE global_songs SET <dynamic> WHERE id = $n` (no `RETURNING`, inside `withTransaction`) | result discarded | `never` |
+| 150 | `reviewGlobalSongEdit` | `UPDATE global_song_edits SET status = 'approved', reviewed_by = $1, updated_at = now() WHERE id = $2 RETURNING *` (inside `withTransaction`) | `res.rows[0]`, returned as `GlobalSongEdit` | `GlobalSongEdit` (existing domain type) |
+
+Already typed and untouched: lines 21, 72, 93 and 115 (`query<GlobalSongEdit>`). Four typed call
+sites today, 7 after this task. `profiles.is_system_admin` is `boolean NOT NULL DEFAULT false`
+(`migrations/0006_add_system_admin_and_moderation.sql:4`), so the inline column is non-nullable;
+the existing `?.` on line 33 guards the absent-row case, not a null column, and stays.
+`moderation.ts` needs no `@/lib/dbRows` import: two of its three sites are `never` / inline and
+the third names the domain type the file already imports from `@/types/database`.
+
+### The casts
+
+`grep -rnE 'rows\[0\].* as |\brow\.[a-z_]+ as ' src --include='*.ts' | grep -v __tests__` returns
+exactly 5 lines at `9e37072`, and all 5 are deleted by this task:
+
+- `src/app/api/spotify/playlists/[id]/sync/route.ts:62` - `const spotifyPlaylistId = linkRes.rows[0].spotify_playlist_id as string`
+- `src/lib/moderation.ts:151` - `return res.rows[0] as GlobalSongEdit`
+- `src/lib/spotifyPlaylistSync.ts:99` - `const existingSongId = rows[0].id as string`
+- `src/lib/spotifyPlaylistSync.ts:100` - `const existingLinks = (rows[0].links as Array<{ label: string; url: string }>) ?? []`
+- `src/lib/spotifyPlaylistSync.ts:125` - `return insertRes.rows[0].id as string`
+
+RH-57's wider inventory,
+`grep -rn 'as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as ' src --include='*.ts' | grep -v __tests__`,
+returns two lines today: `src/lib/moderation.ts:151` (deleted here) and `src/lib/spotify.ts:30`.
+
+**Decision on `src/lib/spotify.ts:30`** (`const data = await response.json() as SpotifyTrack[]`):
+it stays, and this spec is where that is recorded. It is not a database row - `searchSpotify` is a
+browser-side helper that `fetch`es `/api/spotify/search` and parses an HTTP body. F16 is about
+`query()` results whose shape the compiler was never shown; `response.json()` is declared
+`Promise<any>` by `lib.dom`, so the only ways to remove the `as` are (a) to move it to an
+annotation (`const data: SpotifyTrack[] = await response.json()`), which launders the same
+unchecked assumption into a different token and is exactly what RH-57's ER2 forbids, or (b) to add
+a real runtime validator and filter non-conforming elements, which changes what the function
+returns for a malformed body and would rewrite the 12 tests in `src/lib/__tests__/spotify.test.ts`.
+Neither belongs in the last slice of a typing refactor; validating HTTP boundaries is its own
+finding. The same reasoning covers the four sibling `(await ....json()) as {...}` casts in
+`spotifyAuth.ts:65`, `spotifyPlaylistSync.ts:59`, `callback/route.ts:90` and `:103`, and the
+`(await request.json()) as {...}` reads in the two Spotify route handlers. ER3 pins
+`src/lib/spotify.ts:30` as the exact and only remaining line in the wider inventory, so the
+decision is visible and reversible rather than silent. The task's draft ER asking for it to be
+removed is therefore deliberately not honoured; the report filed with this spec flags that for the
+orchestrator.
+
+The `(error as { code?: string }).code` pattern from AGENTS.md convention `E1` appears nowhere in
+these seven files, so nothing of that kind is at risk here.
+
+### Existing types that already fit, and the one that does not
+
+`SpotifyTokenRow`, `PlaylistSongIdRow` and `PlaylistSongLinksRow` (from `dbRows.ts`), `Playlist`
+and `GlobalSongEdit` (from `src/types/database.ts`) already sit at the six call sites that are
+typed today and stay untouched. Of the remaining projections, only `SELECT id, links FROM
+global_songs` needs a name: `GlobalSong` (from `src/types/database.ts`) carries nine columns
+against the two this projection selects, so naming it would assert seven columns the SELECT list
+never returns; `PlaylistSongLinksRow` is a different projection (`song_id`, `position`, `links`).
+The other five row-reading shapes are single-column or two-column projections evident at the call
+site, which AGENTS.md ("Database Row Types") allows to be written inline.
 
 ## Approach
 
 ### 1. Statements that return no rows: `never`
 
-Fifteen statements return no rows at all - five in `bands.ts` (123, 162, 179, 194, 223), seven
-in `playlists.ts` (124, 138, 159, 163, 168, 179, 197) and three in `profile.ts` (59, 76, 77):
-all are `UPDATE`/`DELETE`/`INSERT` without `RETURNING`, read at most for `res.rowCount`. They are written `query<never>(...)` and
-`client.query<never>(...)`, exactly as RH-56 did in `songs.ts`.
+Twelve statements return no rows at all - `spotifyAuth.ts:81`, `spotifyPlaylistSync.ts` 104, 149,
+153 and 158, `sync/route.ts` 103, 107 and 178, `import/route.ts:112`, `callback/route.ts:132`,
+`disconnect/route.ts:19` and `moderation.ts:142`: all are `UPDATE` / `INSERT` / `DELETE` without
+`RETURNING`, and none of the twelve results is read at all. They are written `query<never>(...)`, `client.query<never>(...)` and
+`db.query<never>(...)`, exactly as RH-56 and RH-57 did in `songs.ts`, `playlists.ts` and
+`profile.ts`.
 
-`never` satisfies the `T extends QueryResultRow` constraint (verified at `b293e82` with a
-throwaway probe module against `./node_modules/.bin/tsc --noEmit`, which exited 0), it leaves
-`res.rowCount` readable, and it makes any later attempt to read a column off such a result a
-compile error instead of a silent `unknown`. Leaving these sites untyped is not an option: the
-default `DbRow` would still parse as an untyped call site under the ER1 grep and would wrongly
-suggest the statement yields readable rows.
+`never` satisfies the `T extends QueryResultRow` constraint on `query`, `Queryable.query` and
+`PoolClient.query` - re-verified at `9e37072` with a throwaway probe module compiled by
+`./node_modules/.bin/tsc --noEmit`, which exited 0 for all three spellings and was deleted
+afterwards. It leaves `res.rowCount` readable and turns any later attempt to read a column off
+such a result into a compile error. Leaving these sites untyped is not an option: the default
+`DbRow` still parses as an untyped call site under ER1's grep and wrongly suggests the statement
+yields readable rows.
 
-### 2. Single-column projections: inline type arguments
+### 2. Projections written inline
 
-AGENTS.md ("Database Row Types") allows `query<{ id: string }>('... RETURNING id')` for a
-single-column projection whose shape is evident at the call site. Five sites are that:
-
-- `bands.ts:115` -> `{ band_id: string }` (the `create_band(...) as band_id` alias)
-- `bands.ts:210` -> `{ band_id: string }`
-- `bands.ts:278` -> `{ id: string }`
-- `bands.ts:326` -> `{ invite_code: string }`
-- `playlists.ts:10` -> `{ band_id: string }`
-- `playlists.ts:289` -> `{ name: string }`
-
-Written with exactly these spellings (single space inside the braces), because ER1 pins them as
-fixed strings:
+Three sites get an inline type argument, spelled exactly as follows (single spaces inside the
+braces, because ER2 pins them as fixed strings):
 
 ```
-await query<{ band_id: string }>(
 await query<{ id: string }>(
-await query<{ invite_code: string }>(
-await query<{ name: string }>(
-await query<never>(
-await client.query<never>(
+await query<{ spotify_playlist_id: string | null }>(
+await query<{ is_system_admin: boolean }>(
 ```
 
-`playlists.ts:10` typed as `{ band_id: string }` makes `bandIds` a `string[]` instead of
-`unknown[]`; `query`'s `params?: unknown[]` accepts it unchanged.
+- `spotifyPlaylistSync.ts:117` -> `{ id: string }` (the `RETURNING id` of the `global_songs`
+  insert).
+- `sync/route.ts:49` -> `{ spotify_playlist_id: string | null }`.
+- `moderation.ts:32` -> `{ is_system_admin: boolean }`.
 
-### 3. The four new interfaces in `src/lib/dbRows.ts`
+### 3. The one new interface in `src/lib/dbRows.ts`
 
-Added in the file's existing alphabetical-by-name order and doc-comment style, taking the file
-from 5 to 9 exported interfaces:
+Added in the file's existing alphabetical-by-name order (between `BandMemberRoleRow` and
+`JoinBandByInviteRow`) and in its doc-comment style, taking the file from 9 to 10 exported
+interfaces:
 
 ```ts
-/** `SELECT role FROM band_members WHERE band_id = $1 AND user_id = $2` */
-export interface BandMemberRoleRow {
-  role: 'admin' | 'member'
-}
-
-/** `SELECT * FROM join_band_by_invite($1, $2)` - both columns are NULL when the code matches no band (migration 0004). */
-export interface JoinBandByInviteRow {
-  band_id: string | null
-  already_member: boolean | null
-}
-
-/** `SELECT id, user_id, band_id FROM playlists WHERE id = $1 AND (...)` */
-export interface PlaylistAccessRow {
+/** `SELECT id, links FROM global_songs WHERE LOWER(title) = LOWER($1) AND LOWER(artist) = LOWER($2)` */
+export interface GlobalSongLinksRow {
   id: string
-  user_id: string | null
-  band_id: string | null
-}
-
-/** `SELECT ps.position, r.id AS repertoire_id, ps.song_id, s.title, s.artist FROM playlist_songs ps JOIN ...` */
-export interface PlaylistEntryRow {
-  position: number
-  repertoire_id: string
-  song_id: string
-  title: string
-  artist: string
+  links: SongLink[]
 }
 ```
 
-Why each earns a name rather than an inline literal:
+`SongLink` is already imported by `dbRows.ts` (line 1), so the import clause does not change.
+`links` is non-nullable because `global_songs.links` is `jsonb NOT NULL DEFAULT '[]'::jsonb`
+(`migrations/0001_initial_schema.sql:105`); the `?? []` on line 100 is kept anyway, byte-identical
+minus the cast, because deleting it would be a behaviour change on rows written before that
+default existed, and no lint rule in `eslint.config.mjs` objects to a `??` on a non-nullable
+operand (there is no type-aware `no-unnecessary-condition` in the config).
 
-- `BandMemberRoleRow` is the same projection at two call sites (`bands.ts:41` and `bands.ts:308`)
-  and carries a literal union the function's own return type depends on.
-- `JoinBandByInviteRow` is a two-column set-returning function result shared by two modules, and
-  it is the direct sibling of the existing `BandByInviteCodeRow`.
-- `PlaylistAccessRow` is a three-column projection that `assertPlaylistAccess` hands back to
-  callers; it is the `playlists.ts` analogue of RH-56's `RepertoireAccessRow`.
-- `PlaylistEntryRow` is a five-column join projection.
-
-None duplicates a domain type: `BandMember` carries five fields, `Playlist` eleven and
-`PlaylistSong` five, against one, three and five columns here respectively, and
-`join_band_by_invite`'s result has no domain type at all. `artist` is typed non-null because
-`global_songs.artist` is `text NOT NULL` (`migrations/0001_initial_schema.sql:100`); the public
-`PlaylistEntrySummary.artist` stays `string | null` and `string` assigns to it cleanly.
-`PlaylistEntrySummary` itself stays in `src/lib/playlists.ts` - it is the mapped DTO the fast
-view consumes, not a row shape.
+It earns a name rather than an inline literal because it is a two-column projection whose `links`
+element type is a domain type, and because `dbRows.ts` is where AGENTS.md puts exactly this. It
+duplicates no domain type: `GlobalSong` has nine fields against these two.
 
 ### 4. Per-site edits
 
-`src/lib/bands.ts`:
+`src/lib/spotifyAuth.ts`:
 
-- Add `import type { BandMemberRoleRow, JoinBandByInviteRow } from '@/lib/dbRows'` after the
-  `@/lib/db` import (+1 line, file goes 349 -> 350).
-- Line 41 -> `query<BandMemberRoleRow>`; line 54 -> `return res.rows[0].role` (cast deleted).
-- Line 115 -> `query<{ band_id: string }>`; line 121 -> `const bandId = res.rows[0].band_id`.
-- Lines 123, 162, 179, 194, 223 -> `query<never>`.
-- Line 210 -> `query<{ band_id: string }>`; line 218 -> `const bandId = memberRes.rows[0].band_id`.
-- Line 278 -> `query<{ id: string }>`; line 279 -> `return res.rows[0].id`.
-- Line 292 -> `query<JoinBandByInviteRow>`; line 294 -> `return row ? row.band_id : null`.
-- Line 308 -> `query<BandMemberRoleRow>` (line 319's `memberRes.rows[0].role !== 'admin'` needs
-  no edit).
-- Line 326 -> `query<{ invite_code: string }>`; line 335 -> `return res.rows[0].invite_code`.
-- Line 348 -> `return band.members ?? []` (cast deleted). `BandMember` stays imported: it is
-  still the function's declared return type on line 347.
+- Line 81 -> `await query<never>(updateSql, [`. No import change (line 2 already pulls
+  `SpotifyTokenRow` from `@/lib/dbRows`), no cast to delete, no line-count change.
 
-`src/lib/bands.server.ts`:
+`src/lib/spotifyPlaylistSync.ts`:
 
-- Extend the existing line 2 import to
-  `import type { BandByInviteCodeRow, JoinBandByInviteRow } from '@/lib/dbRows'` (0 line delta).
-- Line 42 -> `query<JoinBandByInviteRow>`; line 45 -> `return { bandId: row.band_id, alreadyMember: Boolean(row.already_member) }`.
-  The `if (!row || row.band_id === null) return null` guard on line 44 narrows `row.band_id` to
-  `string` for line 45, so the cast is not merely deleted, it is replaced by a check the
-  compiler performs (verified with the probe described in section 1).
+- Add `import type { GlobalSongLinksRow } from '@/lib/dbRows'` after the `@/lib/db` import on
+  line 12 (+1 line, file goes 185 -> 186).
+- Line 96 -> `const { rows } = await query<GlobalSongLinksRow>(lookupSql, [cleanTitle, track.artist.trim()])`.
+- Line 99 -> `const existingSongId = rows[0].id` (cast deleted).
+- Line 100 -> `const existingLinks = rows[0].links ?? []` (cast and its parentheses deleted).
+- Line 104 -> `await query<never>(`.
+- Line 117 -> `const insertRes = await query<{ id: string }>(insertSql, [`.
+- Line 125 -> `return insertRes.rows[0].id` (cast deleted).
+- Lines 149, 153, 158 -> `await db.query<never>(`.
 
-`src/lib/playlists.ts`:
+`src/app/api/spotify/playlists/[id]/sync/route.ts`:
 
-- Add `import type { PlaylistAccessRow, PlaylistEntryRow } from '@/lib/dbRows'` after the
-  `@/lib/db` import (+1 line, file goes 306 -> 307).
-- Line 10 -> `query<{ band_id: string }>`.
-- Line 72 -> `): Promise<PlaylistAccessRow> {`; line 81 -> `query<PlaylistAccessRow>`; line 89 ->
-  `return res.rows[0]` (cast deleted). `PlaylistAccessRow` is structurally identical to the
-  inline literal it replaces, so `src/lib/spotifyRouteAuth.ts` (whose `PlaylistRouteAccess`
-  spells the same three columns inline) needs no change and must not get one.
-- Lines 124, 138, 197 -> `query<never>`; lines 159, 163, 168, 179 -> `client.query<never>`.
-- Line 289 -> `query<{ name: string }>`; line 290 ->
-  `const name = playlistRes.rows[0]?.name ?? 'Playlist'` (cast deleted, the `?.` kept because
-  `rows[0]` really can be absent at runtime).
-- Line 292 -> `query<PlaylistEntryRow>`; lines 294-297 drop their four casts
-  (`repertoireId: row.repertoire_id,` and so on).
+- Line 49 -> `const linkRes = await query<{ spotify_playlist_id: string | null }>('SELECT spotify_playlist_id FROM playlists WHERE id = $1', [localPlaylistId])`.
+  The line grows to ~147 characters; there is no `max-len` rule in `eslint.config.mjs`, and the
+  neighbouring lines 52 and 178 are already of that order.
+- Line 62 -> `const spotifyPlaylistId = linkRes.rows[0].spotify_playlist_id` (cast deleted). The
+  `if (!linkRes.rows[0].spotify_playlist_id) return ...` on line 55 narrows the element access to
+  `string`, so the cast is not merely deleted, it is replaced by a check the compiler performs -
+  verified with the probe described in section 1, which compiled this exact shape at `9e37072`.
+- Lines 103 and 107 -> `await client.query<never>(`.
+- Line 178 -> `await query<never>(`.
+- No import change: both new type arguments are inline, and the file already imports
+  `PlaylistSongIdRow` / `PlaylistSongLinksRow` from `@/lib/dbRows`.
 
-`src/lib/profile.ts`:
+`src/app/api/spotify/playlists/[id]/import/route.ts`:
 
-- Line 59 -> `query<never>`; lines 76 and 77 -> `client.query<never>`. No import change, no cast
-  to delete, no line-count change. The pre-existing `// eslint-disable-next-line
-  @typescript-eslint/no-explicit-any` on line 29 belongs to the `values: any[]` accumulator, not
-  to a query result, and stays.
+- Line 112 -> `await query<never>(sql, values)`. No import change, no line-count change.
 
-### 5. Line counts and complexity budgets
+`src/app/api/auth/spotify/callback/route.ts`:
 
-`src/lib/bands.ts` has a single pinned override, `{ files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } }`
-(`eslint.config.mjs:84`), driven by `createBand`'s five parameters - untouched here, so the
-ceiling stays exactly right. None of the four files has a `max-lines` or `complexity` override,
-and after the two +1 import lines they sit at 350, 51, 307 and 84 lines against the base
-`max-lines: 400`. No branch is added or removed anywhere, so no `complexity` number moves.
-`eslint.config.mjs` is therefore expected to be **unchanged** by this task and the override list
-stays at 23 entries (ER5 pins both).
+- Line 132 -> `await query<never>(upsertSql, [`. No import change, no line-count change.
 
-### 6. Test plan
+`src/app/api/auth/spotify/disconnect/route.ts`:
 
-No new test file and no change to any existing test. The `@/lib/db` mocks in
-`errors.test.ts` / `edge_cases.test.ts` hand back plain object literals and are never
-type-checked (`tsconfig.json` excludes `**/__tests__/**`), so naming a row type cannot make a
-mock invalid. The behaviour proof is the suites that already exercise these functions, all green
-at `b293e82`:
+- Line 19 -> `await query<never>('DELETE FROM spotify_tokens WHERE user_id = $1', [userId])`. No
+  import change, no line-count change.
+
+`src/lib/moderation.ts`:
+
+- Line 32 -> `const res = await query<{ is_system_admin: boolean }>(sql, [userId])`.
+- Line 142 -> `await client.query<never>(updateSongSql, values)`.
+- Line 150 -> `const res = await client.query<GlobalSongEdit>(updateEditSql, [adminUserId, editId])`.
+- Line 151 -> `return res.rows[0]` (cast deleted). `GlobalSongEdit` stays imported on line 4 - it
+  is still the function's declared return type and the type argument at four other call sites.
+- No import change, no line-count change.
+
+Route handlers live under `src/app`, so the F21/RH-47 import-direction rule (which forbids
+`src/lib`, `src/components` and `src/hooks` from importing `@/app/*`) does not constrain them;
+`sync/route.ts` already imports `@/lib/dbRows` today.
+
+### 5. Why the three `db.query` sites are in scope
+
+`ensureInRepertoire(songId, owner, db: Queryable = pool)` runs three statements through the
+injected `Queryable`, whose `query<T extends QueryResultRow = DbRow>` signature is the same helper
+signature `query()` has. They are not matched by the inventory regex only because the receiver is
+named `db` rather than `client`. Typing them is three tokens in a file this task already edits;
+leaving exactly three untyped sites behind in the middle of `spotifyPlaylistSync.ts` while the
+three above them get named would read as an oversight and would leave F16's close-out inaccurate.
+ER1 therefore pins both greps: the mandated one (`query(` / `client.query(`) and a wider one that
+also covers `db.query(`.
+
+### 6. Line counts and complexity budgets
+
+None of the seven edited files has a `max-lines` override; the largest after the edit is
+`sync/route.ts` at 192 lines and `spotifyPlaylistSync.ts` at 186, both far under the base
+`max-lines: 400`. `sync/route.ts` carries
+`{ files: ["src/app/api/spotify/playlists/\\[id\\]/sync/route.ts"], rules: { complexity: ["error", 26], "max-depth": ["error", 5] } }`
+(`eslint.config.mjs:71`) and `import/route.ts` carries `complexity: ["error", 21]`
+(`eslint.config.mjs:70`). No branch, loop or `&&` is added or removed by any edit in this task -
+deleting an `as` cast changes no decision point, and the `if` on line 55 that does the narrowing
+already exists - so neither route's measured complexity moves and neither override can be
+tightened on the strength of this change. `eslint.config.mjs` is therefore expected to be
+**unchanged** and the override list stays at 23 entries (ER6 pins both). The `POST` handlers stay
+at 168 and 98 lines against `max-lines-per-function: 200`.
+
+### 7. Test plan
+
+No new test file and no change to any existing test. `tsconfig.json` excludes `**/__tests__/**`,
+so the `@/lib/db` mocks that hand back plain object literals are never type-checked and naming a
+row type cannot invalidate one. The behaviour proof is the suites that already exercise these
+files, all green at `9e37072`:
 
 | Suite | Tests | What it pins |
 |---|---|---|
-| `src/lib/__tests__/bands.test.ts` | 14 | band CRUD, invite join, `getBandMembers` |
-| `src/lib/__tests__/bands.server.test.ts` | 3 | `joinBandByInviteServer` incl. the null-code path |
-| `src/lib/__tests__/joinBandByInvite.test.ts` | 5 | `join_band_by_invite` idempotence against real Postgres |
-| `src/lib/__tests__/playlists.test.ts` | 11 | playlist CRUD, add/remove song, details+entries |
-| `src/lib/__tests__/profile.test.ts` | 10 | `getProfile`, `updateProfile`, `updateEmail` |
-| `src/lib/__tests__/edge_cases.test.ts` | 10 | empty/absent-row paths |
-| `src/lib/__tests__/errors.test.ts` | 49 | the L1 log-then-throw wrapper messages |
-| `src/lib/__tests__/transactionAtomicity.db.test.ts` | 6 | `addSongToPlaylist` / `updateEmail` atomicity |
-| `src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts` | 11 | `assertPlaylistAccess` through the route guard |
-| `src/lib/__tests__/dbRowTypes.test.ts` | 3 | RH-54 guard, incl. "every `dbRows.ts` export is imported" |
-| `src/app/actions/__tests__/authzBands.db.test.ts` | 14 | `assertBandMember` / `assertBandAdmin` matrix |
-| `src/app/actions/__tests__/authzPlaylists.db.test.ts` | 12 | playlist authorization matrix |
+| `src/lib/__tests__/spotify.test.ts` | 12 | `searchSpotify` (the file whose cast this task leaves alone) |
+| `src/lib/__tests__/spotifyPlaylistSync.test.ts` | 10 | `findOrCreateGlobalSong`, `ensureInRepertoire`, `buildPlaylistSongsInsert` |
+| `src/lib/__tests__/spotifyRouteAuth.test.ts` | 12 | the guards the two playlist routes run before any query |
+| `src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts` | 11 | sync/import authorization against real Postgres |
+| `src/lib/__tests__/spotifySyncAtomicity.db.test.ts` | 2 | the delete+reinsert transaction in `sync/route.ts` |
+| `src/lib/__tests__/moderation.test.ts` | 12 | `checkSystemAdmin`, `getPendingGlobalSongEdits`, `reviewGlobalSongEdit` |
+| `src/lib/__tests__/moderationPayload.db.test.ts` | 2 | approve/reject against real Postgres |
+| `src/app/actions/__tests__/authzRepertoire.db.test.ts` | 20 | the repertoire rows `ensureInRepertoire` seeds |
+| `src/lib/__tests__/devProfiles.test.ts` | 7 | the `profiles` reads around `is_system_admin` |
+| `src/lib/__tests__/dbRowTypes.test.ts` | 3 | the RH-54 guard, incl. "every `dbRows.ts` export is imported" |
+| `src/lib/__tests__/complexityBudget.test.ts` | 6 | the RH-39 ratchet |
 
-Sum: 148 tests across 12 files. `complexityBudget.test.ts` (6 tests) covers the budget side.
+Sum: 97 tests across 11 files (measured at `9e37072`).
 
-Type safety itself is proven by `./node_modules/.bin/tsc --noEmit` exiting 0 with the casts
-gone: with `DbRow = Record<string, unknown>` as the default, an unnamed row cannot be read at
-all, so a compiling read is a proof the shape was declared.
+Type safety itself is proven by `./node_modules/.bin/tsc --noEmit` exiting 0 with the five casts
+gone: with `DbRow = Record<string, unknown>` as the default, an unnamed row cannot be read at all,
+so a compiling read is a proof the shape was declared.
 
 ## Expected Results
 
-ER1 - every query call site in the four data modules names its row type. From the repo root,
-`grep -cE 'await (client\.)?query\(' src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts`
-prints `0` for all four files (baseline at `b293e82`: `12`, `1`, `11`, `3`), and
-`grep -cE 'await (client\.)?query<' src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts`
-prints `src/lib/bands.ts:15`, `src/lib/bands.server.ts:2`, `src/lib/playlists.ts:14` and
-`src/lib/profile.ts:4` (baseline `3`, `1`, `3`, `1`). The individual type arguments are pinned as
-fixed strings, each command carrying its own file operand:
-`grep -cF 'await query<BandMemberRoleRow>(' src/lib/bands.ts` prints `2`,
-`grep -cF 'await query<{ band_id: string }>(' src/lib/bands.ts` prints `2`,
-`grep -cF 'await query<{ id: string }>(' src/lib/bands.ts` prints `1`,
-`grep -cF 'await query<JoinBandByInviteRow>(' src/lib/bands.ts` prints `1`,
-`grep -cF 'await query<{ invite_code: string }>(' src/lib/bands.ts` prints `1`,
-`grep -cF 'await query<never>(' src/lib/bands.ts` prints `5`,
-`grep -cF 'await query<JoinBandByInviteRow>(' src/lib/bands.server.ts` prints `1`,
-`grep -cF 'await query<{ band_id: string }>(' src/lib/playlists.ts` prints `1`,
-`grep -cF 'await query<PlaylistAccessRow>(' src/lib/playlists.ts` prints `1`,
-`grep -cF 'await query<{ name: string }>(' src/lib/playlists.ts` prints `1`,
-`grep -cF 'await query<PlaylistEntryRow>(' src/lib/playlists.ts` prints `1`,
-`grep -cF 'await query<never>(' src/lib/playlists.ts` prints `3`,
-`grep -cF 'await client.query<never>(' src/lib/playlists.ts` prints `4`,
-`grep -cF 'await query<never>(' src/lib/profile.ts` prints `1` and
-`grep -cF 'await client.query<never>(' src/lib/profile.ts` prints `2`.
+ER1 - F16's final state: no untyped row-reading query call site is left in the tree. From the repo
+root, `sh -c "grep -rnE 'await (client\.)?query\(' src --include='*.ts' | grep -v __tests__ | grep -v '^src/lib/db.ts:'"`
+prints nothing and exits non-zero (at `9e37072` it prints exactly 14 lines: `spotifyAuth.ts:81`;
+`spotifyPlaylistSync.ts` 96, 104, 117; `sync/route.ts` 49, 103, 107, 178; `import/route.ts:112`;
+`callback/route.ts:132`; `disconnect/route.ts:19`; `moderation.ts` 32, 142, 150). The wider form
+that also catches the `Queryable` receiver,
+`sh -c "grep -rnE 'await (client|db)?\.?query\(' src --include='*.ts' | grep -v __tests__ | grep -v '^src/lib/db.ts:'"`,
+likewise prints nothing and exits non-zero (at `9e37072`: 17 lines, the 14 above plus
+`spotifyPlaylistSync.ts` 149, 153, 158). The three transaction-control lines survive untouched:
+`grep -cE "await client\.query\('(BEGIN|COMMIT|ROLLBACK)'\)" src/lib/db.ts` prints `3` and
+`git diff 9e37072 -- src/lib/db.ts` prints nothing. Per file,
+`grep -cE 'await (client\.)?query<' src/lib/spotifyAuth.ts src/lib/spotifyPlaylistSync.ts src/lib/moderation.ts 'src/app/api/spotify/playlists/[id]/sync/route.ts' 'src/app/api/spotify/playlists/[id]/import/route.ts' src/app/api/auth/spotify/callback/route.ts src/app/api/auth/spotify/disconnect/route.ts`
+prints `2`, `3`, `7`, `6`, `2`, `1` and `1` respectively (baseline `1`, `0`, `4`, `2`, `1`, `0`,
+`0`). The one deliberately excluded call site is still there and still untouched:
+`grep -c 'await pool.query(' src/lib/auth.ts` prints `1`, unchanged from baseline, and
+`git diff 9e37072 -- src/lib/auth.ts` prints nothing.
 
-ER2 - the casts in these four files are gone and no cast was laundered anywhere.
-`grep -nE 'rows\[0\].* as |\brow\.[a-z_]+ as ' src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts`
-prints nothing and exits non-zero (the baseline at `b293e82` prints exactly 13 lines:
-`bands.ts` 54, 121, 218, 279, 294, 335; `bands.server.ts` 45; `playlists.ts` 89, 290, 294, 295,
-296, 297). `grep -n 'as BandMember\[\]' src/lib/bands.ts` prints nothing (baseline: line 348).
-Repo-wide,
-`sh -c "grep -rn 'as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as ' src --include='*.ts' | grep -v __tests__"`
-lists exactly two lines, one in `src/lib/spotify.ts` and one in `src/lib/moderation.ts`, and no
-line from `src/lib/bands.ts` or `src/lib/playlists.ts` appears (baseline: four lines, the two
-extra ones being `src/lib/bands.ts:348` and `src/lib/playlists.ts:89`). The `E1` Postgres-code
-read survives: `grep -c "(error as { code?: string })" src/lib/bands.ts` prints `1`. Finally
-`grep -rc '@ts-ignore\|@ts-expect-error\|@ts-nocheck' src --include='*.ts' --include='*.tsx' | grep -v ':0$' | wc -l`
-prints `0`, and
+ER2 - each row type is exactly the one this spec names, pinned as a fixed string with its own file
+operand. From the repo root: `grep -cF 'await query<never>(' src/lib/spotifyAuth.ts` prints `1`;
+`grep -cF 'await query<GlobalSongLinksRow>(' src/lib/spotifyPlaylistSync.ts` prints `1`;
+`grep -cF 'await query<never>(' src/lib/spotifyPlaylistSync.ts` prints `1`;
+`grep -cF 'await query<{ id: string }>(' src/lib/spotifyPlaylistSync.ts` prints `1`;
+`grep -cF 'await db.query<never>(' src/lib/spotifyPlaylistSync.ts` prints `3`;
+`grep -cF 'await query<{ spotify_playlist_id: string | null }>(' 'src/app/api/spotify/playlists/[id]/sync/route.ts'` prints `1`;
+`grep -cF 'await client.query<never>(' 'src/app/api/spotify/playlists/[id]/sync/route.ts'` prints `2`;
+`grep -cF 'await query<never>(' 'src/app/api/spotify/playlists/[id]/sync/route.ts'` prints `1`;
+`grep -cF 'await query<never>(sql, values)' 'src/app/api/spotify/playlists/[id]/import/route.ts'` prints `1`;
+`grep -cF 'await query<never>(upsertSql, [' src/app/api/auth/spotify/callback/route.ts` prints `1`;
+`grep -cF 'await query<never>(' src/app/api/auth/spotify/disconnect/route.ts` prints `1`;
+`grep -cF 'await query<{ is_system_admin: boolean }>(' src/lib/moderation.ts` prints `1`;
+`grep -cF 'await client.query<never>(' src/lib/moderation.ts` prints `1`; and
+`grep -cF 'await client.query<GlobalSongEdit>(' src/lib/moderation.ts` prints `1`. No `any`
+sneaked in as a substitute: `grep -rn ': any\|<any>\|as any' src/lib/spotifyAuth.ts src/lib/spotifyPlaylistSync.ts src/lib/moderation.ts src/lib/dbRows.ts 'src/app/api/spotify/playlists/[id]/sync/route.ts' 'src/app/api/spotify/playlists/[id]/import/route.ts' src/app/api/auth/spotify/callback/route.ts src/app/api/auth/spotify/disconnect/route.ts`
+prints nothing and exits non-zero.
+
+ER3 - the five query-result casts are gone and none was laundered. From the repo root,
+`sh -c "grep -rnE 'rows\[0\].* as |\brow\.[a-z_]+ as ' src --include='*.ts' | grep -v __tests__"`
+prints nothing and exits non-zero (at `9e37072` it prints exactly 5 lines: `sync/route.ts:62`,
+`moderation.ts:151`, `spotifyPlaylistSync.ts` 99, 100 and 125). The wider RH-57 inventory,
+`sh -c "grep -rn 'as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as ' src --include='*.ts' | grep -v __tests__"`,
+prints exactly one line, `src/lib/spotify.ts:30`, and nothing else (baseline: that line plus
+`src/lib/moderation.ts:151`) - `src/lib/spotify.ts` is an HTTP-body cast deliberately kept, and
+`git diff 9e37072 -- src/lib/spotify.ts` prints nothing. Laundering is excluded:
 `grep -rn 'as unknown as' src --include='*.ts' --include='*.tsx' | grep -v __tests__ | wc -l`
-prints `2`, unchanged from baseline.
+prints `2`, unchanged from baseline;
+`grep -rc '@ts-ignore\|@ts-expect-error\|@ts-nocheck' src --include='*.ts' --include='*.tsx' | grep -v ':0$' | wc -l`
+prints `0`; and `grep -cE ': (SpotifyTrack|GlobalSongEdit|SongLink)\[\] = await' src --include='*.ts' -r | grep -v ':0$' | wc -l`
+prints `0`, so no cast was rewritten as a type annotation on an `any`-valued await.
 
-ER3 - the four new row interfaces live in `src/lib/dbRows.ts` and are all consumed.
-`grep -c '^export interface ' src/lib/dbRows.ts` prints `9` (baseline `5`) and
-`grep -cE '^export interface (BandMemberRoleRow|JoinBandByInviteRow|PlaylistAccessRow|PlaylistEntryRow) \{$' src/lib/dbRows.ts`
-prints `4`. Their fields are declared there:
-`sed -n '/^export interface BandMemberRoleRow {$/,/^}$/p' src/lib/dbRows.ts | grep -cF "role: 'admin' | 'member'"`
-prints `1`;
-`sed -n '/^export interface JoinBandByInviteRow {$/,/^}$/p' src/lib/dbRows.ts | grep -cE 'band_id: string \| null|already_member: boolean \| null'`
-prints `2`;
-`sed -n '/^export interface PlaylistAccessRow {$/,/^}$/p' src/lib/dbRows.ts | grep -c ': string'`
-prints `3`; and
-`sed -n '/^export interface PlaylistEntryRow {$/,/^}$/p' src/lib/dbRows.ts | grep -cE 'position: number|repertoire_id: string|song_id: string|title: string|artist: string'`
-prints `5`. No row interface was added to the data modules:
-`grep -c '^export interface .*Row' src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts`
-prints `0` for all four files. `grep -rl "from '@/lib/dbRows'" src --include='*.ts' | grep -v __tests__ | sort`
-lists exactly `src/app/api/spotify/playlists/[id]/sync/route.ts`, `src/lib/bands.server.ts`,
-`src/lib/bands.ts`, `src/lib/playlists.ts`, `src/lib/songs.ts` and `src/lib/spotifyAuth.ts` (six
-paths; baseline four, without `bands.ts` and `playlists.ts`). `npm run lint:dead` prints no file
-or symbol list and exits 0, and `rtk proxy npx vitest run src/lib/__tests__/dbRowTypes.test.ts`
-reports `Test Files 1 passed (1)` and `Tests 3 passed (3)`.
+ER4 - the one new row interface lives in `src/lib/dbRows.ts` and is consumed.
+`grep -c '^export interface ' src/lib/dbRows.ts` prints `10` (baseline `9`) and
+`grep -cF 'export interface GlobalSongLinksRow {' src/lib/dbRows.ts` prints `1`. Its fields are
+declared there: `sed -n '/^export interface GlobalSongLinksRow {$/,/^}$/p' src/lib/dbRows.ts | grep -cE '^  (id: string|links: SongLink\[\])$'`
+prints `2`. No row interface was added to the edited modules:
+`grep -c '^export interface .*Row' src/lib/spotifyAuth.ts src/lib/spotifyPlaylistSync.ts src/lib/moderation.ts 'src/app/api/spotify/playlists/[id]/sync/route.ts' 'src/app/api/spotify/playlists/[id]/import/route.ts' src/app/api/auth/spotify/callback/route.ts src/app/api/auth/spotify/disconnect/route.ts`
+prints `0` for all seven files. `grep -rl "from '@/lib/dbRows'" src --include='*.ts' | grep -v __tests__ | sort`
+lists exactly seven paths - `src/app/api/spotify/playlists/[id]/sync/route.ts`,
+`src/lib/bands.server.ts`, `src/lib/bands.ts`, `src/lib/playlists.ts`, `src/lib/songs.ts`,
+`src/lib/spotifyAuth.ts` and `src/lib/spotifyPlaylistSync.ts` (baseline: the same six without
+`spotifyPlaylistSync.ts`). `npm run lint:dead` prints no file or symbol list and exits 0, and
+`rtk proxy npx vitest run src/lib/__tests__/dbRowTypes.test.ts` reports `Test Files 1 passed (1)`
+and `Tests 3 passed (3)`.
 
-ER4 - every SQL statement and parameter list is byte-identical. In bash or zsh, from the repo
-root, for each of the four files - `src/lib/bands.ts`, `src/lib/bands.server.ts`,
-`src/lib/playlists.ts`, `src/lib/profile.ts` - the command
-`diff <(git show b293e82:FILE | sed -E 's/query<[^>]*>\(/query(/g') <(sed -E 's/query<[^>]*>\(/query(/g' FILE) | grep -cE 'SELECT|INSERT|UPDATE|DELETE|RETURNING|VALUES|ON CONFLICT|\$[0-9]'`
+ER5 - every SQL statement, parameter list, thrown message and logged tag is byte-identical. In
+bash or zsh, from the repo root, for each of the seven edited files that carry a query call site - `src/lib/spotifyAuth.ts`,
+`src/lib/spotifyPlaylistSync.ts`, `src/lib/moderation.ts`,
+`src/app/api/spotify/playlists/[id]/sync/route.ts`,
+`src/app/api/spotify/playlists/[id]/import/route.ts`, `src/app/api/auth/spotify/callback/route.ts`
+and `src/app/api/auth/spotify/disconnect/route.ts` - the command
+`diff <(git show 9e37072:FILE | sed -E 's/query<[^>]*>\(/query(/g') <(sed -E 's/query<[^>]*>\(/query(/g' FILE) | grep -cE 'SELECT|INSERT|UPDATE|DELETE|RETURNING|VALUES|ON CONFLICT|\$[0-9]|throw new |logger\.|NextResponse'`
 prints `0` with `FILE` substituted: once the added type arguments are normalized away, not one
-differing line carries SQL text or a bind placeholder. For `src/lib/profile.ts` the stronger form
-holds as well - `diff <(git show b293e82:src/lib/profile.ts | sed -E 's/query<[^>]*>\(/query(/g') <(sed -E 's/query<[^>]*>\(/query(/g' src/lib/profile.ts)`
-prints nothing at all, because that file's only change is three type arguments.
+differing line carries SQL text, a bind placeholder, a thrown message, a log call or a response.
+For the four files whose only change is a type argument - `src/lib/spotifyAuth.ts`,
+`src/app/api/spotify/playlists/[id]/import/route.ts`, `src/app/api/auth/spotify/callback/route.ts`
+and `src/app/api/auth/spotify/disconnect/route.ts` - the stronger form holds:
+`diff <(git show 9e37072:FILE | sed -E 's/query<[^>]*>\(/query(/g') <(sed -E 's/query<[^>]*>\(/query(/g' FILE)`
+prints nothing at all.
 
-ER5 - nothing outside the data layer moved, and the complexity budgets were neither loosened nor
-disturbed. `git diff b293e82 -- src/app src/components src/hooks src/store src/types src/i18n migrations eslint.config.mjs`
-prints nothing, and `git diff b293e82 -- src/lib/spotifyRouteAuth.ts src/lib/db.ts src/lib/songs.ts src/lib/moderation.ts src/lib/spotify.ts src/lib/spotifyAuth.ts`
-prints nothing. `git diff --name-only b293e82 -- src | grep -c 'test\.tsx\?$'` prints `0` (no
-existing test file needed changing). `grep -c 'complexity-budget/override' eslint.config.mjs`
-prints `23`, unchanged. `wc -l src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts` prints
-four numbers each `<= 400`, and `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts`
-reports `Test Files 1 passed (1)` and `Tests 6 passed (6)`.
+ER6 - nothing outside the eight edited files moved, and the complexity budgets were neither loosened nor
+disturbed. `git diff 9e37072 -- src/components src/hooks src/store src/types src/i18n migrations eslint.config.mjs`
+prints nothing, and `git diff 9e37072 -- src/lib/db.ts src/lib/spotify.ts src/lib/spotifyRouteAuth.ts src/lib/songs.ts src/lib/bands.ts src/lib/bands.server.ts src/lib/playlists.ts src/lib/profile.ts`
+prints nothing. `git diff --name-only 9e37072 -- src/app | sort` lists exactly
+`src/app/api/auth/spotify/callback/route.ts`, `src/app/api/auth/spotify/disconnect/route.ts`,
+`src/app/api/spotify/playlists/[id]/import/route.ts` and
+`src/app/api/spotify/playlists/[id]/sync/route.ts`, and
+`git diff --name-only 9e37072 -- src | grep -c 'test\.tsx\?$'` prints `0` (no existing test file
+needed changing). `grep -c 'complexity-budget/override' eslint.config.mjs` prints `23`, unchanged,
+and `grep -cF 'complexity: ["error", 26]' eslint.config.mjs` prints `1` (the sync route's ceiling
+is still 26, neither raised nor - since no branch was removed - lowered).
+`wc -l src/lib/spotifyAuth.ts src/lib/spotifyPlaylistSync.ts src/lib/moderation.ts src/lib/dbRows.ts 'src/app/api/spotify/playlists/[id]/sync/route.ts' 'src/app/api/spotify/playlists/[id]/import/route.ts' src/app/api/auth/spotify/callback/route.ts src/app/api/auth/spotify/disconnect/route.ts`
+prints eight numbers each `<= 400`, and
+`rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` reports
+`Test Files 1 passed (1)` and `Tests 6 passed (6)`.
 
-ER6 - the suites that exercise these four modules stay green with unchanged counts. With
-Postgres live at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
-applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`,
-`rtk proxy npx vitest run src/lib/__tests__/bands.test.ts src/lib/__tests__/bands.server.test.ts src/lib/__tests__/joinBandByInvite.test.ts src/lib/__tests__/playlists.test.ts src/lib/__tests__/profile.test.ts src/lib/__tests__/edge_cases.test.ts src/lib/__tests__/errors.test.ts src/lib/__tests__/transactionAtomicity.db.test.ts src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts src/lib/__tests__/dbRowTypes.test.ts src/app/actions/__tests__/authzBands.db.test.ts src/app/actions/__tests__/authzPlaylists.db.test.ts`
-reports `Test Files 12 passed (12)` and `Tests 148 passed (148)`, with `0 failed` and no skipped
-test (identical to the `b293e82` baseline: 14 + 3 + 5 + 11 + 10 + 10 + 49 + 6 + 11 + 3 + 14 + 12).
+ER7 - the suites that exercise these files stay green with unchanged counts. With Postgres live at
+`postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty
+`SUPABASE_SERVICE_ROLE_KEY` in `.env.local`,
+`rtk proxy npx vitest run src/lib/__tests__/spotify.test.ts src/lib/__tests__/spotifyPlaylistSync.test.ts src/lib/__tests__/spotifyRouteAuth.test.ts src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts src/lib/__tests__/spotifySyncAtomicity.db.test.ts src/lib/__tests__/moderation.test.ts src/lib/__tests__/moderationPayload.db.test.ts src/app/actions/__tests__/authzRepertoire.db.test.ts src/lib/__tests__/devProfiles.test.ts src/lib/__tests__/dbRowTypes.test.ts src/lib/__tests__/complexityBudget.test.ts`
+reports `Test Files 11 passed (11)` and `Tests 97 passed (97)`, with `0 failed` and no skipped test
+(identical to the `9e37072` baseline: 12 + 10 + 12 + 11 + 2 + 12 + 2 + 20 + 7 + 3 + 6).
 
-ER7 - the static gates hold exactly where they did. `./node_modules/.bin/tsc --noEmit` writes
+ER8 - the static gates hold exactly where they did. `./node_modules/.bin/tsc --noEmit` writes
 nothing to stdout or stderr and exits 0. `rtk proxy npx eslint .` ends with the summary line
-`22 problems (8 errors, 14 warnings)` - unchanged from `b293e82` - and
-`rtk proxy npx eslint . 2>&1 | grep -cE '/src/lib/(bands|bands\.server|playlists|profile|dbRows)\.ts$'`
-prints `0` (it prints `0` at baseline too: none of the touched files is listed by eslint today,
-and none may become listed). `npm run lint:dup` prints `Found 19 clones.` or fewer, with a total
-of `242 (0.71%)` duplicated lines or fewer. `npm run audit` prints `found 0 vulnerabilities`.
+`22 problems (8 errors, 14 warnings)` - unchanged from `9e37072` - and
+`rtk proxy npx eslint . 2>&1 | grep -cE '/src/(lib/(spotifyAuth|spotifyPlaylistSync|moderation|dbRows)\.ts|app/api/(spotify/playlists/\[id\]/(sync|import)|auth/spotify/(callback|disconnect))/route\.ts)$'`
+prints `0` (it prints `0` at baseline too: none of the eight touched files is listed by eslint
+today, and none may become listed). `npm run lint:dup` prints `Found 19 clones.` or fewer, with a
+total of `242 (0.71%)` duplicated lines or fewer. `npm run audit` prints
+`found 0 vulnerabilities`.
 
-ER8 - the whole suite and the coverage gate stay green. With the same DB precondition as ER6
-(Postgres live at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
-applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`),
-`rtk proxy npx vitest run` reports at least `Test Files 92 passed (92)` and at least
-`Tests 1064 passed (1064)`, with `0 failed` and `0 skipped` (the `b293e82` baseline is exactly
-92 files / 1064 tests / 0 skipped). `npm run test:coverage` exits 0 and its `All files` row shows
-statements >= 80, branches >= 65, functions >= 78 and lines >= 80, with no
+ER9 - the whole suite and the coverage gate stay green, modulo one named pre-existing flake. With
+the same DB precondition as ER7 (Postgres live at
+`postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty
+`SUPABASE_SERVICE_ROLE_KEY` in `.env.local`), `rtk proxy npx vitest run` reports at least 92 test
+files and at least 1064 tests, with `0 skipped`. The only tolerated failure is the single test
+`src/lib/__tests__/complexityBudget.test.ts > complexity budget (F20) > sets the base budget for src at complexity 15, max-depth 4, max-lines-per-function 200, max-params 4 and max-lines 400`
+failing with `Error: Test timed out in 5000ms.` at `complexityBudget.test.ts:82` on
+`await loadConfig()`: that is a pre-existing flake under full-suite parallel load, reproducible at
+the `9e37072` baseline in 3 of 5 runs, unrelated to RH-58 and owned by follow-up task RH-59, and
+RH-58 must not touch that test. If that one failure appears (i.e. the run reports
+`Test Files 1 failed | 91 passed (92)` / `Tests 1 failed | 1063 passed (1064)` and the failing test
+is exactly the one named above), QA re-runs
+`rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` in isolation and it must
+report `Tests 6 passed (6)` for ER9 to count as passed; any other failing test, any skipped test,
+fewer than 92 files or fewer than 1064 tests fails ER9. If the run is green, nothing extra is
+needed. The same rule applies to `npm run test:coverage`, which runs the same full suite: its exit
+code may be non-zero only because of that one named timeout (attributed the same way, with the same
+isolated re-run), and regardless of exit code its `All files` row must show statements >= 80,
+branches >= 65, functions >= 78 and lines >= 80, with no
 `ERROR: Coverage for ... does not meet global threshold` line anywhere in the output.
 
-ER9 - the app still builds and renders server-side. `npx next build` exits 0 and its output
-contains no line matching `^Error|^Failed|Failed to compile` (do not grep for
-`Compiled successfully`: this Next version does not print that phrase on success).
+ER10 - the app still builds and renders server-side, the version went up, the landing page did not
+move, and the diff stays inside the whitelist. `npx next build` exits 0 and its output contains no
+line matching `^Error|^Failed|Failed to compile` (do not grep for `Compiled successfully`: this
+Next version does not print that phrase on success), and
 `npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed`.
-
-ER10 - version bumped, landing untouched, diff inside the whitelist.
-`node -p "require('./package.json').version"` prints a string matching `^0\.1\.86-[0-9]{12}$`,
-which sorts strictly after the baseline `0.1.85-202609080152`. This task ships no selling point
-(it is an internal type-safety refactor, invisible to musicians), so
-`git diff b293e82 -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json`
-prints nothing. `git diff --name-only b293e82 | sort` lists only paths drawn from this closed
-set: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-57-spec.md`, `package.json`,
-`src/lib/bands.server.ts`, `src/lib/bands.ts`, `src/lib/dbRows.ts`, `src/lib/playlists.ts`,
-`src/lib/profile.ts` - any other path fails this result.
+`node -p "require('./package.json').version"` prints a string matching `^0\.1\.87-[0-9]{12}$`,
+which sorts strictly after the baseline `0.1.86-202609080234`. This task ships no selling point (it
+is an internal type-safety refactor, invisible to musicians), so
+`git diff 9e37072 -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json`
+prints nothing. `git diff --name-only 9e37072 | sort` lists only paths drawn from this closed set:
+`AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-57-spec.md`, `package.json`,
+`src/app/api/auth/spotify/callback/route.ts`, `src/app/api/auth/spotify/disconnect/route.ts`,
+`src/app/api/spotify/playlists/[id]/import/route.ts`,
+`src/app/api/spotify/playlists/[id]/sync/route.ts`, `src/lib/dbRows.ts`, `src/lib/moderation.ts`,
+`src/lib/spotifyAuth.ts`, `src/lib/spotifyPlaylistSync.ts` - any other path fails this result.
 
 ## Out of Scope
 
-- Part 5 of RH-40: `src/lib/spotify.ts`, `src/lib/spotifyAuth.ts` and the
-  `src/app/api/**/route.ts` handlers, including the `as SpotifyTrack[]` cast at
-  `src/lib/spotify.ts:30` (RH-58).
-- The `res.rows[0] as GlobalSongEdit` cast at `src/lib/moderation.ts:151` and that module's call
-  sites - they belong to the RH-40 close-out. ER2 pins both remaining casts in place.
-- Any change to SQL text, parameter order, return values, thrown messages or logging.
-- Any change to `src/lib/db.ts`, `src/types/database.ts`, `src/lib/spotifyRouteAuth.ts` or the
-  RH-54 guard test.
-- Any `eslint.config.mjs` edit, including retightening an override: none is needed here (ER5).
-- A repo-wide lint rule or guard test forbidding untyped `query(` call sites. That only makes
-  sense once part 5 has cleared the remaining modules; it belongs to the last part of RH-40.
-- New tests, new features, migrations, UI and landing-page copy.
+- Every HTTP-body cast in the touched path: `src/lib/spotify.ts:30`, `src/lib/spotifyAuth.ts:65`,
+  `src/lib/spotifyPlaylistSync.ts:59`, `src/app/api/auth/spotify/callback/route.ts:90` and `:103`,
+  and the `(await request.json()) as {...}` reads in the two playlist routes. They parse network
+  payloads, not `QueryResult` rows; validating HTTP boundaries is a separate finding (see the
+  Audit for the full argument). ER3 pins `src/lib/spotify.ts:30` in place.
+- The three `client.query('BEGIN'|'COMMIT'|'ROLLBACK')` lines in `src/lib/db.ts` - transaction
+  control, no rows, no parameters. ER1 pins them unchanged.
+- `src/lib/auth.ts:84`, the one `await pool.query(` in the tree (untyped, straight on `pg`'s
+  `Pool.query`, whose default type argument is `any`). It is an
+  `INSERT INTO profiles (id, email, full_name) VALUES ($1::uuid, $2, $3) ON CONFLICT (id) DO NOTHING`
+  inside the Better Auth `user.create.after` hook: the `QueryResult` is discarded, so no column is
+  ever read off it and no cast hides there, and `auth.ts` is outside the Spotify data path this task
+  owns. Typing it would document nothing here and would widen the diff past this task's whitelist,
+  so the implementer must not touch it - ER1 pins it as unchanged and ER10's whitelist deliberately
+  omits `src/lib/auth.ts`. The post-merge guard note below carries the `pool.query(` receiver
+  forward so a repo-wide ratchet can decide about it on its own terms.
+- Any change to SQL text, parameter order, return values, thrown messages or logging (ER5).
+- Any change to `src/types/database.ts`, `src/lib/spotifyRouteAuth.ts`, the RH-54 guard test, or
+  any other module already cleared by RH-55/RH-56/RH-57.
+- Any `eslint.config.mjs` edit, including retightening an override: no branch count moves here
+  (ER6).
+- A repo-wide lint rule or guard test forbidding untyped `query(` call sites. The tree only
+  becomes clean at the end of this task; adding the ratchet is a follow-up worth its own task, and
+  it needs an exemption for `src/lib/db.ts`.
+- Runtime validation of Spotify API payloads, new tests, new features, migrations, UI and
+  landing-page copy.
+- The RH-40 close-out itself (marking F16/F17 in `docs/plans/code-quality-review.md`) - it is
+  docs-only and post-merge.
 
 ## Post-merge checks (orchestrator)
 
-- Carry the remaining cast inventory into the RH-58 and RH-40 close-out specs as their starting
-  baseline: after this task it is exactly two lines, `src/lib/spotify.ts:30` and
-  `src/lib/moderation.ts:151`.
-- The untyped-call-site inventory after this task is `src/lib/moderation.ts`,
-  `src/lib/spotify*.ts` and `src/app/api/**/route.ts` only; re-measure it with
-  `grep -rcE 'await (client\.)?query\(' src --include='*.ts' | grep -v ':0$'` when scoping part 5.
+- RH-40's close-out is now unblocked on the code side: F16 in `docs/plans/code-quality-review.md`
+  (line 365, and row 16 of the summary table at line 483) can be marked resolved, together with
+  F17 (line 373 / row 17) which RH-55 already delivered. The "Covers: F16, F17" plan entry near
+  line 545 can be closed with it.
+- Carry forward the one remaining cast in the inventory, `src/lib/spotify.ts:30`, and the decision
+  recorded in this spec's Audit: it is an HTTP-body cast, not a DB row. If the HTTP boundary is
+  worth validating, capture it as a new finding rather than reopening F16.
+- Consider a follow-up guard (a `no-restricted-syntax` rule or a source-scan test in the style of
+  `dbRowTypes.test.ts`) that fails on `await query(` / `await client.query(` / `await db.query(` /
+  `await pool.query(` without a type argument outside `src/lib/db.ts`, now that the tree is at zero
+  for the first three receivers. The fourth receiver has exactly one site, `src/lib/auth.ts:84`
+  (result discarded; left untouched by RH-58 on purpose - see "## Out of Scope"), so such a guard
+  either types that site first or exempts it explicitly.
+- RH-59 owns the `complexityBudget.test.ts` full-suite timeout flake that ER9 tolerates by name. Its
+  fix is independent of RH-58 and must not be folded into this task's diff.

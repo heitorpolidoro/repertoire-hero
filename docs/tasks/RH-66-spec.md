@@ -1,490 +1,273 @@
-# RH-66 — PlaylistDetailPage part 1/6: the characterization e2e net for /playlists/[id], and F13's derived currentUserId
+# RH-67 — PlaylistDetailPage part 2/6: extract the dual-source SongPicker into lib, hook and components
 
-Parent: RH-53 (F11/F13, part 1 of 6). Siblings RH-67..RH-71 are chained after
-this one and refactor the page against the net this task lands.
-Baseline for every measurement in this document: `a17dd2b`
-(`fix(RH-72): run the dev server on Turbopack so Fast View survives the E2E job`),
-tree clean.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Baseline for every measurement in this document: `882806a`
+(`test(RH-66): characterization e2e for /playlists/[id] and derived currentUserId (F13)`),
+tree clean, `package.json` version `0.1.101-202609100226`.
+
+Parent: RH-53. Predecessor: RH-66 (done). Successors: RH-68..RH-71.
 
 ## Scope
 
-Two deliverables, in the order that matters:
+Move the add-song panel of `src/app/playlists/[id]/page.tsx` — the whole vertical
+slice: its six `useState`, its two `useRef`, the 500 ms debounce effect, the
+parallel catalog + Spotify search with its stale-response guard, the three dedup
+memos, the two add handlers, the `PickerRow` component and the panel JSX — out of
+the page into a pure lib module, a controller hook, three components and one
+injected Server Action bundle, preserving behaviour exactly.
 
-1. **The regression net.** A new Playwright spec, `e2e/playlist-detail.spec.ts`,
-   that drives `/playlists/[id]` through the ten behaviours the next five parts
-   are going to move: opening a playlist from `/playlists`, adding a song
-   through the picker on the catalog path, removing a song, cycling a mastery
-   status, adding and removing a song tag, adding a playlist tag, renaming the
-   playlist inline, filtering by text and filtering by tag. Today
-   `grep -rn "playlists/" e2e/*.ts` prints nothing and there is no
-   `src/app/playlists/[id]/__tests__` directory: 1344 lines of UI with nothing
-   under them. Parts 2-6 are behaviour-preserving moves, and a
-   behaviour-preserving move with no test is a rewrite.
-2. **The whole of F13** (`docs/plans/code-quality-review.md:343`): the
-   `currentUserId` session mirror becomes a derived `const`, the review doc gets
-   its `Status:` line including the sweep for other mirrors, and the page's
-   `complexity-budget/override` entry is re-pinned to the three freshly measured
-   numbers.
+In scope, and nothing else:
 
-Behaviour is preserved exactly. Not one attribute of the page's markup changes:
-no `aria-label` is added, no `data-testid` is added, no class changes. The spec
-locates everything through the accessible names and placeholders the page
-already has (see "Locator contract"), which is deliberate — those names become
-the contract parts 2-6 must preserve when the same markup moves into
-`src/components/playlists/`.
+- `src/lib/songPicker.ts` (new) — the pure decisions: minimum-query length,
+  the visible-catalog filter against the playlist's current song ids, the
+  catalog/Spotify dedup key and key set, the per-row error map add/clear, the
+  "already in your repertoire" recognition and the repertoire lookup by
+  title+artist that `resolveTrackId` performs today. Also the exported
+  `SongPickerController` type, following `SongStatusController` in
+  `src/lib/songStatus.ts`.
+- `src/hooks/useSongPicker.ts` (new) — the controller: query, debounce, search,
+  results, per-row errors, the two add commands. Declares `SongPickerActions`,
+  following `SongStatusActions` in `src/hooks/useSongStatus.ts`.
+- `src/components/playlists/SongPicker.tsx` and
+  `src/components/playlists/PickerRow.tsx` (new) — the panel and its result row.
+- `src/components/playlists/SongPickerToggle.tsx` (new) — the header `+` button
+  that opens the panel. It moves with the panel because it carries the panel's
+  `aria-pressed` state and its `showSearch ? … : …` class ternary, which is one
+  of the five decision points that have to leave `PlaylistDetailPage` for its
+  complexity to reach 30.
+- `src/components/ui/Spinner.tsx` (new) — the page's local `Spinner`
+  (lines 57-79) moved verbatim to the one cross-area component directory,
+  because the panel and the page both render it and copying it would create a
+  jscpd clone.
+- `src/app/songPickerActions.ts` (new) — the `SONG_PICKER_ACTIONS` bundle, F21
+  pattern, exactly like `src/app/fastViewEntryActions.ts`.
+- Three test files, the page itself, the page's `complexity-budget/override`
+  entry in `eslint.config.mjs` re-pinned to the newly measured numbers, and the
+  version bump.
 
-Nothing else changes. No Server Action, no `src/lib`, no `src/app/api/**`, no
-`src/store/**`, no `playwright.config.ts`, no new unit test, no new
-`complexity-budget/override` entry.
+Not in scope: everything else on that page (the song list and its
+complexity-29 row arrow, `PlaylistSummary`, the tag editing, the header, the
+Spotify sync path, the panel reducer, the Server Component conversion) — those
+are RH-68..RH-71. See "Out of Scope".
 
-## Audit at a17dd2b
+## Audit at 882806a
 
 ### The page
 
-`grep -c "" 'src/app/playlists/[id]/page.tsx'` prints `1344`;
-`grep -c "useState" ...` prints `24`. Its override, `eslint.config.mjs:74`:
+`grep -c "" 'src/app/playlists/[id]/page.tsx'` prints `1343`.
+`rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` exits 0 printing
+nothing: its violations are absorbed by `eslint.config.mjs:74`, pinned by RH-66
+at `complexity 35`, `max-lines-per-function 1071`, `max-lines 1343`. Measured
+with the budget rules forced (`--rule '{"complexity":["error",1],"max-lines-per-function":["error",40]}'`),
+`PlaylistDetailPage` at line 273 is **complexity 35, 1071 lines**; the file's
+other worst function is the song-row arrow at 1076 (complexity 29), which RH-68
+owns. `grep -c "useState"` prints `23`, `grep -c "useEffect"` prints `7` and
+`grep -c "useRef"` prints `7` (each count includes the `react` import line;
+the six `useRef(` calls are at 313, 314, 317, 318, 319, 320).
 
-```
-{ name: "complexity-budget/override", files: ["src/app/playlists/\\[id\\]/page.tsx"],
-  rules: { complexity: ["error", 34], "max-lines-per-function": ["error", 1072], "max-lines": ["error", 1344] } }
-```
+### What belongs to the picker, by line
 
-`rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` exits `0` with no
-output: the file contributes nothing to the repo total of
-`22 problems (8 errors, 14 warnings)`, because those three numbers absorb its
-three violations. `grep -c "complexity-budget/override" eslint.config.mjs`
-prints `20`, `MAX_OVERRIDES = 20` in `src/lib/__tests__/complexityBudget.test.ts:49`,
-and AGENTS.md:97 ends on "the list growing past 20 entries" — the list is a
-ratchet on its **length**, and the guard additionally fails "on an override
-ceiling that is not exactly the file's current worst number", so whatever the
-three numbers measure at after the edit is what must be written, in the same
-commit.
+| Lines | What | Destination |
+|---|---|---|
+| 11, 17-19, 21, 27 | imports `addSongToPlaylistAction`, `searchGlobalSongsAction`, `addSongAction`, `createAndAddSongAction`, `searchSpotify`/`SpotifyTrack`, `GlobalSong` | actions bundle / hook |
+| 57-79 | `Spinner` | `src/components/ui/Spinner.tsx` |
+| 81-141 | `PickerRowProps` + `PickerRow` | `src/components/playlists/PickerRow.tsx` |
+| 299-314 | `showSearch` (**stays**) plus `pickerQuery`, `pickerCatalogResults`, `pickerSpotifyResults`, `pickerLoading`, `pickerAddingId`, `pickerRowErrors`, `pickerDebounce`, `pickerLatestQuery` | hook |
+| 320, 331-333 | `searchInputRef` and its focus effect | `SongPicker.tsx` |
+| 361-392 | `runPickerSearch` (2-char gate, `Promise.all` over catalog + Spotify each with its own `.catch(() => [])`, stale-response guard on `pickerLatestQuery`) and the 500 ms debounce effect | hook |
+| 394-397 | `currentSongIds` — used only at 427, by the picker | hook |
+| 425-446 | `pickerVisibleCatalog`, `pickerCatalogKeys`, `pickerVisibleSpotify` | lib + hook |
+| 461-541 | `addSongIdToPlaylist`, `handlePickerAddCatalog`, `handlePickerAddSpotify` (with the complexity-7 `resolveTrackId` fallback) | hook |
+| 776-801 | the `Add songs` toggle button | `SongPickerToggle.tsx` |
+| 1275-1340 | the panel JSX: input, prompt / loading / empty / results `ul[aria-live="polite"]` | `SongPicker.tsx` |
 
-### F13, precisely
+`autoPushIfNeeded` (448-459) **stays**: `handleRemoveSong` (543) calls it at 548.
+`setSongs` stays with the page, which owns `songs`.
 
-Three lines, all inside `PlaylistDetailPage`:
+### The search transport
 
-- `277` `const { data: session } = authClient.useSession();`
-- `291` `const [currentUserId, setCurrentUserId] = useState<string | null>(null);`
-- `343` `setCurrentUserId(session?.user?.id ?? null);`, inside `refreshPlaylist`
-- `349` the `useCallback` dependency list, which carries `session?.user?.id`
+`searchSpotify` is `src/lib/spotify.ts`, a client-side `fetch` of
+`/api/spotify/search` that already swallows every failure and returns `[]`; it
+imports no `pg`, so the hook imports it directly and no F21 problem arises. The
+catalog half is `searchGlobalSongsAction`, a Server Action, so it can only reach
+the hook through the injected bundle. That asymmetry is why the bundle carries
+five members and not six.
 
-One writer, one reader (`902`, the ownership gate on the playlist tag bar),
-tied to the success of an unrelated network call.
-`grep -n "session" 'src/app/playlists/[id]/page.tsx'` prints exactly lines 277,
-343 and 349. Once the copy at 343 is gone, `refreshPlaylist` no longer reads the
-session at all, so the dependency entry at 349 becomes a
-`react-hooks/exhaustive-deps` "unnecessary dependency" warning if it is not
-removed with it — which would take the repo total to 23 problems. The `session`
-binding at 277 itself stays, because the derived `const` this task adds under it
-reads it (see "The F13 edit").
+### The regression net
 
-### The sweep the remediation asks for
+`e2e/playlist-detail.spec.ts` (RH-66, 11 tests) is the only test covering this
+page. Its picker test pins the locator contract that must survive byte-for-byte:
+a button with accessible name `Add songs`; an input whose placeholder starts
+`Search catalog and Spotify`; result rows as `<li>` inside
+`ul[aria-live="polite"]`; a button named exactly `Add` in each row; and the
+panel **unmounting** when the toggle is clicked again (`toHaveCount(0)`).
 
-`grep -rn "useState" src/hooks src/app src/components | grep -v __tests__ | grep -iE "session|userid|currentuser"`
-prints **exactly one line at `a17dd2b`**: page line 291. The other five
-`authClient.useSession()` call sites (`src/app/AppShell.tsx:22`,
-`src/app/page.tsx:625`, `src/components/layout/AppLayout.tsx:39` and `:146`,
-`src/hooks/useBandAdmin.ts:126`) read the session directly; `useBandAdmin.ts:127`
-is already `const currentUserId = session?.user?.id ?? null`, which RH-64
-(`6aa099c`) put there. So the sweep result is the empty set the moment this
-task's own line is fixed, and F13 needs nothing from RH-67..RH-71.
+### Reference measurement of the result
 
-### The e2e suite
+The extraction described below was simulated line by line against `882806a` and
+linted with the budget rules forced. The resulting page is **1019 lines**, with
+`PlaylistDetailPage` at **834 lines and complexity 30**, `grep -c "useState"`
+at **17**, `useEffect` at `5` and `useRef` at `4`.
 
-`npx playwright test --list` prints `Total: 22 tests in 6 files`
-(`auth`, `bands-confirm`, `fast-view-mobile`, `server-pages`, `songs-crud`,
-`ssr-smoke`). `playwright.config.ts` has `retries: 2` and `workers: 1` on CI
-only, a 30 s test timeout, `globalSetup: ./e2e/global-setup.ts` (which signs the
-`e2e-test@example.com` user up and in through the Better Auth HTTP endpoints and
-writes cookies to `e2e/.auth/user.json`), and a `webServer` whose command is
-`process.env.PLAYWRIGHT_WEB_SERVER ?? 'npm run dev'`. The `mobile` project has
-`testMatch: '**/fast-view-mobile.spec.ts'`, so a new spec file runs in the
-`chromium` project only, once.
-
-`e2e/helpers.ts` already holds the RH-44 idempotency doctrine: `uniqueSongTitle`
-with a module-level counter plus `Date.now()` and `process.pid`, documented as
-callable only from inside a test body because a retry runs in the same worker;
-`addSong` / `editSong` / `deleteSong` / `goHome` / `songCard`; and the
-hydration-race pattern `await expect(async () => { click; expect(dialog).toBeVisible({timeout: 2_000}) }).toPass({ timeout: 30_000 })`,
-which is how a cold Turbopack route is handled without a `waitForTimeout`.
-
-Storage state is **not** in `use:` at config level; every spec opts in with
-`test.use({ storageState: AUTH_STATE_PATH })` (`AUTH_STATE_PATH` is exported by
-`e2e/global-setup.ts:20`).
-
-Three gates cannot move because of a new file under `e2e/`, and it is worth
-saying so once instead of leaving it to be re-derived: `.jscpd.json` has
-`"path": ["src"]`, so the clone baseline cannot see the new spec;
-`tsconfig.json:33` excludes `e2e/**` and `**/*.spec.ts`, so `tsc --noEmit`
-never type-checks it; and `knip.json`'s `ignoreExportsUsedInFile` keeps the new
-`uniqueFixtureName` helper out of `npm run lint:dead`'s unused-export report.
-
-### What a playlist fixture costs
-
-There is no SQL seed and no Server Action shortcut available from a spec: the
-playlist is created through the UI that RH-63 built. `/playlists` renders
-`+ New Playlist` (`src/components/playlists/PlaylistsView.tsx:96`), which opens
-`role="dialog"` `aria-label="New Playlist"` holding `#modal-playlist-name` and a
-`Create` button (`CreatePlaylistModal.tsx:144,176,220`); the resulting card is a
-`role="button"` with `aria-label={`Open ${playlist.name}`}`
-(`PlaylistCard.tsx:113`) whose click pushes `/playlists/<id>`
-(`PlaylistsView.tsx:122`). Songs come from `addSong` on the home page, which
-writes both `global_songs` and the user's repertoire with
-`status DEFAULT 'unknown'` (`migrations/0001_initial_schema.sql:222`);
-`searchGlobalSongs` is `title ILIKE '%q%' OR artist ILIKE '%q%'`
-(`src/lib/songs.ts:178-195`), so a full unique title typed into the picker
-matches exactly one catalog row.
-
-The e2e browser context starts with no `localStorage`, so
-`useBandContextStore((s) => s.bandId())` is `null` and the page is in personal
-mode — which is the mode where the status badge is a button rather than the
-read-only band span (page 1160-1178).
+Note on the parent plan's targets: `.meridian/reports/RH-53-spec-1.md` predicts
+`PlaylistDetailPage <= 810` lines. That figure double-counts `PickerRow`
+(61 lines) and `Spinner` (23 lines), both of which sit **outside**
+`PlaylistDetailPage` and therefore shrink the file without shrinking the
+function. The page target (1080) and the complexity target (30) are met exactly
+as planned; the function-length result below is stated at the measured value
+plus a small margin, `840`.
 
 ## Approach
 
-### The net: one serial journey, eleven checkpoints
+### Behavior
 
-`e2e/playlist-detail.spec.ts`, `chromium` only, `test.use({ storageState: AUTH_STATE_PATH })`
-and `test.describe.configure({ mode: 'serial', timeout: 90_000 })` (the timeout
-for the same reason `bands-confirm.spec.ts` raises it: the first hit on a route
-pays Turbopack's compile). Three module-level `let` bindings hold the fixture —
-two song titles, one playlist name, the detail URL — and every one of them is
-**computed inside the first test body**, never at module scope, exactly as
-`uniqueSongTitle`'s doc comment requires; a retry restarts the serial group at
-test 1 and mints fresh names.
+Nothing a user can observe changes. The panel still opens from the header `+`
+button, still focuses its input on open, still waits 500 ms after the last
+keystroke, still refuses to search below two trimmed characters, still queries
+the catalog and Spotify in parallel and ignores the response of a query that is
+no longer the latest, still hides catalog rows already in the playlist and
+Spotify rows the catalog already covers, still adds a catalog song (adding it to
+the repertoire first when it is not there), still creates a Spotify track as a
+song and falls back to the existing repertoire entry when the create reports
+"already in your repertoire", still reloads the playlist songs and runs the
+Spotify auto-push after each add, and still shows one error under the row that
+failed while the other rows stay usable.
 
-Each test after the first starts with `page.goto(playlistUrl)`, so every
-behaviour is verified against a freshly loaded page rather than against state
-another test left in the DOM. That is what makes the file useful to part 6,
-which changes how the page loads.
+Two internal contracts make that testable:
 
-The eleven tests, in order, with what each asserts:
+- The controller's two add commands **never reject**. A failure — from the
+  repertoire write, the playlist write, the reload or the auto-push — is
+  recorded in `rowErrors` under that row's id and cleared when that row is tried
+  again, exactly as lines 473-541 do today.
+- The debounce effect never calls `console.error`; a rejection routes through
+  `logger.error` (`@/lib/logger`, already used by `src/hooks/useSongEntry.ts`),
+  per the P1 convention.
 
-1. `creates a playlist and opens it from the playlists page` — mints the two
-   song titles and the playlist name; `goHome` + `addSong` twice; `createPlaylist`;
-   `openPlaylist`; asserts the URL matches `/playlists/<id>`, the `h1` carries
-   the playlist name, and the body shows the `No songs yet` empty state. Records
-   `playlistUrl`.
-2. `adds two catalog songs to the playlist through the picker` — opens the
-   picker with `Add songs`, types the first full title, clicks that picker row's
-   `Add`, waits for the row to appear in the song list; repeats for the second;
-   closes the picker; asserts the song list holds exactly two rows and that
-   after a reload it still does (the add is persisted, not optimistic-only).
-3. `cycles the mastery status of a playlist song` — asserts the first song's
-   status button is named `Status: Unknown. Click to advance.`, clicks it,
-   asserts it becomes `Status: Learning. Click to advance.`. `handleStatusCycle`
-   (page 555-566) writes `setRepertoireMap` *before* awaiting
-   `updateSongStatus`, so that first assertion proves nothing about persistence
-   and a reload fired straight after it races the in-flight Server Action: the
-   test therefore waits for the action's response
-   (`page.waitForResponse` on the POST to the current URL) **before**
-   `page.reload()`, then asserts the button is still `Learning`.
-4. `adds a tag to a playlist song` — mints a lowercase unique tag, opens the
-   row's `Add tag` affordance, types the tag, presses `Enter`; asserts the chip
-   and its `Remove tag <tag>` button exist in that row, that the tag filter bar
-   now offers a button named exactly `<tag>`, and that both survive a reload.
-5. `filters the playlist by title text` — types the first song's title into the
-   filter, asserts one row and that the second song is gone; types a string that
-   matches nothing and asserts the `No songs matching "..."` message; clears the
-   field with `fill('')` and asserts both rows return.
-6. `filters the playlist by tag` — clicks the tag-filter button named after the
-   tag from test 4, asserts only the tagged row remains and that the clear
-   button appears; clicks the clear button and asserts both rows return and the
-   clear button is gone.
-7. `removes the tag from the playlist song` — clicks `Remove tag <tag>` in the
-   row, asserts the chip is gone, the tag filter bar no longer offers it, and
-   both hold after a reload.
-8. `adds a tag to the playlist itself` — clicks `Add tag to playlist` **first**,
-   then asserts `page.getByPlaceholder('new tag')` has `toHaveCount(1)`, i.e.
-   the only open tag input on the page is the playlist-level one and no per-song
-   input was left open (both inputs are conditionally rendered, so before the
-   click the count is `0`; the assertion is only meaningful after it). Then
-   types a second unique tag, presses `Enter`, asserts the playlist tag bar
-   carries the chip and still does after a reload.
-9. `renames the playlist inline` — clicks `Rename playlist`, fills the
-   `Playlist name` textbox with the name plus a suffix, clicks `Save`, asserts
-   the heading changed and survives a reload, and updates the module-level name
-   so the teardown deletes the right card.
-10. `removes a song from the playlist` — clicks
-    `Remove <title> from playlist` for the second song, asserts one row is left
-    and the removed title is gone after a reload.
-11. `deletes the playlist and the seeded songs` — `Delete playlist`, then `Yes`,
-    waits for `/playlists`, asserts the `Open <name>` card is gone; then
-    `goHome` and `deleteSong` for both titles, asserting each card count is `0`.
+### Shape
 
-Idempotency, RH-44 style: nothing is named by a constant, so a second
-back-to-back run cannot collide with the first run's rows; test 11 is the
-teardown, so a green run leaves no playlist and no repertoire row behind (the
-`global_songs` catalog rows survive, exactly as `songs-crud.spec.ts` leaves
-them, which is why the next run mints new titles). A run that dies in the middle
-skips the teardown and leaks a playlist named after that run — harmless by
-construction, and preferable to a best-effort `afterAll` that can turn a real
-product failure into a cleanup error.
+`src/lib/songPicker.ts` exports pure functions only — no React, no fetch, no
+`@/lib/db` — plus the controller type. Every function export is written
+`export function`, never an arrow const: `namingConventions.test.ts` enforces
+that for `src/lib`. The exports:
 
-No `waitForTimeout` anywhere: the 500 ms picker debounce is absorbed by a
-`toBeVisible({ timeout: 15_000 })` on the picker row. No `retries` and no
-`test.setTimeout` beyond the one `describe.configure` above, and
-`playwright.config.ts` is not touched.
+- `MIN_PICKER_QUERY_LENGTH` and `shouldSearchPicker(query)` (the 2-char gate at
+  364 and 1290),
+- `visiblePickerCatalog(results, playlistSongIds)`,
+- `pickerDedupKey({ title, artist })`, `pickerCatalogKeys(songs)`,
+  `visiblePickerSpotify(tracks, catalogKeys)`,
+- `withPickerRowError(errors, rowId, error)` (including the
+  `error instanceof Error ? error.message : "Failed to add"` narrowing) and
+  `withoutPickerRowError(errors, rowId)`,
+- `isAlreadyInRepertoireError(error)` and
+  `findRepertoireSongIdByTrack(entries, track)` — the two halves of
+  `resolveTrackId`'s catch,
+- `interface SongPickerController` with **data plus intent commands and no
+  `set*` member** (the RH-64 rule): `query`, `loading`, `addingId`, `rowErrors`,
+  `catalogResults`, `spotifyResults`, `changeQuery(query)`,
+  `addCatalogSong(song)`, `addSpotifyTrack(track)`. `catalogResults` and
+  `spotifyResults` are the already-filtered, already-deduped lists, so the
+  component holds no filtering decision.
 
-**Assertion timeouts on cold routes.** `test.describe.configure({ timeout: 90_000 })`
-raises the *test* timeout only; `playwright.config.ts:12` keeps
-`expect: { timeout: 5_000 }` for every assertion. The detail route renders a
-loading state until `refreshPlaylist` resolves and the first hit pays a
-Turbopack compile, so the heading assertion inside `openPlaylist` and the first
-assertion after each `page.goto(playlistUrl)` carry an explicit
-`{ timeout: 15_000 }`, the value `server-pages.spec.ts:70` already uses for the
-same reason.
+`src/hooks/useSongPicker.ts` exports `SongPickerActions` (`searchCatalog`,
+`addToRepertoire`, `createAndAddSong`, `addSongToPlaylist`,
+`getPlaylistWithSongs`), `UseSongPickerOptions` (`playlistId`, `actions`,
+`repertoire`, `songs`, `onSongsChanged`, `afterAdd`) and
+`useSongPicker(options): SongPickerController`. It owns the six states, the two
+refs, the debounce effect and the memos; it imports `searchSpotify` from
+`@/lib/spotify` and everything else from `@/lib/songPicker`; it imports nothing
+from `@/app/*`.
 
-### Locator contract
+`src/components/playlists/SongPicker.tsx` takes exactly one prop,
+`picker: SongPickerController`, owns the input ref and the on-mount focus, and
+renders the four states in today's order (prompt / loading / empty / rows) with
+today's markup and class names. `PickerRow.tsx` keeps `PickerRowProps` and the
+markup unchanged. `SongPickerToggle.tsx` takes `open` and `onToggle` and keeps
+the button's markup, `aria-label="Add songs"` and `aria-pressed`.
 
-Every locator below already resolves at `a17dd2b`; the spec adds nothing to the
-page to make one work. Parts 2-6 must keep these names alive when the markup
-moves.
+The page keeps `showSearch` (RH-70 folds it into the panel reducer), renders
+`<SongPickerToggle open={showSearch} onToggle={…} />` in the header and
+`{showSearch && <SongPicker picker={picker} />}` where the panel is today, and
+calls `useSongPicker` with `SONG_PICKER_ACTIONS`, `repertoireMap`, `songs`,
+`setSongs` and `autoPushIfNeeded`.
 
-| What | Locator | Source |
-|---|---|---|
-| Playlist card on `/playlists` | `getByRole('button', { name: \`Open ${name}\` })` | `PlaylistCard.tsx:113` |
-| Create modal | `getByRole('dialog', { name: 'New Playlist' })`, `#modal-playlist-name`, `getByRole('button', { name: 'Create' })` | `CreatePlaylistModal.tsx:144,176,220` |
-| Playlist title | `getByRole('heading', { name })` | page 769 |
-| Song list | `getByRole('region', { name: 'Songs in this playlist' })` | page 1057-1059 |
-| One song row | that region's `getByRole('listitem').filter({ hasText: title })` | page 1083 |
-| Picker toggle | `getByRole('button', { name: 'Add songs' })` | page 781 |
-| Picker input | `getByPlaceholder('Search catalog and Spotify')` (substring) | page 1284 |
-| Picker list | `locator('ul[aria-live="polite"]')` | page 1287-1290 |
-| Picker row Add | that list's `getByRole('listitem').filter({ hasText: title }).getByRole('button', { name: 'Add', exact: true })` | page 128-135 |
-| Status badge | row's `getByRole('button', { name: /^Status: / })` | page 1173 |
-| Remove song | region's `getByRole('button', { name: \`Remove ${title} from playlist\` })` | page 1185 |
-| Song tag add | row's `getByRole('button', { name: 'Add tag', exact: true })` | page 1262 |
-| Song tag input | row's `getByPlaceholder('new tag')` | page 1252 |
-| Remove a tag | scope's `getByRole('button', { name: \`Remove tag ${tag}\` })` | page 919 and 1219 |
-| Playlist tag add | `getByRole('button', { name: 'Add tag to playlist' })` | page 962 |
-| Playlist tag input | `getByPlaceholder('new tag')` at page level | page 952 |
-| Text filter | `getByPlaceholder('Filter playlist by title or artist')` (substring: the real placeholder ends in `...`) | page 996 |
-| Tag filter button | `getByRole('button', { name: tag, exact: true })` | page 1029-1042 |
-| Tag filter clear | `getByRole('button', { name: 'clear' })` (substring) | page 1045-1051 |
-| Rename | `getByRole('button', { name: 'Rename playlist' })`, `getByRole('textbox', { name: 'Playlist name' })`, `getByRole('button', { name: 'Save', exact: true })` | page 810, 749, 758 |
-| Delete | `getByRole('button', { name: 'Delete playlist' })` then `getByRole('button', { name: 'Yes', exact: true })` | page 848, 834 |
+The complexity budget lands on exactly 30, with no margin: one added `&&`, `?:`
+or `??` anywhere in `PlaylistDetailPage`'s own body puts it at 31 and fails ER4.
+The two new call sites must stay as written — `{showSearch && <SongPicker …/>}`
+is the single decision point the extraction budgets for, and the toggle's own
+ternary must travel into `SongPickerToggle` rather than stay behind as a prop
+expression.
 
-Four ambiguities the spec resolves rather than papering over, each of which is
-the reason a locator above carries `exact` or a scope:
+### Files touched
 
-- `Add tag` is a prefix of `Add tag to playlist`, so the per-song affordance is
-  matched with `exact: true` **and** scoped to its row.
-- The `new tag` placeholder is shared by the playlist-level input (page 952) and
-  the per-song input (page 1252), and **both are conditionally rendered** —
-  behind `addingPlaylistTag` and `addingTagForSong === ps.song_id`
-  respectively — so at rest neither exists. The per-song case is row-scoped; the
-  playlist-level case (test 8) clicks `Add tag to playlist` first and only then
-  asserts `await expect(page.getByPlaceholder('new tag')).toHaveCount(1)`, so a
-  regression that leaves a song input open fails loudly on that assertion
-  instead of silently typing into the wrong field. Asserted before the click the
-  count would be `0` and the test would fail deterministically; the order is
-  click, then count, then type.
-- `Remove tag <tag>` exists in both tag bars; both uses are scoped (row, or the
-  playlist tag bar's chip) and the two tags minted by the run are different
-  strings anyway.
-- The tag chip inside a song row is a `span` whose only descendant button is
-  named `Remove tag <tag>`, so `getByRole('button', { name: tag, exact: true })`
-  can only be the tag-filter button.
+- `src/lib/songPicker.ts` — new; the pure decisions and `SongPickerController`.
+- `src/hooks/useSongPicker.ts` — new; the controller hook and `SongPickerActions`.
+- `src/components/playlists/SongPicker.tsx` — new; the panel.
+- `src/components/playlists/PickerRow.tsx` — new; the result row, moved.
+- `src/components/playlists/SongPickerToggle.tsx` — new; the header `+` button, moved.
+- `src/components/ui/Spinner.tsx` — new; the page's `Spinner`, moved verbatim.
+- `src/app/songPickerActions.ts` — new; `SONG_PICKER_ACTIONS`.
+- `src/app/playlists/[id]/page.tsx` — the deletions listed in the audit table,
+  four new imports, one `useSongPicker` call, two JSX call sites.
+- `src/lib/__tests__/songPicker.test.ts` — new; 15 tests, node environment.
+- `src/hooks/__tests__/useSongPicker.test.tsx` — new; 13 tests, jsdom.
+- `src/components/playlists/__tests__/SongPicker.test.tsx` — new; 10 tests, jsdom:
+  the nine panel tests plus one that renders `SongPickerToggle` directly.
+- `eslint.config.mjs` — the three numbers of the page's override entry re-pinned.
+  No entry added, none removed.
+- `package.json` — version `0.1.102-YYYYMMDDHHmm`.
+- `docs/tasks/RH-66-spec.md` — this file. `docs/suggestions-log.md` optionally.
 
-The remove-tag buttons are `opacity-0 group-hover:opacity-100`. Playwright
-treats an `opacity: 0` element with a bounding box as visible and clickable, so
-no hover step is needed; this is stated here because it looks like a bug when a
-reviewer reads the class list.
+### Test criteria
 
-### New helpers in `e2e/helpers.ts`
+The pure lib is unit-tested directly. The hook is tested with
+`renderHook` + fake timers: that nothing is searched below two characters, that
+the search fires once 500 ms after the last keystroke, that an out-of-order
+response is discarded, that the dedup and the playlist filter apply, that each
+add path calls exactly the actions it should, and that a failure lands in
+`rowErrors` and is cleared on retry. The components are tested with Testing
+Library against a hand-built controller object: the four panel states, the
+locator contract the e2e net depends on, and that clicking `Add` calls the
+controller command. The same file also renders `SongPickerToggle` on its own,
+because the page - not `SongPicker` - is what renders the toggle, and the
+`Add songs` locator is one of the four the e2e net depends on. `e2e/playlist-detail.spec.ts` is the end-to-end proof and
+must pass with no edit at all.
 
-Additive only; every existing export keeps its name and behaviour.
-
-- `uniqueFixtureName(prefix)` — the body of today's `uniqueSongTitle`, promoted
-  so playlist names and tags share the one counter.
-  `uniqueSongTitle(prefix)` becomes a one-line delegation to it and keeps its
-  doc comment, so `songs-crud.spec.ts` and `ssr-smoke.spec.ts` are untouched and
-  unaffected.
-- `createPlaylist(page, name)` — `/playlists`, the hydration-retry click on
-  `+ New Playlist`, fill, `Create`, wait for the `Open <name>` card.
-- `openPlaylist(page, name)` — clicks that card, `waitForURL(/\/playlists\/[^/]+$/)`,
-  asserts the heading with `{ timeout: 15_000 }`, returns `page.url()`. Unlike
-  `createPlaylist` it does **not** need the hydration-retry wrapper: it is only
-  ever called immediately after `createPlaylist`, on a page that is already
-  hydrated. A doc comment says so, so the asymmetry does not read as an
-  oversight.
-- `deletePlaylistFromDetail(page)` — `Delete playlist`, `Yes`,
-  `waitForURL(/\/playlists$/)`.
-
-Row-level locators (`songList`, `songRow`, `pickerRow`) stay in the spec file:
-they describe one page, and `e2e/helpers.ts` is shared by every spec.
-
-### The F13 edit
-
-Three lines out, two lines in, on the page and nowhere else:
-
-- line 277 (`const { data: session } = authClient.useSession();`) **stays as it
-  is**, and a new line is inserted directly under it:
-  `const currentUserId = session?.user?.id ?? null;`
-- line 291 (the `useState` pair) is deleted
-- line 343 (`setCurrentUserId(...)`) is deleted
-- line 349's dependency list drops `session?.user?.id`, becoming
-  `}, [playlistId, router, bandId]);`
-
-This is the two-line shape the remediation asks for verbatim
-(`docs/plans/code-quality-review.md:346`: "A one-line
-`const currentUserId = session?.user?.id ?? null` is strictly better in every
-dimension") and the shape RH-64 (`6aa099c`) already landed for the same finding
-at `src/hooks/useBandAdmin.ts:126-127`. The value stays `string | null`, so the
-ownership gate at 902 compares exactly what it compares today.
-`git diff --numstat` for the page is `2` insertions and `3` deletions, nothing
-else.
-
-The collapsed alternative — `authClient.useSession().data?.user?.id ?? null` on
-one line, dropping the `session` binding — was **rejected**. It measures the
-same complexity (35, verified), so it buys no metric, and it would depart from
-both the remediation's wording and the `useBandAdmin` precedent for style alone.
-
-Measured on the edited file with the real config
-(`rtk proxy npx eslint --stdin --stdin-filename 'src/app/playlists/[id]/page.tsx' --rule '{"complexity":["error",1],"max-lines":["error",1],"max-lines-per-function":["error",1]}'`),
-the edit applied to a scratch copy only:
-
-| | at `a17dd2b` | after |
-|---|---|---|
-| `max-lines` | 1344 | **1343** |
-| `max-lines-per-function` (`PlaylistDetailPage`) | 1072 | **1071** |
-| `complexity` (`PlaylistDetailPage`) | 34 | **35** |
-| `complexity` (the `refreshPlaylist` arrow, at `335:48` both times) | 6 | **3** |
-| `useState` in the file (`grep -c`) | 24 | **23** |
-
-**The override's `complexity` ceiling goes up, 34 -> 35, and this task states it
-in the open.** ESLint's `complexity` rule counts `?.` and `??` alike: the
-component body loses the two optional chains that were in the `useCallback`
-dependency list (`-2`) and gains the three in the new derived `const` (`+3`),
-while `refreshPlaylist` loses all three (`6 -> 3`). The file's total branch
-count falls; the outer function's own count rises by one because the coalescing
-moved into it. Re-pinning is not optional and is not a loosening of the ratchet:
-`src/lib/__tests__/complexityBudget.test.ts` fails on any ceiling that is not
-*exactly* the file's current worst number, so leaving `34` in place while the
-file measures `35` fails the guard. AGENTS.md:97's "may only shrink" is about
-the **entry list**, and no entry is added or removed here —
-`grep -c "complexity-budget/override" eslint.config.mjs` prints `20` before and
-after. RH-67 takes this number down when the picker leaves the page.
-
-Also rejected: writing `const currentUserId = session?.user?.id;` (no
-`?? null`), which measures complexity `34` and would leave the ceiling
-untouched. It buys the nicer number by changing the derived type from
-`string | null` to `string | undefined` in the one task whose whole purpose is
-to freeze behaviour before five refactors. Pinning a metric is not a reason to
-change a value's type.
-
-Verified on the scratch copy: with the three ceilings set to `35 / 1071 / 1343`
-the edited file lints clean through the real config (exit `0`, no output at
-all), which also proves the dependency-list edit leaves no
-`react-hooks/exhaustive-deps` warning behind — the repo total stays at
-`22 problems (8 errors, 14 warnings)`.
-
-### The F13 `Status:` line
-
-One line appended to the F13 block in `docs/plans/code-quality-review.md`,
-immediately after its `**Remediation:**` line (the last line before
-`### F14`), in the voice of the F14 and F15 `Status:` lines already there and
-opening exactly the way every other one in the file does (lines 289, 307, 324,
-341, 359, ...): `**Status:** Resolved by RH-66 (\`<sha>\`)`. It records: the
-derived `const` on the line under the `session` binding and the deleted
-`useState` pair; that the copy at 343 and its dependency entry went with it,
-while the `session` binding itself stays because the derived `const` reads it;
-the three re-pinned override numbers `35 / 1071 / 1343` with the plain statement
-that the `complexity` ceiling went **up**, 34 -> 35, why (the coalescing moved
-out of `refreshPlaylist` and into the component body), and that RH-67 takes it
-back down; a clause noting that the T8 close-out further down the same file
-(line 564, "F13 ... stays open ... owned end to end by RH-53 (F11)") describes
-the state before this commit, so the next reader does not believe it; the new
-e2e net as the thing that lets RH-67..RH-71 move this code safely; and the
-sweep, quoted as the command
-`grep -rn "useState" src/hooks src/app src/components | grep -v __tests__ | grep -iE "session|userid|currentuser"`
-with its result — one line at `a17dd2b` (this page), none after, RH-64 having
-already turned `useBandAdmin`'s copy into a derived `const` at `6aa099c`.
-
-The RH-41 close-out paragraph further down the same file (the one saying F13
-"stays open" and belongs to RH-53) is **not** edited: it records what RH-41's
-scope was, not what F13's state is. The section-5 summary row for F13 is not
-edited either; F11's row and `Status:` line belong to RH-71.
-
-### Whitelist
-
-Required:
-
-```
-docs/plans/code-quality-review.md
-docs/tasks/RH-66-spec.md
-e2e/helpers.ts
-e2e/playlist-detail.spec.ts
-eslint.config.mjs
-package.json
-src/app/playlists/[id]/page.tsx
-```
-
-Permitted but not required, and nothing else:
-
-```
-docs/suggestions-log.md
-```
-
-**Landing Page Rule decision.** A characterization test suite and a derived
-constant are internal work: no capability a musician or band would choose the
-app for. Playlists are already a landing selling point. The landing copy and
-both dictionaries must not change, and ER8 asserts it mechanically.
-
-**Version.** Bump `package.json` to `0.1.101-YYYYMMDDHHmm` with a real local
-timestamp, from `0.1.100-202609100006`. The three-digit patch is not a
-regression: `0.1.101 > 0.1.100` numerically, even though it sorts below as a
-plain string.
+**Landing Page Rule decision.** Internal refactor: the add-song picker already
+exists and this task adds no capability a musician would choose the app for. The
+landing copy and both dictionaries must not change.
 
 ## Expected Results
 
-ER1 - The characterization net exists and is repeatable. A new file `e2e/playlist-detail.spec.ts` (absent at `a17dd2b`, where `ls e2e/playlist-detail.spec.ts` fails and `grep -rn "playlists/" e2e/*.ts` prints nothing) declares `test.use({ storageState: AUTH_STATE_PATH })` and `test.describe.configure({ mode: 'serial', timeout: 90_000 })` and contains exactly eleven tests, in this order and with these titles: `creates a playlist and opens it from the playlists page`, `adds two catalog songs to the playlist through the picker`, `cycles the mastery status of a playlist song`, `adds a tag to a playlist song`, `filters the playlist by title text`, `filters the playlist by tag`, `removes the tag from the playlist song`, `adds a tag to the playlist itself`, `renames the playlist inline`, `removes a song from the playlist`, `deletes the playlist and the seeded songs`. With Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, a `.env.local` present and nothing listening on port 3000, `npx playwright test e2e/playlist-detail.spec.ts --workers=1 --reporter=list` exits 0 and prints `11 passed` with no `failed` and no `flaky` line; running the identical command a second time immediately afterwards, with no database cleanup in between, again exits 0 and prints `11 passed` (this is what proves the fixture names are minted per run and that test 11 cleans up after itself). `grep -c "waitForTimeout" e2e/playlist-detail.spec.ts` prints 0.
+ER1 - The extraction exists, in the layers AGENTS.md prescribes. `test -f src/lib/songPicker.ts && test -f src/hooks/useSongPicker.ts && test -f src/components/playlists/SongPicker.tsx && test -f src/components/playlists/PickerRow.tsx && test -f src/components/playlists/SongPickerToggle.tsx && test -f src/components/ui/Spinner.tsx && test -f src/app/songPickerActions.ts` exits `0`; none of those seven files exists at `882806a`. `grep -c "export function\|export interface\|export const" src/lib/songPicker.ts` prints a number greater than or equal to `9`, and `grep -c "export interface SongPickerController" src/lib/songPicker.ts`, `grep -c "export function useSongPicker" src/hooks/useSongPicker.ts`, `grep -c "export interface SongPickerActions" src/hooks/useSongPicker.ts` and `grep -c "SONG_PICKER_ACTIONS" src/app/songPickerActions.ts` each print a number greater than or equal to `1`. `grep -cE "from ['\"]react['\"]|useState|useEffect|useRef" src/lib/songPicker.ts` prints `0` and `grep -c "@/lib/db" src/lib/songPicker.ts src/hooks/useSongPicker.ts` prints `0` for both files, so the lib is pure and neither new module pulls in `pg`. The controller carries no raw setter (the RH-64 rule): between the line matching `export interface SongPickerController` and the closing `}` of that interface, no member name begins with `set`, and `grep -cE "^\s*set[A-Z]" src/lib/songPicker.ts` prints `0`.
 
-ER2 - The suite grew by exactly that file and nothing else moved. `npx playwright test --list` prints `Total: 33 tests in 7 files`; at `a17dd2b` the same command prints `Total: 22 tests in 6 files`. The new spec is listed under the `chromium` project only and never under `mobile`. `npx playwright test --workers=1 --reporter=list` exits 0 and prints `33 passed`, with no `failed` and no `flaky` line (`22 passed` at `a17dd2b`). `git diff a17dd2b -- e2e/auth.spec.ts e2e/bands-confirm.spec.ts e2e/fast-view-mobile.spec.ts e2e/server-pages.spec.ts e2e/songs-crud.spec.ts e2e/ssr-smoke.spec.ts e2e/global-setup.ts playwright.config.ts` prints nothing at all.
+ER2 - The import direction rule (F21) still holds and the actions arrive by injection. `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing at all (as at `882806a`). `rtk proxy npx eslint src/lib/songPicker.ts src/hooks/useSongPicker.ts src/components/playlists/SongPicker.tsx src/components/playlists/PickerRow.tsx src/components/playlists/SongPickerToggle.tsx src/components/ui/Spinner.tsx src/app/songPickerActions.ts` exits `0` with no output, so no new file needed an override or trips `no-restricted-imports`. `grep -c "from '@/lib/spotify'\|from \"@/lib/spotify\"" src/hooks/useSongPicker.ts` prints `1` (the Spotify half is a client fetch in `src/lib`, not a Server Action, so it is imported and not injected), while `grep -c "searchGlobalSongsAction\|addSongAction\|createAndAddSongAction\|addSongToPlaylistAction\|getPlaylistWithSongsAction" src/hooks/useSongPicker.ts src/components/playlists/SongPicker.tsx` prints `0` for both files and `grep -c "@/app/actions/" src/app/songPickerActions.ts` prints a number greater than or equal to `1`. `head -1 src/components/playlists/SongPicker.tsx`, `head -1 src/components/playlists/PickerRow.tsx` and `head -1 src/components/playlists/SongPickerToggle.tsx` each print exactly `"use client";` or `'use client'` (the hook carries no directive: all eleven files in `src/hooks/`, `useSongStatus.ts` included, open on an `import` line, and this task does not make RH-67 the odd one out).
 
-ER3 - The shared helper file grew additively and no existing caller had to change. `grep -n "^export" e2e/helpers.ts` lists, unchanged from `a17dd2b` in name and signature, `SongData`, `uniqueSongTitle`, `goHome`, `addSong`, `openEditDialog`, `editSong`, `deleteSong` and `songCard`, plus exactly four new exports: `uniqueFixtureName`, `createPlaylist`, `openPlaylist` and `deletePlaylistFromDetail`. `uniqueSongTitle(prefix)` still returns a unique title and is now a delegation to `uniqueFixtureName`, keeping the doc comment that forbids calling it at module scope. `git diff a17dd2b -- e2e/helpers.ts` shows no deleted export and no changed signature, and `npx playwright test e2e/songs-crud.spec.ts e2e/ssr-smoke.spec.ts --workers=1 --reporter=list` exits 0 with the same pass count as at `a17dd2b`.
+ER3 - The picker is gone from the page, and only the picker. In `src/app/playlists/[id]/page.tsx`: `grep -c "pickerQuery\|pickerCatalogResults\|pickerSpotifyResults\|pickerLoading\|pickerAddingId\|pickerRowErrors\|pickerDebounce\|pickerLatestQuery\|runPickerSearch\|handlePickerAddCatalog\|handlePickerAddSpotify\|pickerVisibleCatalog\|pickerVisibleSpotify\|pickerCatalogKeys\|PickerRow\|searchInputRef\|currentSongIds\|addSongIdToPlaylist" 'src/app/playlists/[id]/page.tsx'` prints `0` (it prints a number greater than `40` at `882806a`); `grep -c "searchSpotify\|SpotifyTrack\|searchGlobalSongsAction\|addSongAction\|createAndAddSongAction\|addSongToPlaylistAction\|const Spinner" 'src/app/playlists/[id]/page.tsx'` prints `0`; `grep -c "useSongPicker" 'src/app/playlists/[id]/page.tsx'` prints `2` (the import and the call) and `grep -c "SONG_PICKER_ACTIONS" 'src/app/playlists/[id]/page.tsx'` prints `2`. What must survive does: `grep -c "showSearch" 'src/app/playlists/[id]/page.tsx'` prints a number greater than or equal to `3` (the state, the toggle, the panel gate - RH-70 owns it, not this task), `grep -c "autoPushIfNeeded" 'src/app/playlists/[id]/page.tsx'` prints a number greater than or equal to `3`, and `git diff 882806a -- src/app/actions src/lib/playlists.ts src/lib/spotify.ts src/app/api` prints nothing at all.
 
-ER4 - F13 is closed inside the page, as the two-line derived form. In `src/app/playlists/[id]/page.tsx`: `grep -c "setCurrentUserId" 'src/app/playlists/[id]/page.tsx'` prints 0 (it printed 2 at `a17dd2b`, at lines 291 and 343); the line `const { data: session } = authClient.useSession();` is still present and is immediately followed by `const currentUserId = session?.user?.id ?? null;`; the `useCallback` dependency list of `refreshPlaylist` reads `}, [playlistId, router, bandId]);` (it read `}, [playlistId, router, session?.user?.id, bandId]);` at `a17dd2b`); `grep -c "useState" 'src/app/playlists/[id]/page.tsx'` prints 23 (24 at `a17dd2b`) and `grep -c "" 'src/app/playlists/[id]/page.tsx'` prints 1343 (1344 at `a17dd2b`). `git diff --numstat a17dd2b -- 'src/app/playlists/[id]/page.tsx'` prints exactly one row for that single path, with `2` insertions and `3` deletions, so no other line of that 1344-line file moved. The sweep the remediation asks for now returns the empty set: `grep -rn "useState" src/hooks src/app src/components | grep -v __tests__ | grep -iE "session|userid|currentuser"` prints nothing at all, where at `a17dd2b` it printed exactly one line, `src/app/playlists/[id]/page.tsx:291`.
+ER4 - The page's measured budget numbers fall, and its override entry states them exactly. `grep -c "" 'src/app/playlists/[id]/page.tsx'` prints a number less than or equal to `1080` (`1343` at `882806a`; the reference extraction measures `1019`). `grep -c "useState" 'src/app/playlists/[id]/page.tsx'` prints `17` (`23` at `882806a`), `grep -c "useEffect"` prints `5` (`7`) and `grep -c "useRef"` prints `4` (`7` at
+`882806a`: the `react` import line plus six `useRef(` calls; three of them - 313,
+314 and 320 - leave with the picker). `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx' --rule '{"complexity":["error",1],"max-lines-per-function":["error",300]}'` prints, among its lines, exactly one line containing `Function 'PlaylistDetailPage' has a complexity of` and that number is at most `30` (`35` at `882806a`), and exactly one line containing `Function 'PlaylistDetailPage' has too many lines` and that number is at most `840` (`1071` at `882806a`; the reference extraction measures `834` - the parent plan's `810` double-counts the 61 lines of `PickerRow` and the 23 lines of `Spinner`, which leave the file but were never inside the function). The `complexity-budget/override` entry for `src/app/playlists/\[id\]/page.tsx` in `eslint.config.mjs` carries those three measured values verbatim as its `complexity`, `max-lines-per-function` and `max-lines` ceilings, and `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` (no `--rule`) exits `0` printing nothing.
 
-ER5 - The complexity budget entry states the file's real numbers and the guard is green. The `complexity-budget/override` entry for `src/app/playlists/[id]/page.tsx` in `eslint.config.mjs` reads `complexity: ["error", 35]`, `"max-lines-per-function": ["error", 1071]` and `"max-lines": ["error", 1343]`; at `a17dd2b` it read `34`, `1072` and `1344`. The `complexity` ceiling going up by one, 34 to 35, is expected and is the only number in this task that rises: the coalescing moves out of the `refreshPlaylist` callback (whose complexity falls 6 to 3) and into the component body, and `src/lib/__tests__/complexityBudget.test.ts` requires each ceiling to equal the file's current worst number exactly, so 34 would fail. `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` exits 0 printing nothing (as at `a17dd2b`). `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits 0 with no failed test. The list length is untouched: `grep -c "complexity-budget/override" eslint.config.mjs` prints 20 (20 at `a17dd2b`) and `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints 1, unchanged. No entry is added to that list and none is removed.
+ER5 - The ratchet did not grow and its guard is green. `grep -c "complexity-budget/override" eslint.config.mjs` prints `20`, exactly as at `882806a`: no entry added for any of the seven new files, none removed. `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints `1` and `git diff 882806a -- src/lib/__tests__/complexityBudget.test.ts AGENTS.md docs/plans/code-quality-review.md` prints nothing at all (RH-71 owns the ratchet count, the manifest sentence and the F11 `Status:` line). `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts src/lib/__tests__/namingConventions.test.ts src/lib/__tests__/errorHandlingStyle.test.ts` exits `0` with `0` failed tests - the last two prove the new files match the naming and error-handling conventions, and `grep -rn "console.error" src/hooks/useSongPicker.ts src/components/playlists/SongPicker.tsx` prints nothing at all.
 
-ER6 - The review document records F13 as resolved, with the sweep and the raised ceiling in writing. In `docs/plans/code-quality-review.md`, the `### F13` block gains exactly one line, placed immediately after its `**Remediation:**` line (which was the last line of the block before `### F14` at `a17dd2b`), beginning with the string `**Status:** Resolved by RH-66 (` followed by the commit sha, the same opening every other `Status:` line in that file uses. That line quotes the sweep command `grep -rn "useState" src/hooks src/app src/components | grep -v __tests__ | grep -iE "session|userid|currentuser"` with its result (one line at `a17dd2b`, this page; none after, RH-64 having already turned `useBandAdmin`'s copy into a derived `const` at `6aa099c`), names the three re-pinned numbers `35 / 1071 / 1343` and says plainly that the complexity ceiling rose from 34 to 35 and that RH-67 takes it back down, and contains a clause pointing at the T8 close-out at line 564 of the same file, which says F13 "stays open" and describes the state before this commit. `git diff --numstat a17dd2b -- docs/plans/code-quality-review.md` prints exactly one row for that path, with `1` insertion and `0` deletions: one line added, none removed, so neither the T8 close-out nor the section-5 summary rows were edited.
+ER6 - The pure decisions are unit-tested. `rtk proxy npx vitest run src/lib/__tests__/songPicker.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  15 passed (15)`, its tests named exactly: `treats a blank or one-character query as too short to search`, `accepts a two-character query once trimmed`, `hides catalog results whose song id is already in the playlist`, `keeps every catalog result when the playlist holds no songs`, `builds a dedup key from the lowercased title and artist`, `collects one dedup key per visible catalog song`, `drops a Spotify track the catalog already covers, ignoring case`, `keeps a Spotify track whose artist differs from the catalog result`, `records an Error message under the failing row id`, `records the fallback message when the thrown value is not an Error`, `leaves the other rows untouched when recording an error`, `clears only the given row id from the error map`, `recognises the already-in-your-repertoire message`, `finds the repertoire song id matching the track title and artist, ignoring case`, `returns null when no repertoire entry matches the track`. The file needs no `// @vitest-environment` line, because the module under test imports no DOM API.
 
-ER7 - Every repository gate holds at its `a17dd2b` value. With Postgres at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`: `rtk proxy npx vitest run` exits 0 and prints `Test Files  108 passed (108)` and `Tests  1211 passed (1211)`, with no failed and no skipped entry, identical to `a17dd2b` (this task adds no unit test). `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, identical to `a17dd2b`, so the deleted dependency entry left no `react-hooks/exhaustive-deps` warning behind. `./node_modules/.bin/tsc --noEmit` exits 0 printing nothing. `npm run lint:dead` exits 0 and knip prints nothing. None of these four numbers may move in either direction.
+ER7 - The controller is tested, including the two behaviours that only a hook test can prove. `rtk proxy npx vitest run src/hooks/__tests__/useSongPicker.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  13 passed (13)`. Its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, and its tests are named exactly: `runs no search while the query is shorter than two characters`, `searches once, 500 ms after the last keystroke`, `queries the catalog and Spotify in parallel and exposes both lists`, `keeps the results of the latest query when an earlier search resolves last`, `clears both result lists when the query falls back below two characters`, `hides a catalog result already in the playlist`, `hides a Spotify track the catalog already covers`, `leaves the catalog list empty when the catalog search rejects`, `adds a catalog song already in the repertoire straight to the playlist`, `adds a catalog song missing from the repertoire to the repertoire first`, `creates a Spotify track as a song and adds it to the playlist`, `reuses the existing repertoire entry when the create reports the song is already in the repertoire`, `records a per-row error when an add fails and clears it on the next attempt`. The fourth test resolves two searches out of order and asserts the older one is discarded; the ninth asserts `addToRepertoire` was **not** called; the last asserts that the returned promise resolved rather than rejected and that `rowErrors` names only the failing row.
 
-ER8 - Release hygiene and a closed change set. `git diff --name-only a17dd2b | sort` lists only paths drawn from this closed set and no others: `docs/plans/code-quality-review.md`, `docs/tasks/RH-66-spec.md`, `e2e/helpers.ts`, `e2e/playlist-detail.spec.ts`, `eslint.config.mjs`, `package.json`, `src/app/playlists/[id]/page.tsx`, and optionally `docs/suggestions-log.md`; any other path fails this result, and in particular no file under `src/` other than that one page is modified and no file is deleted. The `version` field of `package.json` is `0.1.101-YYYYMMDDHHmm` with a real local timestamp, up from `0.1.100-202609100006` at `a17dd2b`. `git diff a17dd2b -- src/components/landing src/i18n/dictionaries` prints nothing at all: the landing copy and both dictionaries did not move, because a characterization test suite and a derived constant add no capability a musician would choose the app for.
+ER8 - The panel and its toggle render every state and keep the locator contract the e2e net depends on. `rtk proxy npx vitest run src/components/playlists/__tests__/SongPicker.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  10 passed (10)`. Its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, it builds its `SongPickerController` by hand (no Server Action, no fetch), and its tests are named exactly: `renders a search input whose placeholder names the catalog and Spotify`, `focuses the search input when the panel mounts`, `prompts the user to type while the query is below two characters`, `renders the searching state while the controller reports loading`, `renders the no-results state when both result lists are empty`, `renders one list item per catalog result and per Spotify result`, `calls the controller add command for the clicked catalog row`, `calls the controller add command for the clicked Spotify row`, `disables the Add button of the row being added and shows that row's error`, `renders the Add songs toggle with its pressed state and calls back when clicked`. The tenth test renders `SongPickerToggle` directly from this same file - the page, not `SongPicker`, is the component that renders the toggle, so it cannot be reached through `SongPicker` - and asserts that `getByRole('button', { name: 'Add songs' })` finds it, that its `aria-pressed` attribute reads `false` when `open` is `false` and `true` when `open` is `true`, and that clicking it calls `onToggle` exactly once. Between them the ten tests assert, mechanically, the four locators `e2e/playlist-detail.spec.ts` uses: a placeholder beginning `Search catalog and Spotify`, a `ul` carrying `aria-live="polite"` whose children are `listitem`s, a button named exactly `Add` per row, and a button with accessible name `Add songs` carrying `aria-pressed`.
+
+ER9 - The characterization net passes untouched. `git diff 882806a -- e2e playwright.config.ts` prints nothing at all: not one assertion, locator, helper or timeout was edited to accommodate the refactor. `npx playwright test --list` prints `Total: 33 tests in 7 files`, as at `882806a`. With Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied), `.env.local` present, nothing listening on port 3000 and a fresh production build, `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test --workers=1 --reporter=list` exits `0` and prints `33 passed`, with no `failed` and no `flaky` line; in particular the eleven tests of `e2e/playlist-detail.spec.ts` are among them, including `adds two catalog songs to the playlist through the picker`, which types into the picker, waits out the 500 ms debounce, clicks `Add` on a catalog row, closes the panel and asserts the input is gone (`toHaveCount(0)`, so the panel must unmount, not hide) and that the two adds survive a reload.
+
+ER10 - The new modules are covered and every repository gate holds at its `882806a` value. With Postgres up and a non-empty `SUPABASE_SERVICE_ROLE_KEY`: `rtk proxy npx vitest run` exits `0` printing `Test Files  111 passed (111)` (`108` at `882806a`) and `Tests` passed at least `1249` (`1211` at `882806a`, plus 15 + 13 + 10 new), with `0` failed and `0` skipped. `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`), and `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (k.endsWith('/src/lib/songPicker.ts')||k.endsWith('/src/hooks/useSongPicker.ts')) console.log(k.split('/src/').pop(), pct(Object.values(c[k].f)), pct(Object.values(c[k].s)))"` prints exactly two lines, `lib/songPicker.ts` and `hooks/useSongPicker.ts` in some order, each followed by a function percentage and a statement percentage of at least `90`. `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, identical to `882806a`. `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing. `npm run lint:dead` exits `0` reporting no unused file, export or dependency (so no lib export is speculative). `npm run lint:dup` exits `0` with its `Total:` row reporting at most `18` clones and at most `0.61 %` - the `882806a` numbers, unmoved, because `PickerRow` and `Spinner` are moved and not copied. `npm run audit` exits `0` with no high or critical advisory.
+
+ER11 - Release hygiene and a closed change set, with git state untouched. `git diff --name-only 882806a | sort` lists only paths drawn from this closed set and no others: `docs/suggestions-log.md`, `docs/tasks/RH-66-spec.md`, `eslint.config.mjs`, `package.json`, `src/app/playlists/[id]/page.tsx`, `src/app/songPickerActions.ts`, `src/components/playlists/PickerRow.tsx`, `src/components/playlists/SongPicker.tsx`, `src/components/playlists/SongPickerToggle.tsx`, `src/components/playlists/__tests__/SongPicker.test.tsx`, `src/components/ui/Spinner.tsx`, `src/hooks/__tests__/useSongPicker.test.tsx`, `src/hooks/useSongPicker.ts`, `src/lib/__tests__/songPicker.test.ts`, `src/lib/songPicker.ts`. Any other path fails this result; in particular the list contains no file under `e2e/`, no `AGENTS.md`, no `docs/plans/code-quality-review.md`, no `src/lib/__tests__/complexityBudget.test.ts`, no `src/store/`, no `src/app/actions/` and no deleted file. The `version` field of `package.json` is `0.1.102-YYYYMMDDHHmm` with a real local timestamp, up from `0.1.101-202609100226`. `git diff 882806a -- src/components/landing src/i18n/dictionaries` prints nothing at all: moving an existing panel between files is not a selling point.
 
 ## Out of Scope
 
-- Any extraction from `src/app/playlists/[id]/page.tsx` — the picker (RH-67),
-  the song row and list (RH-68), `useTagEditor` (RH-69), the header, the Spotify
-  sync, the focus effects and the panel reducer (RH-70), and the Server
-  Component conversion that deletes the override entry (RH-71). This task adds
-  one line to that file and deletes or rewrites three, and nothing else.
-- Adding any `aria-label`, `data-testid`, `role` or class to the page to make a
-  locator easier. The net must describe the page as it is; every locator above
-  resolves at `a17dd2b`.
-- The F11 `Status:` line, the section-5 summary rows and the `MAX_OVERRIDES`
-  constant — all RH-71's.
-- Deleting the `complexity-budget/override` entry or lowering the entry count
-  below 20 — RH-71's, after the page stops needing it.
-- Unit tests. `src/app/**/page.tsx` is outside the coverage universe by
-  AGENTS.md:92, and there is nothing pure to extract here; the vitest totals
-  therefore stay at `108` files / `1211` tests.
-- The Spotify half of the picker. `handlePickerAddSpotify` depends on live
-  Spotify credentials and on a track existing in the Spotify catalog, which no
-  CI job can guarantee; the spec exercises the catalog path only and the Spotify
-  path stays covered by manual QA (RH-67 covers its logic with unit tests when
-  it moves into `src/lib`).
-- Band mode. The read-only status badge at page 1160-1166 needs a band context
-  in `localStorage`, i.e. a second fixture and a second user story; the net
-  covers personal mode, which is the mode every one of the ten behaviours runs
-  in today.
-- The delete-playlist and remove-song **failure** paths, the error banner, the
-  Spotify sync strip and the `Sure? / No` cancel branch.
-- `playwright.config.ts` (no new project, no timeout change, no retry change),
-  `e2e/global-setup.ts`, and the other six spec files.
-- Fixing anything in the pre-existing `22 problems (8 errors, 14 warnings)`;
-  none of them is in a file this task touches.
+- **The rest of the page.** The song list and its complexity-29 row arrow, `PlaylistSummary`, `formatDuration`, `timeAgo`, the tag editing (playlist tags, song tags, tag filter), the header and its rename input, the Spotify pull/push sync path, `refreshPlaylist` and the mount effect all stay exactly where they are. They belong to RH-68, RH-69, RH-70 and RH-71.
+- **`showSearch` and the other three focus effects.** Only the picker's focus effect (331-333) leaves, into `SongPicker`. `showSearch` stays a page `useState` because RH-70 folds it, `editing` and `confirmDelete` into one panel reducer; moving it into the controller now would have to be undone there.
+- **The Server Component conversion, the override deletion and the ratchet count.** RH-71 deletes the override entry and takes `MAX_OVERRIDES` to 19; this task only re-pins three numbers.
+- **The `Status:` lines in `docs/plans/code-quality-review.md`.** RH-66 wrote F13's; RH-71 writes F11's. This task writes none and must not touch that file.
+- **Server-side code.** No change to `src/app/actions/*`, `src/lib/playlists.ts`, `src/lib/spotify.ts`, `src/app/api/**` or `src/store/**`. The picker's five Server Actions are re-exported through a bundle, never modified.
+- **The e2e suite.** Not one line under `e2e/` may change; the suite is the regression net, and editing it would remove the only evidence this refactor preserves behaviour.

@@ -19,7 +19,7 @@ import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
  * **every** entry of the playlist — including the versions the owner holds no
  * row for, which used to be skipped and then unreadable offline.
  * `getPersonalEntryForSong` joined them in RH-83, so the snapshot can answer
- * which lyrics version is being read (docs/tasks/RH-84-spec.md §5).
+ * which lyrics version is being read (docs/tasks/RH-83-spec.md §5).
  */
 export const OFFLINE_DOWNLOAD_ACTIONS: OfflineDownloadActions = {
   getPlaylistDetailsWithEntries: getPlaylistDetailsWithEntriesAction,

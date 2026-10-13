@@ -1,5 +1,7 @@
 # RH-75 (board id RH-74) — Integration close-out for the Supabase removal and the poli-runner compose adoption
 
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
 Parent task of RH-75 and RH-76 (board ids), both `done`:
 
 - board RH-75 (`ef525f5`) purged the vendor from `src/`, the vitest suite, `package.json`,
@@ -11,10 +13,10 @@ Parent task of RH-75 and RH-76 (board ids), both `done`:
   `scripts/seed-catalog.sql`, and made `.env.example` a tracked template.
 
 **Numbering note.** This repository's spec filenames run one ahead of the board id:
-board `RH-74` → `docs/tasks/RH-75-spec.previous.md` (this file), board `RH-75` owns
-`docs/tasks/RH-75-spec.md`, board `RH-76` owns `docs/tasks/RH-77-spec.md`. The commit
+board `RH-74` → `docs/tasks/RH-74-spec.md` (this file), board `RH-75` owns
+`docs/tasks/RH-75-spec.md`, board `RH-76` owns `docs/tasks/RH-76-spec.md`. The commit
 scope is the board id: `docs(RH-74): ...`. This is the same divergence
-`docs/tasks/RH-53-spec.md` records for its own split.
+`docs/tasks/RH-52-spec.md` records for its own split.
 
 ## Scope
 
@@ -133,7 +135,7 @@ greps below with no diff.
 
 ### Files touched
 
-- `docs/tasks/RH-75-spec.previous.md` — this spec (new).
+- `docs/tasks/RH-74-spec.md` — this spec (new).
 - `docs/plans/code-quality-review.md` — one appended sentence in Environment preconditions.
 - `docs/test-coverage-plan.md` — one variable name in the banner's live-rule pointer.
 - `docs/plans/mobile-app-analysis.md` — one correction-note sentence for §1.2.
@@ -241,7 +243,7 @@ shasum -a 256 .env .env.local .env.development.local .env.production.local \
 - [ ] `git diff --stat` for this task touches only `README.md`,
       `docs/plans/code-quality-review.md`, `docs/plans/mobile-app-analysis.md`,
       `docs/security-audit.md`, `docs/test-coverage-plan.md`,
-      `docs/tasks/RH-75-spec.previous.md` and `package.json`. The six protected files —
+      `docs/tasks/RH-74-spec.md` and `package.json`. The six protected files —
       `.env`, `.env.local`, `.env.development.local`, `.env.production.local`,
       `tsconfig.tsbuildinfo`, `.claude/settings.local.json` — have **byte-identical
       sha256 hashes before and after the task**, compared against the hashes recorded

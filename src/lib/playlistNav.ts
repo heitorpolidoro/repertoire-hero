@@ -10,7 +10,7 @@
  * This module must not import from `react` / `react-dom` and must not touch
  * `window`, `document` or the App Router tree.
  *
- * See docs/tasks/RH-48-spec.md §1 for the full reasoning.
+ * See docs/tasks/RH-47-spec.md §1 for the full reasoning.
  */
 
 import { queueNeighbours, type SongQueueEntry } from '@/lib/songQueue'

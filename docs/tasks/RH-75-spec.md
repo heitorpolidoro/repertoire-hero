@@ -5,7 +5,7 @@
 
 > **Filename mapping.** This repository's spec filenames run one ahead of the
 > board id: this file, `docs/tasks/RH-75-spec.md`, is the spec for board task
-> **RH-75**. (`docs/tasks/RH-75-spec.previous.md` belongs to board RH-74, which was split
+> **RH-75**. (`docs/tasks/RH-74-spec.md` belongs to board RH-74, which was split
 > into RH-75 and RH-76 and therefore has no spec of its own.)
 
 ## Scope

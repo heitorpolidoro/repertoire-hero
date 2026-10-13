@@ -1,271 +1,630 @@
-# RH-44 — Corrigir CI vermelho na master: job build/Test e job E2E
+# RH-45 - Mover SQL das Server Actions para src/lib e usar o pool compartilhado na rota dev
 
-Baseline for every measurement in this document: `68a605b`
-(`docs(RH-43): consolidate naming, module layout and i18n conventions in AGENTS.md`),
-CI run `34421317184`, E2E job `102697152412`.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-37 (part 1 of 3). Findings: RH-25 T4 F8 (SQL in the Server Action
+layer) and F22 (a route handler opening its own Postgres client). Baseline:
+`059d4c3`.
 
 ## Scope
 
-Make the `E2E Tests (Playwright)` job green on master by repairing the four
-tests that fail there, and record — with evidence, without redoing it — that the
-coverage-threshold half of this task's title was already resolved before the
-task was picked up.
+This task moves every SQL statement that currently lives in
+`src/app/actions/*.ts` into `src/lib`, and puts `src/app/api/dev/profiles/route.ts`
+on the shared pool. Concretely:
 
-Everything this task changes lives under `e2e/`. No file under `src/` changes:
-each of the four failures is a test asserting behaviour the application
-deliberately no longer has, or a fixture that cannot survive being run twice.
-If the implementer finds a genuine application bug while doing this, the spec's
-whitelist forbids fixing it here — it is reported and becomes its own task.
+- a new `src/lib/tabs.ts` owning all six `repertoire_tabs` statements, each one
+  calling the existing `assertRepertoireAccess` from `@/lib/songs`;
+- three new functions in `src/lib/songs.ts`: `updateLyrics`,
+  `applySongLinkUpdate` (the `global_songs.links` read plus the additive write
+  or moderation hand-off) and `getPersonalEntryForSong`;
+- one new function in `src/lib/playlists.ts`: `getPlaylistDetailsWithEntries`
+  (playlist name plus the ordered entries query, with its two authorization
+  calls);
+- a new `src/lib/devProfiles.ts` exporting `listDevProfiles()` on `query()` from
+  `@/lib/db`, with the `NODE_ENV` guard staying in the route handler;
+- `src/app/actions/tabs.ts`, `repertoire.ts` and `playlists.ts` reduced to
+  session resolution, delegation and `revalidatePath`;
+- a new mechanical guard in the `findViolations` / `actionScan.ts` pattern that
+  fails when a `query(` call or an `@/lib/db` import reappears under
+  `src/app/actions/*.ts`, or when a hand-rolled `pg` `Client` reappears anywhere
+  under `src/`;
+- retargeting the action test suites that mock `@/lib/db`, and adding unit
+  suites for every moved function plus a real-database suite for the tab
+  functions.
 
-## Audit at 68a605b
+This task does not change any action signature, any action name, any envelope
+shape, or any fail-closed mode. `src/components` and `src/hooks` are not touched
+at all.
 
-### The coverage half is already resolved — do not redo it
+## Audit at 059d4c3
 
-The task was filed on 2026-09-06 because the reused job `build / Test (Node
-24.x)` (`heitorpolidoro/.github/.github/workflows/node-ci.yml@master`, invoked
-from `.github/workflows/ci.yml:9-14`) failed with
-`ERROR: Coverage for branches (64.12%) does not meet global threshold (65%)`.
-That job runs `vitest --run --coverage.enabled --coverage.reporter=lcov
---reporter=dot` without `SUPABASE_SERVICE_ROLE_KEY`, so the database-gated
-suites skip and the branch percentage drops.
+Verified at HEAD `059d4c3` (`fix(RH-36): real transaction helper and atomic
+multi-statement writes`), version `0.1.71-202609070848`.
 
-It no longer fails. On the three most recent `Node.js CI` runs on master —
-`34421317184` (`68a605b`), `34414088458` (`bb5070b`), `34406504171`
-(`890a27b`) — both `build / Test (Node 24.x)` and `Coverage (vitest)` have
-conclusion `success`, and the only failing job is `E2E Tests (Playwright)`. The
-log of job `102697152410` shows the skip still happening
-(`Test Files 92 passed | 15 skipped (107)`, `Tests 1049 passed | 160 skipped
-(1209)`) and no threshold error: the unit tests added between `27e44a8` and
-`68a605b` (RH-41, RH-42, RH-62, RH-63) lifted branch coverage over the 65 gate
-on their own. Nothing in `.github/workflows/ci.yml` or `vitest.config.ts` was
-changed to achieve it — `git log -S "database: postgres" -- .github/workflows/ci.yml`
-returns only `3e8d712` (2026-07-26), long before the thresholds landed in
-`13da8b2` (RH-24).
+`grep -c "query(" src/app/actions/*.ts` prints `bands.ts:0`, `moderation.ts:0`,
+`playlists.ts:2`, `profile.ts:0`, `repertoire.ts:5`, `tabs.ts:6` (13 sites).
+`grep -rn "@/lib/db" src/app/actions/*.ts` prints `playlists.ts:15`,
+`repertoire.ts:5`, `tabs.ts:4`. `grep -rln "new Client" src` prints exactly
+`src/app/api/dev/profiles/route.ts`; `src/lib/db.ts` uses `new Pool`, not
+`new Client`, so after this task the same grep must print nothing at all.
 
-Consequence for this task: **do not touch the CI workflow or the vitest
-config.** ER7 pins both as byte-identical to `68a605b`, and the post-merge check
-confirms the two jobs stay green.
+Correction carried over from the RH-37 split analysis: the `checkAccess` helper
+that F8 describes as "hidden inside a `'use server'` file" no longer exists.
+RH-34 replaced it with `assertRepertoireAccess` in `src/lib/songs.ts:12`, which
+`src/app/actions/tabs.ts:5` already imports and every tab action already calls.
+There is no authorization helper left to re-home; the work is purely moving SQL
+and keeping the existing lib-level predicates as the single statement of
+ownership.
 
-### The four E2E failures
+### src/app/actions/tabs.ts
 
-`npx playwright test` runs 22 tests (19 chromium + 3 mobile). In CI the job
-reports `4 failed`, `18 passed (3.3m)`. Reproduced locally against a production
-build (`npm run build`, `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H
-127.0.0.1"`, Postgres at `postgresql://postgres:postgres@127.0.0.1:54322/postgres`),
-with `--workers=1` and a never-before-used `E2E_USER_EMAIL`: `3 failed`,
-`19 passed (33.1s)` — the same three deterministic failures; the fourth is a CI
-flake described below.
+| Site | What it does | New owner | Ownership predicate it duplicates |
+| --- | --- | --- | --- |
+| L57 | `INSERT INTO repertoire_tabs (repertoire_id, title, file_url) ... RETURNING id, repertoire_id, title, file_url, created_at::text` | `src/lib/tabs.ts` `createTab` | None directly; the action already calls `assertRepertoireAccess` before the blob upload, and the write itself is unscoped once inside the action |
+| L78 | `SELECT file_url FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2` | `src/lib/tabs.ts` `getTabFileUrl` | The `id + repertoire_id` pairing is a second, weaker restatement of "this tab belongs to a repertoire entry the caller may act on" |
+| L93 | `DELETE FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2` | `src/lib/tabs.ts` `deleteTab` | Same pairing |
+| L113 | `SELECT annotations FROM repertoire_tabs WHERE id = $1 AND repertoire_id = $2` | `src/lib/tabs.ts` `getTabAnnotations` | Same pairing |
+| L147 | `UPDATE repertoire_tabs SET annotations = jsonb_set(annotations, $3, $4::jsonb, true) WHERE id = $1 AND repertoire_id = $2 RETURNING id` | `src/lib/tabs.ts` `saveTabAnnotations` | Same pairing |
+| L166 | `SELECT ... FROM repertoire_tabs WHERE repertoire_id = $1 ORDER BY created_at DESC` | `src/lib/tabs.ts` `listTabs` | The bare `repertoire_id` scope, which is only safe because the action asserted access first |
 
-**(1) and (2) — `e2e/auth.spec.ts:52` and `:59` assert that `/` is private.**
-Both do `page.goto('/')` and then wait for `/login`. `/` has been the public
-landing page since the landing work, and `src/proxy.ts`'s matcher (twelve
-entries, RH-65) does not list it. Measured against the ER7 build with
-`npx next start -p 3210` and no cookie:
+### src/app/actions/repertoire.ts
 
-```
-/                     -> 200
-/profile              -> 307  http://127.0.0.1:3210/login?redirect=%2Fprofile
-/bands                -> 307  http://127.0.0.1:3210/login?redirect=%2Fbands
-/songs/x/fast-view    -> 307  http://127.0.0.1:3210/login?redirect=%2Fsongs%2Fx%2Ffast-view
-```
+| Site | What it does | New owner | Ownership predicate it duplicates |
+| --- | --- | --- | --- |
+| L108 / L113 | `UPDATE repertoire SET lyrics = $1 WHERE id = $2 AND band_id = $3` or `... AND user_id = $3`, chosen by a hand-rolled `'bandId' in owner` branch | `src/lib/songs.ts` `updateLyrics(owner, repertoireId, lyrics)` | An exact hand copy of the `isBand ? 'band_id = $3' : 'user_id = $3'` branch that `updateSongStatus` (`songs.ts:103`) and `updateSongTags` (`songs.ts:122`) already express |
+| L153 | `SELECT links FROM global_songs WHERE id = $1` | `src/lib/songs.ts` `applySongLinkUpdate` | None; the ownership check is `assertRepertoireAccess` in the action, which stays there because it is what resolves `songId` |
+| L179 | `UPDATE global_songs SET links = $1 WHERE id = $2` | `src/lib/songs.ts` `applySongLinkUpdate` | None (catalog-wide write, gated by the additive-vs-moderated decision) |
+| L191 | `SELECT r.*, json_build_object(...) as song FROM repertoire r JOIN global_songs s ON r.song_id = s.id WHERE r.song_id = $1 AND r.user_id = $2` | `src/lib/songs.ts` `getPersonalEntryForSong(songId, userId)` | The `json_build_object` song projection is a verbatim copy of the one in `getRepertoire` (`songs.ts:38-56`) and `getSongEntry` (`songs.ts:197`); the `r.user_id = $2` scope restates the personal half of `RepertoireOwner` |
 
-`e2e/ssr-smoke.spec.ts:19,30` already pins the opposite of what these two tests
-assert (`GET / signed out returns a 200 SSR document`, `signed-out / renders the
-landing page in a browser`) and is green. The suite currently contradicts
-itself; `ssr-smoke` is the half that is right.
+### src/app/actions/playlists.ts
 
-**(3) — `e2e/songs-crud.spec.ts:47` asserts a rename the catalog refuses.**
-The test adds `E2E Song Before Edit`, opens the edit dialog, types a new title
-and artist, saves, and expects the old card to be gone. `src/lib/songs.ts:257-267`
-(`updateSong`) writes the shared `global_songs` row **fill-if-empty**:
-`title = CASE WHEN title IS NULL OR title = '' THEN $1 ELSE title END`, and the
-same for `artist`, `album`, `standard_key`, `cover_url`, `duration_seconds` and
-`links`. An already-set title is never overwritten, by design (commit `d102d28`,
-RH-15: a correction to an already-set field goes through `Correct Global Info`
--> `submitGlobalSongEditAction` -> the admin moderation queue). Only the
-owner-scoped `repertoire` columns (`status`, `tags`, `personal_key`) are written
-unconditionally. So the card keeps its title, the assertion at line 58 receives
-`1` where it expects `0`, and this is the application behaving as specified. The
-local database confirms it: after many runs, `global_songs` holds
-`E2E Song Before Edit` and no `E2E Song After Edit` row at all.
+| Site | What it does | New owner | Ownership predicate it duplicates |
+| --- | --- | --- | --- |
+| L77 | `SELECT name FROM playlists WHERE id = $1`, falling back to the literal name `Playlist` when there is no row | `src/lib/playlists.ts` `getPlaylistDetailsWithEntries` | Unscoped on purpose; it is safe only because `assertPlaylistAccess` ran first in the action |
+| L93 | The ordered `playlist_songs JOIN global_songs JOIN repertoire` query with the `$1::uuid IS NOT NULL` band branch, `ORDER BY ps.position ASC` | `src/lib/playlists.ts` `getPlaylistDetailsWithEntries` | The band-or-user branch restates, in SQL, the same choice that `RepertoireOwner` expresses in TypeScript, and the `assertBandMember` call above it is what makes the band branch safe |
 
-**(4) — `e2e/fast-view-mobile.spec.ts:58` is a CI-only flake, amplified by (5).**
-Its first CI attempt failed on `page.waitForURL(/\/songs\/.+\/fast-view/)` with
-`waiting for navigation until "load"` and **no navigation logged at all** — the
-click on the card link produced nothing. The two retries then failed differently
-(see below). The test passes locally in 1.2s on every run performed for this
-spec. The card link is a `next/link` inside a client-rendered list
-(`src/app/page.tsx:396`), and this repository already carries the fix for
-exactly this failure mode twice, with the diagnosis in a comment:
-`e2e/bands-confirm.spec.ts:43-50` and `e2e/server-pages.spec.ts:60-65` —
-"The button paints before React hydrates, so a click can be swallowed on a cold
-route. Retry opening the dialog until the name field actually appears." —
-implemented with `await expect(async () => { ... }).toPass({ timeout: 30_000 })`.
+### src/app/api/dev/profiles/route.ts
 
-**(5) — the fixtures cannot survive a second run, which is why retries never
-rescue anything.** `songs-crud` and `fast-view-mobile` create songs under
-module-level constant titles (`SONG_ADD`, `SONG_EDIT_BEFORE`, `SONG_DELETE`,
-`MOBILE_SONG_TITLE`, `MOBILE_SONG_FAST_VIEW`) for a single fixed user
-(`e2e-test@example.com`, `e2e/global-setup.ts:17`) against a database that is
-never reset. `createAndAddSong` (`src/lib/songs.ts:369`) throws
-`Song already in your repertoire` when the row is already there; `SongForm`
-renders that in the dialog's `role="alert"` and leaves the dialog open; the
-`addSong` helper then times out on `expect(page.locator('dialog[open]'))
-.toHaveCount(0)` (`e2e/helpers.ts:57`). That is precisely what both CI retries
-of (3) and (4) hit — the job log carries four
-`[WebServer] [error] Failed to create and add song Error: Song already in your
-repertoire` lines, interleaved with the retries — so a test that fails once can
-never pass on retry, and `retries: 2` buys nothing. Locally the same defect
-shows up as the second run of the suite failing: with a database already
-carrying the five `E2E %` rows, the three specs report `7 failed / 3 passed`,
-versus `3 failed / 7 passed` for the identical command with a fresh
-`E2E_USER_EMAIL`. Two other specs already solved this the right way and are the
-precedent: `e2e/bands-confirm.spec.ts:36` (`E2E Band Confirm ${Date.now()}`) and
-`e2e/server-pages.spec.ts:52` (`E2E Server Playlist ${Date.now()}`, which also
-deletes what it created).
+L19 builds `new Client({ connectionString: process.env.DATABASE_URL })`,
+connects, runs `SELECT id, email, name FROM "user" ORDER BY name`, maps
+`name` to `full_name`, and closes the client in a `finally`. It ignores the
+`BETTER_AUTH_DATABASE_URL` fallback that `src/lib/db.ts:3` implements, and its
+catch returns the raw exception text with status 500. The `NODE_ENV !==
+'development'` guard at L15 returns `{ error: 'Not found' }` with status 404;
+that guard and that status stay exactly as they are.
 
-A secondary consequence of the constant titles: `MOBILE_SONG_TITLE` is a strict
-prefix of `MOBILE_SONG_FAST_VIEW`, and `songCard` filters by `hasText`, so once
-both rows exist the search test's `expect(songCard(page, MOBILE_SONG_TITLE))
-.toBeVisible()` matches two elements and violates strict mode.
+### Tests that break when the SQL moves
+
+`grep -rln "vi.mock('@/lib/db'" src/app/actions/__tests__` returns four files:
+
+- `src/app/actions/__tests__/tabs.test.ts` - drives `getTabAnnotationsAction`
+  and `saveTabAnnotationsAction` entirely through queued `vi.mocked(query)`
+  results and asserts on `mock.calls[1][0]` SQL text. Must be retargeted.
+- `src/app/actions/__tests__/playlists.test.ts` - the whole
+  `getPlaylistDetailsWithEntriesAction` block reads
+  `vi.mocked(query).mock.calls[1]`. Must be retargeted.
+- `src/app/actions/__tests__/repertoire.test.ts` - the `updateLyricsAction`,
+  `updateSongLinksAction` and `getPersonalEntryForSongAction` blocks assert on
+  SQL text and parameters. Must be retargeted.
+- `src/app/actions/__tests__/actionSessionGuard.test.ts` - mocks `@/lib/db` so
+  that reaching the database without a session throws. This mock keeps working
+  unchanged: the actions now reach `query` transitively through `src/lib/*`, and
+  `vi.mock('@/lib/db')` intercepts that too. This file needs no functional
+  change; only its header comment may be updated.
+
+Two further suites must keep passing untouched in substance:
+`src/app/actions/__tests__/actionAuthorizationGuard.test.ts` (its allowlist keys
+must remain exactly `getPlaylistDetailsWithEntriesAction` and `resolveOwner`,
+and its `band_members` scan must stay green) and
+`src/app/actions/__tests__/thinActions.test.ts`.
 
 ## Approach
 
-Four changes, all under `e2e/`. No `src/` change, no CI change, no
-`playwright.config.ts` change, and no `retries` or `waitForTimeout` anywhere.
+### 1. `src/lib/tabs.ts` (new)
 
-**A. Point the two auth tests at a route that is actually private.**
-Replace `page.goto('/')` in `e2e/auth.spec.ts:52` and `:59` with a route that
-appears in the `src/proxy.ts` matcher — `/profile` is the natural pick, it is
-the route `e2e/ssr-smoke.spec.ts` already uses for the signed-in shell and it
-carries no per-test data. The first test keeps asserting the bounce to `/login`
-and additionally asserts the `redirect` query parameter names the requested
-route; the second keeps the `?redirect=` wait, logs in, and now expects to land
-on that route rather than on `/`. The first test is renamed to say what it
-tests; the second keeps its name. Neither test may assert anything about `/`:
-`e2e/ssr-smoke.spec.ts` owns that route's behaviour and is not modified.
+```ts
+import { query } from '@/lib/db'
+import { logger } from '@/lib/logger'
+import { assertRepertoireAccess } from '@/lib/songs'
+import type { RepertoireTab, Stroke, TabAnnotations } from '@/types/database'
 
-**B. Rewrite the edit test against the catalog contract that exists.**
-`e2e/songs-crud.spec.ts:47` becomes a test of fill-if-empty, which is the rule
-the code implements and the one worth guarding: add a song with a title and
-**no** artist; open the edit dialog; type both a new title and an artist; save;
-then assert (a) the card is still there under its original title and now shows
-the artist that was typed into the empty field, and (b) no card exists under the
-typed-in title. One test, both halves of the rule, no new helper: the existing
-`editSong(page, title, { title, artist })` already does the interaction. The
-test is renamed accordingly. That the form silently discards a typed title with
-no feedback to the user is a real UX gap, but it is an application change and
-belongs in its own task — record it in `docs/suggestions-log.md`, do not fix it
-here.
-
-**C. Make every fixture unique per test invocation.**
-Add one exported helper to `e2e/helpers.ts` that builds a run-unique song title
-from a prefix, and call it **inside the test body (or a `beforeEach`), never at
-module scope** — a retry can execute in the same worker process, so a suffix
-computed once at import time would repeat and collide exactly as today's
-constants do. The suffix must be unique per call (a timestamp plus a
-process-local counter is sufficient; `bands-confirm` and `server-pages` use
-`Date.now()`). Every `addSong` call in `e2e/songs-crud.spec.ts` and
-`e2e/fast-view-mobile.spec.ts` uses it, and the two mobile prefixes stop being
-prefixes of one another. Deleting the created rows afterwards is welcome but not
-required: with unique titles a leftover row can never be looked up again.
-
-**D. Retry the two clicks that can be swallowed before hydration.**
-In `e2e/helpers.ts`, wrap the "Add song" button click of `addSong` in the
-`expect(async () => { ... }).toPass({ ... })` shape used at
-`e2e/bands-confirm.spec.ts:46-50`, retrying until `dialog[open]` appears. The
-**submit** click is explicitly not wrapped — retrying a submit could add the
-song twice. In `e2e/fast-view-mobile.spec.ts`, wrap the fast-view link click the
-same way, retrying until the URL matches `/songs/<id>/fast-view`, which removes
-the CI failure mode of (4). Optionally (recommended, not pinned): when the
-dialog fails to close after a submit, have `addSong` report the text of the
-in-dialog `role="alert"` instead of a bare `toHaveCount` timeout, so the next
-fixture regression names itself.
-
-### Whitelist
-
-Required:
-
-```
-docs/tasks/RH-44-spec.md
-e2e/auth.spec.ts
-e2e/fast-view-mobile.spec.ts
-e2e/helpers.ts
-e2e/songs-crud.spec.ts
-package.json
+export async function createTab(repertoireId: string, userId: string, title: string, fileUrl: string): Promise<RepertoireTab>
+export async function getTabFileUrl(tabId: string, repertoireId: string, userId: string): Promise<string | null>
+export async function deleteTab(tabId: string, repertoireId: string, userId: string): Promise<void>
+export async function getTabAnnotations(tabId: string, repertoireId: string, userId: string): Promise<TabAnnotations | null>
+export async function saveTabAnnotations(tabId: string, repertoireId: string, userId: string, pageNumber: number, strokes: Stroke[]): Promise<boolean>
+export async function listTabs(repertoireId: string, userId: string): Promise<RepertoireTab[]>
 ```
 
-Permitted but not required, and nothing else:
+Rules for this module:
 
+- `await assertRepertoireAccess(repertoireId, userId)` is the first statement of
+  every one of the six functions, outside any wrapping `try`, so its
+  `Access denied: not allowed on this repertoire entry` text survives verbatim
+  (convention L1a). This is the single ownership predicate; no function
+  re-derives it.
+- "Not found" is never an exception here. `getTabFileUrl` and
+  `getTabAnnotations` return `null` on zero rows and `saveTabAnnotations`
+  returns `false`, so the calling action produces the exact same
+  `{ error: 'Tab not found' }` envelope it produces today.
+- The `pageNumber` precondition moves with the SQL it protects:
+  `saveTabAnnotations` throws `new Error('Invalid page number')` when
+  `!Number.isInteger(pageNumber) || pageNumber < 1`, outside the wrapping `try`
+  (L1a), so the action's catch still yields `{ error: 'Invalid page number' }`.
+- Database failures are wrapped per convention L1: `logger.error('Failed to
+  <verb>', err, { ... })` and then `throw new Error('Failed to <verb>:
+  ${err.message}')`. **This is a deliberate, documented behaviour delta**: today
+  a raw `connection lost` reaches the tab envelopes unlogged; after the move the
+  envelope reads `Failed to save annotations: connection lost` and the failure
+  reaches Sentry. It is the only user-visible text change in this task, it is
+  what the `src/lib` layer convention requires, and the retargeted tests assert
+  the new text.
+- jscpd risk: the six functions share the shape "assert, one parameterized
+  statement, L1 wrapper". The baseline is 19 clones / 239 duplicated lines
+  (0.96 %) against a 2 % threshold, so there is headroom, but do not let the L1
+  wrapper become six copies of an eight-line block. If jscpd flags it, factor
+  the wrapper into one local `runTabQuery(label, sql, params)` helper inside the
+  module rather than raising the threshold.
+
+### 2. `src/app/actions/tabs.ts`
+
+Keeps `'use server'`, the `export type { Stroke, TabAnnotations }` re-export
+(`src/components/tabs/TabDrawingStage.tsx` imports those types from this module
+and must keep compiling), the `try/catch` envelopes (convention A1), the file
+size and PDF magic-byte checks, the `@vercel/blob` `put`/`del` calls and
+`revalidatePath('/')`. It loses the `@/lib/db` import and all six statements.
+
+`uploadTabAction` and `deleteTabAction` keep their own
+`await assertRepertoireAccess(repertoireId, userId)` call before touching Vercel
+Blob. That is deliberate: without it the blob upload (or delete) would happen
+before authorization. The lib function asserts again so it is safe when called
+standalone; the extra round trip is the price of not moving a side effect ahead
+of its check.
+
+Mapping: `createTab` for upload, `getTabFileUrl` then `deleteTab` for delete,
+`getTabAnnotations` for the read, `saveTabAnnotations` for the write, `listTabs`
+for `getTabsAction` (which keeps its no-try/catch, throwing shape).
+
+### 3. `src/lib/songs.ts` additions
+
+```ts
+export async function updateLyrics(owner: RepertoireOwner, repertoireId: string, lyrics: string): Promise<void>
+export async function applySongLinkUpdate(userId: string, songId: string, links: SongLink[]): Promise<{ success: true; pending?: true }>
+export async function getPersonalEntryForSong(songId: string, userId: string): Promise<Repertoire | null>
 ```
-docs/suggestions-log.md
-e2e/global-setup.ts
+
+- `updateLyrics` mirrors `updateSongStatus` exactly: `const isBand = 'bandId' in
+  owner`, `WHERE id = $2 AND ${isBand ? 'band_id = $3' : 'user_id = $3'}`, L1
+  wrapper with `Failed to update lyrics`. It must **not** gain a `RETURNING id`
+  row-count check. Today a non-matching id silently no-ops and the action
+  resolves; adding a "not found" throw would be a behaviour change that is out
+  of scope for a move.
+- `applySongLinkUpdate` carries the whole body of today's
+  `updateSongLinksAction` except the session resolution, the
+  `assertRepertoireAccess` call and `revalidatePath`: read `links` from
+  `global_songs`, throw `new Error('Song entry not found')` on zero rows
+  (outside the wrapping try, L1a), auto-label blank labels through
+  `fetchUrlTitle`, compute `isAdditive`, and then either
+  `await submitGlobalSongEdit(userId, songId, { links: processedLinks })`
+  returning `{ success: true, pending: true }`, or `UPDATE global_songs SET
+  links = $1 WHERE id = $2` returning `{ success: true }`. `@/lib/linkFetcher`
+  and `@/lib/moderation` become static imports of `songs.ts`; neither imports
+  `songs.ts`, so there is no cycle (`moderation.ts` imports only `db`, `logger`
+  and `songSanitizer`; `linkFetcher.ts` imports nothing).
+- `getPersonalEntryForSong` is the L191 statement verbatim, returning `null` on
+  zero rows and L1-wrapping a database failure.
+
+### 4. `src/app/actions/repertoire.ts`
+
+Loses the `@/lib/db` import. `resolveOwner` is unchanged (the
+`actionAuthorizationGuard` allowlist depends on its name).
+
+```ts
+export async function updateLyricsAction(repertoireId: string, lyrics: string, bandId?: string | null) {
+  const owner = await resolveOwner(bandId)
+  await updateLyrics(owner, repertoireId, lyrics)
+  revalidatePath('/')
+}
+
+export async function updateSongLinksAction(repertoireId: string, links: SongLink[]) {
+  const userId = await getRequiredUserId()
+  const { song_id: songId } = await assertRepertoireAccess(repertoireId, userId)
+  const result = await applySongLinkUpdate(userId, songId, links)
+  if (!result.pending) revalidatePath('/')
+  return result
+}
+
+export async function getPersonalEntryForSongAction(songId: string): Promise<Repertoire | null> {
+  try {
+    const userId = await getRequiredUserId()
+    return await getPersonalEntryForSong(songId, userId)
+  } catch {
+    return null
+  }
+}
 ```
 
-**Landing Page Rule decision.** This task ships no user-facing capability at
-all — it repairs tests. The landing copy must not change; ER8 asserts it
-mechanically.
+`getPersonalEntryForSongAction` keeps its `try { ... } catch { return null }`
+verbatim: it is the single `null` entry in `actionSessionGuard.test.ts`'s
+fail-closed table and its fast-view call site has no rejection handler.
+`revalidatePath` stays off the `pending` branch, exactly as today.
 
-**Version.** Bump `package.json` to `0.1.99-YYYYMMDDHHmm` with a real local
-timestamp, from `0.1.98-202609092108`.
+### 5. `src/lib/playlists.ts` addition
+
+```ts
+export interface PlaylistEntrySummary {
+  repertoireId: string
+  songId: string
+  title: string
+  artist: string | null
+}
+
+export async function getPlaylistDetailsWithEntries(
+  playlistId: string,
+  userId: string,
+  bandId?: string | null,
+): Promise<{ name: string; entries: PlaylistEntrySummary[] }>
+```
+
+Both authorization calls move into it, in the same order:
+`await assertPlaylistAccess(playlistId, userId)` (already exported by this
+module) and then `if (bandId) await assertBandMember(bandId, userId)` imported
+from `@/lib/bands`. `bands.ts` does not import `playlists.ts`, so the new
+lib-to-lib edge introduces no cycle. Then the name read with its `?? 'Playlist'`
+fallback, then the ordered entries query with parameters
+`[bandId ?? null, userId, playlistId]`, mapped to `PlaylistEntrySummary`.
+
+`getPlaylistDetailsWithEntriesAction` becomes:
+
+```ts
+export async function getPlaylistDetailsWithEntriesAction(playlistId: string, bandId?: string | null) {
+  const userId = await getRequiredUserId()
+  return getPlaylistDetailsWithEntries(playlistId, userId, bandId)
+}
+```
+
+It keeps calling `getRequiredUserId()` directly, so both RH-34 guards stay
+satisfied and the allowlist key set is unchanged. Only the explanatory comment
+beside the `getPlaylistDetailsWithEntriesAction` allowlist entry in
+`actionAuthorizationGuard.test.ts` may be reworded (it currently says the action
+"itself calls ... assertPlaylistAccess()"); the assertions and the key set stay
+byte-identical. `getPlaylistEntryIdsAction` is unchanged.
+
+### 6. `src/lib/devProfiles.ts` (new) and the dev route
+
+```ts
+export interface DevProfile { id: string; email: string; full_name: string | null }
+export async function listDevProfiles(): Promise<DevProfile[]>
+```
+
+It runs `SELECT id, email, name FROM "user" ORDER BY name` through `query()`
+from `@/lib/db` and maps `name` to `full_name`, so the JSON body the login page
+consumes is byte-identical. L1 wrapper: `Failed to list dev profiles`.
+
+A separate module rather than an addition to `src/lib/profile.ts`: this reads
+the Better Auth `"user"` table, not the app's `profiles` table, and it is dev
+tooling. Keeping it out of `profile.ts` keeps that module's API honest, and a
+one-function module is trivially covered.
+
+`src/app/api/dev/profiles/route.ts` keeps `export const dynamic =
+'force-dynamic'` and keeps the `NODE_ENV !== 'development'` guard returning
+`{ error: 'Not found' }` with status 404, unchanged. The body becomes
+`return NextResponse.json(await listDevProfiles())` inside a `try`, with an R1
+catch: `logger.error('[dev/profiles]', error instanceof Error ? error :
+undefined)` and `NextResponse.json({ error: 'Unexpected error listing dev
+profiles', code: 500 }, { status: 500 })`. That replaces today's raw-exception
+500 body with the documented route-handler convention; it is a dev-only error
+path and no caller reads that text.
+
+### 7. The mechanical guard: `src/app/actions/__tests__/actionDataAccessGuard.test.ts` (new)
+
+Modelled on `src/lib/__tests__/transactionGuard.test.ts` and reusing
+`actionScan.ts` plus `findViolations` / `formatViolations` from
+`src/lib/__tests__/test-helpers`. Three assertions plus a detector self-test:
+
+1. No `query(` call in any file directly under `src/app/actions`. Scan
+   `stripComments(readActionFile(f))` for each `f` of `actionFileNames()` with
+   `/\bquery\s*\(/`, and expect the collected `file:line` list to equal `[]`.
+   Comments are stripped first so a comment that mentions the call is not a
+   violation.
+2. No `@/lib/db` import in any file directly under `src/app/actions`. Same scan
+   with `/from\s+['"]@\/lib\/db['"]/`.
+3. No hand-rolled `pg` client anywhere under `src/`:
+   `findViolations(NEW_CLIENT, { skip: 'src/lib/db.ts' })` must be `[]`, where
+   `NEW_CLIENT` is built by string concatenation (`new RegExp('new ' + 'Client'
+   + '\\s*\\(')`) so the banned literal never appears in this file and a plain
+   `grep` over `src/` does not flag the guard itself. `src/lib/db.ts` is skipped
+   as the one place a client could ever legitimately be constructed; it uses
+   `new Pool` today, so the skip changes nothing at merge.
+4. A detector self-test in the shape `transactionGuard.test.ts` uses: each
+   regex matches an offending sample built by concatenation and does not match a
+   clean sample.
+
+The failure message must name the offending `file:line` entries so a developer
+who reintroduces a statement sees where.
+
+Note for the test author: this file lives under `src/app/actions/__tests__`,
+which `actionFileNames()` does not list, so assertions 1 and 2 cannot flag the
+guard itself; only assertion 3 scans the whole tree, which is why its pattern is
+concatenated.
+
+### 8. Test plan
+
+Retargeted (existing files):
+
+- `src/app/actions/__tests__/tabs.test.ts` - drop `vi.mock('@/lib/db')`, mock
+  `@/lib/tabs` instead, and assert delegation: each action calls the matching
+  lib function with `(tabId, repertoireId, userId, ...)`, maps `null`/`false` to
+  `{ error: 'Tab not found' }`, propagates the `Access denied` message into the
+  envelope, and turns a rejected lib call into
+  `{ error: 'Failed to save annotations: connection lost' }`.
+- `src/app/actions/__tests__/playlists.test.ts` - drop `vi.mock('@/lib/db')`;
+  add `getPlaylistDetailsWithEntries` to the existing `@/lib/playlists` mock and
+  assert `getPlaylistDetailsWithEntriesAction` forwards
+  `(PLAYLIST_ID, USER_ID, bandId)` and `getPlaylistEntryIdsAction` returns just
+  `entries`. The `assertPlaylistAccess` / `assertBandMember` ordering assertions
+  move to the lib suite.
+- `src/app/actions/__tests__/repertoire.test.ts` - drop `vi.mock('@/lib/db')`;
+  add `updateLyrics`, `applySongLinkUpdate` and `getPersonalEntryForSong` to the
+  existing `@/lib/songs` mock. The `updateLyricsAction` block asserts the owner
+  fork is forwarded (`{ bandId }` / `{ userId }`) plus `revalidatePath('/')`;
+  the `updateSongLinksAction` block asserts `assertRepertoireAccess` runs first,
+  the resolved `songId` is forwarded, and `revalidatePath` fires only when the
+  result is not `pending`; the `getPersonalEntryForSongAction` block keeps its
+  three cases against the mocked lib function.
+- `src/app/actions/__tests__/actionSessionGuard.test.ts` - no functional change;
+  its `@/lib/db` mock now bites transitively. Header comment may be updated.
+- `src/app/actions/__tests__/actionAuthorizationGuard.test.ts` - comment only.
+
+New:
+
+- `src/lib/__tests__/tabs.test.ts` - unit suite for the six functions, mocking
+  `@/lib/db` and driving `assertRepertoireAccess` through queued query results
+  (the `ACCESS_GRANTED` / `ACCESS_DENIED` fixtures currently in the action
+  suite). Covers both sides of every branch: access granted and denied, row
+  found and not found, valid and invalid `pageNumber`, and one L1-wrapped
+  database failure per function group.
+- `src/lib/__tests__/devProfiles.test.ts` - unit suite for `listDevProfiles`
+  (row mapping, empty result, L1 wrapper) plus the route handler: `GET()`
+  returns 404 with `{ error: 'Not found' }` when `NODE_ENV` is not
+  `development`, and 200 with the mapped array when `vi.stubEnv('NODE_ENV',
+  'development')` is in effect.
+- `src/app/actions/__tests__/actionDataAccessGuard.test.ts` - the guard above.
+- `src/app/actions/__tests__/authzTabs.db.test.ts` - real-database suite in the
+  RH-34 shape (`describe.skipIf(!SERVICE_ROLE_KEY)`, `authzFixtures`' `asUser`,
+  `createTestUser` / `deleteTestUser`, `@vercel/blob` mocked): a band entry
+  owned by a band that user A belongs to and user C does not; the tab CRUD and
+  annotation actions succeed for A and are refused for C with `Access denied`,
+  writing nothing.
+
+Extended (existing files):
+
+- `src/lib/__tests__/songs.test.ts` - `updateLyrics` (both owner branches),
+  `applySongLinkUpdate` (additive write, removal to the queue, rewritten url to
+  the queue, `Song entry not found`, blank-label auto-fetch) and
+  `getPersonalEntryForSong` (row, no row).
+- `src/lib/__tests__/playlists.test.ts` - `getPlaylistDetailsWithEntries`:
+  authorization order, the band and personal parameter branches, the
+  `'Playlist'` name fallback, the entry mapping, and the refusal propagating
+  before any read.
+
+Coverage note: `coverage.include` already covers both `src/lib/**/*.ts` and
+`src/app/actions/*.ts`, so the universe does not change - but the moved code
+arrives with branches the action suites only partly exercised (the
+`band_id`/`user_id` fork, the additive-vs-moderated fork, the not-found early
+returns). Branches at 65 is the threshold most at risk; the new suites must
+exercise both sides of each of those forks explicitly.
+
+### 9. AGENTS.md
+
+AGENTS.md already states this rule three times (the architecture diagram line
+"src/lib/* (data-access + domain logic ...)", the "Data access" bullet, and
+convention A2 "Actions that only resolve the session and delegate to `src/lib`").
+Do not add a fourth restatement. At most, add one sentence to the A2 paragraph
+naming the new guard, in the same way the Transactions section names
+`transactionGuard.test.ts`.
 
 ## Expected Results
 
-ER1 - The two authentication tests exercise a route that is actually private instead of the public landing page. In `e2e/auth.spec.ts`, `grep -c "goto('/')" e2e/auth.spec.ts` prints `0` (it printed `2` at `68a605b`, at lines 54 and 61), and both former `page.goto('/')` calls now name a path that appears in the matcher array of `src/proxy.ts` (for example `/profile`). The file still contains exactly four tests; two of them keep the names `valid credentials redirect to home` and `invalid credentials show an error message` verbatim; the test at former line 52 is renamed to `unauthenticated visitor to a private route is redirected to /login` and asserts both that the browser lands on `/login` and that the `redirect` query parameter names the private route it asked for; the test at former line 59 keeps the name `redirect param is honoured after login` and, after signing in, asserts the browser lands on that same private route. `npx playwright test e2e/auth.spec.ts --reporter=list` exits `0` and prints `4 passed`; at `68a605b` the same command prints `2 failed` and `2 passed`, both failures being `TimeoutError: page.waitForURL` after `navigated to "http://127.0.0.1:3000/"`. Run it with a production build present (`npm run build`), `BETTER_AUTH_SECRET` exported from `.env.local`, Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, and `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1"`.
+ER1 - Static gates hold at the exact baseline, minus one warning this task
+necessarily removes. From the repository root: `./node_modules/.bin/tsc --noEmit`
+exits 0 and prints nothing (use this invocation, not `npx tsc`); `npx eslint .`
+prints a final summary line reading exactly
+`29 problems (12 errors, 17 warnings)`. That is one warning fewer than the
+baseline `059d4c3` line `30 problems (12 errors, 18 warnings)`, and the warning
+that must disappear is exactly
+`src/lib/__tests__/songs.test.ts 11:53 'vi' is defined but never used`
+(`@typescript-eslint/no-unused-vars`): that file imports `vi` and uses it zero
+times today, and Approach 8 requires it to gain the `applySongLinkUpdate`
+blank-label auto-fetch case, which mocks `@/lib/linkFetcher` through `vi`. Every
+other one of the 30 baseline problems sits in a file outside the ER13 whitelist
+(`e2e/global-setup.ts`, `scripts/*.mjs`, `src/app/profile/page.tsx`,
+`src/app/reset-password/page.tsx`, `src/app/settings/page.tsx`,
+`src/app/songs/[id]/fast-view/page.tsx`, `src/components/landing/LandingPage.tsx`,
+`src/components/layout/AppLayout.tsx`,
+`src/components/layout/LanguageSelector.tsx`,
+`src/lib/__tests__/edge_cases.test.ts`, `src/lib/__tests__/errors.test.ts`,
+`src/lib/__tests__/i18n.test.ts`, `src/lib/__tests__/test-helpers.ts`) and must
+still be reported unchanged, so no file this task creates or edits may contribute
+a single new error or warning. `npm run lint:dup` exits 0 and
+its console report shows at most 21 clones and a duplication percentage below
+2 %; `npm run lint:dead` exits 0 and reports no unused files, exports or
+dependencies; `npm run audit` exits 0 and reports `found 0 vulnerabilities`.
 
-ER2 - The song-edit test asserts the catalog rule the code implements. `e2e/songs-crud.spec.ts` still contains exactly three tests; the first and third keep the names `add a new song and verify it appears in the list` and `delete a song and verify it is removed from the list` verbatim; the second is renamed from `edit an existing song and verify the changes` to a name that states the fill-if-empty rule, for example `editing a song fills the empty catalog fields and leaves the shared title unchanged`. That test adds a song with a title and no artist, opens the edit dialog, types both a new title and an artist, saves, and then asserts that a card carrying the original title is visible and contains the typed artist, and that no card carrying the typed-in title exists. `npx playwright test e2e/songs-crud.spec.ts --reporter=list` exits `0` and prints `3 passed`, run with the same server, build and database setup as ER1; at `68a605b` the same command prints `1 failed` and `2 passed`, the failure being `expect(locator).toHaveCount(expected) failed / Expected: 0 / Received: 1` at line 58. No file under `src/` is edited to make this pass.
+ER2 - The Server Action layer contains no SQL. `grep -c "query(" src/app/actions/*.ts`
+prints exactly these six lines and nothing else: `src/app/actions/bands.ts:0`,
+`src/app/actions/moderation.ts:0`, `src/app/actions/playlists.ts:0`,
+`src/app/actions/profile.ts:0`, `src/app/actions/repertoire.ts:0`,
+`src/app/actions/tabs.ts:0`. (At baseline `059d4c3` the same command printed
+`playlists.ts:2`, `repertoire.ts:5` and `tabs.ts:6`.)
 
-ER3 - Every song the suite creates carries a title that is unique per test invocation, so a retry or a second run can no longer collide with its own leftovers. `grep -rn "toHaveCount\|addSong" e2e/songs-crud.spec.ts e2e/fast-view-mobile.spec.ts` shows no `addSong` call passing a title that is a module-level constant string; the unique part is produced inside the test body or a `beforeEach`, never at module import time. With a production build present and the server and database of ER1, `npx playwright test e2e/songs-crud.spec.ts e2e/fast-view-mobile.spec.ts --repeat-each=3 --workers=1 --reporter=list 2>&1 | tee /tmp/rh44-repeat.log` exits `0` and prints `18 passed`, and `grep -c "already in your repertoire" /tmp/rh44-repeat.log` prints `0`. At `68a605b` that command fails: the second repetition of each test hits `[WebServer] [error] Failed to create and add song Error: Song already in your repertoire` and then times out on `locator('dialog[open]')` `Expected: 0 / Received: 1`, which is the exact failure both CI retries of the two red tests hit in job `102697152412`.
+ER3 - No action file imports the database module. `grep -rn "@/lib/db" src/app/actions/*.ts`
+prints nothing and exits with status 1 (check with `; echo $?`). At baseline it
+printed three lines: `playlists.ts:15`, `repertoire.ts:5` and `tabs.ts:4`.
 
-ER4 - The whole suite is green twice in a row against the same database, with no manual cleanup between the runs - the property whose absence is the reason CI retries never rescued anything. With a production build present, `BETTER_AUTH_SECRET` exported from `.env.local`, Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, and `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1"`, run `npx playwright test --workers=1 --reporter=list` twice in succession without touching the database, the `e2e/.auth` directory or `E2E_USER_EMAIL` between them. Both runs exit `0`, both print `22 passed`, neither prints a `failed` line, and the second run's output contains no occurrence of the string `already in your repertoire`. `--workers=1` mirrors `playwright.config.ts`, which uses one worker under `CI`. Baselines at `68a605b` for the identical command: with a database that has never seen the suite, `3 failed` (`e2e/auth.spec.ts:52`, `e2e/auth.spec.ts:59`, `e2e/songs-crud.spec.ts:47`) and `19 passed (33.1s)`; a second run against that same database fails additionally on every test that adds a song.
+ER4 - No hand-rolled Postgres client survives anywhere in the source tree.
+`grep -rln "new Client" src` prints nothing and exits with status 1 (check with
+`; echo $?`); at baseline it printed exactly `src/app/api/dev/profiles/route.ts`,
+and `src/lib/db.ts` constructs a `new Pool`, never a client, so the expected
+output after this task is empty rather than one path. In addition,
+`grep -n "listDevProfiles" src/app/api/dev/profiles/route.ts` prints at least
+two lines (the import and the call), and
+`grep -c "NODE_ENV" src/app/api/dev/profiles/route.ts` prints `1`.
 
-ER5 - The two clicks that CI could swallow before hydration are retried rather than raced, and no sleep was introduced anywhere. `grep -c "toPass(" e2e/helpers.ts` prints at least `1` and `grep -c "toPass(" e2e/fast-view-mobile.spec.ts` prints at least `1` (both printed `0` at `68a605b`; the pattern already exists at `e2e/bands-confirm.spec.ts:50` and `e2e/server-pages.spec.ts:65`, whose comments diagnose this exact failure mode). The retried actions are the click that opens the add-song dialog and the click on the card's fast-view link; the form submit inside `addSong` is not inside a retry block, because retrying a submit could create the song twice. `grep -rn "waitForTimeout" e2e/` prints nothing at all, unchanged from `68a605b`, and `grep -rn "retries" e2e/ playwright.config.ts` prints only the pre-existing `retries: process.env.CI ? 2 : 0` line of `playwright.config.ts`. `npx playwright test e2e/fast-view-mobile.spec.ts --repeat-each=3 --workers=1 --reporter=list` exits `0` and prints `9 passed`.
+ER5 - The lib modules exist and expose the moved functions. Each of the
+following commands prints a line for every named symbol:
+`grep -n "export async function \(createTab\|getTabFileUrl\|deleteTab\|getTabAnnotations\|saveTabAnnotations\|listTabs\)" src/lib/tabs.ts`
+prints 6 lines;
+`grep -c "assertRepertoireAccess(" src/lib/tabs.ts` prints a number greater than
+or equal to `6`, and `grep -c "^import { assertRepertoireAccess } from '@/lib/songs'" src/lib/tabs.ts`
+prints `1`;
+`grep -n "export async function \(updateLyrics\|applySongLinkUpdate\|getPersonalEntryForSong\)" src/lib/songs.ts`
+prints 3 lines;
+`grep -n "export async function getPlaylistDetailsWithEntries" src/lib/playlists.ts`
+prints 1 line;
+`grep -n "export async function listDevProfiles" src/lib/devProfiles.ts`
+prints 1 line.
 
-ER6 - Nothing outside `e2e/` changed shape, and no test was dropped. `git diff 68a605b -- src` prints nothing at all: all four failures are test-side, and if the implementer found a genuine application bug it is reported in `docs/suggestions-log.md` and named in the pull request instead of being fixed here. `git diff 68a605b -- .github playwright.config.ts vitest.config.ts eslint.config.mjs e2e/ssr-smoke.spec.ts e2e/server-pages.spec.ts e2e/bands-confirm.spec.ts` prints nothing at all. `ls e2e/*.ts | sort | tr '\n' ' '` prints exactly `e2e/auth.spec.ts e2e/bands-confirm.spec.ts e2e/fast-view-mobile.spec.ts e2e/global-setup.ts e2e/helpers.ts e2e/server-pages.spec.ts e2e/songs-crud.spec.ts e2e/ssr-smoke.spec.ts` - no spec file was deleted, added or renamed. The suite still holds 22 tests in total, four of them in `e2e/bands-confirm.spec.ts` and four in `e2e/server-pages.spec.ts`, all eight untouched.
+ER6 - The mechanical guard fails when the layering is broken and passes when it
+is not. `npx vitest run src/app/actions/__tests__/actionDataAccessGuard.test.ts`
+reports `Test Files  1 passed (1)` with 0 failed. Then run this tamper check
+from the repository root: `cp src/app/actions/profile.ts /tmp/rh45-profile.bak`;
+`printf "\nimport { query } from '@/lib/db'\nexport async function tamperProbeAction() { await query('SELECT 1') }\n" >> src/app/actions/profile.ts`;
+`npx vitest run src/app/actions/__tests__/actionDataAccessGuard.test.ts` now
+reports at least 1 failed test and its failure output contains the string
+`profile.ts`; then `cp /tmp/rh45-profile.bak src/app/actions/profile.ts` and
+re-run the same vitest command, which reports `Test Files  1 passed (1)` again,
+and `git diff --stat -- src/app/actions/profile.ts` prints nothing.
 
-ER7 - The coverage-threshold half of this task's title was already resolved before the task was picked up and is not redone here. `gh run list --branch master --limit 5` and `gh run view <id> --json jobs` for the three most recent `Node.js CI` runs preceding this task's branch show `build / Test (Node 24.x)` and `Coverage (vitest)` with conclusion `success` on every one of them, the only failing job being `E2E Tests (Playwright)`; for reference those runs are `34421317184`, `34414088458` and `34406504171`, and job `102697152410` shows `Tests 1049 passed | 160 skipped (1209)` with no `does not meet global threshold` line anywhere in its log. Consistent with that, the local gates are byte-for-byte unchanged: `rtk proxy npx vitest run` exits `0` printing `Test Files 107 passed (107)` and `Tests 1209 passed (1209)` with no failed and no skipped entry (Postgres at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`); `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`; `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing; `npm run lint:dead` exits `0`; the number of lines matching `complexity-budget/override` in `eslint.config.mjs` is `20` and `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints `1`, both unchanged.
+ER7 - The RH-34 guards and the retargeted action suites all pass, and only one
+action test file still mocks the database module.
+`npx vitest run src/app/actions/__tests__/actionAuthorizationGuard.test.ts src/app/actions/__tests__/actionSessionGuard.test.ts src/app/actions/__tests__/thinActions.test.ts src/app/actions/__tests__/tabs.test.ts src/app/actions/__tests__/playlists.test.ts src/app/actions/__tests__/repertoire.test.ts src/app/actions/__tests__/bands.test.ts`
+reports `Test Files  7 passed (7)` with 0 failed and 0 skipped. In addition
+`grep -rln "vi.mock('@/lib/db'" src/app/actions/__tests__` prints exactly
+`src/app/actions/__tests__/actionSessionGuard.test.ts` and nothing else (at
+baseline it printed four files: that one plus `repertoire.test.ts`,
+`playlists.test.ts` and `tabs.test.ts`), and
+`grep -n "getPlaylistDetailsWithEntriesAction\|resolveOwner" src/app/actions/__tests__/actionAuthorizationGuard.test.ts`
+still shows both names present in the allowlist and in the exact-key-set
+assertion.
 
-ER8 - Release hygiene and a closed change set. `package.json` version is `0.1.99-YYYYMMDDHHmm` with a real local timestamp, sorting above `0.1.98-202609092108`. `git diff 68a605b -- src/components/landing src/i18n/dictionaries` prints nothing at all: this task ships no user-facing capability, so the landing page gains nothing. `git diff --name-only 68a605b | sort` lists only paths drawn from this closed set and no others: `docs/suggestions-log.md`, `docs/tasks/RH-44-spec.md`, `e2e/auth.spec.ts`, `e2e/fast-view-mobile.spec.ts`, `e2e/global-setup.ts`, `e2e/helpers.ts`, `e2e/songs-crud.spec.ts`, `package.json` - any other path fails this result. In particular that list contains no path under `src/`, no `.github/workflows/ci.yml`, no `playwright.config.ts`, no `vitest.config.ts`, no `AGENTS.md` (if `next build` regenerated the `nextjs-agent-rules` block, that regeneration is reverted before the commit) and none of `e2e/ssr-smoke.spec.ts`, `e2e/server-pages.spec.ts` or `e2e/bands-confirm.spec.ts`.
+ER8 - Behaviour is preserved against a real database. With Postgres running at
+`postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
+applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`,
+`npx vitest run src/app/actions/__tests__/authzRepertoire.db.test.ts src/app/actions/__tests__/authzPlaylists.db.test.ts src/app/actions/__tests__/authzBands.db.test.ts src/app/actions/__tests__/authzTabs.db.test.ts`
+reports `Test Files  4 passed (4)` with 0 failed and 0 skipped. The new file
+`src/app/actions/__tests__/authzTabs.db.test.ts` must contain, at minimum: a
+band-owned repertoire entry whose band member uploads a tab, lists it, reads and
+writes its annotations and deletes it, all succeeding; and the same five
+operations attempted by a user who is not a member of that band, each rejected
+with a message containing `Access denied` and leaving `SELECT count(*) FROM
+repertoire_tabs WHERE repertoire_id = <entry>` unchanged. The existing
+`authzRepertoire.db.test.ts` cases covering `updateLyricsAction` (scoped to the
+band owner, refused for a non-member) and `updateSongLinksAction` (additive
+write through, removal to the moderation queue), and the existing
+`authzPlaylists.db.test.ts` case covering `getPlaylistDetailsWithEntriesAction`,
+must pass without their assertions being weakened.
+
+ER9 - The dev profiles route keeps its guard and its payload shape.
+`npx vitest run src/lib/__tests__/devProfiles.test.ts` reports
+`Test Files  1 passed (1)` with 0 failed, and that suite asserts both of these:
+calling the exported `GET()` while `process.env.NODE_ENV` is not `development`
+resolves to a response with `status === 404` and a JSON body deep-equal to
+`{ error: 'Not found' }` (the same status and body the route returns at baseline
+`059d4c3`), and calling `GET()` with `vi.stubEnv('NODE_ENV', 'development')` in
+effect resolves to `status === 200` with a JSON body deep-equal to
+`[{ id: 'u1', email: 'a@example.com', full_name: 'Ann' }]` when `listDevProfiles`
+is stubbed to return that single row, proving the route delegates and the
+`{ id, email, full_name }` shape the login page consumes is unchanged.
+
+ER10 - The whole suite passes and grows. This ER requires the same database
+environment as ER8 and is not verifiable without it: Postgres running at
+`postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
+applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. Without
+that environment the 13 suites gated by `describe.skipIf(!SERVICE_ROLE_KEY)` (12
+at baseline `059d4c3` plus the new `authzTabs.db.test.ts`) do not execute and the
+run reports a `skipped` segment, which fails the no-`skipped` condition below
+even for a correct implementation. With it, `npx vitest run` reports
+`Test Files  55 passed (55)` (baseline `059d4c3`: 51) and a `Tests` line of the
+form `N passed (N)` with N at least `655` (baseline: 638), with no `failed` and
+no `skipped` segment on either line. The four new test files
+`src/lib/__tests__/tabs.test.ts`, `src/lib/__tests__/devProfiles.test.ts`,
+`src/app/actions/__tests__/actionDataAccessGuard.test.ts` and
+`src/app/actions/__tests__/authzTabs.db.test.ts` all exist and all appear in the
+run output.
+
+ER11 - The coverage gate passes with the thresholds untouched. This ER requires
+the same database environment as ER8 and is not verifiable without it: Postgres
+running at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with
+migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`.
+The 13 suites gated by `describe.skipIf(!SERVICE_ROLE_KEY)` (12 at baseline
+`059d4c3` plus the new `authzTabs.db.test.ts`) contribute the coverage of every
+real-database path, so the thresholds below are only reachable when they
+actually run. With that environment, `npm run test:coverage` exits 0 with no
+`ERROR: Coverage for ... does not meet threshold` line, and
+`grep -n "statements: 80" -A 3 vitest.config.ts` still shows `statements: 80`,
+`branches: 65`, `functions: 78`, `lines: 80`. In addition, after that run,
+`node -e "const c=require('./coverage/coverage-final.json');for(const [k,v] of Object.entries(c)){if(!/src\/lib\/(tabs|devProfiles)\.ts$/.test(k))continue;const s=Object.values(v.s);console.log(k.replace(process.cwd()+'/',''),Math.round(100*s.filter(Boolean).length/s.length))}"`
+prints exactly two lines, one for `src/lib/tabs.ts` and one for
+`src/lib/devProfiles.ts`, each ending in a number greater than or equal to `90`.
+
+ER12 - The application still builds and server-renders. `npx next build`
+completes with exit code 0 and no error output, and
+`npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed`.
+
+ER13 - Version, landing page and blast radius. `node -e "console.log(require('./package.json').version)"`
+prints a version of the form `0.1.72-YYYYMMDDHHmm` that is strictly greater than
+the baseline `0.1.71-202609070848`.
+`git diff --stat 059d4c3 -- src/components/landing src/i18n/dictionaries` prints
+nothing (this task ships no selling point; it is an internal refactor).
+`git diff --name-only 059d4c3` lists only paths drawn from this whitelist, and
+nothing else: `AGENTS.md`, `package.json`, `docs/tasks/RH-44-spec.md`,
+`docs/suggestions-log.md`, `src/lib/tabs.ts`, `src/lib/devProfiles.ts`,
+`src/lib/songs.ts`, `src/lib/playlists.ts`, `src/app/actions/tabs.ts`,
+`src/app/actions/repertoire.ts`, `src/app/actions/playlists.ts`,
+`src/app/api/dev/profiles/route.ts`, `src/lib/__tests__/tabs.test.ts`,
+`src/lib/__tests__/devProfiles.test.ts`, `src/lib/__tests__/songs.test.ts`,
+`src/lib/__tests__/playlists.test.ts`,
+`src/app/actions/__tests__/tabs.test.ts`,
+`src/app/actions/__tests__/repertoire.test.ts`,
+`src/app/actions/__tests__/playlists.test.ts`,
+`src/app/actions/__tests__/actionSessionGuard.test.ts`,
+`src/app/actions/__tests__/actionAuthorizationGuard.test.ts`,
+`src/app/actions/__tests__/actionDataAccessGuard.test.ts`,
+`src/app/actions/__tests__/authzTabs.db.test.ts`,
+`src/app/actions/__tests__/authzFixtures.ts`. In particular the output contains
+no path under `src/components/`, no path under `src/hooks/`, no
+`eslint.config.mjs`, no path under `migrations/`, and no `vitest.config.ts`.
 
 ## Out of Scope
 
-- **Any change under `src/`.** In particular: the fill-if-empty rule in
-  `src/lib/songs.ts:257-267`, the fact that `SongForm` accepts a typed title it
-  will silently discard (a real UX gap - log it as a suggestion), the
-  `Correct Global Info` / moderation-queue path that *is* how a title gets
-  corrected, and `src/proxy.ts`'s matcher.
-- **An end-to-end test of the global-song correction queue.** The rewritten edit
-  test pins what the repertoire owner can change; covering
-  `submitGlobalSongEditAction` and `/admin/moderation` end to end is its own
-  task.
-- **`.github/workflows/ci.yml` and `vitest.config.ts`.** The coverage half is
-  resolved (see the audit); re-tuning thresholds, adding
-  `SUPABASE_SERVICE_ROLE_KEY` to the reused job, or dropping `--coverage` from
-  it are all explicitly not done here.
-- **The local parallel-worker flake in `e2e/server-pages.spec.ts:81`.** Running
-  the full suite locally *without* `--workers=1` failed once during this spec's
-  measurements with `locator.fill: ... element was detached from the DOM` inside
-  `createPlaylist` (90s timeout), while the same test passes in 333ms under
-  `--workers=1` and is green in CI, which runs one worker. It is a different
-  root cause from the four failures this task owns - a `toPass` block that
-  re-clicks a modal toggle - and belongs in its own item; record it in
-  `docs/suggestions-log.md`.
-- **Purging the `E2E %` rows a developer's local database already holds**, and
-  deleting the per-run `global_songs` rows the suite creates from now on. There
-  is no UI to delete a global song, and with unique titles a leftover row can
-  never be matched again.
-- **Adding a database reset or a per-run user to `e2e/global-setup.ts`.**
-  Permitted if the unique-title helper is more natural there, but a fixture
-  teardown strategy, a seeded database or a per-run e2e account is not required
-  by any result above and must not be introduced as a substitute for unique
-  titles.
+- **Inverting inward imports.** `src/components/tabs/TabDrawingStage.tsx`,
+  `src/components/layout/AppLayout.tsx`, `src/components/songs/SongForm.tsx`,
+  `src/components/songs/CorrectionModal.tsx` and `src/hooks/useBandAdmin.ts` all
+  import from `@/app/actions/*`. That is F21 and belongs to RH-46 and RH-47. Do
+  not touch `src/components/**` or `src/hooks/**` in this task, and do not add
+  the ESLint `no-restricted-imports` rule: it cannot reach zero violations until
+  RH-47 lands, so adding it here would break the eslint baseline in ER1.
+- **A typed query helper.** Replacing the `any`-typed `query<T>` generic or
+  introducing a query builder is RH-40. The moved statements keep their current
+  typing style.
+- **Fixing the fast-view page.** `src/app/songs/[id]/fast-view/page.tsx` is
+  1586 lines and is RH-38's target. It is a caller only; every action signature
+  it uses is preserved, so it must not appear in the diff.
+- **Adding not-found semantics that do not exist today.** `updateLyrics` keeps
+  its silent no-op on a non-matching id, and no moved function gains a new
+  authorization check beyond the one its action already performed.
+- **The remaining `query(` sites elsewhere.** `src/app/api/**/route.ts` handlers
+  other than the dev profiles route are untouched by this task.
 
 ## Post-merge checks (orchestrator)
 
-After the merge commit lands on master, the `Node.js CI` run for it must show
-`E2E Tests (Playwright)` with conclusion `success` alongside the five jobs that
-are already green (`build / Test (Node 24.x)`, `Coverage (vitest)`,
-`Dead code (knip)`, `Duplication (jscpd)`, `Dependency audit (npm audit)`) -
-i.e. the whole run green, which is the point of the task. The job log must
-report `22 passed` with no `flaky` entry, so the result is not resting on
-`retries: 2`. No expected result above depends on this.
+- Re-run the RH-37 audit greps and confirm the F8 count drops from 13 to 0 and
+  the F22 site is gone, then mark F8 and F22 resolved in
+  `docs/plans/code-quality-review.md` when RH-46 and RH-47 also land (F8's text
+  should be corrected at that point: 13 sites, not fifteen, and the `checkAccess`
+  helper it describes was already removed by RH-34).
+- Confirm RH-46's spec is told that `getTabAnnotationsAction` and
+  `saveTabAnnotationsAction` kept their exact signatures and their
+  `export type { Stroke, TabAnnotations }` re-export, so the component inversion
+  can proceed independently.

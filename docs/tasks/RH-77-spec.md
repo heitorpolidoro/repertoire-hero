@@ -1,264 +1,264 @@
-# RH-77 — Replace the Supabase docker stack with a poli-runner-ready Postgres and app compose
+# RH-78 — Convert `/` to a Server Component to fix the HomePage hydration mismatch
 
-> **Filename mapping.** This file is the spec for **board task RH-76** (`parent: RH-74`,
-> sibling `RH-75` done at `ef525f5`). Spec filenames in this repository run one ahead of
-> the board id: `docs/tasks/RH-75-spec.md` is board RH-75's, so board RH-76's spec is
-> `docs/tasks/RH-77-spec.md`.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+> **Filename mapping.** This repository's spec filenames run one ahead of the
+> Meridian board id: the board task is **RH-77**, its spec is
+> `docs/tasks/RH-77-spec.md`. Commit scope stays `RH-77`.
 
 ## Scope
 
-Part 2 of the RH-74 split: the **infrastructure** surface only. RH-75 already removed
-Supabase from `src/`, the vitest suite, `package.json`, CI and the config/doc files, and
-renamed the DB-test gate to `RUN_DB_TESTS`. What is left is:
+`src/app/page.tsx` is a 640-line `"use client"` file holding two things: the
+`HomePage` session gate (lines 624-640) and the `RepertoireDashboard` it renders
+when signed in (lines 112-622), plus the `SongResultItem` row (lines 38-89).
+The gate returns `Loading...` while `authClient.useSession()` is pending, and on
+the server `isPending` is *always* true, which produces two distinct defects:
 
-- delete `supabase/` (`config.toml`, `seed.sql`, `snippets/`, `.branches/`, `.temp/`),
-  relocating the one live thing inside it;
-- replace the ten Supabase services in `docker-compose.yml` with a two-service file
-  (`postgres` + `app`) shaped by the profile convention in
-  `/Users/heitor/workspace/polidoro-runner/README.md` → *Making a compose repo runner-ready*;
-- delete `docker/kong.yml`, `docker/supabase.env.example` and `docker/app.env.example`;
-- add `poli-runner.yml` at the repo root and a minimal `scripts/ensure-db.sh`;
-- settle the `.env*.example` tracking question RH-75's reviewer deferred here;
-- close the repo-wide `grep -ril supabase` guarantee.
+1. **A hydration mismatch.** Measured at `25be664`: 5 `Hydration failed` browser
+   errors in the dev-server log across the full Playwright suite, 4 with the
+   stack at `RepertoireDashboard (page.tsx:306)` and 1 at
+   `LandingPage (LandingPage.tsx:41)`, both under `HomePage (page.tsx:624)`.
+2. **A landing page with no HTML.** `/` is a prerendered static route whose
+   document is the placeholder. Verified live at `cc31134`:
+   `curl -s http://127.0.0.1:3000/` returns 27,659 bytes containing
+   `<div class="min-h-screen flex items-center justify-center bg-gray-50"><p …>Loading...</p></div>`
+   and **zero** occurrences of `href="/signup"`. The marketing page a crawler
+   sees contains none of the marketing page. This is a first-class goal of this
+   task, not a side effect of (1).
 
-**Not in scope:** fixing the pre-existing ESLint errors/warnings (see Expected Result 10),
-any change to application behaviour, `src/`, the migrations themselves, `Dockerfile`
-contents, CI workflows, or Vercel deployment. No UI changes, so no HTML mockup.
+This task converts `/` to the async Server Component pattern already used four
+times (`/bands`, `/playlists`, `/admin/moderation`, `/playlists/[id]`), moves
+the dashboard into a client island under `src/components/songs/`, and proves
+both defects gone by measurement.
+
+**Not one PR? It is.** The 639 lines are one component being *relocated*, not
+rewritten: the JSX, handlers and state of `RepertoireDashboard` move verbatim.
+Splitting the move from the conversion would leave an intermediate commit where
+the page is a Server Component importing a `"use client"` file that still
+imports Server Actions directly (an F21 violation), so the two halves cannot
+ship separately.
 
 ## Approach
 
-### Behaviour that must be true when this is done
+### Behavior
 
-1. **Two compose modes, one file** (the cash_lens/apras pattern — `poli-runner.yml` is
-   patterned on **cash_lens**, which is the closest sibling: a compose repo bundling its
-   own Postgres, with `depends_on: [postgres]`, no `mock` scenario, and a header comment
-   naming both modes).
-   - *standalone*: `COMPOSE_PROFILES=standalone` comes from `.env`; the repo starts its
-     own `postgres` service and the `app` talks to it over the compose network.
-   - *poli-runner*: the runner injects `COMPOSE_PROFILES=poli-runner` (a profile no service
-     declares, so the bundled `postgres` stays down) plus the connection URL for the shared
-     `poli-postgres` on `host.docker.internal:54321`.
-2. **Connection variable naming.** The compose-only variable is **`POSTGRES_URL`**, and the
-   `app` service maps it in as `DATABASE_URL=${POSTGRES_URL}`. It must **not** be named
-   `DATABASE_URL` at the compose level: the host-side tooling (`scripts/migrate.mjs`,
-   `scripts/deduplicate-songs.mjs`, `vitest.config.ts`) reads `DATABASE_URL` from
-   `.env.local`, and a compose-network host (`postgres:5432`) in that name would be
-   ambiguous. Those three loaders read only `.env.local`/`.env.development.local` — never
-   `.env` — so `.env` is compose-only territory and `POSTGRES_URL` there is invisible to
-   host tooling.
-   **Database identity — the single decision every other section must quote.** The two modes
-   talk to two different servers, so they legitimately use two database names, and each name
-   is fixed here:
-   - *standalone* (the bundled, dedicated server): `POSTGRES_DB=postgres`, i.e. the compose
-     variable is `POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres`
-     (container-network host `postgres`, port 5432). From the host the same database is
-     `postgresql://postgres:postgres@127.0.0.1:${POSTGRES_PORT:-54322}/postgres`. The name
-     `postgres` is not a free choice: `vitest.config.ts:36` and `AGENTS.md:94` both pin the
-     host-side test URL to `…:54322/postgres`, and neither file is in scope to change.
-   - *poli-runner* (the shared `poli-postgres` cluster, which hosts many apps and therefore
-     cannot use `postgres`): database `repertoire_hero`, injected by `poli-runner.yml` as
-     `POSTGRES_URL=postgresql://postgres:postgres@host.docker.internal:54321/repertoire_hero`.
-   Every reference in this spec — §5, §8, `.env.example`, `scripts/dev-seed`,
-   `scripts/ensure-db.sh` — uses exactly these two strings and no third variant. In
-   particular `.env.example`'s existing `DATABASE_URL=…@localhost:5432/repertoire_hero` is
-   corrected to `postgresql://postgres:postgres@127.0.0.1:54322/postgres` so the tracked
-   template, the vitest fallback and AGENTS.md agree.
-3. **Profiles and `depends_on`.** `postgres` carries `profiles: [standalone]`; `app`
-   carries no profile (so it always starts *and always stops*); `app`'s `depends_on` entry
-   for `postgres` uses `condition: service_healthy` **and `required: false`** — without it
-   an inactive profile makes the whole project invalid.
-   **`docker compose config --services` is profile-scoped**, so it has two correct answers,
-   not one. Measured on Docker Compose v5.5.1 against the exact shape prescribed here:
-   `COMPOSE_PROFILES=standalone` → `postgres, app`; `COMPOSE_PROFILES=poli-runner` → `app`
-   only; unset → `app` only; `docker compose --profile '*' config --services` → `postgres,
-   app`. That is the mechanism, not a defect: the same thing that drops `postgres` in
-   poli-runner mode is what ER4 requires. ER2 therefore asserts both answers separately.
-4. **Published Postgres port is overridable**: `"${POSTGRES_PORT:-54322}:5432"`. 54322 is
-   the port `vitest.config.ts:36` falls back to and `AGENTS.md:94` documents, so it stays
-   the repository default and no host-side default changes. On *this* machine every nearby
-   port is taken — Homebrew Postgres holds 54322, the shared `poli-postgres` container holds
-   54321, `apras58-pgtest` holds 55432 — so the implementer verifies ER9 with
-   `POSTGRES_PORT=54323` (measured free), or stops the Homebrew service first. A clash
-   surfaces as `port is already allocated`, not as a hang.
-5. **Seed relocation.** `npm run seed` is `bash scripts/dev-seed`, which today does **not**
-   read `supabase/seed.sql` at all — it seeds Better Auth users, profiles, a band and six
-   `global_songs` rows straight through `psql`. The only live content in `supabase/seed.sql`
-   is its 12-row `INSERT INTO global_songs … ON CONFLICT DO NOTHING` catalogue (which
-   `docker/init-migrations.sh` applies on first boot); its trailing commented-out block
-   targets `user_repertoire`, a table that no longer exists, and carries the maintainer's
-   personal email in a comment. **Decision:** move the `global_songs` INSERT to
-   `scripts/seed-catalog.sql` (header rewritten, no Supabase CLI references), drop the
-   commented-out block entirely, and have `scripts/dev-seed` apply `scripts/seed-catalog.sql`
-   after its own inserts so the file has a live runner on the host as well as at first boot.
-   `scripts/dev-seed`'s default `DATABASE_URL` changes from
-   `…@127.0.0.1:5432/repertoire_hero` to the standalone string fixed in §2,
-   `postgresql://postgres:postgres@127.0.0.1:54322/postgres`.
-6. **initdb ordering.** The catalogue must **not** be bind-mounted as a `*.sql` file inside
-   `/docker-entrypoint-initdb.d/`: `postgres:16-alpine`'s entrypoint runs `*.sql` there
-   alphabetically with `ON_ERROR_STOP=1`, so `seed.sql` would run before
-   `99-migrations.sh` and abort initialisation against a schema-less database. Mount it at
-   `/seed/catalog.sql` and point `docker/init-migrations.sh` at that path.
-7. **`.env*.example` tracking — the decision.** Add `!.env*.example` after the `.env*` line
-   in `.gitignore` and **track `.env.example`**; it is the tracked template and the file ER5
-   is checked against, so the check survives a fresh clone. It needs no credential scrubbing
-   (it already ships `you@example.com` / the literal placeholder `devpassword` and empty
-   secret values) — it gains a Docker block (`COMPOSE_PROFILES`, `POSTGRES_URL`,
-   `POSTGRES_PORT`, `POSTGRES_PASSWORD`) and a one-line `cp .env.example .env` instruction.
-   **`.env.local.example` is deleted, not tracked**: it carries the maintainer's personal
-   email and all three of its variables already exist in `.env.example`, so tracking it
-   would publish a personal credential for no gain. `docker/app.env.example` (Supabase anon
-   and service-role JWTs) and `docker/supabase.env.example` are deleted for the same reason
-   — `.env.example` supersedes both.
-8. **poli-runner start must land on a usable database.** Nothing else creates the
-   `repertoire_hero` database or applies migrations on the shared Postgres, so
-   `commands.start` runs `./scripts/ensure-db.sh && docker compose up -d --wait` (the
-   precedent is aequitas' `./scripts/ensure-role.sh`). The script creates the
-   `repertoire_hero` database on `poli-postgres` if missing and runs `node
-   scripts/migrate.mjs` against
-   `postgresql://postgres:postgres@127.0.0.1:54321/repertoire_hero`; it **exits 0 with a
-   notice** when `poli-postgres` is not running, so `poli-runner start repertoire_hero
-   --no-deps` still falls through to the standalone bundled database.
-8b. **`app` needs its own healthcheck, or `--wait` proves nothing.** `--wait` returns as soon
-   as a service without a healthcheck reaches *running*, and for `CMD ["node", "server.js"]`
-   running precedes Next.js binding :3000 — an ER9 curl fired at that moment races the boot.
-   So `app` gets a healthcheck too: busybox `wget` is present at `/usr/bin/wget` in
-   `node:24-alpine` (verified), so `test: ["CMD-SHELL", "wget -q -O /dev/null
-   http://127.0.0.1:3000/ || exit 1"]` with `interval: 5s`, `timeout: 5s`, `retries: 24`,
-   `start_period: 30s`. With it, `docker compose up -d --wait` exits 0 only once `/` is
-   actually answering, in **both** modes — which is why `commands.start` above also carries
-   `--wait`, rather than a bare `up -d`.
-9. **Repo-wide grep closes — and its exclusion list is honest about what cannot be edited.**
-   Beyond the files deleted above, two editable matches remain and must go: the
-   `supabase/.temp/` entry in `.gitignore` and the Supabase paragraphs in `AGENTS.md`. The one
-   permitted source match stays: `src/lib/__tests__/migrationsSingleSource.test.ts`, whose
-   prose and `SKIPPED_DIRECTORY_NAMES` document why the guardrail exists.
-   Six further on-disk matches exist and are **deliberately out of reach** — measured today:
-   `./.env` (1 match), `./.env.local` (5), `./.env.development.local` (4),
-   `./.env.production.local` (2), `./tsconfig.tsbuildinfo` (1) and
-   `./.claude/settings.local.json` (a `"Bash(supabase *)"` permission entry). All six are
-   untracked and git-ignored; the four env files hold the maintainer's real service-role keys
-   and are not this task's to rewrite, `tsconfig.tsbuildinfo` is a regenerated TypeScript
-   build cache, and `.claude/settings.local.json` is the machine owner's local Claude Code
-   tool configuration, not repository infrastructure — **this task must not touch it at all.**
-   ER8 is therefore stated over **tracked** files so a fresh clone gives the same answer, and
-   all six untracked paths are excluded by construction.
-10. **The `./migrations` bind-mount is preserved verbatim**
-    (`- ./migrations:/docker-entrypoint-initdb.d/migrations:ro`) — the guardrail test
-    matches it with a regex and also asserts the file never mentions `supabase/migrations`.
+**B1 — the page.** `src/app/page.tsx` loses `"use client"` and becomes
+`export default async function HomePage()`. It awaits `getSession()` from
+`@/lib/auth-session`; with no `session.user.id` it renders `<LandingPage />`,
+otherwise `<RepertoireDashboard actions={…} />`. It does **not** call
+`redirect("/login")` — unlike the four precedents, the signed-out branch of `/`
+is the product's public marketing page, and `/` is deliberately absent from
+`src/proxy.ts`'s matcher. Both branches are `"use client"` islands rendered
+through the normal SSR pass, so both ship real HTML.
+
+**B2 — route classification.** `getSession()` awaits `headers()`, so `/` becomes
+dynamic by construction and moves out of the prerendered set in the `next build`
+route table (10 static / 17 dynamic at `66d9442` becomes 9 static / 18 dynamic).
+No `export const dynamic` is added anywhere — `rootLayoutRendering.test.ts`'s
+allowlist stays exactly `['src/app/api/dev/profiles/route.ts']`. The trade is
+deliberate and is the point of the task: a per-request render in exchange for a
+document that actually contains the landing page.
+
+**B3 — where `RepertoireDashboard` goes.** Wholesale into
+`src/components/songs/RepertoireDashboard.tsx` (the existing `songs` area — no
+new component directory, no AGENTS.md area-list change), with `SongResultItem`
+split into its own `src/components/songs/SongResultItem.tsx` to keep the
+one-component-per-file convention that applies under `src/components`. Because
+F21 forbids `src/components/**` importing `@/app/*`, the seven Server Actions it
+imports today (`createAndAddSongAction`, `addSongAction`,
+`searchGlobalSongsAction`, `updateSongAction`, `updateSongStatusAction`,
+`updateSongTagsAction`, `submitGlobalSongEditAction`) become one injected
+`RepertoireDashboardActions` object built in `page.tsx`, exactly as
+`BANDS_VIEW_ACTIONS` / `PLAYLISTS_VIEW_ACTIONS` do; the island keeps passing a
+`SongFormActions` slice down to `SongForm`. `src/store/repertoireStore.ts` is
+**not** covered by F21 (the rule's globs are `src/components/**`, `src/lib/**`,
+`src/hooks/**`) and keeps importing its actions directly — do not touch it.
+
+**B4 — signed-in first paint: the dashboard still loads on mount.** Its read is
+keyed by the **band context**, which lives only in the browser
+(`src/store/bandContextStore.ts`, `zustand/persist` → `localStorage`). The
+server cannot know which repertoire to read, so a server read would necessarily
+be the personal one and would be wrong — and visibly wrong in the HTML — for a
+band-mode user. `useRepertoireStore`'s initial state is deterministic and not
+persisted (`songs: []`, `isLoading: false`), so the server render and the
+client's first render are identical and the mount-effect fetch happens strictly
+after hydration: no mismatch. Moving the read to the server is a follow-up
+blocked on moving band context into a cookie, and is out of scope.
+
+**B5 — the band-context hydration guard (required, or ER4 does not hold).**
+`persist` with `localStorage` rehydrates synchronously at store creation, so a
+band-mode user's first client render already carries
+`{ type: 'band', … }` while the server rendered the `{ type: 'user' }` default.
+The island therefore must gate every band-context-derived output — the header
+title, the read-only vs. clickable status badge, the empty-state copy and the
+`?bandId=` query on each song link — behind a "has the client hydrated yet"
+flag. Pre-hydration the island renders the personal variant.
+
+The flag is a new `useHydrated()` hook in `src/hooks/useHydrated.ts`, built on
+`useSyncExternalStore` with a never-firing `subscribe`, a `getSnapshot` of
+`true` and a `getServerSnapshot` of `false`. It must **not** copy `AppLayout`'s
+`useState(false)` + `useEffect(() => { setMounted(true); }, [])` shape: both
+occurrences of that shape in `AppLayout`
+(`src/components/layout/AppLayout.tsx:48` and `:165`) are themselves
+`react-hooks/set-state-in-effect` **errors** in the 8-error baseline, so copying
+it would add a ninth and break ER8. The `useSyncExternalStore` shape was linted
+in this tree against the project config and reports **0 errors / 0 warnings**,
+and the whole-tree count with the hook file present is still exactly 8/12.
+`AppLayout` itself is not touched — fixing its two errors is out of scope.
+
+**B6 — `LandingPage` is unchanged.** Its `useState<Locale>("pt-BR")` plus
+cookie-reading effect is mismatch-free by construction (the initial state is a
+constant, so server and first client render agree); server-resolving the locale
+is a different task. Its `LandingPage.tsx:41` stack disappears because the
+subtree above it stops mismatching, not because the file changes.
+
+**B7 — explicitly unchanged.** `AppShell`/`AppLayout` stay client-resolved, so
+the raw document for a signed-out `/` still contains the chrome
+`nav[aria-label="Main navigation"]` (2 occurrences today, before and after).
+That is a pre-existing `AppShell` wart, not this task's, and it produces no
+hydration error because `isPending` is true on the client's first render too.
 
 ### Files touched
 
-- `docker-compose.yml` — replaced: header comment naming both modes, `postgres` (profiled,
-  healthchecked, `POSTGRES_DB=postgres`, `${POSTGRES_PORT:-54322}:5432`, migrations +
-  `/seed/catalog.sql` + `99-migrations.sh` mounts, own named volume) and `app` (no profile,
-  its own `wget` healthcheck per §8b, `DATABASE_URL=${POSTGRES_URL}` plus the
-  `BETTER_AUTH_*` passthroughs, `depends_on` with `required: false`); the eight other
-  Supabase services and their volumes deleted.
-- `poli-runner.yml` — new; `name: repertoire_hero`, `alias: rh`, the four `commands`,
-  `status.url: http://localhost:3000/` (the home route is a client component, so it renders
-  200 without a session), `depends_on: [postgres]`, and the `postgres` integration point
-  with a `local` scenario only.
-- `scripts/ensure-db.sh` — new, executable; creates `repertoire_hero` if missing + `node
-  scripts/migrate.mjs` against
-  `postgresql://postgres:postgres@127.0.0.1:54321/repertoire_hero`, tolerant exit when the
-  shared container is down.
-- `scripts/seed-catalog.sql` — new; the 12-row `global_songs` catalogue moved out of
-  `supabase/seed.sql`, header rewritten.
-- `scripts/dev-seed` — default `DATABASE_URL` updated; applies `scripts/seed-catalog.sql`.
-- `docker/init-migrations.sh` — seed path `/docker-entrypoint-initdb.d/seed.sql` →
-  `/seed/catalog.sql`.
-- `.env.example` — Docker/compose block added (`COMPOSE_PROFILES`, `POSTGRES_URL`,
-  `POSTGRES_PORT`, `POSTGRES_PASSWORD`), `DATABASE_URL` corrected to
-  `postgresql://postgres:postgres@127.0.0.1:54322/postgres` per §2; becomes tracked.
-- `.gitignore` — `!.env*.example` added; `supabase/.temp/` entry removed.
-- `AGENTS.md` — the legacy-Supabase paragraph (§ *Legacy/unused code*), the Deployment
-  bullet's "Kong/Supabase-style" phrase, and the `docker/` line in the directory tree
-  rewritten to describe the two compose modes, `.env.example` as the tracked template and
-  `poli-runner.yml`.
-- `package.json` — version bump per the AGENTS.md rule.
-- **Deleted:** `supabase/` (whole directory), `docker/kong.yml`,
-  `docker/supabase.env.example`, `docker/app.env.example`, `.env.local.example`.
+- `src/app/page.tsx` — drops `"use client"`; becomes an async Server Component
+  (~40-60 lines) holding only the session read, the branch and the actions
+  bundle.
+- `src/components/songs/RepertoireDashboard.tsx` — **new**; the dashboard moved
+  verbatim, plus the injected-actions prop and the `useHydrated()` guard of B5.
+- `src/components/songs/SongResultItem.tsx` — **new**; the row component moved out.
+- `src/hooks/useHydrated.ts` — **new**; the `useSyncExternalStore` hydration flag
+  of B5. Imports only `react`, so it is F21-clean under `src/hooks/**`.
+- `src/components/songs/__tests__/repertoireDashboard.test.tsx` — **new** DOM
+  test (see TC3).
+- `eslint.config.mjs` — the `complexity-budget/override` entry for
+  `src/app/page.tsx` is **re-pinned, not added**: its `files` becomes the
+  island's path and its three ceilings are recomputed to the island's exact
+  worst numbers (they will be lower — `SongResultItem` and the actions bundle
+  leave the file). The list stays at **18 entries**, so `MAX_OVERRIDES` is
+  unchanged; `src/app/page.tsx` must end up under the base budget with no entry
+  of its own. If the island happens to fit the base budget, delete the entry
+  instead and lower `MAX_OVERRIDES` to 17.
+- `e2e/ssr-smoke.spec.ts` — the signed-out `/` test is **strengthened** (TC2).
+- `docs/plans/code-quality-review.md` — a new `**Addendum (RH-77).**` at the end
+  of F15's Status, leaving every existing sentence standing (ER11).
 
 ### Test criteria
 
-- `COMPOSE_PROFILES=standalone docker compose config --services` prints exactly `postgres`
-  and `app`; `COMPOSE_PROFILES=poli-runner docker compose config --services` prints exactly
-  `app` (this is the measured, intended behaviour — see §3), and the bundled `postgres`
-  is likewise absent from `docker compose ps` in that mode.
-- `npx vitest run src/lib/__tests__/migrationsSingleSource.test.ts` passes.
-- `npx vitest run` (note: `npm test` is watch-mode `vitest`; use `--run`) and the ESLint
-  baseline comparison in ER10.
-- The full ER9 round trip is genuinely runnable: ~35 GB was reclaimed in the Docker VM, so
-  disk is no longer the blocker. The Supabase image family was deleted along with the build
-  cache, so the **first `docker compose up` pulls `postgres:16-alpine` and rebuilds the app
-  image from scratch** — several minutes of pull/build is expected progress, not a hang.
-  `npm run build` inside the image is safe without a database: both `scripts/migrate.mjs`
-  and `scripts/deduplicate-songs.mjs` warn and exit 0 when they cannot connect.
+- **TC1 — hydration count.** The criterion is the **full** suite; the ssr-smoke
+  run is the cheap probe. Playwright will not capture this for you:
+  `playwright.config.ts` sets `webServer.stdout: 'ignore'` and
+  `reuseExistingServer: !CI`, so the dev server must be started **outside**
+  Playwright with stderr redirected to a file, and the file must be proven
+  non-empty before any `grep -c` is believed (a `grep -c` over a missing file
+  also returns `0`, which is the pass value).
+  ```
+  rm -f /tmp/rh77-dev.log
+  npm run dev > /tmp/rh77-dev.log 2>&1 &
+  # wait for http://127.0.0.1:3000 to answer
+  npx playwright test                       # full suite  → baseline 5
+  # or: npx playwright test e2e/ssr-smoke.spec.ts   # probe → baseline 1
+  grep -c "GET / 200" /tmp/rh77-dev.log     # POSITIVE CONTROL, must be >= 1
+  grep -c "Hydration failed" /tmp/rh77-dev.log
+  grep -cE "^ *at (RepertoireDashboard|LandingPage) \(" /tmp/rh77-dev.log
+  ```
+  Measured this run against `cc31134` with exactly this recipe, the ssr-smoke
+  probe gives `GET / 200` = 5, `Hydration failed` = 1 and one frame
+  `    at LandingPage (src/components/landing/LandingPage.tsx:41:7)` under
+  `    at HomePage (src/app/page.tsx:636:12)` — that indented `at <Name> (` form
+  is the only shape these stacks take, and it is what the greps must anchor on.
+  A bare identifier grep is **not** acceptable after this task, because
+  `RepertoireDashboard` will also appear in Turbopack's dev compilation output
+  for the new island file. Required after the change: positive control >= 1,
+  `Hydration failed` = 0, stack frames = 0. Use a **fresh** log per measurement.
+- **TC2 — the document.** `e2e/ssr-smoke.spec.ts`'s signed-out `/` test keeps its
+  current assertions and adds two on the raw body: it contains `href="/signup"`
+  (0 occurrences today) and does not contain `>Loading...<` (1 today). The
+  browser-level test in the same file is unchanged and must still pass.
+- **TC3 — the band-context guard.** A jsdom test renders the island through
+  `renderToString` (which runs no effects, so it is exactly the first render)
+  with `useBandContextStore` pre-set to a band, and asserts the output contains
+  `My Repertoire` and not the band name. File opens with
+  `// @vitest-environment jsdom` and registers `afterEach(cleanup)` per AGENTS.md.
+- **TC4 — untouched guards.** `src/lib/__tests__/rootLayoutRendering.test.ts` and
+  `src/lib/__tests__/namingConventions.test.ts` must pass **without edits**: the
+  first because no rendering-mode export is added, the second because it computes
+  the `'use client'` census from source with no hardcoded count.
+  `complexityBudget.test.ts` passes on the re-pinned entry.
+  `e2e/helpers.ts`'s `goHome()` waits on `[aria-label="Song list"]`, which the
+  moved island must keep rendering verbatim — do not rename it.
+- **TC5 — lint.** `npx eslint -f json .` must report **8 errors / 12 warnings**
+  with the same `(file, rule)` pairs as `cc31134` (re-measured this run):
+  `src/app/profile/page.tsx:630`, `src/app/reset-password/page.tsx:21`,
+  `src/app/settings/page.tsx:25` (`react-hooks/set-state-in-effect`) and `:109`
+  (`@next/next/no-html-link-for-pages`),
+  `src/components/landing/LandingPage.tsx:26`,
+  `src/components/layout/AppLayout.tsx:48` **and** `:165`,
+  `src/components/layout/LanguageSelector.tsx:17` — every one except the
+  `settings:109` entry is `react-hooks/set-state-in-effect`, the two `AppLayout`
+  lines included. **None** of the 8 lives in `src/app/page.tsx`, so the
+  relocation moves zero existing errors. Do not fix the baseline here, and do
+  not introduce a ninth error: this is why B5's guard is `useSyncExternalStore`
+  and not a `setState`-in-effect flag. Verification that the prescribed shape is
+  clean was done in this tree, not assumed — the hook file lints to 0/0 and the
+  whole-tree count with it present is 8/12.
 
 ## Expected Results
 
-- [ ] **ER1** `supabase/` does not exist (no `config.toml`, `seed.sql`, `snippets/`,
-      `.branches/`, `.temp/`); its live catalogue lives at `scripts/seed-catalog.sql`; with the
-      compose Postgres up and migrated, `npm run seed` exits 0 against
-      `postgresql://postgres:postgres@127.0.0.1:${POSTGRES_PORT:-54322}/postgres` (pass the
-      URL as `scripts/dev-seed`'s argument when the port is overridden), and
-      `scripts/dev-seed`'s built-in default is that same string with port 54322.
-- [ ] **ER2** Service listing is correct in both modes:
-      `COMPOSE_PROFILES=standalone docker compose config --services | sort` prints exactly
-      `app` and `postgres`, while `COMPOSE_PROFILES=poli-runner docker compose config
-      --services` prints exactly `app` and nothing else; and none of `db`, `auth`, `rest`,
-      `realtime`, `storage`, `imgproxy`, `meta`, `kong`, `studio`, `mailpit` appears
-      anywhere in `docker-compose.yml`.
-- [ ] **ER3** `docker/kong.yml`, `docker/supabase.env.example` and `docker/app.env.example`
-      no longer exist; `docker/init-migrations.sh` remains.
-- [ ] **ER4** `docker-compose.yml` gives the `postgres` service `profiles: [standalone]`,
-      gives `app` no `profiles` key, and `app`'s `depends_on.postgres` carries
-      `required: false`; `docker compose config` exits 0 under both
-      `COMPOSE_PROFILES=standalone` and `COMPOSE_PROFILES=poli-runner`.
-- [ ] **ER5** `.env.example` is tracked by git (`git ls-files .env.example` is non-empty)
-      and contains `COMPOSE_PROFILES=standalone` plus every Postgres variable the compose
-      file interpolates (`POSTGRES_URL`, `POSTGRES_PORT`, `POSTGRES_PASSWORD`), with
-      `POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/postgres`,
-      `POSTGRES_PORT=54322` and
-      `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres`; no secret slot
-      gains a value and no personal email appears; `.env.local.example` no longer exists.
-- [ ] **ER6** `poli-runner.yml` exists at the repo root, parses as valid YAML
-      (`python3 -c "import yaml,sys;yaml.safe_load(open('poli-runner.yml'))"` exits 0),
-      declares `depends_on: [postgres]`, defines `integrations.postgres.local` setting
-      `COMPOSE_PROFILES=poli-runner` and
-      `POSTGRES_URL=postgresql://postgres:postgres@host.docker.internal:54321/repertoire_hero`,
-      and has a `commands.start` ending in `docker compose up -d --wait`.
-- [ ] **ER7** `docker-compose.yml` still carries the line
-      `- ./migrations:/docker-entrypoint-initdb.d/migrations:ro`, and
-      `npx vitest run src/lib/__tests__/migrationsSingleSource.test.ts` passes.
-- [ ] **ER8** `git ls-files -z | xargs -0 grep -il supabase`, filtered to drop `docs/` and
-      `package-lock.json`, matches exactly one path:
-      `src/lib/__tests__/migrationsSingleSource.test.ts`. The untracked, git-ignored `.env`,
-      `.env.local`, `.env.development.local`, `.env.production.local`, `tsconfig.tsbuildinfo`
-      and `.claude/settings.local.json` are excluded by construction and stay untouched (§9).
-- [ ] **ER9** Both modes come up and answer, with readiness actually gated: `app` declares a
-      healthcheck in `docker-compose.yml`, so `COMPOSE_PROFILES=standalone POSTGRES_PORT=54323
-      docker compose up -d --wait` exits `0` (54322 is taken by Homebrew Postgres on this
-      machine; the default stays 54322) and `curl -s -o /dev/null -w '%{http_code}'
-      http://localhost:3000/` immediately returns `200` against the bundled database
-      `postgres`. After `docker compose down`, `poli-runner start repertoire_hero` (from
-      `~/workspace`) exits `0` — its `commands.start` ends in `docker compose up -d --wait`,
-      not a bare `up -d` — `docker compose ps` shows an `app` container and no bundled
-      `postgres` container, and the same curl returns `200` against `repertoire_hero` on the
-      shared `poli-postgres` at `host.docker.internal:54321`.
-- [ ] **ER10** The change introduces no new lint problem: `npx eslint --format json .`
-      reports the **same 8 errors and 12 warnings** in the same (file, rule) pairs as the
-      baseline measured at `ef525f5` (`react-hooks/set-state-in-effect`,
-      `@next/next/no-html-link-for-pages`, `@typescript-eslint/no-unused-vars`), and
-      `npx vitest run` exits 0.
+- [ ] ER1 `src/app/page.tsx` carries no `'use client'` and its default export is
+      `export default async function HomePage()` that awaits `getSession()` and
+      chooses between `LandingPage` and `RepertoireDashboard` on the server.
+- [ ] ER2 `grep -nE "isPending|Loading\.\.\." src/app/page.tsx` returns nothing.
+- [ ] ER3 With the dev server up and no session cookie, `curl -s http://127.0.0.1:3000/`
+      returns a body containing `href="/signup"` and containing no `>Loading...<`
+      (baseline at `cc31134`: 0 and 1 respectively).
+- [ ] ER4 With the dev server started **outside Playwright** and its output
+      redirected to a fresh log (`rm -f /tmp/rh77-dev.log; npm run dev >
+      /tmp/rh77-dev.log 2>&1 &` — Playwright's own `webServer` sets
+      `stdout: 'ignore'` and captures nothing), after a full `npx playwright
+      test` run: the POSITIVE CONTROL `grep -c "GET / 200" /tmp/rh77-dev.log`
+      is `>= 1` (proving the log really captured the run; it was 5 for the
+      ssr-smoke probe alone at `cc31134`), **and** `grep -c "Hydration failed"
+      /tmp/rh77-dev.log` is `0` (baseline 5). Repeating the same procedure with
+      a fresh log and only `npx playwright test e2e/ssr-smoke.spec.ts` gives the
+      same two values: control `>= 1`, `Hydration failed` `0` (baseline 1).
+- [ ] ER5 In that same log, captured the same way and with the same positive
+      control `grep -c "GET / 200" /tmp/rh77-dev.log` `>= 1`,
+      `grep -cE "^ *at (RepertoireDashboard|LandingPage) \(" /tmp/rh77-dev.log`
+      is `0`. The grep is anchored to stack frames of the form
+      `    at LandingPage (src/components/landing/LandingPage.tsx:41:7)`, never
+      to the bare identifiers, which after this task also appear in Turbopack's
+      dev compilation output for `src/components/songs/RepertoireDashboard.tsx`.
+      Baseline at `cc31134`: 4 `at RepertoireDashboard (` frames over the full
+      suite, 1 `at LandingPage (` frame over the ssr-smoke probe.
+- [ ] ER6 `npx playwright test` passes, 35 specs, 0 failures.
+- [ ] ER7 `RUN_DB_TESTS=1 npx vitest run` passes with 0 skipped test files.
+- [ ] ER8 `npx eslint -f json .` reports exactly 8 errors and 12 warnings, with the
+      same `(file, rule)` pairs as `cc31134`.
+- [ ] ER9 `eslint.config.mjs`'s `complexity-budget/override` list has no entry for
+      `src/app/page.tsx`, has at most 18 entries, and
+      `src/lib/__tests__/complexityBudget.test.ts` passes.
+- [ ] ER10 `src/components/songs/__tests__/repertoireDashboard.test.tsx` exists and
+      passes: with a band pre-set in `useBandContextStore`, the island's first
+      render (`renderToString`, no effects) contains `My Repertoire` and not the
+      band name.
+- [ ] ER11 `docs/plans/code-quality-review.md`'s F15 Status ends with a new
+      `**Addendum (RH-77).**` recording that `/` is no longer one of the five
+      deferred `'use client'` pages (four remain) and that `/` moved from the
+      prerendered set to server-rendered-on-demand, with every pre-existing
+      sentence of F15 left verbatim.
+
+- [ ] ER12 `src/hooks/useHydrated.ts` exists, uses `useSyncExternalStore`, and
+      contains no `useEffect`; `npx eslint -f json src/hooks/useHydrated.ts`
+      reports 0 errors and 0 warnings.
 
 ## Out of Scope
 
-- Fixing the 8 pre-existing ESLint errors and 12 warnings. They predate RH-74, live in
-  page/layout components, and are application-behaviour work that belongs to its own task —
-  `npm run lint` has never exited 0 in this repository, so "lint exits 0" would be an
-  acceptance criterion that can never pass.
-- Any change under `src/`, `e2e/`, `migrations/`, `.github/workflows/` or `Dockerfile`.
-- Adding a dedicated `/api/health` route: `/` already answers 200 without a session.
-- Registering the repo in `polidoro-runner/systems/` — `poli-runner.yml` at the repo root is
-  the whole integration; the shared `postgres` system already exists there.
+- Fixing the 8 existing eslint errors / 12 warnings.
+- Server-resolving the app chrome (`AppShell` / `AppLayout`), so the signed-out
+  `/` document keeps its two `nav[aria-label="Main navigation"]` occurrences.
+- Server-resolving the landing-page locale, or any i18n change.
+- Reading the repertoire on the server / moving band context to a cookie.
+- Decomposing `RepertoireDashboard` beyond extracting `SongResultItem`; it moves
+  as it is.
+- Any visual change. The rendered UI is byte-identical post-hydration, which is
+  why this spec ships no HTML mockup.

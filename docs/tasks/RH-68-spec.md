@@ -1,322 +1,345 @@
-# RH-68 — PlaylistDetailPage part 3/6: retire the complexity-29 row arrow into PlaylistSongRow, PlaylistSongList and PlaylistSummary
+# RH-69 — PlaylistDetailPage part 4/6: unify tag editing in useTagEditor and extract the tag bars
 
-Baseline for every measurement in this document: `5c38206`
-(`refactor(RH-67): extract the dual-source SongPicker from PlaylistDetailPage`),
-tree clean, `package.json` version `0.1.102-202609100329`.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
 
-Parent: RH-53. Predecessor: RH-67 (done). Successors: RH-69, RH-70, RH-71.
+Baseline for every measurement in this document: `acbbf83`
+(`refactor(RH-68): extract the song row, list and summary from PlaylistDetailPage`),
+tree clean, `package.json` version `0.1.103-202609100437`.
+
+Parent: RH-53. Predecessor: RH-68 (done). Successors: RH-70, RH-71.
 
 ## Scope
 
-Move the song list of `src/app/playlists/[id]/page.tsx` — the 196-line,
-complexity-29 arrow that renders one playlist row, the three list states around
-it, and the mastery summary above it — out of the page into one pure lib module
-and four components, preserving behaviour exactly. `handleRemoveSong` and
-`handleStatusCycle` stay on the page and arrive at the row as injected
-callbacks.
+Replace the two tag-editing sites of `/playlists/[id]` — the playlist's own tag
+bar and the per-song tag row inside `PlaylistSongRow` — with one shared
+controller hook over one pure lib module, and move the two tag bars out of the
+page into components. Behaviour is preserved; the one deliberate difference is
+named in "Approach / Behavior" below.
 
 In scope, and nothing else:
 
-- `src/lib/playlistDetail.ts` (new) — the pure decisions: the tag collection
-  (`allTags`, lines 260-266), the tag + text filter (`filteredSongs`, 268-284),
-  the position sort (818-819), the mastery-count / duration / score aggregation
-  from `PlaylistSummary`'s `useMemo` (84-118, with `STATUS_SCORES`), and the
-  optimistic status-cycle transition (320-341).
-- `src/components/playlists/PlaylistSongRow.tsx` (new) — the row: duration,
-  status badge with its band-mode read-only branch, remove button, and the
-  per-song tag row (chips, remove-chip buttons, inline `new tag` input, `+ tag`
-  button) moved **as-is**, receiving its handlers as props. RH-69's
-  `useTagEditor` lands inside this component; this task must not anticipate it.
-- `src/components/playlists/PlaylistSongIdentity.tsx` (new) — the cover +
-  title/artist/album block the row renders twice today (836-865 and 867-896,
-  identical but for one hover class). See "Why a fourth component" below: without
-  it `PlaylistSongRow` measures complexity 29 and would need a new override
-  entry, which the ratchet forbids.
-- `src/components/playlists/PlaylistSongList.tsx` (new) — the
-  `<section aria-label="Songs in this playlist">` and its three states (no songs
-  / no match / rows).
-- `src/components/playlists/PlaylistSummary.tsx` (new) — lines 56-180, taking
-  `STATUS_BAR_COLORS` with it; `STATUS_SCORES` leaves the page too, into
-  `playlistDetail.ts`, because the score computation is its only reader and that
-  computation is pure.
-- Three test files, the page itself, the page's `complexity-budget/override`
-  entry in `eslint.config.mjs` re-pinned to the newly measured numbers, and the
-  version bump.
+- `src/lib/tagEditor.ts` (new) — the pure decisions: the normalisation the two
+  sites write inline today (trim, lowercase, strip trailing commas, trim again),
+  already-present detection, add and remove.
+- `src/hooks/useTagEditor.ts` (new) — `useTagEditor(options): TagEditorController`,
+  one instance per editing site: the open/close/draft state, the focus effect,
+  and the optimistic-then-await write path.
+- `src/components/playlists/PlaylistTagBar.tsx` (new) — page lines 490-559: the
+  playlist tag bar with its ownership gate over the derived `currentUserId`
+  (RH-66).
+- `src/components/playlists/TagFilterBar.tsx` (new) — page lines 615-644: the
+  tag filter above the song list.
+- `src/components/playlists/TagEditRow.tsx` (new) — the chips, their remove
+  buttons and the inline `new tag` input, rendered by both editing sites. See
+  "Why a third component".
+- `src/components/playlists/PlaylistSongRow.tsx` and `PlaylistSongList.tsx`
+  (edited) — the row's seven tag props collapse to one `tagEditor` prop and its
+  tag markup becomes one `TagEditRow`; the list stops drilling the six it was
+  forwarding.
+- The page: the four handlers `handleTagsChange`, `handleAddPlaylistTag`,
+  `handleAddSongTag`, `handleRemoveSongTag`, the helper `handleEditTagsFor`, the
+  four states `addingTagForSong`, `newTagInput`, `addingPlaylistTag`,
+  `newPlaylistTagInput`, the two tag input refs and their two focus effects all
+  leave; two `useTagEditor` call sites and two JSX elements arrive.
+- Three new test files, one edited test file, the page's
+  `complexity-budget/override` entry re-pinned to the newly measured numbers,
+  and the version bump.
 
-Not in scope: the header and its rename input, the Spotify strip and sync path,
-the playlist-level tag bar, the in-playlist text filter input, the tag filter
-bar, the three focus effects, the mount effect and its `eslint-disable`, and the
-Server Component conversion. Those are RH-69, RH-70 and RH-71. See "Out of
-Scope".
+Not in scope: the header and its rename input and focus effect, the Spotify
+strip and both sync paths, the in-playlist text filter input, `refreshPlaylist`,
+the mount effect and its `eslint-disable`, the panel reducer and the Server
+Component conversion. Those are RH-70 and RH-71. See "Out of Scope".
 
-## Audit at 5c38206
+## Audit at acbbf83
 
 ### The page
 
-`grep -c "" 'src/app/playlists/[id]/page.tsx'` prints `1024`.
+`grep -c "" 'src/app/playlists/[id]/page.tsx'` prints `670`.
 `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` exits 0 printing
 nothing: its three violations are absorbed by `eslint.config.mjs:74`, pinned by
-RH-67 at `complexity 30`, `max-lines-per-function 839`, `max-lines 1024`.
-Measured with the budget rules forced
+RH-68 at `complexity 27`, `max-lines-per-function 618`, `max-lines 670`. Measured
+with the budget rules forced
 (`--rule '{"complexity":["error",1],"max-lines-per-function":["error",1]}'`),
-`PlaylistDetailPage` at line 186 is **complexity 30, 839 lines**, and the song-row
-arrow at line 820 is **complexity 29, 196 lines** — the worst nested function in
-the tree, and the only arrow in the file above complexity 8
-(`autoPushIfNeeded`, 286, complexity 7, is the runner-up).
-`grep -c "useState"` prints `17`, `useEffect` `5`, `useRef` `4`, `useMemo` `4`,
-`useCallback` `3` (each count includes the `react` import line).
+`PlaylistDetailPage` at line 53 is **complexity 27, 618 lines**; the worst arrow
+in the file is `autoPushIfNeeded` at complexity 7.
+`grep -c "useState"` prints `17`, `useEffect` `5`, `useRef` `4`, `useMemo` `3`
+(each count includes the `react` import line).
 
 ### What belongs to this slice, by line
 
 | Lines | What | Destination |
 |---|---|---|
-| 3 | `Image` import (**stays**: the header cover uses it too) | - |
-| 22 | `STATUS_CONFIG, STATUS_ORDER, nextStatus` from `@/lib/statusConfig` | components + lib |
-| 29 | the `SongStatus` type import | components + lib |
-| 37-44 | `formatDuration` | deleted; `formatPlaylistDuration` (`@/lib/playlistList`, RH-63) is byte-for-byte the same function and both new readers import it |
-| 56-76 | `STATUS_SCORES`, `STATUS_BAR_COLORS` | `playlistDetail.ts` / `PlaylistSummary.tsx` |
-| 78-180 | `PlaylistSummaryProps` + `PlaylistSummary` | `PlaylistSummary.tsx` |
-| 260-266 | the `allTags` memo body | `collectPlaylistTags` |
-| 268-284 | the `filteredSongs` memo body | `filterPlaylistSongs` |
-| 320-341 | `handleStatusCycle`'s `nextStatus` call and its two `new Map(prev)` clones (the body **stays**, the transition leaves) | `cycleSongStatus` + `withRepertoireEntry` |
-| 801-819 | the `<section>`, the three states, the `[...filteredSongs].sort(...)` | `PlaylistSongList.tsx` + `sortPlaylistSongs` |
-| 820-1015 | the row arrow | `PlaylistSongRow.tsx` + `PlaylistSongIdentity.tsx` |
+| 74-77 | `addingTagForSong`, `newTagInput`, `addingPlaylistTag`, `newPlaylistTagInput` | `useTagEditor` state |
+| 84-85 | `playlistTagInputRef`, `songTagInputRef` | the hook's single `inputRef` |
+| 90-95 | the two tag focus effects | the hook's focus effect |
+| 226-233 | `handleTagsChange` | the playlist editor's `applyTags` + `saveTags` |
+| 235-245 | `handleAddPlaylistTag` (the only trailing-comma strip in the tree) | `normalizeTag` + `commitDraft` |
+| 247-251 | `handleEditTagsFor` | `open` / `close` |
+| 253-272 | `handleAddSongTag` | `commitDraft` over the song editor |
+| 274-286 | `handleRemoveSongTag` | `removeTag` over the song editor |
+| 490-559 | the playlist tag bar, ownership gate at 491-492 | `PlaylistTagBar.tsx` + `TagEditRow.tsx` |
+| 615-644 | the tag filter bar | `TagFilterBar.tsx` |
+| 655-663 | six tag props on the `PlaylistSongList` call | one `tagEditor` prop |
 
-`handleRemoveSong` (309-318), `handleStatusCycle` (320-341), `handleAddSongTag`
-(401-424), `handleRemoveSongTag` (426-440), `addingTagForSong`, `newTagInput`,
-`songTagInputRef` and its focus effect (226-228) all **stay on the page** and are
-passed down; RH-69 owns them. The mount effect (245-258) and its
-`// eslint-disable-next-line react-hooks/set-state-in-effect` are untouched;
-RH-71 owns them.
+`PlaylistSongRow.tsx` lines 17-37 (the `PlaylistSongHandlers` /
+`PlaylistSongRowProps` interfaces) and 126-174 (the tag row) are the second
+editing site; `PlaylistSongList.tsx` forwards `addingTagForSong`, `newTagInput`,
+`tagInputRef`, `onAddTag`, `onRemoveTag`, `onEditTagsFor` and `onTagInputChange`
+straight through and reads none of them except `addingTagForSong === ps.song_id`.
 
-### Why a fourth component
+### Is the normalisation duplicated?
 
-Moved verbatim into a component of its own, the row measures **complexity 29,
-199 lines** — over the base budget of 15 and within one line of the 200-line
-budget. A new `complexity-budget/override` entry is forbidden (the list is a
-ratchet and may only shrink), so the row has to come under 15 on its own.
-Lines 836-865 and 867-896 are the same cover + title/artist/album block written
-twice, differing only in the `group-hover:text-emerald-600 transition-colors`
-class on the title, and they are also two of the eighteen clones `npm run
-lint:dup` reports today
-(`app/playlists/[id]/page.tsx [836:25 - 853:42] / [867:26 - 884:42]` and
-`[853:133 - 865:27] / [884:86 - 896:27]`). Rendering that block once, through
-`PlaylistSongIdentity` with a `linked` boolean that selects between the two
-className strings verbatim, takes the row to **complexity 13, 143 lines** and the
-identity to **complexity 10, 39 lines** — both under budget, with no override, and
-those two clones gone.
+Not byte for byte, and that asymmetry is the finding. The playlist path
+(235-238) trims, lowercases, strips **every trailing comma** and trims again; the
+song path (254) trims and lowercases only. The already-present check is written
+twice (243 and 258), the append twice (244 and 262), the filter-out twice (504
+and 277). Unifying them is what `src/lib/tagEditor.ts` is for, and it widens the
+song path by the trailing-comma strip — the one behaviour difference this task
+ships, stated again in "Behavior".
+
+### Which of the 17 `useState` lines leave
+
+The four named in the task (`addingTagForSong`, `newTagInput`,
+`addingPlaylistTag`, `newPlaylistTagInput`) and no others, taking the count to
+**13** (the `react` import line plus twelve declarations). The parent plan's
+`<= 11` is unreachable inside this slice and is pinned at 13: of the twelve
+survivors, five are the load state (`playlist`, `songs`, `repertoireMap`,
+`loading`, `error`), two are the filter *selection* (`activeTagFilter`,
+`songFilterQuery`) which the page still needs to compute `filteredSongs` and
+which no tag *editor* can own, and five (`syncing`, `editing`, `editName`,
+`confirmDelete`, `showSearch`) are the panel flags RH-70 collapses into its
+`useReducer` — which is precisely where the plan's own part-5 target of `<= 5`
+comes from. Reaching 11 here would mean doing two of RH-70's states early.
 
 ### The regression net
 
-`e2e/playlist-detail.spec.ts` (RH-66, 11 tests) is the only test covering this
-page. Every locator it uses that touches this slice is a contract this task must
-keep byte-for-byte:
+`e2e/playlist-detail.spec.ts` (RH-66, 11 tests) is the only end-to-end coverage
+of this page, and four of its tests are this slice: `adds a tag to a playlist
+song`, `removes the tag from the playlist song`, `adds a tag to the playlist
+itself` and `filters the playlist by tag`. Every locator they use is a contract
+this task keeps byte for byte:
 
-- `getByRole('region', { name: 'Songs in this playlist' })` (line 74) — the
-  `<section aria-label>`;
-- `.getByRole('listitem')` inside that region (78, 172, 176, 235, 241, 246, 250,
-  255, 261, 266, 349, 355, 358) — exactly one `<li>` per song and no other list
-  item inside a row;
-- `getByRole('button', { name: 'Status: Unknown. Click to advance.', exact: true })`
-  and its `Learning` variant (182-196) — the `aria-label` template;
-- `getByRole('button', { name: 'Remove <title> from playlist' })` (352);
-- `getByRole('button', { name: 'Add tag', exact: true })` scoped to a row (209) —
-  named exactly, because `Add tag to playlist` starts with the same words;
+- `getByRole('button', { name: 'Add tag', exact: true })` scoped to a song row
+  (line 209) — named exactly, because `Add tag to playlist` starts with the same
+  words;
+- `getByRole('button', { name: 'Add tag to playlist' })` (307) and
+  `playlistTagBar` (88-89), which is an `xpath=..` off that button — so the add
+  button must stay a **direct child** of the bar's wrapper `div`, next to the
+  chips;
 - `row.getByPlaceholder('new tag')` (210) and the global
   `expect(getByPlaceholder('new tag')).toHaveCount(1)` after opening the
-  playlist-level input (308-309) — so the row's input must still render only
-  when `addingTagForSong` names that song;
+  playlist input (308-309) — at most one input open across both sites;
 - `getByRole('button', { name: 'Remove tag <tag>' })` scoped to a row (219, 227,
-  274, 286, 293);
-- `getByText('No songs yet')` (148) and
-  `getByText('No songs matching "<q>".')` (247);
+  274, 286, 293) and scoped to the playlist bar (316, 323);
 - `getByRole('button', { name: <tag>, exact: true })` (222, 230, 260, 287, 294) —
-  the tag filter bar, which stays on the page, and which must not collide with the
-  row chips' `Remove tag <tag>` buttons.
+  the filter bar's toggle, which must not collide with the chips' remove buttons;
+- `getByRole('button', { name: 'clear' })` (258) — the filter bar's `x clear`.
 
-The playlist-level tag bar locator (`playlistTagBar`, 88-89, an `xpath=..` off
-`Add tag to playlist`), the text filter placeholder (238) and the
-`heading` name (104) belong to blocks this task does not touch.
+The spec's header comment also records that `handleAddSongTag`,
+`handleRemoveSongTag` and `handleTagsChange` write optimistically before
+awaiting, and three tests wait on `serverActionResponse(page)` because of it.
+That ordering is therefore load-bearing for the net, not an implementation
+detail.
+
+### Why a third component
+
+Under one controller the two tag markups become identical: today they already
+share every className (chip, remove button, input, `+ tag` button) and differ
+only in the handler names and in the add button's `aria-label`. Rewriting both
+against the same `TagEditorController` would leave two byte-identical 30-line
+blocks in `PlaylistTagBar.tsx` and `PlaylistSongRow.tsx` — a clone pair jscpd
+does not report today (it reports 16 clones, none in `src/components/playlists`)
+and would start reporting. `TagEditRow.tsx` renders that block once, taking
+`subject`, `tags`, `editor` and an `addLabel` that is `"Add tag"` for a row and
+`"Add tag to playlist"` for the bar, which is also what keeps the two e2e
+locators verbatim. This is the same call RH-68 made for `PlaylistSongIdentity`,
+for the same reason.
 
 ### Reference measurement of the result
 
-The extraction described below was simulated file by file against `5c38206` and
-linted with the budget rules forced. The resulting page is **666 lines**, with
-`PlaylistDetailPage` at **614 lines and complexity 27**; the page's worst
-remaining arrow is `autoPushIfNeeded` at complexity 7. The four new components
-lint clean under the base budget with no override: `PlaylistSongRow` 143 lines /
-complexity 13, `PlaylistSongIdentity` 39 / 10, `PlaylistSongList` 58 / 4,
-`PlaylistSummary` 71 / 3.
+The extraction described below was simulated file by file against `acbbf83` and
+linted with the budget rules forced. The resulting page is **537 lines**, with
+`PlaylistDetailPage` at **482 lines and complexity 20**. Every new and edited
+component lints clean under the base budget with no override: `TagEditRow` 69
+lines / complexity 2, `PlaylistTagBar` 31 / 4, `TagFilterBar` 46 / 3,
+`useTagEditor` 90 lines / complexity 1, `tagEditor.ts` 32 lines / worst function
+complexity 3, `PlaylistSongRow` 125 / 12 (down from 143 / 13),
+`PlaylistSongList` 70 / 4 (down from 77 / 4).
 
-Two of the parent plan's three targets for this part are unreachable as stated,
-for the same reason RH-67's `810 -> 840` was, and are pinned at the measured
-values:
+Two of the parent plan's four targets are met as stated and two are pinned at
+the measured values:
 
-- **`PlaylistDetailPage <= 600` lines is pinned at 614.** The plan derived 600
-  from an assumed 810-line function after part 2; part 2 measured **839**,
-  because `PickerRow` (61 lines) and `Spinner` (23) left the file without ever
-  having been inside the function. This part removes **225** function lines,
-  more than the 210 the plan budgeted, and still lands 14 lines above a target
-  computed from a number that was 29 too low. The 125 lines of `PlaylistSummary`
-  and the 8 of `formatDuration` shrink the file, not the function, exactly as
-  `PickerRow` did.
-- **`complexity <= 26` is pinned at 27.** The song-list slice contains exactly
-  three of the page body's own decision points — `songs.length === 0 ?`,
-  `filteredSongs.length === 0 ?` and the `activeTagFilter ? : ` inside the
-  no-match message — so 30 - 3 = 27. The fourth would have to come from the
-  playlist tag bar or the tag filter bar (RH-69) or the header (RH-70); taking
-  one now would pre-empt those parts for a single point.
-
-The plan's other targets are met with margin: the page at 666 is well under 830,
-and no arrow anywhere in the file is above complexity 7, well under 10.
+- **Page `<= 680` lines: met**, at 537.
+- **`complexity <= 20`: met exactly**, at 20. The seven decision points that
+  leave the page body are the ownership gate's `playlist &&`, `||` and trailing
+  `&&`, the `addingPlaylistTag ? :` ternary, the `(playlist.tags ?? [])` of the
+  chip map, and the filter bar's `allTags.length > 0 &&` and `activeTagFilter &&`.
+- **`PlaylistDetailPage <= 470` lines is pinned at 482.** The slice removes 136
+  lines from the function (618 -> 482) and gives back 32 for the two
+  `useTagEditor` call sites, which are wiring the page must hold: each names its
+  `readTags`, `applyTags`, `saveTags`, `onError` and its two failure messages.
+  The plan's 470 was arithmetic on the tag-bar JSX alone and did not budget for
+  that wiring. RH-70 is where the number falls again, because the focus effects
+  and the panel flags it deletes are inside the function.
+- **`useState <= 11` is pinned at 13**, for the reason set out in "Which of the
+  17 `useState` lines leave".
 
 ## Approach
 
 ### Behavior
 
-Nothing a user can observe changes. The list still shows `No songs yet` for an
-empty playlist, still shows the tag-scoped or query-scoped no-match message when
-a filter hides everything, still renders the rows ordered by `position`, and
-still renders one row per song. A row still links to that song's Fast View when
-the user has a repertoire entry for it (carrying `returnTo` and, in band
-context, `bandId`) and renders the same block unlinked when they do not; still
-shows the cover or the emerald placeholder, the title, the artist and the album
-when present; still shows the duration when the song carries one; still renders
-the mastery status as a read-only badge in band context and as a cycling button
-in personal context; still removes the song from the playlist through the same
-`Remove <title> from playlist` button; and still carries the same per-song tag
-chips, remove-chip buttons, inline `new tag` input and `+ tag` button, with the
-same Enter / Escape / blur behaviour. The summary above the list still hides
-itself for an empty playlist and otherwise renders the same score, label, total
-duration, stacked bar and legend.
+Nothing a user can observe changes, with one named exception. The playlist tag
+bar still renders only for a band playlist or a personal playlist the signed-in
+user owns, still shows one chip per tag with a `Remove tag <tag>` button that
+disappears the chip and writes the shortened list, still swaps its `+ tag`
+button for a `new tag` input that is focused on open, commits on Enter and on
+blur, and closes on Escape. A song row still does all of the same, one row at a
+time. The tag filter still renders one button per tag present in the playlist,
+still toggles a tag off when it is clicked again, still shows `x clear` only
+while a filter is active, and still renders nothing when no song carries a tag.
+Both writes stay optimistic in exactly today's order: the new list is applied
+locally **before** the Server Action is awaited, and a rejection surfaces
+through the page's error banner. There is no rollback, because there is none
+today — `handleStatusCycle` reverts, the three tag handlers do not — and adding
+one would change what `e2e/playlist-detail.spec.ts` observes. That asymmetry is
+worth a line in `docs/suggestions-log.md`, not a fix inside a refactor.
 
-Two internal contracts make that testable:
+The one deliberate difference: a per-song tag typed with trailing commas
+(`"rock,"`) is now stored as `rock`, because both sites share the playlist
+path's normalisation. Nothing in the e2e net or in any unit test depends on the
+old behaviour, and storing the comma was not intentional.
 
-- `handleRemoveSong` and `handleStatusCycle` stay on the page and reach the row
-  as props. The row calls them and keeps today's `.catch(console.error)` at each
-  call site, so a prop is typed `(songId: string) => Promise<void>` and a failure
-  still surfaces through the page's error banner, not through an unhandled
-  rejection.
-- The status cycle stays optimistic in exactly today's order: the map is updated
-  before the Server Action is awaited, and on failure the **originally captured**
-  entry is put back. `cycleSongStatus` returns that original entry alongside the
-  updated one so the revert restores it rather than recomputing it.
+A second, smaller consequence of unifying the two: pressing Enter on an **empty**
+per-song tag input now closes the input, which is what the playlist input
+already does; today the song input stays open. Escape and blur already closed
+it, and no test observes the difference.
 
 ### Shape
 
-`src/lib/playlistDetail.ts` exports pure functions only — no React, no fetch, no
+`src/lib/tagEditor.ts` exports pure functions only — no React, no fetch, no
 `@/lib/db` — written as `export function` declarations, never arrow consts
-(`namingConventions.test.ts` enforces that for `src/lib`), plus one exported
-lookup table and three exported types:
+(`namingConventions.test.ts` enforces that for `src/lib`):
 
-- `STATUS_SCORES` (the `Record<SongStatus, number>` from page line 56),
-- `collectPlaylistTags(songs, repertoire)` — unique tags, `localeCompare` sorted,
-- `PlaylistSongFilter { tag: string | null; query: string }` and
-  `filterPlaylistSongs(songs, repertoire, filter)`,
-- `sortPlaylistSongs(songs)` — by `position`, on a copy,
-- `PlaylistMasterySummary { counts, totalSeconds, total, score, scoreStatus }`
-  and `summarisePlaylistMastery(songs, repertoire)`, which must return
-  `total: 0` for an empty playlist without dividing by zero,
-- `SongStatusCycle { entry, status, updated }` and
-  `cycleSongStatus(repertoire, songId)`, returning `null` when the song has no
-  entry,
-- `withRepertoireEntry(repertoire, songId, entry)` — the `new Map(prev)` + `set`
-  clone, used by the status cycle's two branches and by the two song-tag
-  handlers that stay on the page.
+- `normalizeTag(raw)` — trim, lowercase, strip every trailing comma, trim again;
+- `hasTag(tags, tag)` — already-present detection;
+- `addTag(tags, raw)` — the appended list, or `null` when the normalised tag is
+  empty or already present, so the caller knows there is nothing to write;
+- `removeTag(tags, tag)` — the list without that tag, on a copy.
 
-`PlaylistSummary.tsx` keeps `STATUS_BAR_COLORS` (a presentation table: raw hex,
-because Tailwind classes cannot drive an inline `width`) and calls
-`summarisePlaylistMastery` inside its existing `useMemo`. `PlaylistSongList.tsx`
-takes the three states and maps `sortPlaylistSongs(filteredSongs)` to
-`PlaylistSongRow`, forwarding the row props unchanged; it holds no filtering
-decision. `PlaylistSongRow.tsx` takes one props object (`max-params` is 4, so
-props stay a single object) carrying `playlistSong`, `entry`, `playlistId`,
-`bandId`, the three tag-editing values (`isAddingTag`, `newTagInput`,
-`tagInputRef`) and the six callbacks; it renders `PlaylistSongIdentity` in both
-branches of the `entry ? <Link> : <>` test. All four components open on
-`"use client"`, like every other file in `src/components/playlists/`.
+`src/hooks/useTagEditor.ts` exports `TagEditorOptions`, `TagEditorController` and
+`useTagEditor`. The options are how one site reaches its tags:
+`readTags(subject)` (the current list, or `null` when there is nothing to edit —
+which is how the song path's missing-repertoire-entry guard survives),
+`applyTags(subject, tags)`, `saveTags(subject, tags)`, `onError(message)` and
+the two failure messages, which differ per site and are preserved verbatim
+(`Failed to update tags` for the playlist, `Failed to add tag` /
+`Failed to remove tag` for a song). The controller is `openFor`, `draft`,
+`inputRef`, `open`, `close`, `changeDraft`, `commitDraft`, `removeTag` — no
+`set*` member, so no consumer can drive the state behind the hook's back. A
+"subject" is whatever the site keys its tags by: the playlist id for the bar,
+the song id for a row, which is what lets one instance serve every row.
 
-The page keeps `songs`, `repertoireMap`, `activeTagFilter`, `songFilterQuery`,
-`addingTagForSong`, `newTagInput` and `songTagInputRef`, replaces the two memo
-bodies with lib calls, replaces the whole `<section>` with one
-`<PlaylistSongList ... />` element, and imports `formatPlaylistDuration` nowhere
-— `formatDuration` is deleted and its two readers (the summary and the row)
-import `formatPlaylistDuration` from `@/lib/playlistList` instead, so no third
-copy of that function is created.
+**No new actions bundle.** The picker needed `src/app/songPickerActions.ts`
+because a hook was calling five Server Actions by name. Here the page hands down
+`saveTags` closures that already bind `playlistId` and the repertoire entry id,
+so nothing crosses the F21 line but a callback: `src/hooks/useTagEditor.ts`
+imports nothing from `@/app/*`, and `updatePlaylistAction` / `updateSongTagsAction`
+stay imported by the page, which is inside `src/app` and may import them. A
+`tagEditorActions.ts` would carry no action the page does not already hold.
+
+**The row takes the controller.** `PlaylistSongRow`'s `isAddingTag`,
+`newTagInput`, `tagInputRef`, `onAddTag`, `onRemoveTag`, `onEditTagsFor` and
+`onTagInputChange` are replaced by one `tagEditor: TagEditorController` on
+`PlaylistSongHandlers`, which `PlaylistSongList` passes through with the rest of
+`rowProps`; the row's `isAddingTag` becomes `editor.openFor === subject`, decided
+inside `TagEditRow`. The alternative — keeping the row's prop API and having the
+page unpack the controller into seven props — would leave the prop drilling this
+part exists to remove and would put `openFor === ps.song_id` back on the page.
+
+`PlaylistTagBar` owns the ownership gate (`playlist.band_id === null &&
+playlist.user_id !== currentUserId` returns `null`) so that the decision leaves
+the page function with the markup, and receives `currentUserId` as a prop rather
+than reading the session itself. `TagFilterBar` owns its own empty-list guard and
+its toggle (`onChange(activeTag === tag ? null : tag)`), so the page passes
+`setActiveTagFilter` directly. Both open on `"use client"`, like every other file
+in `src/components/playlists/`.
 
 ### Files touched
 
-- `src/lib/playlistDetail.ts` — new; the pure decisions.
-- `src/components/playlists/PlaylistSongRow.tsx` — new; the row.
-- `src/components/playlists/PlaylistSongIdentity.tsx` — new; the cover + title
-  block, rendered once instead of twice.
-- `src/components/playlists/PlaylistSongList.tsx` — new; the section and its
-  three states.
-- `src/components/playlists/PlaylistSummary.tsx` — new; the summary, moved with
-  `STATUS_BAR_COLORS`.
-- `src/app/playlists/[id]/page.tsx` — the deletions listed in the audit table,
-  the new imports, two lib-backed memos, a shorter `handleStatusCycle`, and one
-  `<PlaylistSongList ... />` call site.
-- `src/lib/__tests__/playlistDetail.test.ts` — new; 17 tests, node environment.
-- `src/components/playlists/__tests__/PlaylistSongList.test.tsx` — new; 14 tests,
-  jsdom; covers the list, the row and the identity block, which are only
-  reachable through the list.
-- `src/components/playlists/__tests__/PlaylistSummary.test.tsx` — new; 6 tests,
-  jsdom.
+- `src/lib/tagEditor.ts` — new; the four pure functions.
+- `src/hooks/useTagEditor.ts` — new; the controller.
+- `src/components/playlists/TagEditRow.tsx` — new; chips + inline input, shared.
+- `src/components/playlists/PlaylistTagBar.tsx` — new; the gate + wrapper.
+- `src/components/playlists/TagFilterBar.tsx` — new; the filter bar.
+- `src/components/playlists/PlaylistSongRow.tsx` — seven tag props to one, tag
+  markup to one `TagEditRow`.
+- `src/components/playlists/PlaylistSongList.tsx` — stops forwarding six props.
+- `src/app/playlists/[id]/page.tsx` — the deletions in the audit table, two
+  `useTagEditor` call sites, two new JSX elements, the shorter list call.
+- `src/lib/__tests__/tagEditor.test.ts` — new; 12 tests, node environment.
+- `src/hooks/__tests__/useTagEditor.test.tsx` — new; 15 tests, jsdom.
+- `src/components/playlists/__tests__/tagBars.test.tsx` — new; 13 tests, jsdom;
+  both bars in one file, following the `feedbackSurfaces.test.tsx` precedent for
+  two small sibling surfaces.
+- `src/components/playlists/__tests__/PlaylistSongList.test.tsx` — edited; still
+  14 tests, three of them rewired to a controller stub and renamed.
 - `eslint.config.mjs` — the three numbers of the page's override entry re-pinned.
   No entry added, none removed.
-- `package.json` — version `0.1.103-YYYYMMDDHHmm`. Note that `0.1.103` is a patch
-  bump above `0.1.102`: three-digit patches sort lower as plain strings but are
-  numerically higher, which is what AGENTS.md's "must only ever go up" means.
-- `docs/tasks/RH-68-spec.md` — this file. `docs/suggestions-log.md` optionally.
+- `package.json` — version `0.1.104-YYYYMMDDHHmm`.
+- `docs/tasks/RH-68-spec.md` — this file. `docs/suggestions-log.md` optionally,
+  for the missing rollback noted above.
 
 ### Test criteria
 
-The pure lib is unit-tested directly, in the node environment, against
-hand-built `PlaylistSong[]` and `Map<string, Repertoire>` fixtures. The
-components are tested with Testing Library against plain props and `vi.fn()`
-callbacks: the list's three states, the row's link / no-link branches, its
-duration, its band-mode and personal-mode status affordances, its remove button
-and its whole tag row, and the summary's empty, duration, score, bar and legend
-paths. Between them the component tests pin, mechanically, every locator
+The pure lib is unit-tested directly in the node environment. The hook is tested
+with `renderHook` against hand-built option spies, which is the only place the
+optimistic ordering, the no-rollback behaviour, the two failure messages, the
+focus-on-open and the one-instance-many-subjects property can be proved. The
+components are tested with Testing Library against plain props and a stub
+controller: the bar's three gate branches and its whole chip/input surface, the
+filter bar's five behaviours, and the row's tag surface through the list test
+that already exists. Between them the component tests pin every locator
 `e2e/playlist-detail.spec.ts` reaches into this slice for.
 `e2e/playlist-detail.spec.ts` is the end-to-end proof and must pass with no edit
 at all.
 
-**Landing Page Rule decision.** Internal refactor: the playlist song list already
-exists and this task adds no capability a musician would choose the app for. The
-landing copy and both dictionaries must not change.
+**Landing Page Rule decision.** Internal refactor: tagging a playlist and tagging
+a song both already exist, and this task adds no capability a musician would
+choose the app for. The landing copy and both dictionaries must not change.
 
 ## Expected Results
 
-ER1 - The extraction exists, in the layers AGENTS.md prescribes. `test -f src/lib/playlistDetail.ts && test -f src/components/playlists/PlaylistSongRow.tsx && test -f src/components/playlists/PlaylistSongIdentity.tsx && test -f src/components/playlists/PlaylistSongList.tsx && test -f src/components/playlists/PlaylistSummary.tsx` exits `0`; none of those five files exists at `5c38206`. `grep -c "export function\|export interface\|export const" src/lib/playlistDetail.ts` prints a number greater than or equal to `10`, and `grep -c "export function collectPlaylistTags\|export function filterPlaylistSongs\|export function sortPlaylistSongs\|export function summarisePlaylistMastery\|export function cycleSongStatus\|export function withRepertoireEntry" src/lib/playlistDetail.ts` prints `6`. `grep -c "STATUS_SCORES" src/lib/playlistDetail.ts` prints a number greater than or equal to `2` and `grep -c "STATUS_BAR_COLORS" src/components/playlists/PlaylistSummary.tsx` prints a number greater than or equal to `3`: both tables left the page with the summary, the scoring one landing beside the pure score computation that is its only reader and the colour one staying with the markup it styles. `grep -cE "from ['\"]react['\"]|useState|useEffect|useMemo" src/lib/playlistDetail.ts` prints `0` and `grep -c "@/lib/db" src/lib/playlistDetail.ts` prints `0`, so the lib is pure and pulls in no `pg`. `head -1` of each of the four new component files prints exactly `"use client";` or `'use client'`.
+ER1 - The extraction exists, in the layers AGENTS.md prescribes. `test -f src/lib/tagEditor.ts && test -f src/hooks/useTagEditor.ts && test -f src/components/playlists/TagEditRow.tsx && test -f src/components/playlists/PlaylistTagBar.tsx && test -f src/components/playlists/TagFilterBar.tsx` exits `0`; none of those five files exists at `acbbf83`. `grep -c "export function normalizeTag\|export function hasTag\|export function addTag\|export function removeTag" src/lib/tagEditor.ts` prints `4` and `grep -cE "from ['\"]react['\"]|useState|useEffect|@/lib/db" src/lib/tagEditor.ts` prints `0`, so the lib is pure. `grep -c "export function useTagEditor\|export interface TagEditorController\|export interface TagEditorOptions" src/hooks/useTagEditor.ts` prints `3`, `grep -c "@/lib/tagEditor" src/hooks/useTagEditor.ts` prints `1`, and `grep -cE "^\s+set[A-Z][A-Za-z]*:" src/hooks/useTagEditor.ts` prints `0` while `grep -c "openFor\|draft\|inputRef\|open:\|close:\|changeDraft\|commitDraft\|removeTag" src/hooks/useTagEditor.ts` prints a number greater than or equal to `8`: the controller exposes commands, never a setter. `head -1` of each of the three new component files prints exactly `"use client";` or `'use client'`, and `grep -c "'use client'\|\"use client\"" src/hooks/useTagEditor.ts` prints `0` (a hook carries no directive, like every other file in `src/hooks`).
 
-ER2 - The import direction rule (F21) still holds and the two page handlers arrive by injection. `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing at all (as at `5c38206`). `rtk proxy npx eslint src/lib/playlistDetail.ts src/components/playlists/PlaylistSongRow.tsx src/components/playlists/PlaylistSongIdentity.tsx src/components/playlists/PlaylistSongList.tsx src/components/playlists/PlaylistSummary.tsx` exits `0` with no output, so no new file needed an override and none trips `no-restricted-imports`. `grep -c "updateSongStatusAction\|removeSongFromPlaylistAction\|updateSongTagsAction\|@/app/actions" src/components/playlists/PlaylistSongRow.tsx src/components/playlists/PlaylistSongList.tsx` prints `0` for both files, while `grep -c "onStatusCycle" src/components/playlists/PlaylistSongRow.tsx` and `grep -c "onRemoveSong" src/components/playlists/PlaylistSongRow.tsx` each print a number greater than or equal to `2` (the prop declaration and its call site): the row cycles a status and removes a song only through callbacks the page hands it. `grep -c "formatPlaylistDuration" src/components/playlists/PlaylistSummary.tsx src/components/playlists/PlaylistSongRow.tsx` prints a number greater than or equal to `2` for each file and `grep -rc "formatDuration" 'src/app/playlists/[id]/page.tsx'` prints `0`: the page's local copy of that helper is deleted rather than moved, both readers importing the identical `formatPlaylistDuration` from `@/lib/playlistList` (RH-63), so no third copy of it exists anywhere under `src`.
+ER2 - The import direction rule (F21) holds and no new actions bundle was created. `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing at all, exactly as at `acbbf83`. `test -f src/app/tagEditorActions.ts` exits non-zero: the page hands the hook `saveTags` closures that already bind the playlist id and the repertoire entry id, so no Server Action crosses the line and no bundle is needed. `grep -c "updatePlaylistAction\|updateSongTagsAction\|@/app/actions" src/hooks/useTagEditor.ts src/components/playlists/TagEditRow.tsx src/components/playlists/PlaylistTagBar.tsx src/components/playlists/TagFilterBar.tsx src/components/playlists/PlaylistSongRow.tsx src/components/playlists/PlaylistSongList.tsx` prints `0` for every one of the six files, while in `src/app/playlists/[id]/page.tsx` `grep -c "updatePlaylist"` prints a number greater than or equal to `3` and `grep -c "updateSongTags"` prints `2` - the page still owns both writes. `rtk proxy npx eslint src/lib/tagEditor.ts src/hooks/useTagEditor.ts src/components/playlists/TagEditRow.tsx src/components/playlists/PlaylistTagBar.tsx src/components/playlists/TagFilterBar.tsx src/components/playlists/PlaylistSongRow.tsx src/components/playlists/PlaylistSongList.tsx` exits `0` with no output, so no new file needs an override and none trips `no-restricted-imports`.
 
-ER3 - The list, the row and the summary are gone from the page, and only they. In `src/app/playlists/[id]/page.tsx`: `grep -c "Songs in this playlist\|No songs yet\|No songs matching\|No songs tagged\|Click to advance\|isAddingTag\|fast-view\|from playlist" 'src/app/playlists/[id]/page.tsx'` prints `0` (it prints `9` at `5c38206`; the count is case-sensitive, so the surviving `removeSongFromPlaylist` calls do not match it), and `grep -c "STATUS_SCORES\|STATUS_BAR_COLORS\|STATUS_CONFIG\|STATUS_ORDER\|nextStatus\|PlaylistSummaryProps\|formatDuration\|@/lib/statusConfig" 'src/app/playlists/[id]/page.tsx'` prints `0` (it prints `22` at `5c38206`). `grep -c "PlaylistSongList" 'src/app/playlists/[id]/page.tsx'` prints `2` (the import and the one call site, `0` at `5c38206`), `grep -c "PlaylistSummary" 'src/app/playlists/[id]/page.tsx'` prints `2` (`3` at `5c38206`, where it was an interface, a component and a call site) and `grep -c "@/lib/playlistDetail" 'src/app/playlists/[id]/page.tsx'` prints `1`. What must survive does: `grep -c "addingTagForSong"` prints a number greater than or equal to `3`, `grep -c "songTagInputRef"` a number greater than or equal to `3`, `grep -c "newTagInput"` a number greater than or equal to `2`, and `grep -c "handleRemoveSong"`, `grep -c "handleStatusCycle"`, `grep -c "handleAddSongTag"` and `grep -c "handleRemoveSongTag"` each a number greater than or equal to `2` - the page still owns the four handlers and the per-song tag state, which RH-69 takes. `grep -c "react-hooks/set-state-in-effect" 'src/app/playlists/[id]/page.tsx'` prints `1`, unchanged: the mount effect and its disable comment belong to RH-71. `git diff 5c38206 -- src/app/actions src/lib/playlists.ts src/lib/playlistList.ts src/lib/statusConfig.ts src/app/api src/hooks` prints nothing at all.
+ER3 - The four handlers, the four states and the two tag refs are gone from the page, and only they. In `src/app/playlists/[id]/page.tsx`, `grep -c` prints `0` for each of these names on its own: `handleTagsChange`, `handleAddPlaylistTag`, `handleAddSongTag`, `handleRemoveSongTag`, `handleEditTagsFor`, `addingTagForSong`, `newTagInput`, `addingPlaylistTag`, `newPlaylistTagInput`, `songTagInputRef`, `playlistTagInputRef`, `Add tag to playlist`, `Remove tag`, `new tag`, `toLowerCase` and `endsWith(",")`. Each of those prints a number greater than or equal to `1` at `acbbf83`. `grep -c "useTagEditor" 'src/app/playlists/[id]/page.tsx'` prints `3` (the import and the two call sites), `grep -c "PlaylistTagBar"` prints `2` and `grep -c "TagFilterBar"` prints `2` (an import and a call site each). What must survive does: `grep -c "editInputRef"` prints a number greater than or equal to `3` and `grep -c "useEffect"` prints `3` (the import, the rename focus effect and the mount effect; `5` at `acbbf83`), `grep -c "react-hooks/set-state-in-effect"` prints `1`, unchanged - RH-67's disable comment and the mount effect belong to RH-71 - and `grep -c "handleRemoveSong"`, `grep -c "handleStatusCycle"`, `grep -c "activeTagFilter"` and `grep -c "songFilterQuery"` each print a number greater than or equal to `2`. `git diff acbbf83 -- src/app/actions src/lib/playlists.ts src/lib/playlistDetail.ts src/lib/playlistList.ts src/lib/statusConfig.ts src/app/api src/store src/components/playlists/PlaylistSummary.tsx src/components/playlists/PlaylistSongIdentity.tsx src/components/playlists/SongPicker.tsx src/hooks/useSongPicker.ts src/app/songPickerActions.ts` prints nothing at all.
 
-ER4 - The page's measured budget numbers fall, the complexity-29 arrow is gone, and the override entry states the new numbers exactly. `grep -c "" 'src/app/playlists/[id]/page.tsx'` prints a number less than or equal to `700` (`1024` at `5c38206`; the reference extraction measures `666`, and the parent plan's ceiling of `830` is cleared with room). `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx' --rule '{"complexity":["error",10]}'` prints exactly one line containing `has a complexity of`, and that line names `Function 'PlaylistDetailPage'`; no line of that output contains `Arrow function has a complexity of`. At `5c38206` the same command prints two such lines, the second being `820:25  error  Arrow function has a complexity of 29`. `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx' --rule '{"complexity":["error",1],"max-lines-per-function":["error",300]}'` prints, among its lines, exactly one line containing `Function 'PlaylistDetailPage' has a complexity of` and that number is at most `27` (`30` at `5c38206`), and exactly one line containing `Function 'PlaylistDetailPage' has too many lines` and that number is at most `620` (`839` at `5c38206`; the reference extraction measures `614`). The parent plan's `600` and `26` are pinned here at the measured `614` and `27` for the reasons written into this spec's "Reference measurement of the result": the plan's `600` was derived from an assumed 810-line function that part 2 actually measured at 839, and only three of the page body's decision points live in the song-list slice. The `complexity-budget/override` entry for `src/app/playlists/\[id\]/page.tsx` in `eslint.config.mjs` carries the three newly measured values verbatim as its `complexity`, `max-lines-per-function` and `max-lines` ceilings, and `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` (no `--rule`) exits `0` printing nothing.
+ER4 - The page's measured budget numbers fall and the override entry states the new numbers exactly. `grep -c "" 'src/app/playlists/[id]/page.tsx'` prints a number less than or equal to `545` (`670` at `acbbf83`; the reference extraction measures `537`, and the parent plan's ceiling of `680` is cleared with room). `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx' --rule '{"complexity":["error",1],"max-lines-per-function":["error",300]}'` prints, among its lines, exactly one line containing `Function 'PlaylistDetailPage' has a complexity of` and that number is at most `20` (`27` at `acbbf83`), and exactly one line containing `Function 'PlaylistDetailPage' has too many lines` and that number is at most `490` (`618` at `acbbf83`; the reference extraction measures `482`). `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx' --rule '{"complexity":["error",10]}'` prints exactly one line containing `has a complexity of`, and that line names `Function 'PlaylistDetailPage'`. `grep -c "useState" 'src/app/playlists/[id]/page.tsx'` prints `13` (`17` at `acbbf83`), the four departures being `addingTagForSong`, `newTagInput`, `addingPlaylistTag` and `newPlaylistTagInput`; the parent plan's `470` lines and `<= 11` useState are pinned here at the measured `482` and `13` for the reasons written into this spec's "Reference measurement of the result" and "Which of the 17 useState lines leave" - the two states that would take the count to 11 are filter selection, not tag editing, and the five panel flags belong to RH-70's reducer. The `complexity-budget/override` entry for `src/app/playlists/\[id\]/page.tsx` in `eslint.config.mjs` carries the three newly measured values verbatim as its `complexity`, `max-lines-per-function` and `max-lines` ceilings, and `rtk proxy npx eslint 'src/app/playlists/[id]/page.tsx'` (no `--rule`) exits `0` printing nothing.
 
-ER5 - The ratchet did not grow and its guards are green. `grep -c "complexity-budget/override" eslint.config.mjs` prints `20`, exactly as at `5c38206`: no entry added for any of the five new files - each of them is under the base budget of complexity 15, 200 lines per function and 400 lines per file on its own - and none removed. `grep -c "src/components/playlists" eslint.config.mjs` prints `0`. `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints `1` and `git diff 5c38206 -- src/lib/__tests__/complexityBudget.test.ts AGENTS.md docs/plans/code-quality-review.md` prints nothing at all (RH-71 owns the ratchet count, the manifest sentence and the F11 `Status:` line). `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts src/lib/__tests__/namingConventions.test.ts src/lib/__tests__/errorHandlingStyle.test.ts` exits `0` with `0` failed tests - the last two prove the five new files match the naming and error-handling conventions.
+ER5 - The ratchet did not grow and its guards are green. `grep -c "complexity-budget/override" eslint.config.mjs` prints `20`, exactly as at `acbbf83`: no entry added for any of the five new files - each is under the base budget of complexity 15, 200 lines per function and 400 lines per file on its own - and none removed. `grep -c "src/components/playlists\|src/hooks/useTagEditor\|src/lib/tagEditor" eslint.config.mjs` prints `0`. `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints `1`, and `git diff acbbf83 -- src/lib/__tests__/complexityBudget.test.ts AGENTS.md docs/plans/code-quality-review.md` prints nothing at all (RH-71 owns the ratchet count, the manifest and the F11 `Status:` line). `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts src/lib/__tests__/namingConventions.test.ts src/lib/__tests__/errorHandlingStyle.test.ts` exits `0` with `0` failed tests - the last two prove the new lib exports are function declarations, the new hook is `use<Subject>` in a file of exactly that name, the new components are PascalCase one-per-file, and no new catch body breaks the error-handling conventions.
 
-ER6 - The pure decisions are unit-tested. `rtk proxy npx vitest run src/lib/__tests__/playlistDetail.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  17 passed (17)`, its tests named exactly: `collects every tag of the playlist songs without repeating one`, `sorts the collected tags with localeCompare`, `collects nothing when no song has a repertoire entry`, `returns every song when neither a tag nor a query is set`, `keeps only the songs carrying the active tag`, `matches the query against the song title, ignoring case`, `matches the query against the song artist, ignoring case`, `treats a whitespace-only query as no query at all`, `applies the tag filter and the text query together`, `orders the songs by position without mutating the input array`, `counts one song per status and reads a song with no repertoire entry as unknown`, `sums the duration of the songs that carry one and ignores the ones that do not`, `scores an all-mastered playlist at 100 and an all-unknown playlist at 0`, `reports a total of zero for an empty playlist without dividing by zero`, `advances the song status one step and returns the original entry alongside the updated one`, `returns null when the song has no repertoire entry`, `replaces one repertoire entry and leaves the other entries and the source map untouched`. The file needs no `// @vitest-environment` line, because the module under test imports no DOM API.
+ER6 - The pure tag decisions are unit-tested. `rtk proxy npx vitest run src/lib/__tests__/tagEditor.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  12 passed (12)`, its tests named exactly: `trims the surrounding whitespace and lowercases the tag`, `strips every trailing comma and the whitespace behind it`, `normalises a tag of only whitespace and commas to the empty string`, `reports whether the list already carries the tag`, `appends the normalised tag to the list`, `returns null when the normalised tag is empty`, `returns null when the list already carries the tag`, `treats a tag that differs only in case or trailing commas as already present`, `does not mutate the list it appends to`, `removes the tag and leaves the other tags in their order`, `returns an equal list when the tag is not there`, `does not mutate the list it removes from`. The file needs no `// @vitest-environment` line, because the module under test imports no DOM API.
 
-ER7 - The list, the row and the identity block render every state and keep the locator contract the e2e net depends on. `rtk proxy npx vitest run src/components/playlists/__tests__/PlaylistSongList.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  14 passed (14)`. Its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, it passes plain props and `vi.fn()` callbacks (no Server Action, no fetch), and its tests are named exactly: `renders the empty state when the playlist holds no songs`, `renders the no-match state naming the active tag when the tag filter hides every song`, `renders the no-match state quoting the query when the text filter hides every song`, `renders one list item per filtered song inside the Songs in this playlist region`, `orders the rows by playlist position`, `links a row that has a repertoire entry to that entry Fast View, carrying the band id`, `renders a row without a repertoire entry with no link`, `renders the song duration when the song carries one`, `renders the status as a button that calls onStatusCycle in personal mode`, `renders the status as a read-only badge with no button in band mode`, `calls onRemoveSong with the song id when the remove button is clicked`, `renders one Remove tag button per tag and calls onRemoveTag when it is clicked`, `renders the tag input only for the song named by addingTagForSong`, `calls onAddTag with the row song id and the typed tag when Enter is pressed`. Between them these tests assert, mechanically, the locators `e2e/playlist-detail.spec.ts` uses on this slice: a region whose accessible name is `Songs in this playlist`, one `listitem` per song inside it, a button whose accessible name is exactly `Status: Unknown. Click to advance.` in personal mode and no such button in band mode, a button named `Remove <title> from playlist`, a button named exactly `Add tag`, an input with placeholder `new tag` present for exactly one row at a time, a button named `Remove tag <tag>` per chip, the text `No songs yet` and the text `No songs matching "<query>".`.
+ER7 - The shared controller is tested where only a hook test can reach: the write ordering, the failure messages and the multi-subject property. `rtk proxy npx vitest run src/hooks/__tests__/useTagEditor.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  15 passed (15)`. Its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, it drives the hook through `renderHook` with hand-built `vi.fn()` options, and its tests are named exactly: `starts closed with an empty draft`, `opens for a subject and clears the draft`, `closes and clears the draft`, `records what is typed into the draft`, `applies the new tag list before the save is awaited`, `saves the normalised tag and closes the input`, `writes nothing and closes when the draft normalises to empty`, `writes nothing and closes when the subject already carries the tag`, `writes nothing when the subject has no tags to edit`, `keeps the optimistic list and reports the rejection message through onError`, `falls back to the add message when the rejection is not an Error`, `removes a tag optimistically and saves the shortened list`, `reports a failed remove with the remove message`, `focuses the input when the editor opens`, `serves two subjects one at a time from a single instance`. The fifth asserts that `applyTags` has been called while `saveTags` is still pending, which is the optimistic contract three e2e tests depend on; the tenth asserts that `applyTags` is **not** called a second time after a rejection, pinning today's absence of a rollback.
 
-ER8 - The mastery summary renders every state. `rtk proxy npx vitest run src/components/playlists/__tests__/PlaylistSummary.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  6 passed (6)`. Its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, and its tests are named exactly: `renders nothing for an empty playlist`, `renders the playlist level with the total duration formatted`, `renders no duration when no song carries one`, `labels the score with the nearest status and its percentage`, `renders one distribution segment per status present under the Status distribution label`, `renders one legend entry per status present and none for a status with no song`. The first asserts the component returns `null` rather than an empty wrapper; the fifth reaches the bar through its `aria-label="Status distribution"`.
+ER8 - Both tag bars render every state, including the ownership gate. `rtk proxy npx vitest run src/components/playlists/__tests__/tagBars.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  13 passed (13)`. Its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, it passes a plain stub `TagEditorController` built from `vi.fn()`s, and its tests are named exactly: `renders one chip per playlist tag, each with its Remove tag button`, `calls the editor to remove a playlist tag when the chip button is clicked`, `opens the editor for the playlist when Add tag to playlist is clicked`, `renders the new tag input only while the editor is open for the playlist`, `commits the draft on Enter and on blur, and closes it on Escape`, `renders nothing for a personal playlist owned by another user`, `renders the bar for a band playlist`, `renders the bar for a personal playlist the signed-in user owns`, `renders nothing when the playlist carries no tag`, `renders one filter button per tag, named exactly the tag`, `selects a tag when its filter button is clicked`, `clears the filter when the active tag button is clicked again`, `renders the clear control only while a tag is active and clears the filter when it is clicked`. Between them these tests assert, mechanically, the locators `e2e/playlist-detail.spec.ts` uses on this slice: a button whose accessible name is exactly `Add tag to playlist` rendered as a direct child of the bar wrapper (the spec reaches the bar by `xpath=..` off that button), an input with placeholder `new tag`, a button named `Remove tag <tag>` per chip, a button named exactly `<tag>` per filter entry, and a control whose accessible name contains `clear`.
 
-ER9 - The characterization net passes untouched. `git diff 5c38206 -- e2e playwright.config.ts` prints nothing at all: not one assertion, locator, helper or timeout was edited to accommodate the refactor. `npx playwright test --list` prints `Total: 33 tests in 7 files`, as at `5c38206`. With Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied), `.env.local` present, nothing listening on port 3000 and a fresh production build, `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test --workers=1 --reporter=list` exits `0` and prints `33 passed`, with no `failed` and no `flaky` line; in particular the eleven tests of `e2e/playlist-detail.spec.ts` are among them, including `removes a song from the playlist`, `cycles the mastery status of a playlist song`, `filters the playlist by title text` and `filters the playlist by tag`, each of which reloads the page and re-asserts against the freshly rendered list.
+ER9 - The row still renders its tag surface, now through the controller, and the list test still covers it. `rtk proxy npx vitest run src/components/playlists/__tests__/PlaylistSongList.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  14 passed (14)` - the same count as at `acbbf83`. Eleven of its test names are unchanged; the three that named the retired props are renamed to exactly `renders one Remove tag button per tag and calls the tag editor when it is clicked`, `renders the tag input only for the song the tag editor is open for` and `commits the tag editor draft for that row when Enter is pressed`, and `grep -c "onAddTag\|onRemoveTag\|onEditTagsFor\|onTagInputChange\|addingTagForSong\|tagInputRef" src/components/playlists/__tests__/PlaylistSongList.test.tsx` prints `0`. In the components themselves, `grep -c "onAddTag\|onRemoveTag\|onEditTagsFor\|onTagInputChange\|isAddingTag\|tagInputRef\|newTagInput" src/components/playlists/PlaylistSongRow.tsx src/components/playlists/PlaylistSongList.tsx` prints `0` for both files, `grep -c "tagEditor" src/components/playlists/PlaylistSongRow.tsx` prints a number greater than or equal to `2`, and `grep -c "TagEditRow" src/components/playlists/PlaylistSongRow.tsx src/components/playlists/PlaylistTagBar.tsx` prints a number greater than or equal to `2` for each: one markup, two sites. `grep -c "Add tag" src/components/playlists/PlaylistSongRow.tsx` prints `1` and `grep -c "Add tag to playlist" src/components/playlists/PlaylistTagBar.tsx` prints `1` - the two accessible names arrive as the `addLabel` prop and are still distinguishable by an exact match.
 
-ER10 - The new lib module is covered and every repository gate holds at its `5c38206` value. With Postgres up and a non-empty `SUPABASE_SERVICE_ROLE_KEY`: `rtk proxy npx vitest run` exits `0` printing `Test Files  114 passed (114)` (`111` at `5c38206`) and `Tests` passed at least `1286` (`1249` at `5c38206`, plus 17 + 14 + 6 new), with `0` failed and `0` skipped. `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`), and `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (k.endsWith('/src/lib/playlistDetail.ts')) console.log(k.split('/src/').pop(), pct(Object.values(c[k].f)), pct(Object.values(c[k].s)))"` prints exactly one line, `lib/playlistDetail.ts`, followed by a function percentage and a statement percentage each of at least `90`. `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, identical to `5c38206`. `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing. `npm run lint:dead` exits `0` reporting no unused file, export or dependency, so no lib export is speculative. `npm run lint:dup` exits `0` with its `Total:` row reporting at most `18` clones and at most `0.60 %` - the `5c38206` numbers - and its output no longer names `app/playlists/[id]/page.tsx` at all, because the two clones it reports there today are the twice-written cover-and-title block that `PlaylistSongIdentity` now renders once. `npm run audit` exits `0` with no high or critical advisory.
+ER10 - The characterization net passes untouched. `git diff acbbf83 -- e2e playwright.config.ts` prints nothing at all: not one assertion, locator, helper or timeout was edited to accommodate the refactor. `npx playwright test --list` prints `Total: 33 tests in 7 files`, as at `acbbf83`. With Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied), `.env.local` present, nothing listening on port 3000 and a fresh production build, `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test --workers=1 --reporter=list` exits `0` and prints `33 passed`, with no `failed` and no `flaky` line; in particular the four tag tests of `e2e/playlist-detail.spec.ts` are among them - `adds a tag to a playlist song`, `removes the tag from the playlist song`, `adds a tag to the playlist itself` and `filters the playlist by tag` - each of which reloads the page after awaiting the Server Action and re-asserts against the freshly rendered chips.
 
-ER11 - Release hygiene and a closed change set, with git state untouched. `git diff --name-only 5c38206 | sort` lists only paths drawn from this closed set and no others: `docs/suggestions-log.md`, `docs/tasks/RH-68-spec.md`, `eslint.config.mjs`, `package.json`, `src/app/playlists/[id]/page.tsx`, `src/components/playlists/PlaylistSongIdentity.tsx`, `src/components/playlists/PlaylistSongList.tsx`, `src/components/playlists/PlaylistSongRow.tsx`, `src/components/playlists/PlaylistSummary.tsx`, `src/components/playlists/__tests__/PlaylistSongList.test.tsx`, `src/components/playlists/__tests__/PlaylistSummary.test.tsx`, `src/lib/__tests__/playlistDetail.test.ts`, `src/lib/playlistDetail.ts`. Any other path fails this result; in particular the list contains no file under `e2e/`, no `AGENTS.md`, no `docs/plans/code-quality-review.md`, no `src/lib/__tests__/complexityBudget.test.ts`, no `src/hooks/`, no `src/store/`, no `src/app/actions/` and no deleted file. The `version` field of `package.json` is `0.1.103-YYYYMMDDHHmm` with a real local timestamp, up from `0.1.102-202609100329` (`0.1.103` is numerically the next patch even though it sorts lower as a plain string). `git diff 5c38206 -- src/components/landing src/i18n/dictionaries` prints nothing at all: moving an existing list between files is not a selling point.
+ER11 - The new lib and hook are covered and every repository gate holds at its `acbbf83` value. With Postgres up and a non-empty `SUPABASE_SERVICE_ROLE_KEY`: `rtk proxy npx vitest run` exits `0` printing `Test Files  117 passed (117)` (`114` at `acbbf83`) and `Tests` passed at least `1326` (`1286` at `acbbf83`, plus 12 + 15 + 13 new), with `0` failed and `0` skipped. `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`), and `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (k.endsWith('/src/lib/tagEditor.ts')||k.endsWith('/src/hooks/useTagEditor.ts')) console.log(k.split('/src/').pop(), pct(Object.values(c[k].f)), pct(Object.values(c[k].s)))"` prints exactly two lines, `lib/tagEditor.ts` and `hooks/useTagEditor.ts`, each followed by a function percentage and a statement percentage of at least `90`. `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, identical to `acbbf83`. `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing. `npm run lint:dead` exits `0` reporting no unused file, export or dependency. `npm run lint:dup` exits `0` with its `Total:` row reporting at most `16` clones and at most `0.51 %` - the `acbbf83` numbers - and its output naming no file under `src/components/playlists`, because the chips and the inline input are written once in `TagEditRow.tsx` rather than once per site. `npm run audit` exits `0` with no high or critical advisory.
+
+ER12 - Release hygiene and a closed change set. `git diff --name-only acbbf83 | sort` lists only paths drawn from this closed set and no others: `docs/suggestions-log.md`, `docs/tasks/RH-68-spec.md`, `eslint.config.mjs`, `package.json`, `src/app/playlists/[id]/page.tsx`, `src/components/playlists/PlaylistSongList.tsx`, `src/components/playlists/PlaylistSongRow.tsx`, `src/components/playlists/PlaylistTagBar.tsx`, `src/components/playlists/TagEditRow.tsx`, `src/components/playlists/TagFilterBar.tsx`, `src/components/playlists/__tests__/PlaylistSongList.test.tsx`, `src/components/playlists/__tests__/tagBars.test.tsx`, `src/hooks/__tests__/useTagEditor.test.tsx`, `src/hooks/useTagEditor.ts`, `src/lib/__tests__/tagEditor.test.ts`, `src/lib/tagEditor.ts`. Any other path fails this result; in particular the list contains no file under `e2e/`, no `AGENTS.md`, no `docs/plans/code-quality-review.md`, no `src/lib/__tests__/complexityBudget.test.ts`, no `src/app/actions/`, no `src/store/` and no deleted file. The `version` field of `package.json` is `0.1.104-YYYYMMDDHHmm` with a real local timestamp, up from `0.1.103-202609100437`. `git diff acbbf83 -- src/components/landing src/i18n/dictionaries` prints nothing at all: unifying two existing tag inputs is not a selling point.
 
 ## Out of Scope
 
-- **The rest of the page.** The header, the inline rename input, the Spotify strip and both sync paths, `refreshPlaylist` and the mount effect, the playlist-level tag bar, the in-playlist text filter input and the tag filter bar all stay exactly where they are. They belong to RH-69, RH-70 and RH-71.
-- **`useTagEditor` and the per-song tag affordance.** The row's tag chips, remove-chip buttons, `new tag` input and `+ tag` button move **as-is** into `PlaylistSongRow` and receive `addingTagForSong`, `newTagInput`, `songTagInputRef` and their four handlers as props from the page, which still owns all of them. RH-69 replaces that prop set with its hook, inside the row this task creates; this task must not introduce the hook, the normalisation helper or a `src/lib/tagEditor.ts`.
-- **The three focus effects and the mount effect.** Lines 220-228 and 245-258 are untouched, including the `// eslint-disable-next-line react-hooks/set-state-in-effect` RH-67 added. RH-70 deletes the focus effects; RH-71 deletes the mount effect.
-- **The Server Component conversion, the override deletion and the ratchet count.** RH-71 deletes the override entry and takes `MAX_OVERRIDES` to 19; this task only re-pins three numbers.
-- **The `Status:` lines in `docs/plans/code-quality-review.md`.** RH-66 wrote F13's; RH-71 writes F11's. This task writes none and must not touch that file.
-- **Server-side code.** No change to `src/app/actions/*`, `src/lib/playlists.ts`, `src/lib/playlistList.ts`, `src/lib/statusConfig.ts`, `src/app/api/**`, `src/hooks/**` or `src/store/**`. `formatPlaylistDuration`, `STATUS_CONFIG`, `STATUS_ORDER` and `nextStatus` are imported, never edited.
-- **The e2e suite.** Not one line under `e2e/` may change; the suite is the regression net, and editing it would remove the only evidence this refactor preserves behaviour.
+- **The rest of the page.** The header, the inline rename input and its focus effect, the Spotify strip and both sync paths, `refreshPlaylist`, the mount effect, the in-playlist text filter input and the error banner all stay exactly where they are. They belong to RH-70 and RH-71.
+- **The panel reducer and the last two `useState` the plan wanted gone.** `activeTagFilter` and `songFilterQuery` stay on the page: they are filter selection, read by `filterPlaylistSongs` and by `PlaylistSongList`'s no-match message, and no tag *editor* can own them. `syncing`, `editing`, `editName`, `confirmDelete` and `showSearch` are RH-70's `useReducer`. This task does not introduce a reducer.
+- **The mount effect and its `eslint-disable`.** RH-67's `// eslint-disable-next-line react-hooks/set-state-in-effect` and the effect under it are untouched; RH-71 deletes both with the Server Component conversion.
+- **The Server Component conversion, the override deletion and the ratchet count.** RH-71 deletes the page's override entry and takes `MAX_OVERRIDES` to 19; this task only re-pins three numbers.
+- **The `Status:` lines in `docs/plans/code-quality-review.md` and the AGENTS.md manifest.** RH-66 wrote F13's; RH-71 writes F11's and owns the manifest pass for this split, including the Naming Conventions sentence that names `feedbackSurfaces.test.tsx` as the only combined test file. This task writes neither and must not touch either file.
+- **Rollback on a failed tag write.** Neither tag path reverts its optimistic update today, and this task does not add one - it would change what the e2e net observes. A line in `docs/suggestions-log.md` is the right place to record it.
+- **Server-side code and the rest of the playlist slice.** No change to `src/app/actions/*`, `src/lib/playlists.ts`, `src/lib/playlistDetail.ts`, `src/lib/playlistList.ts`, `src/lib/statusConfig.ts`, `src/app/api/**`, `src/store/**`, `src/hooks/useSongPicker.ts`, `src/app/songPickerActions.ts`, `PlaylistSummary.tsx`, `PlaylistSongIdentity.tsx` or the `SongPicker` components. `updatePlaylistAction` and `updateSongTagsAction` are called, never edited.
+- **The e2e suite.** Not one line under `e2e/` may change; it is the regression net, and editing it would remove the only evidence this refactor preserves behaviour.

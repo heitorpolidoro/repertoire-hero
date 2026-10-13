@@ -1,412 +1,368 @@
-# RH-60 — Corrigir as 5 vulnerabilidades novas do npm audit (next critico, sharp, js-yaml, @vitest/mocker)
+# RH-61 - Server Components parte 1/5: tirar force-dynamic do layout raiz e tornar auth/landing estaticas
 
-**Priority:** CRITICAL · **blockedBy:** none · **Baseline commit:** `55656fe`
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-41 (part 1 of 5). Source finding: `docs/plans/code-quality-review.md`
+section 5, T8, F15. Baseline: `65cadd8`.
 
 ## Scope
 
-Bring the dependency tree back to `found 0 vulnerabilities` so the `Dependency audit (npm audit)`
-CI job (added by RH-33) goes green again, and prove that the required `next` major-line patch
-bump (16.3.0 -> 16.3.4) breaks neither the build, nor SSR, nor any gate.
+This task changes **only the rendering mode configuration** of the App Router
+tree. It deletes `export const dynamic = "force-dynamic"` from the root layout
+(`src/app/layout.tsx:12`), verifies by measurement which segments still need
+per-request rendering, and pins the resulting `next build` route classification
+with a regression guard.
 
-`package-lock.json` at HEAD is byte-identical to `55656fe`: nothing in this repository changed.
-Four advisories were published against packages already in the tree, so the gate turned red
-without a single commit. One of them (`next`) is **critical** and its fix is outside the pinned
-range, so `package.json` must change — which is why this is not a plain `npm audit fix` like
-RH-33 was.
+In scope:
 
-**In scope (the complete file whitelist for this task):**
+- deleting the `force-dynamic` export and its now-false comment block from
+  `src/app/layout.tsx`;
+- deciding, on measured evidence, which segments must carry their own
+  `dynamic`/`revalidate` export (answer: none of the page segments; the one
+  route handler that already carries `force-dynamic` keeps it);
+- a new vitest guard that pins the invariant so a later part of RH-41 cannot
+  silently reintroduce a global `force-dynamic`;
+- pinning the static/dynamic route split as an expected result;
+- the version bump and the suggestions log entry.
 
-| File | Change |
+Explicitly **not** in scope (owned by parts 2-5 of RH-41 and by RH-53):
+
+- converting any `'use client'` page into a Server Component;
+- touching `src/hooks/useBandAdmin.ts` or its two consumer pages;
+- touching `src/proxy.ts` (F10), including its matcher;
+- touching `src/components/landing/LandingPage.tsx`, `src/app/page.tsx`,
+  `src/app/login/page.tsx`, `src/app/signup/page.tsx`,
+  `src/app/forgot-password/page.tsx`, `src/app/reset-password/page.tsx` or any
+  other page body;
+- moving the band context out of `localStorage`;
+- adding a `Status:` line to `docs/plans/code-quality-review.md` for F15 (F15 is
+  only resolved when the last part of RH-41 lands).
+
+## Audit at 65cadd8
+
+`git log --oneline -1` -> `65cadd8 test(RH-59): load eslint.config.mjs once in complexityBudget guard, explicit timeouts`.
+`git status --porcelain` -> empty (clean tree).
+Next.js version: `16.3.4` (Turbopack build).
+
+### What the root layout actually does
+
+`src/app/layout.tsx` is 46 lines (`grep -c '' src/app/layout.tsx` prints `46`). Line 12 is
+`export const dynamic = "force-dynamic";`, preceded by a five-line comment
+(lines 7-11) claiming "All routes require authentication, so there is nothing
+useful to prerender". Both halves of that claim are false today: `/` is public
+(it renders the marketing landing page for anonymous visitors), and `/login`,
+`/signup`, `/forgot-password`, `/reset-password` and `/join/` are public in
+`src/proxy.ts:3`.
+
+The root layout is a **synchronous, non-async function component**. It reads no
+cookies, no headers, and calls no dynamic server API. It renders
+`src/app/AppShell.tsx`, and the dispatch's premise that `AppShell` is a Server
+Component that calls `getBandsAction()` during the server render is **wrong**:
+`src/app/AppShell.tsx:1` is `'use client'`, it reads the session with
+`authClient.useSession()` and calls `getBandsAction()` from a `useEffect`
+(line 26). It therefore contributes nothing to server-side dynamism. The same
+holds for `src/components/layout/ConditionalLayout.tsx` (`'use client'`,
+`usePathname`).
+
+`src/app/layout.tsx` is the only `layout.tsx` in the whole tree
+(`find src/app -name layout.tsx` returns exactly one path). There is no route
+group, no nested layout, and no `template.tsx`. So the root directive was the
+single global switch, and there is no layout split to perform: nothing needs to
+be moved below a `(app)`/`(auth)` boundary because nothing above the pages reads
+per-request state.
+
+Grepping `src/app` for `next/headers`, `await params`, `await searchParams` and
+`connection()` returns six files: the five Spotify/auth route handlers and
+`src/app/join/[code]/page.tsx`. Those are dynamic by construction (they use
+request data), so they need no directive of their own.
+
+The only other `force-dynamic` in `src/` is `src/app/api/dev/profiles/route.ts:5`,
+which genuinely needs per-request rendering (it 404s outside development based
+on `NODE_ENV` at request time). It stays.
+
+The four auth pages all wrap their `useSearchParams()` consumers in `Suspense`
+(`src/app/login/page.tsx`, `src/app/signup/page.tsx:188`,
+`src/app/reset-password/page.tsx:169`; `src/app/forgot-password/page.tsx` does
+not use `useSearchParams` at all), so none of them needs per-request data: the
+reset token and the `?redirect=` parameter are read on the client after
+hydration. That is the evidence for including `/forgot-password` and
+`/reset-password` in the static set.
+
+`/` does not read the session on the server either. `src/app/page.tsx:624`
+(`HomePage`) is `'use client'`; it renders "Loading..." while
+`authClient.useSession()` is pending, then `LandingPage` or `RepertoireDashboard`.
+The server HTML for `/` was already the pending shell before this change, so
+making `/` static changes no byte a crawler sees except the cache headers. The
+F15 goal for `/` is therefore fully reachable as "static shell + client
+decision" - no reduction of the target set is needed.
+
+### Baseline `npx next build` route table (verbatim, at 65cadd8)
+
+```
+Route (app)
++ f /
+| f /_not-found
+| f /admin/moderation
+| f /api/auth/[...all]
+| f /api/auth/spotify/authorize
+| f /api/auth/spotify/callback
+| f /api/auth/spotify/disconnect
+| f /api/dev/profiles
+| f /api/spotify/playlists
+| f /api/spotify/playlists/[id]/import
+| f /api/spotify/playlists/[id]/sync
+| f /api/spotify/playlists/[id]/tracks
+| f /api/spotify/search
+| f /bands
+| f /bands/[id]
+| f /forgot-password
+| o /icon.jpg
+| f /join/[code]
+| f /login
+| f /playlists
+| f /playlists/[id]
+| f /profile
+| f /reset-password
+| f /settings
+| f /signup
+| f /songs/[id]/fast-view
++ f /songs/search
+
+f Proxy (Middleware)
+
+o  (Static)   prerendered as static content
+f  (Dynamic)  server-rendered on demand
+```
+
+(The box-drawing characters and the two markers are reproduced above as ASCII:
+`o` stands for the "(Static)" marker and `f` for the "(Dynamic)" marker that
+Next prints in the legend. Every real glyph is non-ASCII, which is why every
+expected result below asserts on build manifests and HTTP headers instead of on
+this table.)
+
+Machine-readable baseline: `.next/prerender-manifest.json` has
+`routes` = `["/_global-error", "/icon.jpg"]` and `dynamicRoutes` = `[]`.
+`.next/server/app/` contains exactly one page HTML file, `_global-error.html`.
+The build reports `Generating static pages using 7 workers (7/7)`.
+
+Under `npx next start`, `GET /login` and `GET /` both answer
+`200` with `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate`
+and **no** `x-nextjs-prerender` header.
+
+### What forces dynamic rendering where, at 65cadd8
+
+| cause | routes affected |
 |---|---|
-| `package.json` | version bump + `"next"` pin moved from `16.3.0` to `16.3.4` |
-| `package-lock.json` | refreshed by `npm install` + `npm audit fix` + `npm update @vitest/coverage-v8` |
-| `docs/tasks/RH-60-spec.md` | this file |
-| `docs/suggestions-log.md` | optional, for out-of-scope observations found while working |
+| `src/app/layout.tsx:12` `force-dynamic` | every app route except `/icon.jpg` |
+| `await params` + `getSession()` in the page body | `/join/[code]` |
+| a dynamic `[id]` segment with no `generateStaticParams` | `/bands/[id]`, `/playlists/[id]`, `/songs/[id]/fast-view` |
+| route handler reading the request | all of `/api/**` |
+| explicit `force-dynamic` in the handler | `/api/dev/profiles` |
 
-**Explicitly NOT in scope:** anything under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`,
-`public/`, `.github/`; `AGENTS.md` (see "AGENTS.md" below — the investigation proved no rule
-changes and no regenerated block); `next.config.ts`; the landing page.
+So the root directive is the only cause that has to be removed, and the other
+four causes are what keeps the data routes dynamic afterwards.
 
-## Audit at 55656fe
+`src/proxy.ts` does **not** affect static rendering. Its matcher
+(`src/proxy.ts:51-55`) is a negative lookahead over non-asset paths; middleware
+runs before the cache lookup on every matched request regardless of whether the
+matched route is prerendered. Measured after the change: `GET /profile` without
+a session still answers `307` from the middleware even though `/profile` is now
+statically prerendered. No matcher change is needed or allowed here.
 
-`npm run audit` (i.e. `npm audit --audit-level=high`) exits **1** and reports
-`5 vulnerabilities (2 moderate, 2 high, 1 critical)`. `npm audit --json` gives
-`{"info":0,"low":0,"moderate":2,"high":2,"critical":1,"total":5}`.
+### Probe: the minimal change, measured
 
-`npm ls next sharp js-yaml @vitest/mocker vitest` at `55656fe` prints:
+Method: `cp -Rc` clone of the repo into a scratch directory, delete lines 7-12
+of `src/app/layout.tsx` (the comment block plus the export), `rm -rf .next`,
+`npx next build`. No other file touched. The scratch clone has been deleted.
 
-```
-+-- @sentry/nextjs@10.69.0
-| `-- next@16.3.0 deduped
-+-- @vercel/analytics@2.0.1
-| `-- next@16.3.0 deduped
-+-- @vitest/coverage-v8@4.1.6
-| `-- vitest@4.1.6 deduped
-+-- better-auth@1.6.22
-| +-- next@16.3.0 deduped
-| `-- vitest@4.1.6 deduped
-+-- eslint@9.39.4
-| `-- @eslint/eslintrc@3.3.5
-|   `-- js-yaml@4.3.1
-+-- next@16.3.0
-| `-- sharp@0.35.3
-`-- vitest@4.1.6
-  `-- @vitest/mocker@4.1.6
-```
-
-| Package | Installed | Severity | Advisory | Direct? | Fix | In declared range? |
-|---|---|---|---|---|---|---|
-| `next` | 16.3.0 | **critical** | GHSA-p293-qw3h-jr36 (unauthenticated RCE on Windows-hosted servers), GHSA-2xp9-vwfh-vxw4 (unauthenticated RCE in the Image Optimization API for AVIF) | **direct** prod dep, pinned exactly `"next": "16.3.0"` (also a peer of `@sentry/nextjs`, `@vercel/analytics`, `better-auth`, all deduped onto the root copy) | `16.3.4` | **No** — vulnerable range is `16.0.0 - 16.3.2`, so `package.json` must change. `npm audit fix` refuses it and only offers `--force`. |
-| `sharp` | 0.35.3 | high | GHSA-rgj7-g3m4-5g8c (libheif GHSA-g89c-p67h-r497 + GHSA-2jg2-4ch7-h545) | transitive, **optional dependency of `next`** (`next@16.3.0` asks `sharp@^0.35.3`) | `>= 0.35.4` | Yes, transitively: `next@16.3.4` asks `sharp@^0.35.4`, so the `next` bump carries this one for free. `0.35.4` is the newest 0.35.x published. |
-| `js-yaml` | 4.3.1 | high | GHSA-2883-xcg3-v3hh (`maxTotalMergeKeys` does not bound CPU for empty merge sources) | transitive: `eslint@9.39.4 > @eslint/eslintrc@3.3.5 > js-yaml` | `4.3.2` | **Yes** — `@eslint/eslintrc@3.3.5` asks `js-yaml@^4.1.1`, and `4.3.2` is the patched release inside that range. Plain `npm audit fix` handles it; no `overrides` and no `eslint` bump needed. |
-| `@vitest/mocker` | 4.1.6 | moderate | GHSA-82fw-gwwq-j7x9 (path traversal / arbitrary file read via the redirect mock) | transitive: `vitest@4.1.6 > @vitest/mocker` | `>= 4.1.11` (via `vitest >= 4.1.11`) | **Yes** — `vitest` is declared `^4.1.6` and `4.1.11` is published. |
-| `vitest` | 4.1.6 | moderate | reported as "depends on vulnerable versions of `@vitest/mocker`" | direct dev dep, `^4.1.6` | `4.1.11` | Yes. |
-
-**The `@vitest/coverage-v8` trap.** `@vitest/coverage-v8@4.1.6` peer-depends on `vitest` at the
-**exact** version `4.1.6`. `npm audit fix` moves `vitest` to `4.1.11` but leaves
-`@vitest/coverage-v8` at `4.1.6`, and the tree then reports
-`vitest@4.1.11 invalid: "4.1.6" from node_modules/@vitest/coverage-v8` on three `npm ls` nodes even
-though `npm audit` is already clean. `@vitest/coverage-v8` is declared `^4.1.6`, so this is fixed
-inside the existing range by one extra `npm update @vitest/coverage-v8`; `package.json` does not
-change. Skipping this step is the single most likely way to ship a half-fixed tree.
-
-### next 16.3.0 -> 16.3.4 risk assessment
-
-Every release between the two is a backport/patch release; none introduces a feature or a breaking
-change (release notes, `vercel/next.js`):
-
-- **16.3.1** — Turbopack chunk/HMR fixes, `next/image` "preserve image response after optimization",
-  a `@swc/helpers` bump (this is why the lockfile moves `@swc/helpers` 0.5.15 -> 0.5.23), restored
-  live `headers()` view, `unstable_cache` naming, router prefetch-loop fixes.
-- **16.3.2** — app-entry export validation scoped to the app directory, catch-all index page fix,
-  Turbopack asset-prefix/WASM fixes.
-- **16.3.3** — **the security release**: the two critical advisories above. It closes the AVIF RCE by
-  disabling AVIF optimization.
-- **16.3.4** — re-enables AVIF Image Optimization with the fix (PR #97949), plus three backports
-  (testmode fetch recursion, build error when aliasing `typescript`, unset `crossOrigin` in
-  Turbopack manifests).
-
-Nothing in 16.3.1-16.3.4 touches `serverExternalPackages` semantics (the RH-32 rule in
-`next.config.ts` stays exactly as written), `useSearchParams` Suspense behaviour, or the shape of
-`next build` output. The project builds with Webpack (`next dev --webpack`, and `next build` with a
-`turbopack: {}` stanza only to silence a config warning), so the Turbopack-only fixes are inert
-here.
-
-**The `nextjs-agent-rules` block does not move.**
-`node_modules/next/dist/server/lib/generate-agent-files.js` is **byte-identical** between 16.3.0 and
-16.3.4 (`shasum -a 256` matches:
-`2b9149fa71f1e6feec027c92ce33357e71a4926d1d3c4a881d97621ac3ef97da`), so the block it writes into
-`AGENTS.md` between `<!-- BEGIN:nextjs-agent-rules -->` and `<!-- END:nextjs-agent-rules -->` is the
-text already committed. Confirmed empirically: in the probe, `AGENTS.md` was hashed before
-`npx next build` and `shasum -a 256 -c` printed `AGENTS.md: OK` afterwards. The bundled
-`node_modules/next/dist/docs/**` corpus does change between the two versions, but it is inside
-`node_modules` and never enters the diff. **Therefore `AGENTS.md` must be byte-identical to
-`55656fe` at the end of this task**; if a stray `next dev` rewrites it anyway, `git checkout --
-AGENTS.md` it before committing.
-
-### Probe results (already performed — do not redo)
-
-Everything below was measured in a throwaway `cp`/`rsync` copy of the repository (no `git worktree`,
-per the project rule), which was deleted afterwards. The repository tree was never installed into.
-
-The sequence in **Approach** was run twice: once as a full `npm install` in a complete copy of the
-repo, and once as `--package-lock-only` starting from `git show 55656fe:package.json` +
-`git show 55656fe:package-lock.json`. **The two resulting lockfiles are identical package-for-package
-(0 version differences)**, so the recipe is deterministic. Final state: `next@16.3.4`,
-`sharp@0.35.4`, `js-yaml@4.3.2`, `vitest@4.1.11`, `@vitest/mocker@4.1.11`,
-`@vitest/coverage-v8@4.1.11`, `npm audit --audit-level=high` exit 0 with `found 0 vulnerabilities`,
-`npm ls` clean (no `invalid`, no `missing`).
-
-The lockfile diff is 449 changed lines and moves exactly these packages, and nothing else
-(`packages` count 874 -> 875, `lockfileVersion` stays 3):
+Result: the build succeeds (exit 0), reports
+`Generating static pages using 7 workers (19/19)`, and produces this route
+table (same ASCII substitution as above):
 
 ```
-next                      16.3.0  -> 16.3.4     @next/env, @next/swc-* (8)   16.3.0 -> 16.3.4
-sharp                     0.35.3  -> 0.35.4     @img/sharp-*        (13)     0.35.3 -> 0.35.4
-                                                @img/sharp-libvips-* (10)    1.3.2  -> 1.3.3
-                                                @emnapi/runtime              ADDED 1.11.3
-                                                  (nested under @img/sharp-wasm32)
-js-yaml                   4.3.1   -> 4.3.2      @swc/helpers        0.5.15   -> 0.5.23
-vitest                    4.1.6   -> 4.1.11     @vitest/{coverage-v8,expect,mocker,pretty-format,
-                                                 runner,snapshot,spy,utils}  4.1.6 -> 4.1.11
+Route (app)
++ o /
+| o /_not-found
+| o /admin/moderation
+| f /api/auth/[...all]
+| f /api/auth/spotify/authorize
+| f /api/auth/spotify/callback
+| f /api/auth/spotify/disconnect
+| f /api/dev/profiles
+| f /api/spotify/playlists
+| f /api/spotify/playlists/[id]/import
+| f /api/spotify/playlists/[id]/sync
+| f /api/spotify/playlists/[id]/tracks
+| f /api/spotify/search
+| o /bands
+| f /bands/[id]
+| o /forgot-password
+| o /icon.jpg
+| f /join/[code]
+| o /login
+| o /playlists
+| f /playlists/[id]
+| o /profile
+| o /reset-password
+| o /settings
+| o /signup
+| f /songs/[id]/fast-view
++ o /songs/search
 ```
 
-Gate measurements in the probe, on `next@16.3.4` / `vitest@4.1.11`:
+Every one of `/`, `/login`, `/signup`, `/forgot-password` and `/reset-password`
+is static, and every `/api/**` route plus every dynamic-parameter route plus
+`/join/[code]` stays dynamic. **No per-segment `dynamic` or `revalidate` export
+had to be added anywhere**, because no page segment reads per-request state:
+the pages that need it are already dynamic by construction. This is the answer
+to "push the directive down to only the segments that need it" - the set of
+page segments that need it is empty, and the one route handler that needs it
+already has it.
 
-- `./node_modules/.bin/tsc --noEmit` — no output, exit 0.
-- `rtk proxy npx eslint .` — `22 problems (8 errors, 14 warnings)`. **Identical to the `55656fe`
-  baseline measured in the untouched repository**, so the Next bump does not move the lint baseline.
-- `npm run lint:dead` (knip) — no finding, exit 0.
-- `npm run lint:dup` (jscpd) — `Found 19 clones.`, Total row `19` clones / `242 (0.71%)` lines.
-- `rtk proxy npx vitest run` — `Test Files 92 passed (92)`, `Tests 1064 passed (1064)`, exit 0, no
-  skips, no flake on that run.
-- `npm run test:coverage` — exit 0, `All files 97.38 | 85.43 | 99.41 | 97.95`.
-- Guard files: `complexityBudget.test.ts` 6 passed, `dbRowTypes.test.ts` 3 passed,
-  `serverExternalPackages.test.ts` 2 passed (the RH-32 guard file does exist under that exact name).
-- `npx next build` — exit 0, no `^Error|^Failed|Failed to compile` line, `AGENTS.md` unchanged,
-  tracked `next-env.d.ts` / `public/pdf.worker.min.mjs` unchanged.
-- `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts`
-  — `4 passed`, exit 0. **Caveat, and it is not a RH-60 regression:** this machine's
-  `.env.production.local` (written by the Vercel CLI) contains `BETTER_AUTH_SECRET=""`, which in
-  production mode takes precedence over the real value in `.env.local`; without an explicit override
-  `next start` dies with `BetterAuthError: You are using the default secret` and the Playwright
-  global setup fails with `sign-in failed (500)`. Export the real secret into the environment first
-  (see ER9), because a process env var wins over every dotenv file.
-- `npm install` a second time — lockfile unchanged (`shasum -a 256 -c` prints
-  `package-lock.json: OK`). `rm -rf node_modules && npm ci` — exit 0, `added 690 packages`, no
-  `npm error` line, lockfile still unchanged.
+The pages that go static "for free" (`/profile`, `/settings`, `/bands`,
+`/playlists`, `/admin/moderation`, `/songs/search`) are correct to be static
+today: they are `'use client'` shells that fetch their data after hydration, so
+the prerendered HTML contains no user data. Verified: the prerendered
+`/` HTML contains "Repertoire Hero" (from the layout `metadata`) three times and
+contains no `href="/signup"` (the landing markup is produced on the client after
+hydration) - which is byte-for-byte the same shape the dynamic render produced
+at baseline. Parts 2-5 of RH-41 will convert several of these pages to Server
+Components, at which point they become dynamic again through `getSession()`.
 
-**Not published, so not an option:** there is no patched `16.3.x` below `16.3.3` and no 4.x `js-yaml`
-below `4.3.2` that clears its advisory. `16.3.3` alone would clear the advisories but ships with AVIF
-optimization disabled; `16.3.4` restores it, so `16.3.4` is the correct target.
+Verified behaviours on the probe build:
+
+- `npx next start`: `GET /login` -> `200`, `x-nextjs-prerender: 1`,
+  `x-nextjs-stale-time: 300`, `Cache-Control: s-maxage=31536000`, **no**
+  `Set-Cookie`. Same for `GET /`.
+- `GET /profile` with no session -> `307` (middleware gate intact).
+- `e2e/ssr-smoke.spec.ts` against `npx next start`: **4 passed**.
+- `e2e/auth.spec.ts --grep "credentials"` against `npx next start`:
+  **2 passed** (login through the now-static `/login` still works end to end).
+- A Server Action still runs from a statically prerendered authenticated page:
+  loading `/bands` with the e2e storage state renders the seeded band name and
+  produces zero page errors. (Checked with a throwaway spec that was deleted;
+  it is recorded here as evidence, not as a deliverable.)
+
+Not usable as a gate: the full `npx playwright test` run is red at `65cadd8`
+independently of this change (9 failed / 8 passed at baseline, 8 failed /
+9 passed with the change, with a largely overlapping failure set that includes
+`songs-crud`, `fast-view-mobile` and `bands-confirm`). Two `e2e/auth.spec.ts`
+tests (`unauthenticated user is redirected to /login`, `redirect param is
+honoured after login`) fail at baseline because they assume `/` is protected,
+which it has not been since the landing page landed. None of that is RH-61's
+work, so only `e2e/ssr-smoke.spec.ts` and the two `credentials` tests are named
+below.
+
+### Gate baselines at 65cadd8 (given, to be preserved)
+
+`rtk proxy npx vitest run` 92 files / 1064 tests / 0 skipped;
+`rtk proxy npx eslint .` `22 problems (8 errors, 14 warnings)`;
+`npm run lint:dup` 19 clones / 242 lines / 0.71 %; knip clean; tsc clean;
+`npm run audit` 0 high; coverage thresholds 80/65/78/80; complexity overrides 23;
+`e2e/ssr-smoke.spec.ts` 4 passed. Version `0.1.90-202609091102`.
 
 ## Approach
 
-### 1. Move the `next` pin (and only that) in `package.json`
+Three source edits, one doc edit, one version bump.
 
-Edit `package.json` by hand — replace `"next": "16.3.0",` with `"next": "16.3.4",`. **Do not** run
-`npm install next@16.3.4`: it rewrites the pin as `"^16.3.4"`, silently dropping the project's exact
-pin. If you prefer the CLI, `npm install next@16.3.4 --save-exact` is the equivalent.
+**1. `src/app/layout.tsx` - delete lines 7 through 13.**
 
-`eslint-config-next` stays at `16.0.1`. It is **not** required to match `next`: it declares no
-peer dependency on `next` at all (its peers are `eslint >=9.0.0` and `typescript >=3.3.1`), it is
-already three minors behind at `55656fe`, and the only thing that differs between `16.0.1` and
-`16.3.4` is the pinned `@next/eslint-plugin-next` version — bumping it would move the lint baseline
-for no security benefit. Leave it alone. Do not touch any other declared range.
+Remove the entire comment block, the export, and the blank line that separated
+them from the font declarations, so the imports are followed directly by the
+`const geistSans = Geist({` declaration. Do not replace the comment with a new
+one in this file; the reasoning belongs in the guard test (below) and in this
+spec, not in a comment that will rot again. Nothing else in the file changes:
+`metadata`, the fonts, `AppShell`, `Analytics` and the `RootLayout` function
+body stay exactly as they are. The file goes from 46 to 39 lines. It carries no
+complexity-budget override, so no ratchet arithmetic is needed.
 
-### 2. Refresh the lockfile
+**2. No per-segment `dynamic` export is added.** The probe proves the set of
+page segments needing per-request rendering is empty. `src/app/api/dev/profiles/route.ts:5`
+keeps its existing `export const dynamic = 'force-dynamic'` untouched, and after
+this task it is the only occurrence of that string under `src/`.
 
-Run, in this order, from the repository root:
+**3. New guard `src/lib/__tests__/rootLayoutRendering.test.ts`.**
 
-```bash
-npm install
-npm audit fix
-npm update @vitest/coverage-v8
-```
+A source-reading guard in the established house style (see
+`src/lib/__tests__/serverExternalPackages.test.ts`,
+`migrationsSingleSource.test.ts`, `transactionGuard.test.ts`). Node environment
+(the vitest default; do **not** add a `@vitest-environment jsdom` line). It
+reads files with `fs.readFileSync` and asserts:
 
-- `npm install` resolves the new `next` pin and pulls `sharp` to `0.35.4` with it.
-- `npm audit fix` (plain, **never `--force`**) closes `js-yaml` and `@vitest/mocker`/`vitest` inside
-  their declared ranges.
-- `npm update @vitest/coverage-v8` realigns the coverage reporter with `vitest@4.1.11` so `npm ls`
-  reports no `invalid` peer. It changes `package-lock.json` only.
+- `src/app/layout.tsx` contains neither `export const dynamic` nor
+  `force-dynamic`;
+- walking every `.ts`/`.tsx` file under `src/`, the set of files containing the
+  literal `force-dynamic` is exactly `['src/app/api/dev/profiles/route.ts']`.
 
-Then confirm `git diff --name-only 55656fe -- package.json` shows only the `next` line and the
-version line, and that no `overrides` / `resolutions` block appeared. Do not hand-edit
-`package-lock.json`. If `npm audit` still reports anything after these three commands, stop and
-report rather than inventing an `overrides` block.
+The second assertion is an explicit allowlist with a comment explaining that a
+later task may extend it deliberately for a segment that genuinely needs
+per-request rendering, but that the root layout may never be in it. Two `it()`
+blocks are enough; keep the file well under the 800-line test `max-lines` cap
+and use no `catch (x: any)` (the `errorHandlingStyle` guard walks it too).
 
-### 3. Verify the app still builds and serves
+The file lives under `src/lib/__tests__/`, which `coverage.include` excludes via
+`**/__tests__/**`, so it adds nothing to the coverage denominator - and since no
+file inside the coverage universe (`src/lib/**`, `src/app/actions/*.ts`,
+`src/hooks/**`, `src/proxy.ts`) is modified by this task, the coverage numbers
+must not move except for the noise of one more test file executing.
 
-`npx next build` (not `npm run build`, which additionally runs `scripts/migrate.mjs` and
-`scripts/deduplicate-songs.mjs` against a live database), then the RH-32 SSR guard:
-`PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts`,
-with `BETTER_AUTH_SECRET` exported as described in ER9. `next start` (production) rather than
-`next dev` is the point: RH-32's `Cannot read properties of null (reading 'useRef')` only ever
-appeared in an SSR production render.
+**4. `docs/suggestions-log.md`** - append the suggestions raised during this
+task, following the existing file's format.
 
-### 4. AGENTS.md
+**5. `package.json`** - bump `version` to `0.1.91-YYYYMMDDHHmm`.
 
-Do not touch it. The investigation above proves no rule changes (`serverExternalPackages` semantics
-are unchanged; the audit-gate bullet added by RH-33 already describes this gate correctly) and that
-the `nextjs-agent-rules` block is not regenerated by 16.3.4. If a `next dev` run rewrites the block
-anyway, revert it (`git checkout -- AGENTS.md`) before committing: the regenerated text is identical,
-so the change would be pure noise.
-
-### 5. Numbers this spec pins
-
-Because the probe measured them on `next@16.3.4`, the acceptance numbers below are the **post-bump**
-numbers, and every one of them happens to equal its `55656fe` baseline: eslint
-`22 problems (8 errors, 14 warnings)`, jscpd `19` clones / `242` duplicated lines, 92 test files /
-1064 tests, budget guard 6 tests, `dbRowTypes` 3 tests. The Next bump moved no gate.
-
-### 6. Version bump
-
-Per the AGENTS.md Version Bumping Rule, bump `package.json` to `0.1.88-YYYYMMDDHHmm` in local time.
-The highest version already used is `0.1.87-202609081036`; the new value must sort strictly above it.
-
-### 7. Landing Page Rule
-
-**This task ships no selling point.** Patching four CVEs in the dependency tree is internal and
-operational, with no user-visible behaviour change. Per the Landing Page Rule,
-`src/components/landing/LandingPage.tsx` and the `landing.*` keys in
-`src/i18n/dictionaries/en.json` and `pt-BR.json` must not be touched — and in fact no file under
-`src/` may change at all (ER10).
+**Landing Page Rule decision.** This task ships a rendering-mode change. It adds
+no user-facing capability a musician or band would choose the app for, so it is
+**not** a selling point and the landing copy must not change. ER11 asserts that
+mechanically.
 
 ## Expected Results
 
-ER1 - the audit gate is green again and every one of the five advisories is gone. From the
-repository root, `npm run audit` exits 0 (`npm run audit; echo $?` prints `0`) and its output ends
-with the line `found 0 vulnerabilities`. The machine-readable form agrees:
-`npm audit --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify(JSON.parse(s).metadata.vulnerabilities)))"`
-prints exactly `{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}`. Named
-individually, none of the five advisory subjects is reported any more:
-`npm audit 2>&1 | grep -cE '^(next|sharp|js-yaml|@vitest/mocker) '` prints `0`. At the `55656fe`
-baseline the same three commands gave exit `1`,
-`5 vulnerabilities (2 moderate, 2 high, 1 critical)`,
-`{"info":0,"low":0,"moderate":2,"high":2,"critical":1,"total":5}` and `4` (npm prints the fifth
-subject, `vitest`, indented under `@vitest/mocker`, so the anchored pattern does not count it).
+ER1 - `grep -c 'force-dynamic' src/app/layout.tsx` prints `0`, `grep -c 'export const dynamic' src/app/layout.tsx` prints `0`, and `grep -c 'nothing useful to prerender' src/app/layout.tsx` prints `0` (the stale comment that justified the directive is gone with it). `grep -c '' src/app/layout.tsx` prints `39` (it printed `46` at `65cadd8`), `grep -c 'AppShell' src/app/layout.tsx` prints `3` and `grep -c 'export const metadata' src/app/layout.tsx` prints `1`, confirming that only the directive and its comment block were removed and the rest of the layout is intact.
 
-ER2 - `next` is pinned at exactly `16.3.4` in `package.json`, installed at `16.3.4`, and no escape
-hatch was added. `grep -c '"next": "16.3.4"' package.json` prints `1` and
-`grep -c '"next": "\^16.3.4"' package.json` prints `0` (the exact pin was preserved, not converted
-to a caret range). `node -p "require('./node_modules/next/package.json').version"` prints `16.3.4`.
-`node -e "const p=require('./package.json');console.log(('overrides' in p||'resolutions' in p)?'HAS-OVERRIDES':'NO-OVERRIDES')"`
-prints `NO-OVERRIDES`. `package.json` moved on exactly two lines and only those two:
-`git diff 55656fe -- package.json | grep -cE '^[+-][^+-]'` prints `4` (the removed and added
-`"version"` line, the removed and added `"next"` line), and
-`git diff 55656fe -- package.json | grep -E '^[+-] +"(eslint-config-next|react|react-dom|webpack|@sentry/nextjs|vitest|@vitest/coverage-v8)"'`
-prints nothing and exits 1 - in particular `eslint-config-next` stays at `16.0.1`, since it has no
-peer dependency on `next`.
+ER2 - `grep -rln 'force-dynamic' src/` prints exactly one line, `src/app/api/dev/profiles/route.ts`, and `grep -n 'force-dynamic' src/app/api/dev/profiles/route.ts` still prints line `5`. In other words the only segment that declares per-request rendering is the dev-only route handler that needs it; no page segment and no layout declares `dynamic` or `revalidate`, which `grep -rc "export const revalidate" src/ | grep -v ':0$'` confirms by printing nothing.
 
-ER3 - all four vulnerable packages are at or above their fixed versions and the installed tree is
-internally consistent. `npm ls next sharp js-yaml @vitest/mocker vitest @vitest/coverage-v8` exits 0
-and its output contains no occurrence of the words `invalid`, `missing`, `UNMET` or `extraneous`
-(`npm ls next sharp js-yaml @vitest/mocker vitest @vitest/coverage-v8 2>&1 | grep -cE 'invalid|missing|UNMET|extraneous'`
-prints `0`). In that same output `next` appears as `16.3.4`, `sharp` as `0.35.4` or higher (and below
-`0.36.0`), `js-yaml` as `4.3.2` or higher (and below `5.0.0`), and `vitest`, `@vitest/mocker` and
-`@vitest/coverage-v8` all as `4.1.11` or higher (and below `5.0.0`) at **the same** version as each
-other - `@vitest/coverage-v8` peer-depends on the exact `vitest` version, so a mismatch here is a
-failure even when `npm audit` is clean. At `55656fe` the same command printed `next@16.3.0`,
-`sharp@0.35.3`, `js-yaml@4.3.1` and the `4.1.6` vitest trio.
+ER3 - `test -f src/lib/__tests__/rootLayoutRendering.test.ts` exits `0` (the file exists; it does not exist at `65cadd8`), its first line is not `// @vitest-environment jsdom`, and `rtk proxy npx vitest run src/lib/__tests__/rootLayoutRendering.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  N passed (N)` with `N` greater than or equal to `2` and `0 failed`. Reverting only ER1's edit (restoring `export const dynamic = "force-dynamic";` to `src/app/layout.tsx`) and rerunning that same command makes it exit non-zero with at least one failing test, proving the guard actually guards.
 
-ER4 - the lockfile changed, and only for the packages this fix is allowed to move. `git diff --stat
-55656fe -- package-lock.json` prints a non-empty stat line for `package-lock.json`. The set of moved
-entries is inside the allowed set - run, from the repository root:
-```bash
-git show 55656fe:package-lock.json > /tmp/rh60-base-lock.json
-cat > /tmp/rh60-lockscope.mjs <<'EOF'
-import fs from 'fs'
-const B = JSON.parse(fs.readFileSync('/tmp/rh60-base-lock.json', 'utf8'))
-const A = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'))
-const V = l => Object.fromEntries(Object.entries(l.packages).filter(([k]) => k).map(([k, v]) => [k, v.version]))
-const b = V(B), a = V(A)
-const ok = n => ['next', 'sharp', 'js-yaml', 'vitest', '@swc/helpers', '@emnapi/runtime'].includes(n)
-  || n.startsWith('@img/') || n.startsWith('@next/') || n.startsWith('@vitest/')
-const bad = []
-for (const k of new Set([...Object.keys(b), ...Object.keys(a)])) {
-  if (b[k] === a[k]) continue
-  const name = k.split('node_modules/').pop()
-  if (!ok(name)) bad.push((b[k] === undefined ? 'ADDED ' : a[k] === undefined ? 'REMOVED ' : 'CHANGED ') + k + ' ' + b[k] + ' -> ' + a[k])
-}
-console.log(bad.length === 0 ? 'LOCKFILE-SCOPE OK' : 'LOCKFILE-SCOPE FAIL\n' + bad.join('\n'))
-EOF
-node /tmp/rh60-lockscope.mjs
-```
-which prints exactly `LOCKFILE-SCOPE OK`. The root dependency range followed the pin:
-`node -e "console.log(require('./package-lock.json').packages[''].dependencies.next)"` prints
-`16.3.4`, and `node -e "console.log(require('./package-lock.json').lockfileVersion)"` still prints
-`3`.
+ER4 - From a clean build (`rm -rf .next && npx next build`) the command exits `0`, its output contains exactly one line matching `grep -c '(Static)   prerendered as static content'` and exactly one line matching `grep -c '(Dynamic)  server-rendered on demand'`, and it reports `Generating static pages` with a count of `19` completed (`grep -c 'static pages using 7 workers (19/19)'` prints `1` on a 7-worker machine; on any machine the completed count printed is `19/19`).
 
-ER5 - the lockfile is settled and a clean install from it works. Running the installer again is a
-no-op: `shasum -a 256 package-lock.json > /tmp/rh60-lock.sha && npm install; echo $?` prints `0` and
-`shasum -a 256 -c /tmp/rh60-lock.sha` then prints `package-lock.json: OK`. A from-scratch install
-succeeds: `rm -rf node_modules && npm ci; echo $?` prints `0`, its output contains no line matching
-`npm error`, and `shasum -a 256 -c /tmp/rh60-lock.sha` still prints `package-lock.json: OK`
-afterwards (the install did not rewrite the lockfile). In the probe `npm ci` reported
-`added 690 packages`.
+ER5 - After that build, `node -e "const r=Object.keys(require('./.next/prerender-manifest.json').routes).sort();console.log(r.length);console.log(r.join(' '))"` prints exactly two lines: `14`, then `/ /_global-error /_not-found /admin/moderation /bands /forgot-password /icon.jpg /login /playlists /profile /reset-password /settings /signup /songs/search`. Those are the routes Next classifies as "prerendered as static content", and the list contains `/`, `/login`, `/signup`, `/forgot-password` and `/reset-password`.
 
-ER6 - every static gate holds at the number this spec pins, which is also its `55656fe` baseline -
-the Next bump moved none of them. Run each from the repository root and append `; echo $?` to read
-the exit status. `./node_modules/.bin/tsc --noEmit` prints nothing and exits 0. `rtk proxy npx
-eslint .` ends with the line `22 problems (8 errors, 14 warnings)` (this exact count; a shell hook
-rewrites a bare `npx eslint`, hence `rtk proxy`). `npm run lint:dead` prints no knip finding and
-exits 0. `npm run lint:dup` prints `Found 19 clones.` and a `Total:` row whose clone column is `19`
-and whose duplicated-lines column is `242 (0.71%)`, and exits 0. The three guard files still pass at
-their own counts: `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` prints
-`Tests 6 passed (6)`, `rtk proxy npx vitest run src/lib/__tests__/dbRowTypes.test.ts` prints
-`Tests 3 passed (3)`, and `rtk proxy npx vitest run src/lib/__tests__/serverExternalPackages.test.ts`
-prints `Tests 2 passed (2)` - that last one is the RH-32 guard, and it passing is the mechanical
-statement that `next.config.ts`'s `serverExternalPackages` still lists only Node-only packages after
-the upgrade.
+ER6 - After the same build, `node -e "const a=Object.values(require('./.next/app-path-routes-manifest.json'));const s=new Set(Object.keys(require('./.next/prerender-manifest.json').routes));const d=a.filter(x=>!s.has(x)).sort();console.log(d.length);console.log(d.join(' '))"` prints exactly two lines: `14`, then `/api/auth/[...all] /api/auth/spotify/authorize /api/auth/spotify/callback /api/auth/spotify/disconnect /api/dev/profiles /api/spotify/playlists /api/spotify/playlists/[id]/import /api/spotify/playlists/[id]/sync /api/spotify/playlists/[id]/tracks /api/spotify/search /bands/[id] /join/[code] /playlists/[id] /songs/[id]/fast-view`. Every data route stays server-rendered on demand. Additionally `ls .next/server/app/index.html .next/server/app/login.html .next/server/app/signup.html .next/server/app/forgot-password.html .next/server/app/reset-password.html` exits `0` (all five prerendered documents were written to disk; at `65cadd8` none of these files existed).
 
-ER7 - the whole unit/integration suite is green and unchanged in size on `vitest@4.1.11`.
-Precondition: a local Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres`
-with the migrations applied (`npm run db:migrate`) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in the
-environment or in `.env.local`; without them six DB-backed files skip 51 tests and the run is
-meaningless. `rtk proxy npx vitest run` prints `Test Files 92 passed (92)` and
-`Tests 1064 passed (1064)`, with no `skipped` and no `todo` count in either line. This task adds and
-removes no test, so fewer than 92 files or fewer than 1064 tests fails this result. **RH-59 flake
-disposal:** the only tolerated failure is
-`complexity budget (F20) > sets the base budget for src at complexity 15, ...` in
-`src/lib/__tests__/complexityBudget.test.ts` timing out with `Test timed out in 5000ms` under
-full-suite parallel load; if and only if that is the sole failure, re-run
-`rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` in isolation and it must print
-`Tests 6 passed (6)` for this result to count as passed. Any other failing test, or any skipped
-test, fails ER7. A warning line about `configLoader: 'native'` / `ESM syntax in a file loaded as
-CommonJS (vitest.config.ts:1:1)` is pre-existing at `vitest@4.1.6` and is not a failure.
+ER7 - With `BETTER_AUTH_SECRET` exported from `.env.local` (because `.env.production.local` sets it empty) and `npx next start -p 3000 -H 127.0.0.1` serving the build from ER4: `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/login` prints `200`; `curl -sS -D - -o /dev/null http://127.0.0.1:3000/login | grep -ci '^x-nextjs-prerender: 1'` prints a number greater than or equal to `1`; `curl -sS -D - -o /dev/null http://127.0.0.1:3000/login | grep -ci '^set-cookie'` prints `0`; `curl -sS -D - -o /dev/null http://127.0.0.1:3000/login | grep -c 'Cache-Control: s-maxage=31536000'` prints `1`. The same four commands against `http://127.0.0.1:3000/` print the same four values. `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/profile` still prints `307`, proving the middleware session gate is unaffected by static prerendering.
 
-ER8 - the coverage gate still clears its thresholds. With the same Postgres and
-`SUPABASE_SERVICE_ROLE_KEY` precondition as ER7, `npm run test:coverage` produces an `All files` row
-whose four columns are each at or above the configured thresholds - statements >= 80, branches >= 65,
-functions >= 78, lines >= 80 - and its output contains no line matching
-`ERROR: Coverage for .* does not meet global threshold`. Its exit code may be non-zero only under
-the ER7 RH-59 exception, attributed the same way and with the same isolated re-run; otherwise it
-exits 0. The probe measured `All files 97.38 | 85.43 | 99.41 | 97.95`, so a value materially below
-that is a finding even when it clears the threshold.
+ER8 - `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts` (same `BETTER_AUTH_SECRET` precondition, Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, so `e2e/global-setup.ts` can create the e2e user) exits `0` and prints `4 passed`, with all four named tests green: `GET / signed out returns a 200 SSR document`, `signed-out / renders the landing page in a browser`, `GET /profile signed in returns a 200 SSR document`, `/profile renders the app shell in a browser`.
 
-ER9 - the app still builds and still renders server-side on `next@16.3.4`. `npx next build` exits 0
-(`npx next build; echo $?` prints `0`) and its output contains no line matching
-`^Error|^Failed|Failed to compile` - do not grep for `Compiled successfully`, this Next version does
-not print that phrase on success, and use `npx next build` rather than `npm run build`, which also
-runs `scripts/migrate.mjs` and `scripts/deduplicate-songs.mjs` against a live database. Then the
-RH-32 SSR guard, against the production server and not `next dev`:
-```bash
-export BETTER_AUTH_SECRET="$(grep '^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2- | tr -d '"')"
-PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts
-```
-prints `4 passed` and exits 0. The explicit export is required and is not a code smell: this
-machine's Vercel-generated `.env.production.local` sets `BETTER_AUTH_SECRET=""`, which outranks
-`.env.local` in production mode, and without the override `next start` aborts with
-`BetterAuthError: You are using the default secret` and the Playwright global setup fails with
-`sign-in failed (500)` - a false negative unrelated to this task.
+ER9 - Under the same server and preconditions, `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/auth.spec.ts --grep "credentials"` exits `0` and prints `2 passed`, covering `valid credentials redirect to home` and `invalid credentials show an error message`, which proves the sign-in flow still works through the now statically prerendered `/login`. The other two tests in that file (`unauthenticated user is redirected to /login` and `redirect param is honoured after login`) are excluded on purpose: they already fail at `65cadd8` because they assume `/` is a protected route, and this task neither fixes nor worsens them.
 
-ER10 - the change stays inside the whitelist, the version went up, and neither the landing page nor
-`AGENTS.md` moved. `git diff --name-only 55656fe | sort` lists only paths drawn from this closed
-set: `docs/suggestions-log.md`, `docs/tasks/RH-60-spec.md`, `package-lock.json`, `package.json` - any
-other path fails this result. No application or infrastructure file moved, tracked or untracked:
-`git diff --name-only 55656fe -- src e2e migrations scripts docker public .github next.config.ts`
-prints nothing and
-`git status --porcelain src e2e migrations scripts docker public .github next.config.ts` prints
-nothing. `AGENTS.md` is byte-identical to the baseline:
-`git diff 55656fe -- AGENTS.md` prints nothing, which in particular means the
-`<!-- BEGIN:nextjs-agent-rules -->` block was not committed in a regenerated form (the generator is
-byte-identical between 16.3.0 and 16.3.4, so any diff there is noise and must be reverted). This
-task ships no selling point, so per the Landing Page Rule
-`git diff --name-only 55656fe -- src/components/landing src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json`
-prints nothing. Finally `node -p "require('./package.json').version"` prints a string matching
-`^0\.1\.88-[0-9]{12}$`, which sorts strictly after the baseline `0.1.87-202609081036`.
+ER10 - Static gates hold at their `65cadd8` pins: `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`; `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing; `npm run lint:dead` exits `0` with no unused file, export or dependency reported; `npm run lint:dup` exits `0` and reports at most `19` clones and a duplication percentage of at most `0.71 %`; `npm run audit` exits `0` with `0` high or critical advisories; and `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits `0` (which is what enforces that the override list between the `BEGIN:complexity-budget-overrides` and `END:complexity-budget-overrides` markers still holds exactly `23` entries and that no new budget violation was introduced).
 
-## Post-merge checks (orchestrator/operator, not QA)
-
-Not expected results: QA runs before the commit exists, so none of these can pass at QA time.
-
-- **Dependabot alerts close.** After the commit reaches `master` and GitHub's dependency-graph rescan
-  completes (asynchronous - a non-zero count immediately after the push is not a failure),
-  `gh api repos/heitorpolidoro/repertoire-hero/dependabot/alerts?state=open --jq 'length'` should
-  print `0`.
-- **The audit job goes green.** `gh run list --branch master --limit 1 --json databaseId --jq '.[0].databaseId'`,
-  then `gh run view <run-id> --json jobs --jq '.jobs[] | select(.name == "Dependency audit (npm audit)") | .conclusion'`
-  should print `success`. This also unblocks RH-40 ER6.
-- **Vercel deploy healthy on next 16.3.4.** The production deployment for the merge commit reaches
-  `READY`, and a signed-out `GET /` on the deployed URL returns HTTP 200 with the landing markup
-  (the deployed equivalent of ER9's SSR smoke).
+ER11 - With Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, `rtk proxy npx vitest run` exits `0` reporting `Test Files` passed greater than or equal to `93` (was 92; the ER3 guard is the new file), `Tests` passed greater than or equal to `1066` (was 1064), `0 failed` and `0 skipped`; and `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`). Also: `package.json` version is `0.1.91-YYYYMMDDHHmm` with a real local timestamp and sorts above `0.1.90-202609091102`; `git diff 65cadd8 -- src/components/landing src/i18n/dictionaries` prints nothing (this task ships no selling point, so the Landing Page Rule requires no copy change); and `git diff --name-only 65cadd8 | sort` lists only paths drawn from this closed set and no others: `docs/suggestions-log.md`, `docs/tasks/RH-60-spec.md`, `package.json`, `src/app/layout.tsx`, `src/lib/__tests__/rootLayoutRendering.test.ts` - any other path fails this result. In particular that list contains no `src/proxy.ts`, no `next.config.ts`, no path under `src/components/` or `src/hooks/`, no other path under `src/app/`, and no `docs/plans/code-quality-review.md`.
 
 ## Out of Scope
 
-- Any change under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`, `public/`, `.github/`, or to
-  `next.config.ts`. If a test or a lint rule fails after the bump, that is a finding to report, not a
-  licence to edit application code.
-- `AGENTS.md`. No rule changes; the `nextjs-agent-rules` block is not regenerated by 16.3.4.
-- Bumping `eslint-config-next`, `eslint`, `react`, `react-dom`, `webpack`, `@sentry/nextjs`,
-  `better-auth` or any other declared range. Exactly one declared range moves: `next`.
-- Adding an `overrides` / `resolutions` block, and `npm audit fix --force`. Both are forbidden
-  outright: the probe proved the fix needs neither.
-- Moving to `next@16.4.x` or any later minor. `16.3.4` is the minimum published version that clears
-  both critical advisories with AVIF optimization re-enabled; a minor bump is a different, larger
-  risk that belongs to its own task.
-- Fixing the RH-59 `complexityBudget.test.ts` flake. ER7 only prescribes how to dispose of it.
-- Fixing the `.env.production.local` `BETTER_AUTH_SECRET=""` local-environment quirk described in
-  ER9, or the pre-existing `configLoader: 'native'` Vite warning. Both predate this task; log them in
-  `docs/suggestions-log.md` if desired.
-- Enabling or configuring Dependabot version-update PRs (`.github/dependabot.yml`).
-- Landing page copy in either dictionary.
+- Any page-body change. Not one line of `src/app/**/page.tsx`,
+  `src/app/AppShell.tsx`, `src/components/**` or `src/hooks/**` may change.
+- `src/proxy.ts`, including its matcher and its public-path list (F10, RH-41
+  part 5).
+- Converting `/bands`, `/admin/moderation` or `/playlists` to Server Components
+  (RH-41 parts 2-3).
+- Redesigning `useBandAdmin` (RH-41 part 4) and decomposing
+  `src/app/playlists/[id]/page.tsx` (RH-53).
+- Fixing the pre-existing red e2e specs (`songs-crud`, `fast-view-mobile`,
+  `bands-confirm`, and the two `/`-assumes-protected tests in `auth.spec.ts`).
+- Updating `docs/plans/mobile-app-analysis.md`, which repeats the false
+  "force-dynamic exists to prevent a real prerender crash" claim in several
+  places; that document is now stale but is not on this task's whitelist.
+- Adding a `Status:` line for F15 in `docs/plans/code-quality-review.md`.
+- Any `next.config.ts` change, including `serverExternalPackages` (RH-32).
+
+## Post-merge checks (orchestrator)
+
+After the Vercel deployment of the merge commit, the build summary should list
+`/`, `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/profile`,
+`/settings`, `/bands`, `/playlists`, `/admin/moderation`, `/songs/search`,
+`/_not-found` and `/icon.jpg` as static and the fourteen routes of ER6 as
+dynamic, and a production `curl -sS -D - -o /dev/null https://<host>/login`
+should carry a CDN cache hit header. No expected result above depends on this.

@@ -5,7 +5,7 @@
 
 > **Filename mapping.** This file is `docs/tasks/RH-78-spec.md` and it specifies
 > board task **RH-78**. Spec filenames in this repository run one ahead of the
-> board id; `RH-78-spec.previous.md` is already taken by an earlier task. Read every
+> board id; `RH-77-spec.md` is already taken by an earlier task. Read every
 > "RH-78" below as the board id, and the filename as an offset artefact.
 
 Parent: **RH-28** (offline mode). Design of record:

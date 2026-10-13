@@ -1,520 +1,471 @@
-# RH-63 — Server Components parte 3/5: converter /playlists em Server Component e resolver o contexto de banda no servidor
+# RH-64 — Server Components parte 4/5: reduzir useBandAdmin a dados mais comandos de intencao
 
-Parent: RH-41 (F15, part 3 of 5). Depends on RH-61 (`57bc60a`, done) and RH-62
-(`6e32874`, done).
-Baseline for every measurement in this document: `6e32874`
-(`refactor(RH-62): render /bands and /admin/moderation on the server with client islands`).
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-41 (F14, part 4 of 5). Depends on RH-63 (`35d6f66`, done).
+Baseline for every measurement in this document: `35d6f66`
+(`feat(RH-63): convert /playlists to a Server Component with client islands`).
 
 ## Scope
 
-Convert exactly one route — `src/app/playlists/page.tsx`, 899 lines,
-`"use client"` on line 1 — into an `async` Server Component that reads the
-playlist list through `getUserPlaylists(userId)` from `@/lib/playlists` with the
-session helpers, resolves the Spotify connection flag on the server, and hands
-everything to `"use client"` islands under `src/components/playlists/`.
+Redesign the interface of exactly one module — `src/hooks/useBandAdmin.ts`, 370
+lines, one hook function of 298 lines returning **39 members, ten of them raw
+`set*` state setters** — into data plus intent-named commands, and rewrite the
+two consumers that destructure it (`src/app/bands/[id]/page.tsx`,
+`src/app/profile/page.tsx`) against the new surface.
 
-Three things come with the conversion and are part of this task:
+This is F14 and nothing else. It is not a Server Components task: `/bands/[id]`
+and `/profile` stay `"use client"`, keep their mount-time load effect, and keep
+the `// eslint-disable-next-line react-hooks/set-state-in-effect` that guards it
+(the comment moves with no line of the effect it guards, and is not relocated to
+a new file). Part 4 was chained after part 3 only because the board runs one
+task at a time; it shares no code with parts 1-3.
 
-1. **The band-context transport decision** (below): where the active band
-   context comes from once a Server Component renders the page, given that
-   `src/store/bandContextStore.ts` is a zustand `persist` store in
-   localStorage that no Server Component can read.
-2. **The second read**, `fetch("/api/spotify/playlists")`, which happens in the
-   page's mount effect today and must not happen on mount any more.
-3. **The inline `// eslint-disable-next-line react-hooks/set-state-in-effect`**
-   at line 728, removed by deleting the effect it guards, not by relocating the
-   comment.
+Three things come with the redesign and are part of this task:
 
-Behaviour is preserved: same header and `+ New Playlist` button, same grouping
-into `My playlists` plus one section per band, same card markup with the rename
-pencil and the inline `Sure? / Yes / No` delete confirmation, same dismissable
-error banner, same create modal with its two tabs, same Spotify import flow
-including the `Keep synced with Spotify` checkbox and the band destination, same
-navigation to `/playlists/<id>` on a card click. The route moves from the
-prerendered set to the dynamic (`f`) set of the `next build` route table.
+1. **The `setBand` / `setError` / `setCopied` escape hatches the pages use.**
+   `/bands/[id]`'s regenerate-invite flow (page lines 80-96) writes the hook's
+   band, error and copied state directly. Those three writes become two intent
+   commands (`invite.applyNewCode(code)` and `reportError(message)`) plus
+   `dismissError()`; no raw setter survives on the surface.
+2. **The pure state transitions** the hook performs inline today (seeding the
+   edit draft from a band, trimming it back into an update payload, patching the
+   loaded band, dropping a removed member), which move to a new
+   `src/lib/bandAdminState.ts` next to the existing `src/lib/bandAdminLoad.ts`
+   and get unit tests of their own.
+3. **The complexity ratchet.** `src/hooks/useBandAdmin.ts` carries a per-file
+   override (`max-lines-per-function: 298`). The hook function comes under the
+   base budget of 200, so that entry is **deleted**, `MAX_OVERRIDES` goes
+   `21 -> 20` and AGENTS.md's "past 21 entries" follows it in the same commit.
+   The two pages keep their overrides but must be **re-pinned** to their new
+   worst numbers, because `complexityBudget.test.ts` fails on a ceiling that is
+   not exactly the file's current number.
 
-One visible difference is carved out of that preservation, and only one: because
-`spotifyConnected` is resolved on the server it becomes a plain `boolean` and
-never `null`, so the `&& spotifyConnected !== null` loading guard in the
-empty-state condition at line 807 disappears. An account with no playlists sees
-`No playlists yet` at first paint instead of a blank panel until the
-`/api/spotify/playlists` round trip resolves. That is an improvement, it is the
-direct consequence of the server read, and no other user-visible behaviour
-changes.
+Behaviour is preserved, flow by flow. The complete inventory of what the hook
+drives today, all of which must behave identically after the change:
 
-Nothing else changes: no Server Action signature changes, no
-`src/app/actions/playlists.ts` change, no `src/lib/playlists.ts` change, no
-`src/app/api/**` change, no `src/store/**` change, no `src/proxy.ts` change, no
-`/playlists/[id]` change.
+- load the band and its playlists on mount, under either load policy;
+- the not-found branch (`/bands` replaces the route; `/profile` shows a banner);
+- copy the invite link, with the `Copied!` label reverting after 2000 ms;
+- regenerate the invite link (`/bands/[id]` only) and show the new code;
+- open the edit modal seeded from the band; edit name, description and colour;
+  pick and client-side-compress a cover image and preview it;
+- save the edit: refuse a blank name, surface an upload failure without saving,
+  patch the loaded band on success, sync the active band context in
+  `bandContextStore` when the edited band is the active one, close the modal;
+- cancel the edit modal;
+- delete the band, leave the band, remove a member — each staged as an in-page
+  `ConfirmPanel` confirmation, confirmed or dismissed, with the member removal
+  toasting on success and every failure landing in the shared error banner;
+- open the new-playlist form, type a name, cancel it, or submit it and navigate
+  to the created playlist.
 
-## Audit at 6e32874
+No user-visible behaviour changes. No Server Action signature changes, no
+`src/app/actions/bands.ts` change, no `src/lib/bands.ts` change, no
+`src/lib/bandAdminLoad.ts` change, no `src/app/bandAdminActions.ts` change, no
+markup unification between the two pages (F14's remediation says explicitly:
+"Keep the two pages' markup separate as they are today").
 
-### `src/app/playlists/page.tsx` — 899 lines, `"use client"` on line 1
+## Audit at 35d6f66
 
-Module-level pieces, in file order:
+### `src/hooks/useBandAdmin.ts` — 370 lines, hook function 298 lines
 
-- 20-27 `formatDuration(totalSeconds)` — pure, no dependency on React.
-- 33-54 `ModalCloseButton` — presentational.
-- 60-74 `PendingImport` and `SpotifyImportListItemProps` interfaces.
-- 76-161 `SpotifyImportListItem` — presentational, one `?.` chain.
-- 167-176 `CreatePlaylistTab` type and `CreatePlaylistModalProps`
-  (`spotifyConnected: boolean | null`, `spotifyPlaylists: SpotifyPlaylist[]`,
-  `bandId: string | null`, `onClose`, `onCreate`, `onImported`).
-- 178-403 `CreatePlaylistModal` — **226 lines**, which is the file's
-  `max-lines-per-function` ceiling. Seven `useState` (`activeTab`,
-  `newPlaylistName`, `isCreating`, `createError`, `pendingImport`,
-  `importingId`, `importError`), one `useRef`, three `useEffect`
-  (197-199 focus on tab change, 201-203 focus on mount, 206-212 Escape
-  listener), `handleCreate` (214-227), `handleConfirmImport` (229-255, POSTs
-  `/api/spotify/playlists/<id>/import` with `band_id: bandId ?? undefined`),
-  `canShowSpotifyTab = spotifyConnected === true` (257), then the dialog:
-  header (271-274), tab bar (277-306), tab content (309-378) and the footer
-  shown only on the `new` tab (381-399).
-- 409-454 `PlaylistNameEditor` — presentational.
-- 456-643 `PlaylistCard` — 181 lines. Three `useState` (`confirmDelete`,
-  `editing`, `editName`), one `useRef`, one `useEffect` (474-476) that focuses
-  the rename input when `editing` flips (no `setState`), `handleRenameSubmit`,
-  the `songCount` / `totalSeconds` / `totalDuration` derivation (484-494) and
-  the card markup, including the inline delete confirmation at 590-613
-  (`Sure?` / `Yes` / `No` — there is no `window.confirm` anywhere on this page).
-- 649-684 `PlaylistGroup` interface and `buildPlaylistGroups(playlists)` — a
-  pure function, currently untested.
-- 690-897 `PlaylistsPage` — **208 lines**. `useRouter`,
-  `useBandContextStore((s) => s.bandId())` at 692, five `useState`
-  (`playlists`, `spotifyConnected` initial `null`, `spotifyPlaylists`,
-  `showCreateModal`, `pageError`), `loadPlaylists` (699-708, `useCallback`),
-  `loadSpotifyStatus` (710-725, `useCallback`, `fetch("/api/spotify/playlists")`,
-  `catch { setSpotifyConnected(false) }`), the mount effect at **727-731**
-  carrying the inline `// eslint-disable-next-line react-hooks/set-state-in-effect`
-  at 728, `handleDelete` (733-742, optimistic local filter), `handleRename`
-  (744-756, optimistic local map then re-read on failure), `handleCreatePlaylist`
-  (758-761, `createPlaylist` then `loadPlaylists`), `handleImported` (763-765),
-  the `useMemo` grouping (767-772), and the JSX (774-896).
+The returned object (lines 329-369) has 39 members. Ten are raw setters —
+`setBand`, `setError`, `setEditing`, `setEditName`, `setEditDesc`,
+`setEditColor`, `setCopied`, `setShowNewPlaylist`, `setNewPlaylistName`,
+`setPendingAction` — measured with
+`grep -cE "^[[:space:]]*set[A-Z][A-Za-z]*,$" src/hooks/useBandAdmin.ts`, which
+prints `10`.
 
-The dispatch brief counts five effects on the page: three live in
-`CreatePlaylistModal`, one in `PlaylistCard`, one in `PlaylistsPage`. Only the
-last one reads data; the other four are focus/keyboard effects and are moved
-verbatim with their components.
+Internal state, in file order: `band`, `playlists`, `loading`, `error` (86-89);
+the edit-modal six, `editing`, `editName`, `editDesc`, `editCoverFile`,
+`editCoverPreview`, `editColor`, plus `saving` (92-98); `copied` (101); the
+new-playlist three, `showNewPlaylist`, `newPlaylistName`, `creatingPlaylist`
+(104-106); and `pendingAction` / `actionBusy` (109-110). `editCoverFile` is the
+only piece of state the hook does **not** export today.
 
-Measured facts:
+Three `useEffect` (`grep -c "useEffect(" src/hooks/useBandAdmin.ts` prints `3`):
+two ref-syncs for `onNotFound` and `actions` (116-118, 124-126) and the load
+effect at 161-164, which carries the inline
+`react-hooks/set-state-in-effect` disable at line 162 — the only such comment
+under `src/hooks`.
 
-- `grep -c "" src/app/playlists/page.tsx` prints `899`.
-- `rtk proxy npx eslint src/app/playlists/page.tsx` exits `0` with no output:
-  the page contributes **nothing** to the repo total of
-  `22 problems (8 errors, 14 warnings)`, because the one violation it would
-  report is silenced by the inline disable and the two `max-lines-per-function`
-  violations plus the `max-lines` violation are absorbed by its override.
-- Its override in `eslint.config.mjs` is
-  `{ name: "complexity-budget/override", files: ["src/app/playlists/page.tsx"], rules: { "max-lines-per-function": ["error", 226], "max-lines": ["error", 899] } }`.
-- Copying the file to `src/components/playlists/__probe.tsx` (where the override
-  glob does not match) and linting it reports exactly four errors: the
-  `@/app/actions/playlists` import (F21), `Arrow function has too many lines
-  (226)` at 178:29, `File has too many lines (899)` at 401:1 and `Arrow function
-  has too many lines (208)` at 690:23. **No `complexity`, no `max-depth`, no
-  `max-params` violation** — so the split below is driven by line counts only,
-  not by branch arithmetic (RH-62's moderation split was the opposite case).
-  The probe file was deleted after measuring.
+Handlers: `handleCopyInvite` (173-177), `openEdit` (179-186),
+`handleEditCoverChange` (188-195), `handleSaveEdit` (197-246),
+`handleDelete` / `handleLeave` / `handleRemoveMember` (248-262),
+`confirmPendingAction` (264-314, a three-arm switch), `handleCreatePlaylist`
+(316-327). Derived: `currentMember`, `isAdmin`, `inviteUrl` (166-171).
 
-### Who reads and writes the band context
+`BandAdminActions` (21-38) is the eight-action injected dependency object from
+RH-47/F21; it is **not changed by this task**, and neither is
+`src/app/bandAdminActions.ts` (27 lines), which builds it. `regenerateBandInviteCodeAction`
+is deliberately *not* one of the eight: `/bands/[id]` imports it directly,
+because the regenerate affordance exists on that page only.
 
-`src/store/bandContextStore.ts` (35 lines) is `create(persist(..., { name:
-'band-context' }))`, i.e. localStorage. Writers: `ContextSwitcher` inside
-`src/components/layout/AppLayout.tsx:41,59-60` (the dropdown, which also calls
-`loadSongs()` and `router.push('/')`), `AppLayout:166,172` (sign-out and
-`Exit band mode`), `src/app/AppShell.tsx:34-41` (reconciles the persisted
-name/colour with the database row after `getBandsAction()` resolves — RH-46),
-and `src/hooks/useBandAdmin.ts:235-237` (after a band rename). Readers:
-`src/app/page.tsx:126`, `src/app/profile/page.tsx:661`,
-`src/app/playlists/[id]/page.tsx:278`, `src/app/playlists/page.tsx:692`,
-`src/store/repertoireStore.ts:37,48,63` and `AppLayout` itself. Fast View does
-not read the store at all: `src/app/songs/[id]/fast-view/page.tsx:45` takes the
-context from the `bandId` **query parameter** instead.
+Its override in `eslint.config.mjs` is
+`{ name: "complexity-budget/override", files: ["src/hooks/useBandAdmin.ts"], rules: { "max-lines-per-function": ["error", 298] } }`
+— one rule, the hook function's own length. There is no `complexity`,
+`max-depth`, `max-params` or `max-lines` violation in the file.
 
-**What line 692 actually decides on this page.** `bandId` is read once and used
-in exactly one place: it is passed to `CreatePlaylistModal` (889) and lands in
-the import POST body as `band_id: bandId ?? undefined` (241). It does **not**
-scope the list. `src/lib/playlists.ts:8-41` `getUserPlaylists(userId)` takes no
-band argument at all: it selects `WHERE p.user_id = $1 OR p.band_id = ANY($2)`
-over every band the user belongs to, and the page then splits the result into
-`My playlists` plus one section per band with `buildPlaylistGroups`. So the read
-this page performs is already user-scoped, and the band context is only the
-destination of one mutation.
+### The two consumers
 
-### The Spotify read
+`src/app/bands/[id]/page.tsx` — 508 lines, a single 490-line component with one
+40-line destructuring statement (lines 25-64) naming 39 members. Override:
+`complexity 30 / max-lines-per-function 490 / max-lines 508`. It additionally
+owns two local `useState` (`confirmingRegenerate`, `regenerating`) and
+`handleRegenerateInvite` (80-96), which calls `setError(null)`, then
+`regenerateBandInviteCodeAction(bandId)`, then `setBand(prev => ({ ...prev,
+invite_code: newCode }))`, `setCopied(false)`, `setConfirmingRegenerate(false)`
+and a toast — and `setError(message)` on failure. That function is the only
+reason `setBand`, `setCopied` and the error writer are on the hook's surface at
+all.
 
-`src/app/api/spotify/playlists/route.ts` (67 lines, RH-35) answers
-`{ connected: false }` when there is no session or when
-`getSpotifyAccessToken(userId)` returns `null`, otherwise an array of
-`SpotifyPlaylist`. `getSpotifyAccessToken` (`src/lib/spotifyAuth.ts:10-96`)
-reads `spotify_tokens` and, when the token is within 60 seconds of expiry,
-performs an HTTP POST to `https://accounts.spotify.com/api/token` to refresh it.
-The page maps the answer onto `spotifyConnected: boolean | null`, where `null`
-means "not resolved yet" and is used as a loading guard in the empty-state
-condition at line 807 (`playlists.length === 0 && spotifyConnected !== null`).
-`spotifyConnected === true` also enables the `From Spotify` tab (257, 294-295)
-and appends `" or import one from Spotify"` to the empty-state copy (816).
+`src/app/profile/page.tsx` — 723 lines holding three components. Only
+`BandProfileView` (34-427, the 394-line worst function) touches the hook, in two
+destructuring statements (50-57 and 59-63) naming 30 members. Override:
+`complexity 23 / max-lines-per-function 394 / max-lines 723`. `PersonalProfileView`
+(432-655, 224 lines) and `ProfilePage` (660-723) are **untouched by this task**
+and keep their own local `useState`, including their own `setError`.
 
-### Actions, revalidation and authorization
+Measured setter usage:
+`grep -cE "setBand|setError|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" 'src/app/bands/[id]/page.tsx'`
+prints `25`. The same command on `src/app/profile/page.tsx` prints `24`, but
+seven of those are `PersonalProfileView`'s own local `setError`; excluding
+`setError`, `grep -cE "setBand|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" src/app/profile/page.tsx`
+prints `14`, and `grep -c "setError" src/app/profile/page.tsx` prints `10`
+(lines 43, 51 and 87 in `BandProfileView`; 438, 461, 468, 490, 499, 507 and 526
+in `PersonalProfileView`).
 
-`src/app/actions/playlists.ts` is A2-thin: every export resolves
-`getRequiredUserId()` and delegates to `src/lib/playlists`, with no `try/catch`
-and no `next/cache` import — `grep -n "revalidatePath" src/app/actions/playlists.ts`
-prints nothing. Signatures used here:
-`getUserPlaylistsAction(): Promise<Playlist[]>`,
-`createPlaylistAction({ name, description? }): Promise<Playlist>`,
-`updatePlaylistAction(id, { name?, description?, sync_with_spotify?, tags? }): Promise<void>`,
-`deletePlaylistAction(id): Promise<void>`. Authorization lives in the lib
-(`assertPlaylistAccess`, `assertBandMember`) and is unchanged by this task.
-`getUserPlaylistsAction` keeps its export even though the page stops calling it:
-`src/app/actions/__tests__/playlists.test.ts:74` and
-`src/app/actions/__tests__/actionSessionGuard.test.ts:147` still import it, and
-knip does not flag an export whose only consumer is a test — verified by adding
-a throwaway `src/lib/__probeKnip.ts` plus a test importing it and running
-`npx knip`, which exited `0`; both probe files were deleted.
+### Duplication between the two pages
 
-### Route table and gates at 6e32874
+`npm run lint:dup` reports four clones spanning exactly this pair, all of them
+markup F14 tells us to leave alone: `bands/[id] 165-174` vs `profile 158-167`
+(the delete `ConfirmPanel`), `284-293` vs `243-252` (the remove-member panel),
+`408-423` vs `262-277` (the leave-band panel) and `436-469` vs `353-387` (34
+lines of edit-modal form). They survive this task by design. The rewritten
+destructuring in the two pages must not create a *fifth* clone: the two
+statements name different subsets in a different order and must stay that way.
 
-`npx next build` output already on disk at this commit:
+### Tests and gates at 35d6f66
 
-```
-prerendered (12): / /_global-error /_not-found /forgot-password /icon.jpg
-                  /login /playlists /profile /reset-password /settings /signup
-                  /songs/search
-dynamic    (16): /admin/moderation /api/auth/[...all] /api/auth/spotify/authorize
-                  /api/auth/spotify/callback /api/auth/spotify/disconnect
-                  /api/dev/profiles /api/spotify/playlists
-                  /api/spotify/playlists/[id]/import
-                  /api/spotify/playlists/[id]/sync
-                  /api/spotify/playlists/[id]/tracks /api/spotify/search /bands
-                  /bands/[id] /join/[code] /playlists/[id] /songs/[id]/fast-view
-```
+`src/hooks/__tests__/useBandAdmin.test.tsx` — 517 lines, five `describe` blocks,
+**29 tests** (`rtk proxy npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx`
+prints `Tests  29 passed (29)`). It is jsdom (`// @vitest-environment jsdom` as
+the literal first line), calls `afterEach(cleanup)`, mocks only
+`@/lib/auth-client` and `@/lib/imageCompressor`, injects the eight actions as
+`vi.fn()` spies, and drives the real `useBandContextStore`. Its
+`captureUnhandledRejection` helper (128-146) exists because
+`BANDS_PAGE_LOAD_POLICY.catchLoadErrors === false` lets a load failure reject
+unhandled by design; that helper and that guarantee are kept verbatim.
 
-`.next/server/app/playlists.html` exists (14K) and contains the string
-`My playlists` and no playlist data; it does **not** contain `No playlists yet`,
-because `spotifyConnected` is `null` during the prerender so the empty-state arm
-is not taken.
-
-`src/proxy.ts:3` `PUBLIC_PATHS` is
-`['/login', '/signup', '/forgot-password', '/reset-password', '/api/auth/', '/api/dev/', '/join/']`
-and `/` is public; `/playlists` is not, so an unauthenticated request is
-answered `307` by the middleware and never reaches the page component.
-
-Other gates, all verified at `6e32874`: `rtk proxy npx vitest run` 95 files /
-1083 tests / 0 skipped (Postgres at
+Other gates, all verified at `35d6f66`: `rtk proxy npx vitest run`
+99 files / 1114 tests / 0 failed / 0 skipped (Postgres at
 `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations
 applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`);
-`rtk proxy npx eslint .` `22 problems (8 errors, 14 warnings)`;
-`npm run lint:dup` 19 clones / 242 duplicated lines / `0.70 %`; `npm run
-lint:dead` clean; `./node_modules/.bin/tsc --noEmit` clean; `npm run audit` 0
-high/critical; coverage thresholds 80 / 65 / 78 / 80; `eslint.config.mjs` holds
-exactly 22 override entries and `src/lib/__tests__/complexityBudget.test.ts`
-sets `MAX_OVERRIDES = 22` across 6 tests, one named `lists at most 22 per-file
-overrides, each naming a file that exists`; `AGENTS.md:94` ends on "and on the
-list growing past 22 entries"; `package.json` version `0.1.92-202609091251`.
+`rtk proxy npx eslint .` `22 problems (8 errors, 14 warnings)`; `npm run lint:dup`
+18 clones / 231 duplicated lines / `0.65 %` lines / `0.70 %` tokens;
+`npm run lint:dead` clean; `./node_modules/.bin/tsc --noEmit` clean;
+`npm run test:coverage` statements `97.43`, branches `85.52`, functions `99.43`,
+lines `97.99` against thresholds 80 / 65 / 78 / 80, with
+`hooks/useBandAdmin.ts` at `98.6` statements and `95` functions;
+`eslint.config.mjs` holds exactly 21 override entries and
+`src/lib/__tests__/complexityBudget.test.ts` sets `MAX_OVERRIDES = 21` across 6
+tests, one named `lists at most 21 per-file overrides, each naming a file that
+exists`; `AGENTS.md:94` ends on "and on the list growing past 21 entries";
+`package.json` version `0.1.93-202609091437`. Playwright: `e2e/bands-confirm.spec.ts`
+(3 tests) and `e2e/server-pages.spec.ts` (4 tests) are green;
+`e2e/songs-crud.spec.ts` and `e2e/fast-view-mobile.spec.ts` are red at baseline
+(RH-44) and nothing here gates on them.
 
 ## Approach
 
-### The band-context transport: user-scoped server read, context stays client-side
+### The new surface: 19 members, none of them a setter
 
-**Decision: option (b).** The Server Component reads `getUserPlaylists(userId)`
-— personal playlists plus every band the user belongs to, which is what the
-function already returns — and renders all of it. The active band context is
-never transported to the server. It stays exactly where it is today, in the
-zustand store, and is read by the one client island that needs it:
-`CreatePlaylistModal`, for the `band_id` of a Spotify import.
-
-The comparison the dispatch asks for:
-
-| | (a) cookie mirror | (b) user-scoped read, context on the client | (c) `/playlists?bandId=` |
-|---|---|---|---|
-| Correctness across tabs/devices | Cookie is per-browser like localStorage, so no better; needs a validation pass (`assertBandMember`) on every render to fail closed when the cookie names a band the user left, and a migration path for users whose localStorage already holds a context but whose browser has no cookie yet | Unchanged from today: one store, one writer set, no second source of truth that can disagree | Per-tab, which is *different* from today's per-browser semantics; the switcher pushes `/` on every switch, so a bookmarked `/playlists?bandId=` goes stale silently |
-| SSR flash on context switch | Real: the server would render the band-scoped list from a possibly stale cookie, then the client would correct it | None: the server markup does not depend on the context, so nothing can mismatch on hydration | Real for a stale or absent param |
-| Blast radius | `src/store/bandContextStore.ts` (6 production readers, 4 writers, 2 test suites), a new `src/lib` cookie validator plus its tests, an extra membership query per render, `cookies()` in the page | `src/app/playlists/page.tsx` and the new island files only | Every link to `/playlists` (`AppLayout` `NAV_ITEMS` desktop and mobile) has to carry the parameter |
-| RH-64 / RH-65 boundary | Pre-empts the design of a cross-cutting transport that `useBandAdmin` (RH-64) and `src/proxy.ts` (RH-65) are the natural owners of | Leaves that decision to the parts that own it | Same objection as (a), plus it is Fast View's convention, not the app chrome's |
-
-The deciding fact is in the audit: on this route the band context is not an
-input to the read. Introducing a cookie (or a query parameter) here would add a
-second source of truth, a fail-closed validation path and a hydration-flash risk
-to buy nothing that the page actually needs. Options (a) and (c) are recorded in
-Out of Scope with that reason. If a later route genuinely needs server-side
-band scoping, (a) is the option to revisit, and it should be designed once, for
-all routes, by the part that owns the shared plumbing.
-
-Two consequences worth stating explicitly:
-
-- `src/components` may import `@/store/*` — the F21 restriction is on `@/app/*`
-  only, and `AppLayout`, `useBandAdmin` and `repertoireStore` all read the store
-  the same way. So the island needs no new prop plumbing.
-- The store read is placed in `CreatePlaylistModal`, which is mounted only after
-  the user clicks `+ New Playlist`, i.e. never during hydration. Therefore no
-  server-rendered markup depends on a localStorage value and there is no
-  hydration mismatch to guard with a `mounted` flag.
-
-### The Spotify read: connection flag on the server, playlist list on tab open
-
-Split in two, because the two halves have different costs:
-
-- **`spotifyConnected`** is needed at first paint (it enables the `From Spotify`
-  tab and changes the empty-state copy), so the server resolves it — but with a
-  cheap row-existence check, not `getSpotifyAccessToken`, which would block SSR
-  on an HTTP round trip to `accounts.spotify.com` whenever the token is near
-  expiry. New file `src/lib/spotifyConnection.ts`:
-
-  ```ts
-  export async function hasSpotifyConnection(userId: string): Promise<boolean> {
-    try {
-      const res = await query<{ one: number }>(
-        'SELECT 1 AS one FROM spotify_tokens WHERE user_id = $1 LIMIT 1',
-        [userId],
-      )
-      return (res.rowCount ?? 0) > 0
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error))
-      logger.error('Failed to check the Spotify connection', err, { userId })
-      return false
-    }
-  }
-  ```
-
-  This deliberately degrades to `false` instead of following L1's log-then-throw,
-  and the reason goes in a comment at the call site: it replaces
-  `catch { setSpotifyConnected(false) }` (page line 722-724) and it must not turn
-  an unreachable `spotify_tokens` table into a 500 document for a page whose
-  main content does not depend on Spotify at all. `catch (x: any)` and
-  `console.error` are not used, so `src/lib/__tests__/errorHandlingStyle.test.ts`
-  stays green.
-
-- **The playlist list** is fetched from the existing
-  `GET /api/spotify/playlists` route, unchanged, **from the `From Spotify` tab
-  button's `onClick` handler** in `CreatePlaylistModal`, guarded by a
-  `hasLoadedSpotify` flag so it runs at most once per modal open. Not on page
-  mount, not on modal mount, and not from a `useEffect` — an event handler,
-  which is why no new `react-hooks/set-state-in-effect` suppression is needed
-  anywhere. While the request is in flight the panel shows `Loading Spotify
-  playlists...`; if the route answers `{ connected: false }` (a token that no
-  longer refreshes) the panel shows the same `Connect your Spotify account in
-  Profile & Settings` copy the disabled-tab case shows today.
-
-  The row check and the token check can therefore disagree for a user whose
-  refresh token has been revoked: the tab is enabled and the panel then reports
-  no connection. That is the accepted cost of not blocking SSR on Spotify, and
-  it is strictly better than today, where such a user silently gets a disabled
-  tab with no explanation.
-
-`spotifyConnected` becomes a plain `boolean` (never `null`), so the empty-state
-condition at line 807 loses its `&& spotifyConnected !== null` loading guard and
-becomes `playlists.length === 0`.
-
-### New files
-
-Under `src/components/playlists/` (the directory does not exist at `6e32874`):
-
-- **`PlaylistsView.tsx`** — `"use client";` on line 1, the only island the page
-  imports. Exports `PlaylistsView` and
-  `export interface PlaylistsViewActions { createPlaylist(data: { name: string; description?: string }): Promise<Playlist>; updatePlaylist(id: string, data: { name?: string }): Promise<void>; deletePlaylist(id: string): Promise<void> }`.
-  Props: `{ playlists: Playlist[]; initialError: string | null; spotifyConnected: boolean; actions: PlaylistsViewActions }`.
-  State: `pageError` (seeded with `initialError`), `showCreateModal`,
-  `removedIds: string[]`, `renames: Record<string, string>`. No `useEffect`, no
-  data fetch. Renders the header, the error banner, `PlaylistGroupList` and the
-  modal.
-- **`PlaylistGroupList.tsx`** — presentational, no state. Props
-  `{ playlists, onOpen, onDelete, onRename }`; calls `buildPlaylistGroups`,
-  renders the empty state, the `My playlists` section and one section per band
-  with its `/bands/<id>` link, delegating each row to `PlaylistCard`.
-- **`PlaylistCard.tsx`** — `PlaylistCard` and `PlaylistNameEditor` moved
-  verbatim (including the focus effect and the inline `Sure? / Yes / No` delete
-  confirmation), with the duration derivation replaced by calls into
-  `@/lib/playlistList`.
-- **`CreatePlaylistModal.tsx`** — `ModalCloseButton` plus the modal, moved with
-  three changes: `bandId` is read from `useBandContextStore((s) => s.bandId())`
-  instead of arriving as a prop, `spotifyConnected` is a `boolean`, and the
-  Spotify list is loaded in the tab button's handler into new state
-  (`spotifyPlaylists`, `spotifyLoading`, `spotifyLoadFailed`). The tab bar may be
-  extracted into `CreatePlaylistTabs.tsx` if the arrow function still measures
-  over 200 lines.
-- **`SpotifyImportPanel.tsx`** — `SpotifyImportListItem` plus the tab body
-  (loading, not-connected, empty and list states). Presentational apart from the
-  `pendingImport` / `importingId` / `importError` state it may keep; the
-  `POST /api/spotify/playlists/<id>/import` call and the `band_id` it carries
-  stay wherever `handleConfirmImport` lands, and that placement is free as long
-  as the store read stays inside `CreatePlaylistModal.tsx`.
-
-Under `src/lib/` (both enter the coverage universe, hence the unit tests in
-ER12):
-
-- **`playlistList.ts`** — the pure decisions lifted out of the page, in the
-  spirit of the Fast View precedent (AGENTS.md): `PlaylistGroup`,
-  `buildPlaylistGroups(playlists)` (moved verbatim from lines 649-684),
-  `formatPlaylistDuration(totalSeconds)` (moved from lines 20-27),
-  `playlistDurationSeconds(playlist)` (the reduce at lines 487-493), and
-  `applyPlaylistOverlay(playlists, { removedIds, renames })` (new, see below).
-- **`spotifyConnection.ts`** — `hasSpotifyConnection(userId)` as above.
-
-No `src/app/*Actions.ts` module is created: the page is the composition root and
-holds a module-scope `const PLAYLISTS_VIEW_ACTIONS: PlaylistsViewActions`, which
-is the `src/app/bands/page.tsx` (RH-62) and `src/app/page.tsx:104` precedent.
-No new file may take a complexity override — the list is a ratchet that may only
-shrink — so every new file must be clean under `complexity` 15, `max-depth` 4,
-`max-lines-per-function` 200, `max-params` 4 and `max-lines` 400. The
-`226`-line modal and the `208`-line page body are therefore split as described,
-and the implementer confirms with eslint rather than trusting these estimates.
-
-### The server page
-
-```tsx
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth-session";
-import { getUserPlaylists } from "@/lib/playlists";
-import { hasSpotifyConnection } from "@/lib/spotifyConnection";
-import {
-  createPlaylistAction,
-  deletePlaylistAction,
-  updatePlaylistAction,
-} from "@/app/actions/playlists";
-import { PlaylistsView, type PlaylistsViewActions } from "@/components/playlists/PlaylistsView";
-import type { Playlist } from "@/types/database";
-
-const PLAYLISTS_VIEW_ACTIONS: PlaylistsViewActions = {
-  createPlaylist: createPlaylistAction,
-  updatePlaylist: updatePlaylistAction,
-  deletePlaylist: deletePlaylistAction,
-};
-
-export default async function PlaylistsPage() {
-  const session = await getSession();
-  const userId = session?.user?.id;
-  if (!userId) redirect("/login");
-
-  let playlists: Playlist[] = [];
-  let loadError: string | null = null;
-  try {
-    playlists = await getUserPlaylists(userId);
-  } catch (error) {
-    // `src/lib/playlists.ts` already logged this at L1; a second log would
-    // double-report to Sentry. Degrade to the same banner as before.
-    const err = error instanceof Error ? error : new Error(String(error));
-    loadError = err.message;
-  }
-
-  return (
-    <PlaylistsView
-      playlists={playlists}
-      initialError={loadError}
-      spotifyConnected={await hasSpotifyConnection(userId)}
-      actions={PLAYLISTS_VIEW_ACTIONS}
-    />
-  );
+```ts
+export interface BandAdminController {
+  // data
+  currentUserId: string | null;
+  band: Band | null;
+  playlists: Playlist[];
+  loading: boolean;
+  error: string | null;
+  isAdmin: boolean;
+  isMember: boolean;
+  editDraft: BandEditDraft | null;
+  saving: boolean;
+  invite: BandInviteController;
+  pending: BandPendingController;
+  newPlaylist: NewPlaylistController;
+  // intent commands
+  dismissError: () => void;
+  reportError: (message: string) => void;
+  startEdit: () => void;
+  updateDraft: (patch: Partial<BandEditDraft>) => void;
+  pickCoverFile: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  saveEdit: (e: React.FormEvent) => Promise<void>;
+  cancelEdit: () => void;
 }
 ```
 
-`getSession()` rather than `getRequiredUserId()` for the same reason as RH-62:
-the latter throws a 500 document where a redirect is wanted, and `redirect()`
-returns `never`, which narrows `userId` to `string` without a non-null
-assertion. The route is dynamic by construction because `getSession()` awaits
-`headers()`; no `export const dynamic` is added. Over HTTP the redirect is
-unreachable — `src/proxy.ts` answers `307` first (ER8) — and exists as defence
-in depth.
+with three small sub-controllers, each one a piece of state and the commands
+that are the only legal way to move it:
 
-### Refresh strategy after a mutation
+```ts
+export interface BandInviteController {
+  url: string;
+  copied: boolean;
+  copy: () => Promise<void>;
+  /** After /bands/[id] regenerates the code: patch the band and drop `copied`. */
+  applyNewCode: (code: string) => void;
+}
 
-Same shape as RH-62, and the same reasoning: no `revalidatePath` is added,
-because touching `src/app/actions/playlists.ts` would drag
-`actionSessionGuard` / `actionAuthorizationGuard` / `actionDataAccessGuard` into
-a refactor whose subject is the page layer, and revalidating a route that is
-dynamic-by-session buys nothing.
+export interface BandPendingController {
+  action: PendingAction | null;
+  busy: boolean;
+  requestDelete: () => void;
+  requestLeave: () => void;
+  requestRemove: (member: BandMember) => void;
+  confirm: () => Promise<void>;
+  dismiss: () => void;
+}
 
-The list is **not** copied into `useState`. A `useState(initialPlaylists)`
-initialiser is ignored on re-render, so a `router.refresh()` would leave the
-copy stale forever — the trap that RH-62's islands avoided only because their
-lists shrink monotonically. Instead the props are the source of truth and the
-island keeps a small overlay of in-flight local edits, applied at render by the
-pure `applyPlaylistOverlay(playlists, { removedIds, renames })`:
+export interface NewPlaylistController {
+  open: boolean;
+  name: string;
+  creating: boolean;
+  toggle: () => void;
+  changeName: (name: string) => void;
+  close: () => void;
+  submit: (e: React.FormEvent) => Promise<void>;
+}
+```
 
-- **Delete**: push the id into `removedIds` (the card disappears at once), call
-  `actions.deletePlaylist(id)`, then `router.refresh()`. On failure, drop the id
-  from `removedIds` again and set `pageError` — today's behaviour, which leaves
-  the card in place and shows the banner.
-- **Rename**: write `renames[id] = name`, call
-  `actions.updatePlaylist(id, { name })`, then `router.refresh()`. On failure,
-  drop the entry and set `pageError`.
-- **Create / import**: call the action (or let the import POST finish), then
-  `router.refresh()`, then close the modal. No overlay is needed because the new
-  row can only come from the server.
+Why this shape, member by member:
 
-The overlay entries are never cleared, and they do not need to be: after the
-refresh a removed id is absent from the props (so the filter is a no-op) and a
-renamed playlist already carries the overlay's name (so the map is a no-op). The
-one visible consequence is that if a *different* member renames the same band
-playlist afterwards, this tab keeps showing the locally applied name until a
-full page load — the same staleness today's local `setPlaylists` copy has, and
-strictly smaller in scope.
+- **`editDraft` is `BandEditDraft | null`, not a draft plus an `editing` flag.**
+  `null` means "the modal is closed", so the two states that could disagree
+  (`editing === true` with a draft from a previous band) cannot be expressed,
+  and the page's `{editing && (<form>...)}` becomes `{editDraft && (<form>...)}`
+  with TypeScript narrowing `editDraft.name` inside. This is the encapsulation
+  F14 says the extraction was supposed to buy. `saving` stays a sibling because
+  it is not a draft field.
+- **`editDraft` / `updateDraft(patch)` keep exactly the names F14 and the task's
+  own expected results ask for**, and they are flat rather than nested under an
+  `edit` object for that reason. `updateDraft({ name: e.target.value })`
+  replaces `setEditName`, `updateDraft({ description })` replaces `setEditDesc`,
+  `updateDraft({ color })` replaces `setEditColor`, and `pickCoverFile` is the
+  one draft field the page cannot set directly (it goes through
+  `compressImageFile`).
+- **`invite`, `pending` and `newPlaylist` are grouped** because each is a
+  self-contained widget whose state is meaningless without its commands: an
+  `invite.copied` that anything but `invite.copy()` can set is exactly the bug
+  class F14 describes. Grouping is also what turns 39 members into 19: the
+  eleven flat members those three replace (`inviteUrl`, `copied`,
+  `pendingAction`, `actionBusy`, `showNewPlaylist`, `newPlaylistName`,
+  `creatingPlaylist`, plus the four handlers that fed them) become three.
+- **`isMember` replaces `currentMember`.** Both pages use the member object for
+  one thing only — `!isAdmin && currentMember` on `/bands/[id]:297` and
+  `currentMember &&` on `/profile:257`, i.e. "is the signed-in user in this
+  band". Returning the whole `BandMember` invited a second, unmanaged source of
+  truth about the member list.
+- **`reportError` is a command, not `setError` renamed.** It takes a `string`,
+  never a functional updater and never `null`; clearing is `dismissError()`.
+  `/bands/[id]`'s regenerate catch calls `reportError(message)`, its prologue
+  calls `dismissError()`, and `/profile`'s `onNotFound` becomes
+  `() => reportError("Band not found.")` — the same string it sets today.
+- **`invite.applyNewCode(code)` is what removes `setBand` from the surface.**
+  It patches `band.invite_code` and clears `copied` in one call, which is
+  precisely what the page does today in two.
 
-`useRouter()` comes from `next/navigation` and is mocked in the jsdom tests.
-No `useEffect` is introduced in `PlaylistsView`.
+`PendingAction` keeps its current three-arm shape
+(`deleteBand` / `leaveBand` / `removeMember`) and moves to `src/lib/bandAdminState.ts`
+so both the hook and its sub-hook can name it without a hook-to-hook type
+import.
 
-### eslint, override and AGENTS.md consequences
+The full sorted key list of the returned object — the thing ER1 pins — is:
+`band`, `cancelEdit`, `currentUserId`, `dismissError`, `editDraft`, `error`,
+`invite`, `isAdmin`, `isMember`, `loading`, `newPlaylist`, `pending`,
+`pickCoverFile`, `playlists`, `reportError`, `saveEdit`, `saving`, `startEdit`,
+`updateDraft`.
 
-- The inline `// eslint-disable-next-line react-hooks/set-state-in-effect`
-  disappears with the effect it guards. Nothing else on the page reported a
-  problem, so the repo total stays `22 problems (8 errors, 14 warnings)`: this
-  task removes no problem from the count (the suppressed one was never counted)
-  and must add none.
-- The page drops to roughly 45 lines with no function over 200, so its override
-  entry **must be deleted** from `eslint.config.mjs` — `complexityBudget.test.ts`
-  fails on a ceiling that is not exactly the file's current worst number.
-- That leaves 21 entries. `MAX_OVERRIDES` goes `22 -> 21` and the test title
-  becomes `lists at most 21 per-file overrides, each naming a file that exists`,
-  per the ratchet comment at that constant. `AGENTS.md:94` ends on "the list
-  growing past 22 entries"; that number documents the guard's actual ceiling, so
-  it becomes "past 21 entries" in the same commit. This is the RH-55 / RH-62
-  precedent exactly (`b024a87` 24 -> 23, `6e32874` 23 -> 22), each a numstat of
-  one insertion and one deletion in AGENTS.md and nothing more. If `next build`
-  regenerates the `<!-- BEGIN:nextjs-agent-rules -->` block at lines 317-325,
-  that regeneration is reverted before the commit.
+### New files
+
+**`src/lib/bandAdminState.ts`** — pure state transitions, no React, sibling to
+the existing `src/lib/bandAdminLoad.ts` and inside the coverage universe:
+
+```ts
+export type PendingAction =
+  | { kind: "deleteBand" }
+  | { kind: "leaveBand" }
+  | { kind: "removeMember"; member: BandMember };
+
+export interface BandEditDraft {
+  name: string;
+  description: string;
+  coverPreview: string | null;
+  color: string;
+}
+
+export interface BandUpdatePayload {
+  name: string;
+  description: string | null;
+  cover_url: string | null;
+  color: string;
+}
+
+export function draftFromBand(band: Band | null): BandEditDraft;
+export function isDraftNameBlank(draft: BandEditDraft): boolean;
+export function draftToBandUpdate(draft: BandEditDraft, coverUrl: string | null): BandUpdatePayload;
+export function applyBandUpdate(band: Band, update: BandUpdatePayload): Band;
+export function withoutMember(band: Band, memberId: string): Band;
+export function withInviteCode(band: Band, code: string): Band;
+export function buildInviteUrl(origin: string, inviteCode: string | null | undefined): string;
+```
+
+Each one is a verbatim lift of logic that is inline in the hook today:
+`draftFromBand` is `openEdit`'s five `set*` calls (lines 180-184, including the
+`?? DEFAULT_BAND_COLOR` fallback), `draftToBandUpdate` is the trimming at
+216-221, `applyBandUpdate` is the `setBand((prev) => ...)` patch at 223-233,
+`withoutMember` is the members filter at 292-299, and `buildInviteUrl` is the
+`typeof window !== "undefined"` expression at 168-171 with the origin passed in
+so the function itself is pure and testable.
+
+**`src/hooks/useBandEdit.ts`** — the edit-modal controller: `editDraft`,
+`saving`, `startEdit`, `updateDraft`, `pickCoverFile`, `saveEdit`, `cancelEdit`,
+plus the internal `editCoverFile`. It owns the `compressImageFile` call, the
+`uploadBandCover` / `updateBand` sequence, the `bandContextStore` sync (hook
+lines 235-238) and the save-error fallback message. Takes one options object
+(so `max-params` 4 is not at risk).
+
+**`src/hooks/useBandPendingAction.ts`** — the destructive-action controller:
+`action`, `busy`, `requestDelete`, `requestLeave`, `requestRemove`, `confirm`,
+`dismiss`, holding the three-arm switch verbatim including its
+per-arm fallback messages (`Failed to delete band`, `Failed to leave band`,
+`Failed to remove member`), the `onGone()` navigation, the success toast, and
+the rule that `requestLeave` is a no-op without a session user.
+
+`src/hooks/useBandAdmin.ts` becomes the composition root: session, the four data
+`useState`, the two ref-syncs, `load` and its effect, the derived `isAdmin` /
+`isMember`, the internal `patchBand`, `dismissError` / `reportError`, the
+invite and new-playlist state (small enough to stay inline), the two sub-hook
+calls, and the 19-member return. This mirrors the Fast View precedent recorded
+in AGENTS.md: a composition root wiring controller hooks, with the pure
+decisions in `src/lib`.
+
+The hook function must land **under 200 lines** so its override can be deleted.
+If it does not, the implementer extracts `src/hooks/useBandInvite.ts` and/or
+`src/hooks/useNewPlaylistForm.ts` on the same pattern (both are listed as
+permitted files) rather than re-pinning the override at a lower number — the
+ratchet is expected to shrink by one entry here, and ER7 requires it.
+
+No new file may take a complexity override, so every new file is clean under
+`complexity` 15, `max-depth` 4, `max-lines-per-function` 200, `max-params` 4 and
+`max-lines` 400, and none of them may import from `@/app/*` (F21).
+
+### The two pages
+
+`/bands/[id]` destructures the 19 members in place of 39. `handleRegenerateInvite`
+becomes:
+
+```tsx
+async function handleRegenerateInvite() {
+  setRegenerating(true);
+  dismissError();
+  try {
+    const newCode = await regenerateBandInviteCodeAction(bandId);
+    invite.applyNewCode(newCode);
+    setConfirmingRegenerate(false);
+    showToast("Invite link regenerated. The old link no longer works.", "success");
+  } catch (err) {
+    reportError(err instanceof Error ? err.message : "Failed to regenerate invite link");
+  } finally {
+    setRegenerating(false);
+  }
+}
+```
+
+The remaining rewrites are mechanical and identical in both pages:
+`copied` -> `invite.copied`, `inviteUrl` -> `invite.url`,
+`handleCopyInvite` -> `invite.copy`, `pendingAction` -> `pending.action`,
+`actionBusy` -> `pending.busy`, `confirmPendingAction` -> `pending.confirm`,
+`() => setPendingAction(null)` -> `pending.dismiss`,
+`handleDelete` -> `pending.requestDelete`, `handleLeave` -> `pending.requestLeave`,
+`handleRemoveMember` -> `pending.requestRemove`, `openEdit` -> `startEdit`,
+`{editing && ...}` -> `{editDraft && ...}`, `editName` -> `editDraft.name`,
+`editDesc` -> `editDraft.description`, `editColor` -> `editDraft.color`,
+`editCoverPreview` -> `editDraft.coverPreview`,
+`onChange={(e) => setEditName(e.target.value)}` -> `onChange={(e) => updateDraft({ name: e.target.value })}`,
+`onChange={setEditColor}` -> `onChange={(color) => updateDraft({ color })}`,
+`handleEditCoverChange` -> `pickCoverFile`, `handleSaveEdit` -> `saveEdit`,
+`() => setEditing(false)` -> `cancelEdit`,
+`showNewPlaylist` -> `newPlaylist.open`, `setShowNewPlaylist(!showNewPlaylist)` -> `newPlaylist.toggle`,
+`newPlaylistName` -> `newPlaylist.name`,
+`(e) => setNewPlaylistName(e.target.value)` -> `(e) => newPlaylist.changeName(e.target.value)`,
+`() => setShowNewPlaylist(false)` -> `newPlaylist.close`,
+`creatingPlaylist` -> `newPlaylist.creating`, `handleCreatePlaylist` -> `newPlaylist.submit`,
+`currentMember` -> `isMember`, and in `/profile` only,
+`onDismiss={() => setError(null)}` -> `onDismiss={dismissError}` and
+`onNotFound: () => setError("Band not found.")` -> `onNotFound: () => reportError("Band not found.")`.
+
+Every string, class name, emoji and element in both pages stays byte-identical
+otherwise. `PersonalProfileView` and `ProfilePage` are not touched.
+
+### eslint, the ratchet and AGENTS.md
+
+- `src/hooks/useBandAdmin.ts`'s override entry is **deleted**. That leaves 20
+  entries; `MAX_OVERRIDES` goes `21 -> 20`, the test title becomes
+  `lists at most 20 per-file overrides, each naming a file that exists`, and
+  `AGENTS.md:94` ends on "past 20 entries". This is the RH-55 / RH-62 / RH-63
+  precedent exactly (`b024a87` 24 -> 23, `6e32874` 23 -> 22, `35d6f66` 22 -> 21),
+  each a numstat of one insertion and one deletion in AGENTS.md and nothing more.
+  If `next dev`/`next build` regenerates the `<!-- BEGIN:nextjs-agent-rules -->`
+  block, that regeneration is reverted before the commit.
+- The two page overrides are **re-pinned, not left alone**. Both files shrink
+  (the destructuring statements lose ~20 and ~8 lines respectively), and
+  `complexityBudget.test.ts`'s last test fails on any ceiling that is not exactly
+  the file's current worst number. The recipe: delete the file's override entry,
+  run `rtk proxy npx eslint '<file>'`, read the three numbers out of the reported
+  messages ("Function has a complexity of N", "has too many lines (N)"), and put
+  the entry back with exactly those numbers. Note that `src/app/profile/page.tsx`'s
+  `max-lines-per-function` ceiling cannot drop below `224`: `PersonalProfileView`
+  is untouched and is itself over the base budget of 200.
+- The repo eslint total stays `22 problems (8 errors, 14 warnings)`: none of the
+  8 errors or 14 warnings is in a file this task owns, and no new problem may
+  appear.
 
 ### Test plan
 
-**`src/components/playlists/__tests__/PlaylistsView.test.tsx`** — literal first
-line `// @vitest-environment jsdom`, `import { cleanup } from
-'@testing-library/react'` with `afterEach(cleanup)` (globals are off), and
-`vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh }) }))`
-with hoisted `vi.fn()`s, in the style of
-`src/components/bands/__tests__/BandsView.test.tsx`. Eight tests, names in ER10.
-The last one stubs `globalThis.fetch` with a `vi.fn()` and asserts it was never
-called by a plain render — the mechanical proof that the mount read is gone, not
-relocated.
+**`src/hooks/__tests__/useBandAdmin.test.tsx`** is rewritten against the new
+surface, keeping its jsdom preamble, its `afterEach(cleanup)`, its two module
+mocks, its injected action spies, its `captureUnhandledRejection` helper and its
+`useBandContextStore.setState({ context: { type: 'user' } })` reset. It keeps
+every behaviour the 29 baseline tests assert — the mapping is one-to-one, only
+the accessor changes (`result.current.editName` becomes
+`result.current.editDraft?.name`, `result.current.handleDelete()` becomes
+`result.current.pending.requestDelete()`, and so on) — and adds tests for the
+three flows that had no coverage because they were setter writes on the page:
+`invite.applyNewCode`, `reportError`/`dismissError`, and `cancelEdit`. Plus one
+structural test that pins the whole surface. The named tests ER5 requires are
+listed there; the file stays under the 800-line test budget.
 
-**`src/components/playlists/__tests__/CreatePlaylistModal.test.tsx`** — same
-jsdom preamble; `globalThis.fetch` stubbed per test; the band context set with
-`useBandContextStore.setState({ context: ... })` exactly as
-`src/hooks/__tests__/useBandAdmin.test.tsx:153,308` does. Eight tests, names in
-ER11; two of them pin the transport decision by asserting the `band_id` in the
-import request body for a band context and for the personal context.
+**`src/lib/__tests__/bandAdminState.test.ts`** — node environment, no mocks,
+pure functions, named tests in ER4.
 
-**`src/lib/__tests__/playlistList.test.ts`** (node environment, no mocks, pure
-functions) and **`src/lib/__tests__/spotifyConnection.test.ts`** (node, with
-`vi.mock('@/lib/db')` and `vi.mock('@/lib/logger')` in the style of
-`src/lib/__tests__/spotifyRouteAuth.test.ts`). Eleven and four tests, names in
-ER12.
+**The two sub-hooks are covered through the composition hook**, which is how
+they are wired in production; dedicated suites for them are permitted but not
+required. Their per-file coverage is asserted directly in ER9, so "covered
+through the parent" is a measured claim, not an assumption.
 
-**The server half** is not unit-tested: an `async` Server Component that awaits
-`headers()` and imports `'use server'` modules is not renderable under vitest,
-and `src/app/**/page.tsx` is outside the coverage universe by policy
-(AGENTS.md). It is verified by build-manifest inspection (ER7), by `curl`
-against `next start` (ER8) and by two new Playwright tests appended to
-`e2e/server-pages.spec.ts`, which assert on the raw HTTP document with no
-JavaScript executed:
-
-- `GET /playlists signed in is server-rendered with the playlist rows in the document`
-  — create a uniquely named playlist through the UI, then `request.get('/playlists')`
-  and expect `200`, a body containing that name, and no `id="__next_error__"`.
-  At `6e32874` the prerendered shell contains no playlist name at all, so this
-  test is red before the change.
-- `deleting a playlist through the inline confirmation removes it from the server-rendered document`
-  — create a uniquely named playlist, delete it through `Sure? / Yes`, then
-  assert the raw document no longer contains the name. This pins the delete
-  path, the `router.refresh()` and the absence of a browser `confirm()` in one
-  test.
+**End to end**, `e2e/bands-confirm.spec.ts` gains one test,
+`rename a band through the edit modal`, which is the only proof that the largest
+interface change (`editDraft` / `updateDraft` / `saveEdit`) still works in a real
+browser: create a band through the existing `createBand` helper, click
+`getByTitle('Edit band')`, fill the modal's first text input with a new unique
+name, click `Save`, assert the modal is gone and the page heading shows the new
+name, assert no native dialog fired (`trackDialogs`), then delete the band
+through the inline confirmation to clean up. It is green at `35d6f66` too — this
+is a refactor, so a regression net is the right kind of test, not a
+red-before/green-after one.
 
 ### Whitelist
 
@@ -523,123 +474,114 @@ Required:
 ```
 AGENTS.md
 docs/tasks/RH-63-spec.md
-e2e/server-pages.spec.ts
+e2e/bands-confirm.spec.ts
 eslint.config.mjs
 package.json
-src/app/playlists/page.tsx
-src/components/playlists/CreatePlaylistModal.tsx
-src/components/playlists/PlaylistCard.tsx
-src/components/playlists/PlaylistGroupList.tsx
-src/components/playlists/PlaylistsView.tsx
-src/components/playlists/SpotifyImportPanel.tsx
-src/components/playlists/__tests__/CreatePlaylistModal.test.tsx
-src/components/playlists/__tests__/PlaylistsView.test.tsx
+src/app/bands/[id]/page.tsx
+src/app/profile/page.tsx
+src/hooks/__tests__/useBandAdmin.test.tsx
+src/hooks/useBandAdmin.ts
+src/hooks/useBandEdit.ts
+src/hooks/useBandPendingAction.ts
+src/lib/__tests__/bandAdminState.test.ts
 src/lib/__tests__/complexityBudget.test.ts
-src/lib/__tests__/playlistList.test.ts
-src/lib/__tests__/spotifyConnection.test.ts
-src/lib/playlistList.ts
-src/lib/spotifyConnection.ts
+src/lib/bandAdminState.ts
 ```
 
 Permitted but not required, and nothing else:
 
 ```
 docs/suggestions-log.md
-src/components/playlists/CreatePlaylistTabs.tsx
-src/components/playlists/SpotifyImportListItem.tsx
+src/hooks/__tests__/useBandEdit.test.tsx
+src/hooks/__tests__/useBandPendingAction.test.tsx
+src/hooks/useBandInvite.ts
+src/hooks/useNewPlaylistForm.ts
 ```
 
-**Landing Page Rule decision.** This is an internal rendering refactor: it adds
-no capability a musician or band would choose the app for, and Spotify import
-and playlists are already on the landing page as selling points. The landing
-copy must not change; ER13 asserts that mechanically.
+**Landing Page Rule decision.** This is an internal controller refactor with no
+user-visible change at all; bands and shared playlists are already on the
+landing page as selling points. The landing copy must not change; ER10 asserts
+that mechanically.
 
-**Version.** Bump `package.json` to `0.1.93-YYYYMMDDHHmm` with a real local
-timestamp (from `0.1.92-202609091251`).
+**Version.** Bump `package.json` to `0.1.94-YYYYMMDDHHmm` with a real local
+timestamp (from `0.1.93-202609091437`).
 
 ## Expected Results
 
-ER1 - `src/app/playlists/page.tsx` is an async Server Component that reads through the domain layer: `grep -c "use client" src/app/playlists/page.tsx` prints `0`; `grep -c "useState\|useEffect\|useMemo\|useCallback\|useRef" src/app/playlists/page.tsx` prints `0`; `grep -c "export default async function" src/app/playlists/page.tsx` prints `1`; `grep -c "getSession\|getRequiredUserId" src/app/playlists/page.tsx` prints a number greater than or equal to `1`; `grep -c "@/lib/playlists" src/app/playlists/page.tsx` prints `1`; `grep -c "redirect(" src/app/playlists/page.tsx` prints a number greater than or equal to `1`; `grep -c "getUserPlaylistsAction" src/app/playlists/page.tsx` prints `0`; `grep -c "api/spotify/playlists" src/app/playlists/page.tsx` prints `0`; and `grep -c "" src/app/playlists/page.tsx` prints a number less than or equal to `60` (it printed `899` at `6e32874`). The data layer it reads is untouched: `git diff 6e32874 -- src/app/actions/playlists.ts src/lib/playlists.ts src/app/api` prints nothing.
+ER1 - `src/hooks/useBandAdmin.ts` returns data plus intent commands and no raw state setter. `grep -cE "^[[:space:]]*set[A-Z][A-Za-z]*,$" src/hooks/useBandAdmin.ts` prints `0` (it printed `10` at `35d6f66`, one line for each of `setBand`, `setError`, `setEditing`, `setEditName`, `setEditDesc`, `setEditColor`, `setCopied`, `setShowNewPlaylist`, `setNewPlaylistName` and `setPendingAction`), and the same command prints `0` for each of `src/hooks/useBandEdit.ts` and `src/hooks/useBandPendingAction.ts`, so the setters were removed rather than pushed one file down. (Other hooks under `src/hooks/` - `useTabLibrary.ts`, `useSongLinks.ts`, `useLyricsEditor.ts` - do return setters at `35d6f66` and are outside this task; they must not be edited.) The file declares the surface as a named exported type: `grep -c "export interface BandAdminController" src/hooks/useBandAdmin.ts` prints `1`, and `grep -cE "editDraft|updateDraft" src/hooks/useBandAdmin.ts` prints a number greater than or equal to `2`.
 
-ER2 - The client islands exist under `src/components/playlists/` and respect the project's import and dialog rules: `test -f src/components/playlists/PlaylistsView.tsx && test -f src/components/playlists/PlaylistGroupList.tsx && test -f src/components/playlists/PlaylistCard.tsx && test -f src/components/playlists/CreatePlaylistModal.tsx && test -f src/components/playlists/SpotifyImportPanel.tsx` exits `0` (the directory does not exist at `6e32874`); `head -1 src/components/playlists/PlaylistsView.tsx` prints exactly `"use client";`; `grep -c "export interface PlaylistsViewActions" src/components/playlists/PlaylistsView.tsx` prints `1`; `grep -c "useEffect" src/components/playlists/PlaylistsView.tsx` prints `0`; `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing at all; and `grep -rnE "(^|[^A-Za-z.])(alert|confirm)\(" src/components/playlists src/app/playlists/page.tsx` prints nothing at all, so the delete confirmation is still the inline `Sure? / Yes / No` affordance and never a browser dialog.
+ER2 - The returned surface is exactly 19 members, down from 39, and its shape is pinned by a test rather than by a reviewer counting. `rtk proxy npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx` exits `0`, and among its tests there is one named exactly `exposes 19 members, none of them a state setter`, which asserts that `Object.keys(result.current).sort()` equals exactly `['band', 'cancelEdit', 'currentUserId', 'dismissError', 'editDraft', 'error', 'invite', 'isAdmin', 'isMember', 'loading', 'newPlaylist', 'pending', 'pickCoverFile', 'playlists', 'reportError', 'saveEdit', 'saving', 'startEdit', 'updateDraft']` and that no key starts with `set`. Two further tests in that file, named exactly `groups the invite widget into url, copied, copy and applyNewCode` and `groups the destructive confirmation into action, busy, requestDelete, requestLeave, requestRemove, confirm and dismiss`, assert the sorted key sets of `result.current.invite` and `result.current.pending` the same way, and a third named exactly `groups the new playlist form into open, name, creating, toggle, changeName, close and submit` does it for `result.current.newPlaylist`.
 
-ER3 - The band context is not transported to the server, and the store is untouched: `grep -c "useBandContextStore\|bandContextStore" src/app/playlists/page.tsx` prints `0`; `grep -c "cookies()" src/app/playlists/page.tsx` prints `0`; `grep -c "searchParams" src/app/playlists/page.tsx` prints `0`; `grep -rn "document.cookie\|next/headers\|cookies()" src/app/playlists src/components/playlists src/lib/playlistList.ts src/lib/spotifyConnection.ts` prints nothing at all, so no cookie mirror of the band context was introduced in any file this task owns (that command prints nothing at `6e32874` too, over the subset of those paths that exists there); `git diff 6e32874 -- src/store src/components/layout src/app/AppShell.tsx src/hooks` prints nothing, so the store that holds the context, its four writers and its persist key `band-context` in `src/store/bandContextStore.ts:33` are all byte-identical to `6e32874`; and `grep -rln "useBandContextStore" src/components/playlists --exclude-dir=__tests__` prints exactly one line, `src/components/playlists/CreatePlaylistModal.tsx` (test files under `__tests__` may name the store plainly and are not counted) - the one island that needs the active band as the destination of a Spotify import, and one that is mounted only after a user click, so no server-rendered markup depends on a localStorage value.
+ER3 - The two consumers read only the new interface, and no hook state setter name survives in either. `grep -cE "setBand|setError|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" 'src/app/bands/[id]/page.tsx'` prints `0` (was `25`). `grep -cE "setBand|setEditing|setEditName|setEditDesc|setEditColor|setCopied|setShowNewPlaylist|setNewPlaylistName|setPendingAction" src/app/profile/page.tsx` prints `0` (was `14`), and `grep -c "setError" src/app/profile/page.tsx` prints exactly `7` (was `10`) - the three occurrences inside `BandProfileView` are gone and the seven inside `PersonalProfileView`, which owns its own `useState` and is not part of this task, are untouched. Both pages name the new commands: `grep -cE "invite\.|pending\.|newPlaylist\.|editDraft|updateDraft|startEdit|cancelEdit|saveEdit|pickCoverFile|dismissError|reportError" 'src/app/bands/[id]/page.tsx'` and the same command on `src/app/profile/page.tsx` each print a number greater than or equal to `20` (each printed `0` at `35d6f66`). `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing.
 
-ER4 - The Spotify connection is resolved on the server and the playlist list is not read on mount: `test -f src/lib/spotifyConnection.ts` exits `0`; `grep -c "export async function hasSpotifyConnection" src/lib/spotifyConnection.ts` prints `1`; `grep -c "getSpotifyAccessToken\|accounts.spotify.com" src/lib/spotifyConnection.ts` prints `0` (the server render never blocks on a Spotify token refresh); `grep -c "hasSpotifyConnection" src/app/playlists/page.tsx` prints a number greater than or equal to `1`; `grep -c "spotifyConnected" src/components/playlists/PlaylistsView.tsx` prints a number greater than or equal to `1`; and `grep -rn '"/api/spotify/playlists"' src/components/playlists` prints exactly one line, in either `src/components/playlists/CreatePlaylistModal.tsx` or `src/components/playlists/SpotifyImportPanel.tsx`. That the read happens on tab open rather than on mount is proved by the named tests of ER10 and ER11.
+ER4 - The pure state transitions live in the domain layer and are unit-tested. `test -f src/lib/bandAdminState.ts` exits `0`; `grep -cE "^export (function|type|interface) " src/lib/bandAdminState.ts` prints a number greater than or equal to `7`; `grep -c "PendingAction" src/lib/bandAdminState.ts` prints a number greater than or equal to `1`; and `grep -rn "@/app/" src/lib src/hooks src/components | grep -v __tests__` prints nothing at all, so the import direction of F21 still holds. `rtk proxy npx vitest run src/lib/__tests__/bandAdminState.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  11 passed (11)` with `0 failed`, its tests named exactly: `seeds an edit draft from a loaded band`, `falls back to the default colour and empty strings for a band with null fields`, `seeds an empty draft from a null band`, `reports a whitespace-only draft name as blank`, `trims the draft into an update payload and nulls an empty description`, `applies an update payload to a band without touching its other fields`, `drops one member from a band and leaves the rest`, `returns the band unchanged when no member matches`, `replaces the invite code on a band`, `builds an invite url from an origin and an invite code`, `builds an invite url with an empty code when the band has none`.
 
-ER5 - The inline suppression is gone and every static gate holds: `grep -c "eslint-disable" src/app/playlists/page.tsx` prints `0`; `grep -rn "set-state-in-effect" src/app/playlists src/components/playlists src/lib/playlistList.ts src/lib/spotifyConnection.ts` prints nothing at all (the comment was deleted, not relocated); `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, unchanged from `6e32874`; `rtk proxy npx eslint src/app/playlists/page.tsx src/components/playlists src/lib/playlistList.ts src/lib/spotifyConnection.ts` exits `0` with no output, so no new file needed a complexity override; `./node_modules/.bin/tsc --noEmit` exits `0` printing nothing; `npm run lint:dead` exits `0` with no unused file, export or dependency reported; `npm run lint:dup` exits `0` with the `Total:` row reporting at most `19` clones and at most `0.70 %` duplicated lines - exactly the `6e32874` numbers, because nothing in this task is expected to create a clone: the page shrinks, its two helpers move into `src/lib/playlistList.ts`, and the `formatDuration` pair it shares with `src/app/playlists/[id]/page.tsx:38` falls below `.jscpd.json`'s `minTokens: 50` floor, so jscpd does not report it at `6e32874` and will not report it after the copy merely changes address; and `npm run audit` exits `0` with `0` high or critical advisories.
+ER5 - Every user-visible band flow still behaves as it did, proved by the rewritten hook suite. `rtk proxy npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx` exits `0` printing `Test Files  1 passed (1)` and a `Tests  N passed (N)` line with `N` greater than or equal to `32` and `0 failed` (it printed `Tests  29 passed (29)` at `35d6f66`). The file's literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, and among its tests these are present with exactly these names: `loads the band and its playlists, then clears loading`, `copies the invite URL and flags the copied state`, `applies a regenerated invite code to the band and clears the copied flag`, `startEdit seeds the draft from the loaded band`, `updateDraft patches one draft field and leaves the others alone`, `pickCoverFile compresses the chosen file and previews it in the draft`, `saveEdit sends the trimmed draft, patches the band and syncs the active band context`, `saveEdit refuses a blank name and leaves the draft open`, `saveEdit surfaces a cover upload failure without calling updateBand`, `cancelEdit closes the draft without calling updateBand`, `requestRemove stages the confirmation, then drops the member and toasts on confirm`, `requestDelete navigates away through onGone and banners a bare failure`, `requestLeave navigates away through onGone and banners a bare failure`, `requestLeave does nothing without a session user`, `dismiss clears the staged confirmation without calling any action`, `submit creates the band playlist and navigates to it`, `submit banners the failure and clears the creating flag`, `reportError shows a message in the shared banner and dismissError clears it`. The suite still contains the `captureUnhandledRejection` helper and a test asserting that `BANDS_PAGE_LOAD_POLICY` lets a load failure reject unhandled, because that documented difference between the two pages is unchanged.
 
-ER6 - The complexity ratchet shrinks by exactly one entry and the manifest follows it: `grep -c "src/app/playlists/page.tsx" eslint.config.mjs` prints `0` (the `src/app/playlists/\[id\]/page.tsx` entry is a different string and must survive); the count of lines matching `complexity-budget/override` in `eslint.config.mjs` is `21` (it was `22`); `grep -c "MAX_OVERRIDES = 21" src/lib/__tests__/complexityBudget.test.ts` prints `1`; `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits `0` printing `Tests  6 passed (6)`, including the test now named `lists at most 21 per-file overrides, each naming a file that exists`; `grep -c "past 21 entries" AGENTS.md` prints `1` and `grep -c "past 22 entries" AGENTS.md` prints `0`; and `git diff --numstat 6e32874 -- AGENTS.md` prints exactly one line, whose three tab-separated fields are `1`, `1` and `AGENTS.md` - one insertion, one deletion, no other line touched, so if `next build` regenerated the `nextjs-agent-rules` block it was reverted before the commit.
+ER6 - Every static gate holds at its baseline value. `rtk proxy npx eslint .` prints `22 problems (8 errors, 14 warnings)`, unchanged from `35d6f66`. `rtk proxy npx eslint src/hooks src/lib/bandAdminState.ts 'src/app/bands/[id]/page.tsx'` exits `0` with no output (it does at `35d6f66` too), which for `src/hooks` means every hook file - including the new ones and `useBandAdmin.ts` after its override is deleted - is clean under the base budget with no per-file relaxation. `rtk proxy npx eslint src/app/profile/page.tsx` prints `1 problem (1 error, 0 warnings)`, exactly as it does at `35d6f66`: the `react-hooks/set-state-in-effect` error on `ProfilePage`'s tab-sync effect, which belongs to a component this task does not touch and is one of the repo's 8 errors. `npm run lint:dead` exits `0` with no unused file, export or dependency reported. `npm run lint:dup` exits `0` with the `Total:` row reporting at most `19` clones and at most `0.70 %` duplicated lines (it reported `18` clones, `231` duplicated lines and `0.65 %` at `35d6f66`; the four surviving clones between the two band pages are markup F14 deliberately leaves separate). `npm run audit` exits `0` with `0` high or critical advisories. `grep -c "set-state-in-effect" src/hooks/useBandAdmin.ts` prints `1` and `grep -rc "set-state-in-effect" src/hooks/useBandEdit.ts src/hooks/useBandPendingAction.ts` prints `0` for each file that exists among those two - the one inline suppression stays on the load effect it has always guarded and is not copied into a new file.
 
-ER7 - From a clean build, `rm -rf .next && npx next build` exits `0` and `/playlists` has moved from the prerendered set to the dynamic set. `node -e "const r=Object.keys(require('./.next/prerender-manifest.json').routes).sort();console.log(r.length);console.log(r.join(' '))"` prints exactly two lines: `11`, then `/ /_global-error /_not-found /forgot-password /icon.jpg /login /profile /reset-password /settings /signup /songs/search`. At `6e32874` that command printed `12` and a list that additionally contained `/playlists`; that name must be absent now, and `ls .next/server/app/playlists.html` must exit non-zero (the file existed at `6e32874`, at 14K, containing the string `My playlists`). `node -e "const a=Object.values(require('./.next/app-path-routes-manifest.json'));const s=new Set(Object.keys(require('./.next/prerender-manifest.json').routes));const d=a.filter(x=>!s.has(x)).sort();console.log(d.length);console.log(d.join(' '))"` prints exactly two lines: `17`, then `/admin/moderation /api/auth/[...all] /api/auth/spotify/authorize /api/auth/spotify/callback /api/auth/spotify/disconnect /api/dev/profiles /api/spotify/playlists /api/spotify/playlists/[id]/import /api/spotify/playlists/[id]/sync /api/spotify/playlists/[id]/tracks /api/spotify/search /bands /bands/[id] /join/[code] /playlists /playlists/[id] /songs/[id]/fast-view` - the `6e32874` dynamic set of 16 plus exactly `/playlists`, no other route having moved in either direction. Consistently, the `Route (app)` table printed by that build marks `/playlists` with `f`.
+ER7 - The complexity ratchet shrinks by exactly one entry and the two page overrides are re-pinned. `grep -c "src/hooks/useBandAdmin.ts" eslint.config.mjs` prints `0` (the `src/hooks/useTabLibrary.ts` entry is a different string and must survive). The count of lines matching `complexity-budget/override` in `eslint.config.mjs` is `20` (it was `21`). `grep -c "MAX_OVERRIDES = 20" src/lib/__tests__/complexityBudget.test.ts` prints `1`. `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits `0` printing `Tests  6 passed (6)`, including the test now named `lists at most 20 per-file overrides, each naming a file that exists` and the test named `pins every override ceiling to the current worst number in its file`, whose passing is the mechanical proof that each remaining ceiling equals its file's current number. In `eslint.config.mjs` the entry for `src/app/bands/\[id\]/page.tsx` names a `complexity` ceiling of at most `30`, a `max-lines-per-function` ceiling of at most `490` and a `max-lines` ceiling strictly less than `508`, and the entry for `src/app/profile/page.tsx` names a `complexity` ceiling of at most `23`, a `max-lines-per-function` ceiling of at most `394` and a `max-lines` ceiling strictly less than `723` (those six numbers are the `35d6f66` values). `grep -c "past 20 entries" AGENTS.md` prints `1` and `grep -c "past 21 entries" AGENTS.md` prints `0`; and `git diff --numstat 35d6f66 -- AGENTS.md` prints exactly one line whose three tab-separated fields are `1`, `1` and `AGENTS.md` - one insertion, one deletion, no other line touched, so a regenerated `nextjs-agent-rules` block was reverted before the commit.
 
-ER8 - With `export BETTER_AUTH_SECRET=test-secret DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` and `npx next start -p 3210` serving the ER7 build, and with no cookie sent: `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:3210/playlists` prints `307 http://127.0.0.1:3210/login?redirect=%2Fplaylists`; `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:3210/bands` prints `307 http://127.0.0.1:3210/login?redirect=%2Fbands`; and `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3210/login` prints `200`. These are the `6e32874` values unchanged: the `src/proxy.ts` session gate, not the page, answers an unauthenticated request, and converting the page must not alter that.
+ER8 - End to end, run with `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1"` against a fresh `npx next build`, `BETTER_AUTH_SECRET` exported from `.env.local` and Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied: `npx playwright test e2e/bands-confirm.spec.ts --reporter=list` exits `0` printing `4 passed`, with the three RH-16 tests still green (`delete band via the inline confirmation`, `cancel keeps the band`, `Escape dismisses the confirmation`) and one new test green, named exactly `rename a band through the edit modal`, which creates a band through the UI, opens the modal from the `Edit band` control, types a new unique name, clicks `Save`, asserts the page heading then shows the new name and that no native `dialog` event fired, and deletes the band again to clean up. Under the same server `npx playwright test e2e/server-pages.spec.ts --reporter=list` exits `0` printing `4 passed` and `npx playwright test e2e/ssr-smoke.spec.ts --reporter=list` exits `0` printing `4 passed`, both unchanged from `35d6f66`. No file under `e2e/` other than `e2e/bands-confirm.spec.ts` is modified: `git diff --name-only 35d6f66 -- e2e` prints exactly `e2e/bands-confirm.spec.ts`. (`e2e/songs-crud.spec.ts` and `e2e/fast-view-mobile.spec.ts` are red at `35d6f66` for reasons tracked in RH-44 and are not part of this result.)
 
-ER9 - End-to-end, run with `PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1"`, `BETTER_AUTH_SECRET` exported from `.env.local`, Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied, and the ER7 build present: `npx playwright test e2e/server-pages.spec.ts --reporter=list` exits `0` printing `4 passed`, with the two RH-62 tests still green (`GET /bands signed in is server-rendered with no loading placeholder`, `GET /admin/moderation signed in as a non-admin renders Access Denied`) and two new ones green, named exactly `GET /playlists signed in is server-rendered with the playlist rows in the document` (creates a uniquely named playlist through the UI, then asserts `request.get('/playlists')` returns status `200`, a body containing that name and no `id="__next_error__"`) and `deleting a playlist through the inline confirmation removes it from the server-rendered document` (creates a uniquely named playlist, deletes it through the `Sure?` / `Yes` affordance, then asserts the raw document no longer contains the name). Checked out at `6e32874` with only this file changed, the first new test fails, because the prerendered shell there contains no playlist name. Under the same server, the pre-existing suites stay at their `6e32874` counts: `npx playwright test e2e/ssr-smoke.spec.ts` exits `0` printing `4 passed`; `npx playwright test e2e/bands-confirm.spec.ts` exits `0` printing `3 passed`; `npx playwright test e2e/auth.spec.ts --grep "credentials"` exits `0` printing `2 passed`. No file under `e2e/` other than `e2e/server-pages.spec.ts` is modified.
+ER9 - The whole suite and the coverage gate hold, with Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. `rtk proxy npx vitest run` exits `0` reporting `Test Files` passed greater than or equal to `100` (was 99; at least one new suite), `Tests` passed greater than or equal to `1128` (was 1114; at least 3 more hook tests, 4 surface tests and 11 state tests), `0 failed` and `0 skipped`. `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`). Reading per-file numbers out of the artefact this repo actually emits, `coverage/coverage-final.json` (there is no `coverage/coverage-summary.json`), the command `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (/\/src\/(hooks\/useBand|lib\/bandAdminState)/.test(k)) console.log(k.split('/src/').pop(), pct(Object.values(c[k].s)), pct(Object.values(c[k].f)))"` prints one line per file, each with a statement percentage and a function percentage of at least `90`, and the set of file names it prints includes `lib/bandAdminState.ts`, `hooks/useBandAdmin.ts`, `hooks/useBandEdit.ts` and `hooks/useBandPendingAction.ts`. (That command shape is verified at `35d6f66`, where the equivalent one-liner aimed at `/src/hooks/` prints `hooks/useBandAdmin.ts 98.6 95` among nine lines.)
 
-ER10 - `rtk proxy npx vitest run src/components/playlists/__tests__/PlaylistsView.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  8 passed (8)` with `0 failed`. The file's literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, and its eight tests are named exactly: `renders one card per playlist from its props, grouped by owner`, `renders the empty state when the playlist list prop is empty`, `renders the initialError prop in the page error banner`, `deletes a playlist through the injected action and removes its card`, `refreshes the router after a successful delete`, `renames a playlist through the injected action and shows the new name`, `surfaces a delete failure in the error banner and keeps the card`, `issues no network request while rendering the list`. The last one stubs `globalThis.fetch` with a `vi.fn()` and asserts it was never called, which is the mechanical proof that the mount read of `/api/spotify/playlists` is gone rather than relocated into the island.
-
-ER11 - `rtk proxy npx vitest run src/components/playlists/__tests__/CreatePlaylistModal.test.tsx` exits `0` printing `Test Files  1 passed (1)` and `Tests  8 passed (8)` with `0 failed`. The file's literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, it imports nothing from `@/app/`, and its eight tests are named exactly: `creates a playlist through the injected action and closes the modal`, `does not request the Spotify playlist list until the From Spotify tab is opened`, `requests the Spotify playlist list once when the From Spotify tab is opened`, `disables the From Spotify tab when the server reports no Spotify connection`, `imports a Spotify playlist into the active band when the context is a band`, `imports a Spotify playlist with no band id when the context is personal`, `surfaces an import failure inside the pending import row`, `closes on Escape`. The two import tests set the context with `useBandContextStore.setState(...)` and assert the `band_id` field of the parsed `POST /api/spotify/playlists/<id>/import` request body - the band id in the first, `undefined` in the second - which is the mechanical proof that the band context still reaches its one destination without any server-side transport.
-
-ER12 - The extracted domain logic is unit-tested and enters the coverage universe green. `rtk proxy npx vitest run src/lib/__tests__/playlistList.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  11 passed (11)`, its tests named exactly: `groups personal playlists into a single personal group`, `groups band playlists under the band name, sorted alphabetically`, `falls back to the band id when the band row carries no name`, `returns no group at all for an empty playlist list`, `hides every playlist whose id is in the removed list`, `applies a rename to the matching playlist and leaves the others untouched`, `returns an equal list when the overlay is empty`, `formats a duration under an hour as minutes and seconds`, `formats a duration of an hour or more with an hours segment`, `sums the song durations of a playlist`, `returns zero seconds when the playlist carries no song array`. `rtk proxy npx vitest run src/lib/__tests__/spotifyConnection.test.ts` exits `0` printing `Test Files  1 passed (1)` and `Tests  4 passed (4)`, its tests named exactly: `reports a connection when the tokens table has a row for the user`, `reports no connection when the tokens table has no row for the user`, `reports no connection and logs the failure when the query throws`, `never performs a token refresh request`. `grep -c "" src/lib/playlistList.ts` and `grep -c "" src/lib/spotifyConnection.ts` each print a number less than or equal to `400`, and neither file appears in `eslint.config.mjs`.
-
-ER13 - Whole-suite and release hygiene, with Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`: `rtk proxy npx vitest run` exits `0` reporting `Test Files` passed greater than or equal to `99` (was 95; four new suites), `Tests` passed greater than or equal to `1114` (was 1083; 31 new tests), `0 failed` and `0 skipped`; `npm run test:coverage` exits `0` with all four thresholds met (statements at least `80`, branches at least `65`, functions at least `78`, lines at least `80`). Reading the per-file numbers out of the coverage artefact this repo actually emits - `coverage/coverage-final.json`, keyed by absolute path; there is no `coverage/coverage-summary.json`, because `vitest.config.ts` declares no `reporter` and `json-summary` is not a vitest default - `node -e "const c=require('./coverage/coverage-final.json');const pct=a=>a.length?Math.round(1000*a.filter(x=>x>0).length/a.length)/10:100;for (const k of Object.keys(c)) if (k.endsWith('/src/lib/playlistList.ts')||k.endsWith('/src/lib/spotifyConnection.ts')) console.log(k.split('/src/').pop(), pct(Object.values(c[k].s)), pct(Object.values(c[k].f)))"` prints exactly two lines, `lib/playlistList.ts` and `lib/spotifyConnection.ts` in some order, each followed by a statement percentage and a function percentage of at least `90`. (That command shape is verified against `6e32874`, where the same one-liner aimed at `/src/lib/playlists.ts` and `/src/lib/spotifyAuth.ts` prints `lib/playlists.ts 98.9 100` and `lib/spotifyAuth.ts 84.4 100`.) `package.json` version is `0.1.93-YYYYMMDDHHmm` with a real local timestamp, sorting above `0.1.92-202609091251`. `git diff 6e32874 -- src/components/landing src/i18n/dictionaries` prints nothing (an internal rendering refactor is not a selling point). And `git diff --name-only 6e32874 | sort` lists only paths drawn from this closed set and no others: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-63-spec.md`, `e2e/server-pages.spec.ts`, `eslint.config.mjs`, `package.json`, `src/app/playlists/page.tsx`, `src/components/playlists/CreatePlaylistModal.tsx`, `src/components/playlists/CreatePlaylistTabs.tsx`, `src/components/playlists/PlaylistCard.tsx`, `src/components/playlists/PlaylistGroupList.tsx`, `src/components/playlists/PlaylistsView.tsx`, `src/components/playlists/SpotifyImportListItem.tsx`, `src/components/playlists/SpotifyImportPanel.tsx`, `src/components/playlists/__tests__/CreatePlaylistModal.test.tsx`, `src/components/playlists/__tests__/PlaylistsView.test.tsx`, `src/lib/__tests__/complexityBudget.test.ts`, `src/lib/__tests__/playlistList.test.ts`, `src/lib/__tests__/spotifyConnection.test.ts`, `src/lib/playlistList.ts`, `src/lib/spotifyConnection.ts` - any other path fails this result. In particular that list contains no `src/store/bandContextStore.ts`, no `src/hooks/useBandAdmin.ts`, no `src/proxy.ts`, no `src/app/actions/playlists.ts`, no `src/lib/playlists.ts`, no `src/app/api/spotify/playlists/route.ts`, no `src/app/playlists/[id]/page.tsx` and no `docs/plans/code-quality-review.md`.
+ER10 - Release hygiene. `package.json` version is `0.1.94-YYYYMMDDHHmm` with a real local timestamp, sorting above `0.1.93-202609091437`. `git diff 35d6f66 -- src/components/landing src/i18n/dictionaries` prints nothing: an internal controller refactor changes nothing a musician would choose the app for, and bands are already a landing selling point. `git diff 35d6f66 -- src/lib/bandAdminLoad.ts src/app/bandAdminActions.ts src/app/actions/bands.ts src/lib/bands.ts src/lib/bands.server.ts src/proxy.ts src/store docs/plans/code-quality-review.md` prints nothing, so the injected-action wiring, the load policies, the data layer, the middleware, the stores and the review document are all byte-identical. And `git diff --name-only 35d6f66 | sort` lists only paths drawn from this closed set and no others: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-63-spec.md`, `e2e/bands-confirm.spec.ts`, `eslint.config.mjs`, `package.json`, `src/app/bands/[id]/page.tsx`, `src/app/profile/page.tsx`, `src/hooks/__tests__/useBandAdmin.test.tsx`, `src/hooks/__tests__/useBandEdit.test.tsx`, `src/hooks/__tests__/useBandPendingAction.test.tsx`, `src/hooks/useBandAdmin.ts`, `src/hooks/useBandEdit.ts`, `src/hooks/useBandInvite.ts`, `src/hooks/useBandPendingAction.ts`, `src/hooks/useNewPlaylistForm.ts`, `src/lib/__tests__/bandAdminState.test.ts`, `src/lib/__tests__/complexityBudget.test.ts`, `src/lib/bandAdminState.ts` - any other path fails this result.
 
 ## Out of Scope
 
-- **Transport option (a), the cookie mirror.** Writing `band-context` from the
-  store's `setBandContext` / `setUserContext` via `document.cookie`, reading it
-  with `cookies()` and validating it against `assertBandMember` / `getBands`.
-  Rejected here because this route's read is user-scoped and the context is only
-  an import destination: the cookie would add a second source of truth, a
-  fail-closed validation query per render, a rehydration gap for users who
-  already have a persisted context and no cookie, and an SSR-flash risk, in
-  exchange for nothing this page needs. It is the option to revisit if a route
-  ever needs genuine server-side band scoping, and it should then be designed
-  once for all routes.
-- **Transport option (c), `/playlists?bandId=`.** Fast View's convention
-  (`src/app/songs/[id]/fast-view/page.tsx:45`), rejected here because it changes
-  the context's semantics from per-browser to per-URL, requires every link to
-  `/playlists` in `AppLayout`'s desktop and mobile navigation to carry the
-  parameter, and goes stale as soon as the `ContextSwitcher` pushes `/`.
-- `src/hooks/useBandAdmin.ts` and its consumers `/bands/[id]` and `/profile` -
-  RH-64, part 4 of 5.
-- `src/proxy.ts`, including its matcher, its `PUBLIC_PATHS` list and its
-  session-over-fetch strategy - RH-65, part 5 of 5.
-- Decomposing `src/app/playlists/[id]/page.tsx` (RH-53), including its own
-  `useBandContextStore` read at line 278, its own `formatDuration` copy at line
-  38 and its `complexity 34 / max-lines-per-function 1072 / max-lines 1344`
-  override, which stays exactly as it is.
-- `src/app/page.tsx`, `src/app/profile/page.tsx`, `src/app/AppShell.tsx`,
-  `src/app/layout.tsx`, `src/store/**` and every other page not named in the
-  whitelist.
-- Any change to `src/app/actions/playlists.ts` (no new `revalidatePath`, no
-  signature change, and `getUserPlaylistsAction` keeps its export even though
-  only its tests import it after this change) and to `src/lib/playlists.ts`.
-- Any change to `src/app/api/spotify/playlists/route.ts` or to the `import` /
-  `sync` / `tracks` routes and their `resolveSpotifyRouteAccess` prologue.
-- Replacing the inline `Sure? / Yes / No` delete confirmation with
-  `src/components/ui/ConfirmPanel.tsx`. The page already honours the
-  no-browser-dialog directive; swapping the affordance is a UI change, not a
-  rendering refactor, and ER2 pins the current one.
-- The four eslint errors under `src/app` and the four under `src/components`
-  that make up today's `8 errors` - none of them is in a file this task touches.
-- Adding a `Status:` line for F15 in `docs/plans/code-quality-review.md`: F15 is
-  resolved only when all five parts have landed, and part 5 owns that line.
-- Any AGENTS.md edit other than the single word `22` -> `21` in the F20
-  complexity-budget sentence on line 94. The architecture bullet that should
-  eventually name the converted pages as the server-read precedent is not
-  touched here (recorded as a suggestion instead), and the `nextjs-agent-rules`
-  block is left byte-identical to `6e32874`.
-- Fixing the pre-existing red e2e specs (`songs-crud`, `fast-view-mobile`, and
-  the two `/`-assumes-protected tests in `auth.spec.ts`).
+- **Converting `/bands/[id]` or `/profile` into Server Components.** They keep
+  `"use client"`, the mount load effect and its inline
+  `react-hooks/set-state-in-effect` suppression. F15's five-part split covered
+  `/bands`, `/admin/moderation` (RH-62) and `/playlists` (RH-63) only; these two
+  routes were never in it, and rendering them on the server would delete the
+  hook this task is redesigning rather than fix its interface.
+- **`src/proxy.ts`**, its matcher, its `PUBLIC_PATHS` list and its
+  session-over-fetch strategy - RH-65, part 5 of 5 (F10).
+- **The `Status:` lines for F10, F14 and F15 in
+  `docs/plans/code-quality-review.md`.** RH-41's own record assigns the
+  docs-only close-out of all three findings to the parent, once the five parts
+  have landed; that file must not be touched here, and ER10 pins it.
+- **Changing `BandAdminActions` or `src/app/bandAdminActions.ts`.** The eight
+  injected Server Actions keep their names and signatures.
+  `regenerateBandInviteCodeAction` stays a direct import in `/bands/[id]` and
+  does not become a ninth injected action: the affordance exists on one page,
+  and moving the flow into a hook shared with `/profile` would put page-specific
+  state (`confirmingRegenerate`, `regenerating`) into shared code.
+- **`src/lib/bandAdminLoad.ts`.** `BandAdminLoadPolicy`, both policy constants
+  and `resolveLoadErrorMessage` are unchanged; `onNotFound` stays a required
+  option rather than becoming a policy-carried message.
+- **De-duplicating the four jscpd clones between `/bands/[id]` and `/profile`**
+  (the three `ConfirmPanel` blocks and the 34-line edit-modal form). F14's
+  remediation says to keep the two pages' markup separate; extracting a shared
+  `BandEditModal` component is a UI change with its own review surface and
+  belongs to a separate task.
+- **Decomposing either page.** `BandDetailPage` stays one component, and
+  `src/app/profile/page.tsx` keeps its three; only the destructuring statements,
+  the accessor names and `handleRegenerateInvite` change. `PersonalProfileView`
+  and `ProfilePage` are not edited at all.
+- **Lowering either page's `complexity` ceiling by restructuring its JSX.** The
+  ceilings are re-pinned to whatever the mechanical rewrite produces; chasing a
+  lower number by rewriting conditional rendering is a different task.
+- **Adding `revalidatePath` anywhere, or any change to `src/app/actions/bands.ts`**,
+  which would drag the `actionSessionGuard` / `actionAuthorizationGuard` /
+  `actionDataAccessGuard` suites into a refactor whose subject is the hook layer.
+- **Any AGENTS.md edit other than the single word `21` -> `20`** in the F20
+  complexity-budget sentence on line 94. The directory map's one-line
+  description of `src/hooks/useBandAdmin.ts` is still accurate and the new
+  sibling hooks are not added to it (recorded as a suggestion instead).
+- **Fixing the pre-existing red e2e specs** (`songs-crud`, `fast-view-mobile`)
+  or the 8 eslint errors and 14 warnings that make up today's repo total, none
+  of which is in a file this task touches.
 
 ## Post-merge checks (orchestrator)
 
-After the Vercel deployment of the merge commit, the build summary should list
-`/playlists` among the `f` routes and the eleven routes of ER7 as static, and a
-production `curl -sS -o /dev/null -w '%{http_code}\n' https://<host>/playlists`
-with no cookie should print `307`. A signed-in smoke pass should confirm that
-switching to a band in the `ContextSwitcher` and then importing a Spotify
-playlist from `/playlists` still lands the playlist under that band's section.
-No expected result above depends on any of this.
+After the Vercel deployment of the merge commit, a signed-in smoke pass should
+confirm on a real band that: the invite link copies and the button reverts from
+`Copied!`; regenerating the invite link replaces the code in the field and the
+`Copied!` state resets; editing name, description, colour and cover saves and
+the band name in the context switcher updates when that band is the active
+context; removing a member toasts and the row disappears; and creating a band
+playlist navigates to `/playlists/<id>`. The same five flows should be spot
+checked on the `/profile` band tab, which shares the hook but not the markup. No
+expected result above depends on any of this.

@@ -1,415 +1,286 @@
-# RH-32 — Fix the 500 on SSR of `/` and `/profile` (Invalid hook call in `AppLayout.useSession`)
+# RH-33 — Corrigir vulnerabilidades de dependências (Dependabot / npm audit)
 
-Baseline commit for every measurement, quotation and diff in this spec: **`adef622`**
-(`refactor(RH-23): extract shared toast, alert, band-admin and spotify helpers; add jscpd guard`),
-the current `master` HEAD. Every number below was produced by actually running the command on that
-tree.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
 
-## Summary of the root cause (established, not guessed)
-
-`next.config.ts` lists **`"better-auth"`** in `serverExternalPackages`:
-
-```ts
-serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],
-```
-
-`serverExternalPackages` tells Next.js *not to bundle* a package into the server build. The package
-is then loaded at runtime by plain Node resolution, so its own `import 'react'` resolves to
-`/Users/heitor/workspace/repertoire_hero/node_modules/react/index.js`.
-
-Next.js does **not** render client components on the server with that copy of React. It renders them
-with its own vendored SSR build:
-
-```
-node_modules/next/dist/server/route-modules/app-page/vendored/ssr/react.js
-  → module.exports = require('../../module.compiled').vendored['react-ssr'].React
-```
-
-So there are two live React module instances during SSR. Only the vendored one has the hook
-dispatcher installed (`ReactSharedInternals.H`). `src/lib/auth-client.ts` calls
-`createAuthClient()` from **`better-auth/react`** — an externalized module — and
-`AppLayout.tsx:169` calls `authClient.useSession()` on it. That hook runs against the *un-vendored*
-React, whose dispatcher is `null`, and dereferences it:
-
-```
-Invalid hook call. Hooks can only be called inside of the body of a function component.
-...
-3. You might have more than one copy of React in the same app
-⨯ TypeError: Cannot read properties of null (reading 'useRef')
-    at AppLayout (src/components/layout/AppLayout.tsx:169:40)
-```
-
-This is *not* a missing `"use client"` boundary (`AppLayout.tsx` and `ConditionalLayout.tsx` both
-have it), *not* npm-level React duplication (`npm ls react react-dom` shows a single deduped
-`19.2.0`; `require.resolve('react', { paths: [require.resolve('better-auth/react')] })` returns the
-one and only `node_modules/react/index.js`), and *not* a better-auth or Next.js version bug — the
-same structural failure would occur for any externalized package that exports React hooks.
-
-Direct evidence from the compiled Turbopack SSR chunk at `adef622`
-(`.next/server/chunks/ssr/[root-of-the-server]__1z4ywbl._.js`) — `a.y(...)` is Turbopack's *external
-require* helper, i.e. the module was deliberately left unbundled:
-
-```js
-module.exports=[2543,a=>a.a(async(b,c)=>{try{var d=await a.y("better-auth-7619253b5b4ed814/react");
-a.n(d),c()}catch(a){c(a)}},!0),29139,...let f=(0,d.createAuthClient)({baseURL:"http://127.0.0.1:3000"});
-a.s(["authClient",0,f]),...
-```
-
-### A/B proof
-
-Measured on the real repo with real `node_modules`, `rm -rf .next` before each run:
-
-| config | `next dev --webpack` `GET /` | `GET /profile` (signed in) | `next build && next start` `GET /` |
-|---|---|---|---|
-| `adef622` (with `"better-auth"`) | **500** + `useRef` null | **500** + `useRef` null | **500**, body is `<html id="__next_error__">` |
-| `"better-auth"` removed | **200** | **200** | **200**, real app-shell HTML, zero server errors |
-
-### Production is affected
-
-```
-$ curl -sI https://repertoire-hero.vercel.app/
-HTTP/2 500
-x-vercel-id: gru1::iad1::g27pc-1788634906716-a0548d7b95ff      # 2026-09-05T19:01:47 GMT
-```
-
-Per-route production probe at the same moment:
-
-| path | status | why |
-|---|---|---|
-| `/` | **500** | goes through `ConditionalLayout → AppLayout` |
-| `/login` | 200 | `ConditionalLayout` returns `children` and skips `AppLayout` |
-| `/profile` | 307 → `/login` | anonymous probe is bounced by `src/proxy.ts` before rendering; a signed-in request reaches `AppLayout` and 500s |
-
-The 500 body is Next's error document. The page still hydrates client-side, which is why the app
-"looks fine" in a browser while every server response for `/` is a 500 — bad for crawlers, for
-Sentry noise, for Vercel error-rate metrics and for any non-JS client.
+**Priority:** HIGH · **blockedBy:** none · **Baseline commit:** `0f13814`
 
 ## Scope
 
-One deliverable: remove the externalization that splits React during SSR, and install two regression
-guards (one unit-level, one end-to-end) so the same config edit cannot silently return.
+Bring the dependency tree to zero high-severity advisories and add a permanent CI gate so it
+cannot silently regress.
 
-In scope:
+**In scope (the complete file whitelist for this task):**
 
-1. `next.config.ts` — drop `"better-auth"` from `serverExternalPackages`, with a comment explaining
-   why it must never come back.
-2. `src/app/layout.tsx` — correct the now-wrong comment above `export const dynamic = "force-dynamic"`,
-   which currently blames "better-auth/react hooks aren't available in the server context". The
-   directive itself **stays** (removing it would re-enable static prerendering for `/login`,
-   `/signup`, `/forgot-password`, `/reset-password` and `/_not-found` — a caching behaviour change
-   that belongs to its own task).
-3. New unit guard `src/lib/__tests__/serverExternalPackages.test.ts`.
-4. New e2e guard `e2e/ssr-smoke.spec.ts`.
-5. `playwright.config.ts` — make `webServer.command` overridable by `PLAYWRIGHT_WEB_SERVER` so the
-   e2e guard can be pointed at a production `next start` server, defaulting to today's `npm run dev`.
-6. `AGENTS.md` — record the architectural rule this bug encodes.
-7. `package.json` version bump per the AGENTS.md Version Bumping Rule.
+| File | Change |
+|---|---|
+| `package.json` | version bump + one new `audit` script |
+| `package-lock.json` | patched transitive versions (produced by `npm audit fix`) |
+| `.github/workflows/ci.yml` | new `audit` job |
+| `AGENTS.md` | one line in **Testing & quality** documenting the audit gate |
+| `docs/tasks/RH-32-spec.md` | this file |
+| `docs/suggestions-log.md` | optional, for out-of-scope observations found while working |
 
-**Not** in scope:
+**Explicitly NOT in scope:**
 
-- Removing or narrowing `export const dynamic = "force-dynamic"`.
-- Upgrading, downgrading or pinning `better-auth` / `next` / `react`. No dependency change at all;
-  `package-lock.json` is expected to be byte-identical to `adef622`.
-- Refactoring `AppLayout`/`ConditionalLayout`, or moving `useSession` behind a `ssr: false` dynamic
-  boundary. `useSession` renders correctly during SSR once the React instance is correct — proven
-  above — so hiding it would be a workaround, not the fix.
-- Repairing the pre-existing, unrelated e2e failures listed in "E2E: before and after". They are
-  spec drift and test-data pollution, not SSR failures, and several of them are non-deterministic.
-  They deserve a separate task.
-- `@better-auth/kysely-adapter`, `kysely` and `pg` stay in `serverExternalPackages`. Verified: none
-  of them exposes a `./react` subpath (`require.resolve('<pkg>/react')` throws
-  `ERR_PACKAGE_PATH_NOT_EXPORTED` for all three), so none can split React.
+- Anything under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`. This task must not change a
+  single line of application code. If a test fails after the dependency bump, that is a finding to
+  report, not a licence to edit `src/`.
+- Upgrading direct dependencies (`next`, `webpack`, `@sentry/nextjs`, `eslint-config-next`, ...).
+  No direct dependency range in `package.json` changes.
+- Adding an `overrides` block. The investigation (see below) proved it is unnecessary; introducing
+  one anyway is a regression of this spec.
+- `npm audit fix --force`. Forbidden outright: it performs semver-major upgrades.
+- Moderate/low advisories, Dependabot version-update PRs, `Dockerfile`, `vercel.json`.
+- Landing page copy (see "Landing Page Rule" below).
 
-**Landing Page Rule** (AGENTS.md): this task ships **no** user-facing feature. It is a server-side
-bug fix that restores an HTTP status; it is explicitly **not** a selling point.
-`src/components/landing/LandingPage.tsx`, `src/i18n/dictionaries/en.json` and
-`src/i18n/dictionaries/pt-BR.json` MUST be byte-identical to `adef622` when this task lands.
+## Investigation results (already performed — do not redo)
 
-**Error Handling Conventions** (AGENTS.md): no `try/catch` is added, moved or reshaped anywhere in
-`src/`. The two new files are test files; no `catch (x: any)`, no `console.error`.
+At `0f13814`, `npm audit --json` reports **2 high-severity package-level vulnerabilities**, both
+transitive, both `fixAvailable: true`:
 
-**NO Browser Alerts** (AGENTS.md): no UI change, so nothing to check beyond the existing
-`noBrowserDialogs.test.ts` staying green.
+| Package | Installed | Pulled in by | Advisories |
+|---|---|---|---|
+| `browserslist` | 4.28.2 (`<= 4.28.6` vulnerable) | `webpack@5.106.2` (direct **prod** dep) and `@sentry/nextjs > @sentry/bundler-plugin-core > @babel/core > @babel/helper-compilation-targets` | GHSA-c83g-rgw3-j3cx (unbounded memory growth / OOM), GHSA-73wf-gq98-2v4g (uncaught crash + prototype write via untrusted `browserslist-stats.json`) |
+| `fast-uri` | 3.1.5 (`>= 3.0.0 < 3.1.6` vulnerable) | `webpack@5.106.2 > schema-utils@4.3.3 > ajv@8.20.0` (and `ajv-formats > ajv`) | GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8 (host confusion / SSRF) |
+
+**The "third" Dependabot alert.** `gh` is authenticated (account `heitorpolidoro`, scopes
+`gist, read:org, repo, workflow`) and
+`gh api repos/heitorpolidoro/repertoire-hero/dependabot/alerts?state=open` returns **6 open alerts,
+not 3** — alert numbers 101 and 102 for `browserslist` and 103, 104, 105 and 106 for `fast-uri`.
+Every one is `scope: runtime`, `relationship: transitive`, `severity: high`. There is **no third
+package**: GitHub opens one alert per advisory while `npm audit` groups advisories per package, so
+GitHub's 6 and npm's 2 describe the same two packages. Nothing is GitHub-only and nothing is
+already resolved. Patching `browserslist` to `>= 4.28.7` and `fast-uri` to `>= 3.1.6` closes all
+six.
+
+**The fix is plain `npm audit fix`.** Both parents already accept the patched versions
+(`webpack` requires `browserslist@^4.28.1`, `ajv@8` requires `fast-uri@^3.0.1`), so no `overrides`
+entry is needed. Verified in a scratch copy of `package.json` + `package-lock.json`:
+`npm audit fix --package-lock-only` left `package.json` byte-identical, changed exactly seven
+lockfile entries, and `npm audit --audit-level=high` afterwards printed `found 0 vulnerabilities`
+and exited 0. `npm ci --dry-run` on the patched lockfile resolved 689 packages with no error.
+
+The seven entries that moved (the two vulnerable packages plus `browserslist`'s own data
+dependencies, all inside existing semver ranges) were:
+
+```
+browserslist              4.28.2       -> 4.28.9
+fast-uri                  3.1.5        -> 3.1.7
+baseline-browser-mapping  2.10.30      -> 2.11.21
+caniuse-lite              1.0.30001793 -> 1.0.30001810
+electron-to-chromium      1.5.357      -> 1.5.422
+node-releases             2.0.44       -> 2.0.54
+update-browserslist-db    1.2.3        -> 1.3.2
+```
+
+`caniuse-lite` and `electron-to-chromium` publish daily, so the exact right-hand versions will
+drift; the acceptance criteria below constrain the *set of packages allowed to move* and the
+*minimum patched versions*, not the exact numbers.
 
 ## Approach
 
-### 1. `next.config.ts`
-
-Replace the single line
-
-```ts
-  serverExternalPackages: ["better-auth", "@better-auth/kysely-adapter", "kysely", "pg"],
-```
-
-with
-
-```ts
-  // RH-32: `better-auth` MUST NOT be listed here. serverExternalPackages leaves a package
-  // unbundled, so `better-auth/react` would load its own copy of `react` at runtime instead of
-  // Next's vendored SSR React — the hook dispatcher is null in that copy and
-  // `authClient.useSession()` crashes every SSR render with
-  // "Cannot read properties of null (reading 'useRef')". Only Node-only packages with no React
-  // entrypoint belong in this list. Guarded by
-  // src/lib/__tests__/serverExternalPackages.test.ts.
-  serverExternalPackages: ["@better-auth/kysely-adapter", "kysely", "pg"],
-```
-
-Nothing else in `next.config.ts` changes. `better-auth`'s *server* half keeps working because the
-Node-only leaves it reaches for — `pg` and `kysely` — remain external; verified end to end below
-(sign-up 200, sign-in 200, `get-session` 200, `/profile` 200 on a real `next start`).
-
-### 2. `src/app/layout.tsx`
-
-Keep `export const dynamic = "force-dynamic"`; rewrite only its comment so it no longer records a
-diagnosis that is now known to be wrong. Suggested text:
-
-```ts
-// All routes require authentication, so there is nothing useful to prerender —
-// disable static prerendering globally.
-// (The "useRef of null" crash this comment used to blame was RH-32: `better-auth`
-// was listed in `serverExternalPackages`, which split React during SSR. Fixed in
-// next.config.ts; this directive is retained for the caching behaviour, not as a workaround.)
-export const dynamic = "force-dynamic";
-```
-
-### 3. `src/lib/__tests__/serverExternalPackages.test.ts` (new)
-
-A `node`-environment vitest file — no DB, no server, no network. It imports the real config object
-(verified working: `import nextConfig from '../../../next.config'` resolves and type-checks under
-the existing vitest setup) and asserts two things:
-
-1. **Specific**: `serverExternalPackages` does not include `'better-auth'`.
-2. **General**: for every entry in `serverExternalPackages`, `require.resolve(`${pkg}/react`)` must
-   throw. This is the rule the bug violated — a package that ships a React entrypoint can never be
-   externalized — and it will also catch a future `@better-auth/*` or any other React-exposing
-   package being added to the list.
-
-Shape:
-
-```ts
-import { describe, it, expect } from 'vitest'
-import { createRequire } from 'node:module'
-import nextConfig from '../../../next.config'
-
-const require_ = createRequire(import.meta.url)
-
-describe('next.config.ts serverExternalPackages', () => {
-  const pkgs = nextConfig.serverExternalPackages ?? []
-
-  it('does not externalize better-auth (RH-32)', () => {
-    expect(pkgs).not.toContain('better-auth')
-  })
-
-  it('externalizes no package that ships a React entrypoint (RH-32)', () => {
-    const withReactEntry = pkgs.filter((pkg) => {
-      try {
-        require_.resolve(`${pkg}/react`)
-        return true
-      } catch {
-        // No `./react` subpath — safe to leave unbundled.
-        return false
-      }
-    })
-    expect(withReactEntry).toEqual([])
-  })
-})
-```
-
-The `catch {}` uses the binding-less **S1** form with the required one-line reason comment.
-
-### 4. `e2e/ssr-smoke.spec.ts` (new)
-
-The point of this file is to assert on the **server response**, not on the hydrated DOM — the bug
-was invisible to every existing test precisely because the page hydrates fine. It therefore uses
-Playwright's `request` fixture (raw HTTP, no JS execution) for the status/body assertions, plus one
-browser assertion per audience.
-
-Three tests:
-
-1. `GET / signed out returns a 200 SSR document` — `request.get('/')`;
-   `expect(res.status()).toBe(200)`; body must not contain `id="__next_error__"` nor
-   `Cannot read properties of null`; body must contain `Repertoire Hero`.
-2. `signed-out / renders the landing page in a browser` — default (no) storage state;
-   `const res = await page.goto('/')`; `expect(res!.status()).toBe(200)`;
-   `await expect(page.locator('nav[aria-label="Main navigation"]')).toHaveCount(0)` (the app shell
-   must be absent) and `await expect(page.locator('a[href="/signup"]').first()).toBeVisible()`
-   (landing-only element). Deliberately **no copy assertion**: `LandingPage` picks its dictionary
-   from the `NEXT_LOCALE` cookie and defaults to `pt-BR`, so asserting English text would be
-   locale-coupled and would also conflict with the Landing Page Rule freeze on the dictionaries.
-3. A `test.describe` block with `test.use({ storageState: AUTH_STATE_PATH })` (imported from
-   `./global-setup`, the same pattern `e2e/songs-crud.spec.ts` already uses):
-   `GET /profile signed in returns a 200 SSR document` — `request.get('/profile')` (the `request`
-   fixture inherits the storage-state cookies), `expect(res.status()).toBe(200)`, same
-   `__next_error__` / `useRef` body assertions, plus a browser check that `/profile` returns 200 and
-   renders the app shell.
-
-   **The app-shell locator must be strict-mode-safe.** `nav[aria-label="Main navigation"]` resolves
-   to **2** elements in the signed-in DOM — the desktop sidebar and the mobile bottom bar — so a bare
-   `await expect(page.locator('nav[aria-label="Main navigation"]')).toBeVisible()` aborts with a
-   Playwright *strict mode violation* (`resolved to 2 elements`) and would fail ER8. Use `.first()`,
-   exactly as test 2 already does for its `a[href="/signup"]` locator. Write it as:
-
-   ```ts
-   const res = await page.goto('/profile')
-   expect(res!.status()).toBe(200)
-   await expect(
-     page.locator('nav[aria-label="Main navigation"]').first(),
-   ).toBeVisible()
-   ```
-
-   (`toHaveCount(0)` in test 2 needs no such treatment — count assertions are not subject to strict
-   mode. Neither are the `grep -c 'aria-label="Main navigation"'` checks in ER6/ER7: those count
-   occurrences in raw HTML via `curl`, so a match count of 2 is expected and passes the `>= 1`
-   threshold.)
-
-Note for the implementer, confirmed by measurement: the SSR body of `/` for a signed-out visitor is
-the **app shell with a `Loading...` placeholder**, not the landing markup — `authClient.useSession()`
-is `isPending` on the server and `src/app/page.tsx:613` returns the loading branch. The landing page
-appears after hydration. Test 1 must therefore assert *status + absence of the error document*, and
-test 2 (browser) is what asserts "signed out → landing". Do not write an SSR-body assertion for
-landing copy; it will fail for reasons unrelated to this bug.
-
-### 5. `playwright.config.ts`
-
-One line:
-
-```ts
-  webServer: {
-    command: process.env.PLAYWRIGHT_WEB_SERVER ?? 'npm run dev',
-    ...
-```
-
-Default behaviour is unchanged. This is what makes the guard runnable against a production build:
+### 1. Patch the lockfile
 
 ```bash
-npx next build
-PLAYWRIGHT_WEB_SERVER='npx next start -p 3000 -H 127.0.0.1' npx playwright test e2e/ssr-smoke.spec.ts
+npm audit fix
 ```
 
-### 6. `AGENTS.md`
+Nothing else. Do not pass `--force`. Do not hand-edit `package-lock.json`. If `npm audit fix`
+leaves any high advisory behind (it did not in the scratch run), stop and report rather than
+inventing an `overrides` block on your own authority.
 
-Add one bullet under **Key architectural decisions** (High-level Architecture), immediately after
-the existing "Session gating" bullet:
+### 2. Add the `audit` npm script
 
-> - **Never externalize a React-exposing package**: `next.config.ts`'s `serverExternalPackages` may
->   contain only Node-only packages (`pg`, `kysely`, the Kysely adapter). Listing a package that
->   ships React hooks — `better-auth` did, via `better-auth/react` — leaves it unbundled, so it
->   loads its own `react` instead of Next's vendored SSR React and every SSR render dies with
->   `Cannot read properties of null (reading 'useRef')` (RH-32). Enforced by
->   `src/lib/__tests__/serverExternalPackages.test.ts`.
+In `package.json`, immediately after `"lint:dup"`:
 
-### 7. Version bump
-
-`package.json` `version` must go from `0.1.64-202609031401` to `0.1.65-<YYYYMMDDHHmm>` (local time
-of the commit). Highest version used anywhere in `git log` at `adef622` is `0.1.64-202609031401`.
-
-## Verification environment (read before running anything)
-
-- **`BETTER_AUTH_SECRET` is empty in `.env.production.local`** (`BETTER_AUTH_SECRET=""`), and Next
-  loads `.env.production.local` ahead of `.env.local` for `next build` / `next start`. With an empty
-  secret Better Auth logs
-  `[BetterAuthError]: You are using the default secret...` and every sign-in returns 403, so the
-  *signed-in* half of the verification is impossible unless the secret is supplied explicitly.
-  Export it from `.env.local` when starting the production server:
-
-  ```bash
-  BETTER_AUTH_SECRET="$(grep '^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2- | tr -d '"')" \
-    npx next start -p 3000 -H 127.0.0.1
-  ```
-
-  The signed-out `GET /` check works with or without the secret.
-- **Port must be 3000.** `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` in `.env.local` are
-  `http://127.0.0.1:3000`; on any other port Better Auth rejects the request with
-  `ERROR [Better Auth]: Invalid origin`.
-- **Postgres must be up** (`docker compose up -d`, port 5432) for the signed-in checks and for the
-  full vitest suite.
-- **Nothing else may be listening on 3000** when running the Playwright production variant —
-  `reuseExistingServer` is true locally and would silently reuse a stale dev server.
-- Use `npx next build`, not `npm run build`: the npm script also runs `scripts/migrate.mjs` and
-  `scripts/deduplicate-songs.mjs` against the database, which is unnecessary here.
-
-## Baselines at `adef622` (all re-measured for this spec)
-
-| gate | command | result at `adef622` |
-|---|---|---|
-| unit | `npx vitest run` | `Test Files 29 passed (29)` / `Tests 279 passed (279)`, exit 0 |
-| types | `npx tsc --noEmit` | exit 0, `TypeScript: No errors found` |
-| lint | `npx eslint .` | `✖ 30 problems (12 errors, 18 warnings)`, **exit 1** — this is the accepted baseline, lint is *never* required to exit 0 |
-| dead code | `npm run lint:dead` | exit 0 |
-| duplication | `npm run lint:dup` | exit 0 |
-| build | `npx next build` | exit 0 |
-| SSR `/` | `next start` + `curl` | **HTTP 500** |
-| e2e | `npx playwright test` | **exit 1, zero tests executed**: `Error: Timed out waiting 120000ms from config.webServer.` |
-
-## E2E: before and after
-
-The e2e situation at `adef622` is worse than "3 failing tests": `webServer.url` is
-`http://127.0.0.1:3000`, the readiness probe requires a non-error response, and `/` returns 500 — so
-Playwright never starts the suite at all.
-
-| | `adef622` | with the fix |
-|---|---|---|
-| `npx playwright test` outcome | aborts after 120 s with `Timed out waiting 120000ms from config.webServer`; **0 of 13 tests run** | webServer becomes ready; **all 13 tests execute** |
-| observed results | n/a | run A: 7 passed / 6 failed · run B: 6 passed / 7 failed |
-
-The residual failures are **pre-existing and out of scope**, and two independent full-suite runs
-produced *different* failure sets, so no exact count may be used as an acceptance criterion:
-
-- `e2e/auth.spec.ts:52` "unauthenticated user is redirected to /login" and `:59` "redirect param is
-  honoured after login" fail **deterministically** and correctly: `src/proxy.ts` now treats `/` as a
-  public path (`pathname === '/'`), so a signed-out visit to `/` renders the landing page instead of
-  redirecting. These assertions were made obsolete by the landing-page feature, not by RH-32.
-- `e2e/songs-crud.spec.ts`, `e2e/bands-confirm.spec.ts` and `e2e/fast-view-mobile.spec.ts` fail
-  intermittently on `expect(locator('dialog[open]')).toHaveCount(0)` — accumulated test-data
-  pollution in the local database across repeated runs.
-
-Acceptance therefore pins only what this fix actually controls: the webServer probe no longer times
-out, and `e2e/ssr-smoke.spec.ts` passes 100 %.
-
-## Post-merge verification (not an acceptance criterion — QA runs pre-merge)
-
-After the Vercel deployment for this change is live:
-
-```bash
-curl -sI https://repertoire-hero.vercel.app/ | head -1     # expect: HTTP/2 200
+```json
+    "audit": "npm audit --audit-level=high",
 ```
 
-Sentry should stop receiving the `Cannot read properties of null (reading 'useRef')` server event
-for the `/` and `/profile` transactions.
+**Full tree, not `--omit=dev`.** Both vulnerable packages happen to sit in the production tree
+(`webpack` is listed under `dependencies`), so `--omit=dev` would have caught these two. It is
+still the wrong gate:
+
+- Dependabot alerts on the **whole lockfile** regardless of scope. A `--omit=dev` gate would let a
+  Dependabot alert sit open on `master` while CI reported green, which is exactly the failure this
+  task exists to prevent.
+- CI runs `npm ci` with dev dependencies installed and executes them (`vitest`, `eslint`, `knip`,
+  `jscpd`, `playwright`), so dev-dependency code does run in the pipeline.
+- The baseline after this task is `0 vulnerabilities` across the **full** tree, so the stricter
+  gate starts noise-free today.
+
+`--audit-level=high` keeps the gate at the severity the project actually acts on; moderate and low
+advisories are reported but do not fail the build.
+
+Note for whoever wires it up: `npm audit` is a built-in npm command, so bare `npm audit` never
+invokes this script. CI must call `npm run audit`.
+
+### 3. Wire it into CI
+
+Add a fifth top-level job to `.github/workflows/ci.yml`, mirroring the shape of the existing
+`dead-code` and `duplication` jobs:
+
+```yaml
+  audit:
+    name: "Dependency audit (npm audit)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+
+      - name: npm audit (high and above)
+        run: npm run audit
+```
+
+Deliberately **no `npm ci` step**: `npm audit` resolves the tree from `package-lock.json` alone and
+`npm run` does not need `node_modules` to execute a script. This was verified in the scratch dir
+with no `node_modules` present (`npm run audit` printed `found 0 vulnerabilities`, exit 0). The job
+therefore finishes in seconds instead of paying for a full install.
+
+### 4. Document the gate
+
+Add one line to the **Testing & quality** bullet list in `AGENTS.md`, next to the `knip` and
+`jscpd` entries, naming the script, the severity threshold, the reason the audit covers the full
+tree rather than production-only, and the CI job that enforces it.
+
+### 5. Version bump
+
+Per the AGENTS.md Version Bumping Rule, bump `package.json` to `0.1.68-YYYYMMDDHHmm` using local
+time. The highest version already used is `0.1.67-202609052124`; the new version must sort strictly
+above it.
+
+### 6. Landing Page Rule
+
+**This task ships no selling point.** Patching two transitive CVEs and adding a CI audit gate is
+internal and operational: no musician or band chooses the app for it, and there is no user-visible
+behaviour change at all. Per the Landing Page Rule, `src/components/landing/LandingPage.tsx` and
+the `landing.*` keys in `src/i18n/dictionaries/en.json` and `pt-BR.json` **must not be touched**.
+This is also enforced mechanically by ER11's "no file under `src/` changed" check.
 
 ## Expected Results
 
-This section is the acceptance criteria, verbatim and in full. It is identical to the
-`expected_results` carried on the Meridian task, which is all QA receives — there is no expanded
-form kept anywhere else.
+ER1 - `package.json` changes are limited to the version bump and the new `audit` script, and no
+`overrides` block is introduced. Verify: `git diff 0f13814 -- package.json | grep -cE '^[+-][^+-]'`
+prints `3` (one removed and one added `"version"` line, one added `"audit"` line). Verify:
+`node -e "const p=require('./package.json'); console.log(('overrides' in p ? 'HAS-OVERRIDES' :
+'NO-OVERRIDES') + ' | ' + p.scripts.audit)"` prints exactly
+`NO-OVERRIDES | npm audit --audit-level=high`. Verify no direct dependency range moved:
+`git diff 0f13814 -- package.json | grep -E '^[+-] +"(next|webpack|react|react-dom|@sentry/nextjs|eslint-config-next)"'`
+prints nothing and exits 1.
 
-- [ ] ER1 - From /Users/heitor/workspace/repertoire_hero: grep -c '"better-auth"' next.config.ts prints exactly 0, and grep -nE '^\s*serverExternalPackages:' next.config.ts prints exactly one line, whose array is ["@better-auth/kysely-adapter", "kysely", "pg"]. The pattern is deliberately scoped to the declaration: the explanatory comment lines above it also mention serverExternalPackages and must not be counted. Baseline at adef622: the same grep -c printed 1.
-- [ ] ER2 - The file src/lib/__tests__/serverExternalPackages.test.ts exists; npx vitest run src/lib/__tests__/serverExternalPackages.test.ts exits 0 and prints Test Files 1 passed (1) with at least 2 tests passed and 0 failed. Mutation check: first back up the fixed file with cp next.config.ts /tmp/rh32-next.config.bak; then hand-edit next.config.ts to re-add "better-auth" as the first element of the serverExternalPackages array and re-run the same command - it must now exit non-zero; then restore with cp /tmp/rh32-next.config.bak next.config.ts and confirm grep -c '"better-auth"' next.config.ts prints 0 again. Do NOT restore with git checkout -- next.config.ts: the fix may still be uncommitted, and that would reinstate the broken adef622 config and invalidate every later ER.
-- [ ] ER3 - npx vitest run exits 0 and prints Test Files 30 passed (30) and a Tests N passed (N) line with N >= 281, with no failed and no skipped tests. Baseline at adef622: Test Files 29 passed (29) / Tests 279 passed (279).
-- [ ] ER4 - npx tsc --noEmit exits 0; npm run lint:dead exits 0; npm run lint:dup exits 0; npx eslint . prints a final summary line with no more than 12 errors and no more than 18 warnings (baseline at adef622 is 30 problems (12 errors, 18 warnings)) - eslint's non-zero exit code is expected and must NOT be treated as a failure.
-- [ ] ER5 - rm -rf .next && npx next build exits 0; its output contains zero occurrences of Invalid hook call and zero occurrences of Cannot read properties of null. (Lines reading [Error [BetterAuthError]: You are using the default secret... are expected and acceptable: .env.production.local sets BETTER_AUTH_SECRET="".)
-- [ ] ER6 - With docker Postgres running on 5432 and nothing listening on port 3000, after ER5's build, start the server with the real secret: BETTER_AUTH_SECRET="$(grep '^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2- | tr -d '"')" npx next start -p 3000 -H 127.0.0.1 > /tmp/rh32-server.log 2>&1 & then sleep 8. curl -s -o /tmp/rh32-root.html -w "%{http_code}\n" http://127.0.0.1:3000/ prints 200; grep -c '__next_error__' /tmp/rh32-root.html prints 0; grep -c 'Cannot read properties of null' /tmp/rh32-root.html prints 0; grep -c 'aria-label="Main navigation"' /tmp/rh32-root.html prints a number >= 1; grep -cE 'Invalid hook call|useRef' /tmp/rh32-server.log prints 0. Baseline at adef622: the same curl printed 500 and the body began <!DOCTYPE html><html id="__next_error__">. Port must be 3000 - on any other port Better Auth answers Invalid origin.
-- [ ] ER7 - Against the same server started in ER6: curl -s -X POST http://127.0.0.1:3000/api/auth/sign-up/email -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:3000' -d '{"email":"rh32-qa@example.com","password":"E2eTestPassword1!","name":"RH32 QA"}' -o /tmp/rh32-signup.json -w "%{http_code}\n" prints 200 (on a repeat run a non-2xx whose /tmp/rh32-signup.json contains USER_ALREADY_EXISTS is equally acceptable); curl -s -X POST http://127.0.0.1:3000/api/auth/sign-in/email -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:3000' -d '{"email":"rh32-qa@example.com","password":"E2eTestPassword1!"}' -c /tmp/rh32-cookies.txt -o /dev/null -w "%{http_code}\n" prints 200; curl -s -b /tmp/rh32-cookies.txt -o /tmp/rh32-profile.html -w "%{http_code}\n" http://127.0.0.1:3000/profile prints 200; grep -c '__next_error__' /tmp/rh32-profile.html prints 0; grep -c 'aria-label="Main navigation"' /tmp/rh32-profile.html prints a number >= 1. Then stop the server with pkill -f 'next start -p 3000'. Baseline at adef622: the /profile curl printed 500.
-- [ ] ER8 - The file e2e/ssr-smoke.spec.ts exists and asserts on raw HTTP responses (Playwright request fixture), not only on hydrated DOM. Its browser assertions must use strict-mode-safe locators (such as page.locator('nav[aria-label="Main navigation"]').first()), because nav[aria-label="Main navigation"] matches 2 elements in the signed-in DOM (desktop sidebar + mobile bottom bar) and a bare locator aborts with a Playwright strict mode violation. (a) With nothing listening on port 3000, npx playwright test e2e/ssr-smoke.spec.ts --project=chromium exits 0, its summary reports N passed with N >= 3 and 0 failed, and its output contains zero occurrences of Timed out waiting 120000ms from config.webServer. (b) After npx next build, BETTER_AUTH_SECRET="$(grep '^BETTER_AUTH_SECRET=' .env.local | cut -d= -f2- | tr -d '"')" PLAYWRIGHT_WEB_SERVER='npx next start -p 3000 -H 127.0.0.1' npx playwright test e2e/ssr-smoke.spec.ts --project=chromium exits 0 with the same conditions. Baseline at adef622: npx playwright test exited 1 after ~120s with Error: Timed out waiting 120000ms from config.webServer. and executed 0 of 13 tests. Do NOT require the other e2e specs to pass - e2e/auth.spec.ts:52, e2e/auth.spec.ts:59, e2e/songs-crud.spec.ts, e2e/bands-confirm.spec.ts and e2e/fast-view-mobile.spec.ts fail for pre-existing, partly non-deterministic reasons unrelated to this task.
-- [ ] ER9 - git diff adef622 --stat -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json produces empty output (Landing Page Rule: this task is a server-side bug fix restoring an HTTP status, explicitly not a selling point, so no landing copy changes in either dictionary).
-- [ ] ER10 - node -p "require('./package.json').version" prints a version strictly greater than 0.1.64-202609031401 and matching the pattern 0.1.<patch>-<YYYYMMDDHHmm> (e.g. 0.1.65-202609051930); and git diff adef622 --stat -- package-lock.json produces empty output (no dependency change).
-- [ ] ER11 - git diff adef622 --name-only lists only paths drawn from this whitelist and nothing else: AGENTS.md, docs/suggestions-log.md, docs/tasks/RH-32-spec.md, e2e/ssr-smoke.spec.ts, next.config.ts, package-lock.json, package.json, playwright.config.ts, src/app/layout.tsx, src/lib/__tests__/serverExternalPackages.test.ts.
-- [ ] ER12 - grep -c 'serverExternalPackages' AGENTS.md prints a number >= 1 and grep -c 'RH-32' AGENTS.md prints a number >= 1; the matching text states that a package exposing React hooks (such as better-auth via better-auth/react) must never be listed in serverExternalPackages, because it would load its own React copy and break SSR.
-- [ ] ER13 - grep -c 'force-dynamic' src/app/layout.tsx prints a number >= 1 (the export const dynamic = "force-dynamic" directive is retained) and grep -c 'available in the server context' src/app/layout.tsx prints 0 (the stale, incorrect root-cause comment has been replaced).
-
-## Scope whitelist
-
-`git diff adef622 --name-only` may list only:
-
+ER2 - `package-lock.json` moves only the vulnerable packages and their own data dependencies, adds
+nothing and removes nothing. Verify by running:
+```bash
+git show 0f13814:package-lock.json > /tmp/rh33-base-lock.json
+cat > /tmp/rh33-lockscope.mjs <<'EOF'
+import fs from 'fs'
+const B = JSON.parse(fs.readFileSync('/tmp/rh33-base-lock.json', 'utf8'))
+const A = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'))
+const V = l => Object.fromEntries(Object.entries(l.packages).filter(([k]) => k).map(([k, v]) => [k, v.version]))
+const b = V(B), a = V(A)
+const allow = new Set(['browserslist', 'fast-uri', 'baseline-browser-mapping', 'caniuse-lite', 'electron-to-chromium', 'node-releases', 'update-browserslist-db'])
+const bad = []
+for (const k of new Set([...Object.keys(b), ...Object.keys(a)])) {
+  if (b[k] === a[k]) continue
+  const name = k.split('node_modules/').pop()
+  if (b[k] === undefined) bad.push('ADDED ' + k)
+  else if (a[k] === undefined) bad.push('REMOVED ' + k)
+  else if (!allow.has(name)) bad.push('UNEXPECTED ' + k + ' ' + b[k] + ' -> ' + a[k])
+}
+console.log(bad.length === 0 ? 'LOCKFILE-SCOPE OK' : 'LOCKFILE-SCOPE FAIL\n' + bad.join('\n'))
+EOF
+node /tmp/rh33-lockscope.mjs
 ```
-AGENTS.md
-docs/suggestions-log.md
-docs/tasks/RH-32-spec.md
-e2e/ssr-smoke.spec.ts
-next.config.ts
-package-lock.json          (only if a dependency actually changes — none is expected)
-package.json
-playwright.config.ts
-src/app/layout.tsx
-src/lib/__tests__/serverExternalPackages.test.ts
-```
+which prints exactly `LOCKFILE-SCOPE OK`. Verify the patched versions clear the advisories:
+`npm ls browserslist fast-uri` reports `browserslist` at `4.28.7` or higher and `fast-uri` at
+`3.1.6` or higher and below `4.0.0`, at every node it prints.
+
+ER3 - The tree is free of high-severity advisories. Verify: `npm audit --audit-level=high` prints a
+final line `found 0 vulnerabilities` and exits 0 (`echo $?` prints `0`). Verify the aggregate:
+`npm audit --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify(JSON.parse(s).metadata.vulnerabilities)))"`
+prints `{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}`.
+
+ER4 - The audit gate exists as an npm script and runs in CI. Verify: `npm run audit` prints
+`found 0 vulnerabilities` and exits 0 even with `node_modules` absent. Verify:
+`grep -nE '^  audit:$|Dependency audit \(npm audit\)|run: npm run audit' .github/workflows/ci.yml`
+prints exactly 3 matching lines. Verify: `grep -c 'npm ci' .github/workflows/ci.yml` still prints
+`4` (the audit job deliberately adds no install step). Verify the edited workflow is still valid
+YAML: `npx js-yaml .github/workflows/ci.yml > /dev/null` exits 0 (`echo $?` prints `0`), so the new
+job at least parses.
+
+ER5 - A clean install from the lockfile still works. Verify:
+`shasum -a 256 package-lock.json > /tmp/rh33-lock-before.sha && rm -rf node_modules && npm ci; echo $?`
+prints `0` with no `npm error` line in the output, and afterwards
+`shasum -a 256 -c /tmp/rh33-lock-before.sha` prints `package-lock.json: OK` (the install did not
+rewrite the lockfile).
+
+ER6 - The unit/integration suite is unchanged and green. With local Postgres reachable at
+`postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty
+`SUPABASE_SERVICE_ROLE_KEY`, verify: `npx vitest run` prints `Test Files  40 passed (40)` and
+`Tests  478 passed (478)`, with no `skipped` count in either line, and exits 0. These are the
+`0f13814` baseline numbers and must be identical, because this task adds and removes no test.
+
+ER7 - Every static gate stays at its `0f13814` baseline. Verify each command, from the repo root:
+`npx tsc --noEmit` prints no output and exits 0; `npm run lint:dead` prints no knip finding and
+exits 0; `npm run lint:dup` prints a Total row of `19` clones and `239 (1.08%)` duplicated lines
+and exits 0; `npx eslint .` ends with `30 problems (12 errors, 18 warnings)`.
+
+ER8 - The production build still succeeds with the bumped `browserslist`. Verify: `npx next build`
+exits 0 (`echo $?` prints `0`) and its output contains no line starting with
+`Failed to compile`. Use `npx next build` rather than `npm run build`, which additionally runs
+`scripts/migrate.mjs` and `scripts/deduplicate-songs.mjs` against a live database.
+
+ER9 - The SSR smoke suite passes against that production build. With Postgres running and
+migrations applied, verify:
+`PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts --project=chromium`
+prints `4 passed` and exits 0. This is the RH-32 guard against a toolchain change breaking
+server-side rendering, and it must run against `next start` (the production server), not `next dev`.
+
+ER10 - `AGENTS.md` documents the gate. Verify: `grep -n 'npm run audit' AGENTS.md` prints at least
+one line inside the **Testing & quality** section, and that line names both `--audit-level=high`
+and the CI job, and states that the audit covers the full dependency tree (not `--omit=dev`).
+Verify: `grep -c 'audit' AGENTS.md` is greater than at the baseline
+(`git show 0f13814:AGENTS.md | grep -c 'audit'`).
+
+ER11 - The change touches only the whitelisted files and bumps the version. Verify:
+`{ git diff --name-only 0f13814; git ls-files --others --exclude-standard; } | sort -u` prints
+exactly `.github/workflows/ci.yml`, `AGENTS.md`, `docs/tasks/RH-32-spec.md`, `package-lock.json`,
+`package.json` (plus `docs/suggestions-log.md` only if a suggestion was logged) and nothing else.
+Verify no application code moved: `git diff --name-only 0f13814 -- src e2e migrations scripts`
+prints nothing and `git status --porcelain src e2e migrations scripts` prints nothing. Verify the
+landing page is untouched, per the Landing Page Rule decision that this task ships no selling
+point: `git diff --name-only 0f13814 -- src/components/landing src/i18n` prints nothing. Verify
+the version bump: `node -e "console.log(require('./package.json').version)"` prints a value
+matching `^0\.1\.68-20[0-9]{10}$` that sorts strictly above `0.1.67-202609052124`.
+
+## Post-merge checks (orchestrator/operator, not QA)
+
+These two checks are **not** expected results and must not be handed to QA: QA runs before the
+commit exists, so neither can pass at QA time. They are for the orchestrator or the operator to run
+after the commit is on `master`.
+
+- **Dependabot alerts close.** After the commit is pushed to `master` and GitHub's dependency-graph
+  rescan completes (may take minutes — the dismissal is asynchronous, so a `6` immediately after the
+  push is not a failure), `gh api repos/heitorpolidoro/repertoire-hero/dependabot/alerts?state=open --jq 'length'`
+  should print `0`. The six open alerts at `0f13814` (numbers 101-106, covering `browserslist` and
+  `fast-uri`) are the ones expected to close.
+- **The new CI job goes green.** Find the run with
+  `gh run list --branch master --limit 1 --json databaseId --jq '.[0].databaseId'`, then
+  `gh run view <run-id> --json jobs --jq '.jobs[] | select(.name == "Dependency audit (npm audit)") | .conclusion'`
+  should print `success`.
+
+## Out of Scope
+
+- Any change under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`.
+- Upgrading `next`, `webpack`, `@sentry/nextjs`, `eslint-config-next` or any other direct dependency.
+- Adding an `overrides` / `resolutions` block.
+- `npm audit fix --force` and any semver-major dependency change.
+- Acting on moderate or low severity advisories.
+- Enabling or configuring Dependabot version-update PRs (`.github/dependabot.yml`).
+- Landing page copy in either dictionary.

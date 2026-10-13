@@ -1,286 +1,417 @@
-# RH-54 - query tipado parte 1/5: fundacao DbRow e casa dos row types
+# RH-55 - query tipado parte 2/5: validar o payload de moderacao
 
-Parent: RH-40 (part 1 of 5). Baseline: `246313f`. `blockedBy`: empty.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-40 (part 2 of 5). Depends on RH-54 (`done`, merged as `f92c0f3`).
+Source finding: RH-25 F17 (`docs/plans/code-quality-review.md`, "F17 - Moderation
+payload fields reach SQL without type narrowing") and part 2 of the decomposition
+in `.meridian/reports/RH-40-spec-1.md`.
 
 ## Scope
 
-This task lays the foundation the other four parts of the RH-40 split stand on, and nothing else.
+This task closes F17 and nothing else.
 
-It covers exactly five things:
+In scope:
 
-1. Give `query` and the `Queryable` interface in `src/lib/db.ts` a non-`any` default row type: `export type DbRow = Record<string, unknown>`, `params?: unknown[]`, explicit `Promise<QueryResult<T>>` return.
-2. Remove both `eslint-disable-next-line @typescript-eslint/no-explicit-any` comments from `src/lib/db.ts` (they exist only to shield the two `any`s that this task deletes).
-3. Create `src/lib/dbRows.ts` as the single home for row interfaces that are not already a domain type in `src/types/database.ts`, and document that convention in `AGENTS.md`.
-4. Type the shared db helper `src/lib/__tests__/test-helpers.ts` (the `SupabaseMockChain` that builds and executes real SQL through `query`) so it holds no `any` and no `eslint-disable` comment.
-5. Fix exactly the sites the compiler flags once step 1 lands - 29 errors across 10 files, enumerated below - by naming the row type as a type argument at the call site, never by adding a cast.
+- A new module `src/lib/globalSongEditPayload.ts` exporting one type
+  `GlobalSongEditPayload` covering the seven `global_songs` columns a moderation
+  edit may propose (`title`, `artist`, `album`, `standard_key`, `cover_url`,
+  `duration_seconds`, `links`) and exactly one validator
+  `parseGlobalSongEditPayload(data: unknown): GlobalSongEditPayload`.
+- Calling that validator in `submitGlobalSongEdit` (so a bad payload is rejected
+  before the INSERT) and again in `reviewGlobalSongEdit` before the approval
+  UPDATE (so a historical `global_song_edits` row is covered too).
+- Deleting the ad-hoc narrowing block in `reviewGlobalSongEdit`
+  (`src/lib/moderation.ts:116-157`), including its `values: any[]` and the
+  `eslint-disable-next-line @typescript-eslint/no-explicit-any` above it, and
+  building the approval UPDATE from the parsed payload instead.
+- Per-field accept/reject table tests, two new unit tests in
+  `src/lib/__tests__/moderation.test.ts`, and a new real-database test file
+  proving (a) an invalid submission never reaches the INSERT and (b) a
+  hand-inserted historical row with a bad `proposed_data` is refused at approval
+  with the catalog row untouched and the edit still `pending`.
+- The complexity-budget consequence: `src/lib/moderation.ts` drops from a worst
+  function complexity of 19 to 13, which is below the base budget of 15, so its
+  per-file override entry is removed from `eslint.config.mjs` and the ratchet
+  bound in `src/lib/__tests__/complexityBudget.test.ts` and in AGENTS.md is
+  lowered from 24 to 23.
 
-It does not cover the remaining ~52 untyped `query()` call sites, the 6 casts the compiler does not flag, or any change to `src/lib/moderation.ts` semantics. Those belong to RH-55 (moderation validator, F17), RH-56 (songs/tabs), RH-57 (bands/playlists/profile) and RH-58 (Spotify + route handlers).
+Not in scope (see Out of Scope for the full list): parts 3, 4 and 5 of RH-40
+(typing songs/tabs rows, bands/playlists/profile rows, Spotify rows), any schema
+change, and any change to the Server Actions, the correction modal or the admin
+queue page.
 
-## Audit at 246313f
+## Audit at f92c0f3
 
-`git log --oneline -1` prints `246313f chore(RH-39): enforce complexity, depth and size budgets in eslint.config.mjs`. Version in `package.json` is `0.1.82-202609072252`. The audit below was reproduced in this working tree by copying `src/lib/db.ts` aside, applying the new signature, running `./node_modules/.bin/tsc --noEmit`, then restoring the file byte-for-byte; `git status --short` printed nothing afterwards.
+`git log --oneline -1` prints
+`f92c0f3 refactor(RH-54): type the query helper with a DbRow default and a row-type home`.
+`node -p "require('./package.json').version"` prints `0.1.83-202609080015`.
 
-### Current signatures (`src/lib/db.ts:22-35`)
+### The columns and the current narrowing
 
-```ts
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function query<T extends QueryResultRow = any>(text: string, params?: any[]) {
-  return pool.query<T>(text, params)
-}
+`migrations/0001_initial_schema.sql` declares the mutable columns of
+`global_songs` as `title text NOT NULL`, `artist text NOT NULL`, `album text`,
+`standard_key text`, `cover_url text`, `duration_seconds integer` and
+`links jsonb NOT NULL DEFAULT '[]'` (an array of `{label, url}`; the domain type
+is `SongLink` in `src/types/database.ts:8`).
 
-export interface Queryable {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>>
-}
-```
+`reviewGlobalSongEdit` (`src/lib/moderation.ts:116-157`) treats those seven
+columns three different ways:
 
-Two facts about this shape, both verified empirically and both load-bearing for the spec:
+| column | current check | what gets through |
+|---|---|---|
+| `title` | `typeof proposed.title === 'string'`, then `sanitizeSongTitle` | an empty string, or a string that sanitizes to empty |
+| `artist` | `typeof proposed.artist === 'string'`, then `.trim()` | an all-whitespace string |
+| `album` | `!== undefined`, then `typeof === 'string' ? sanitizeAlbumName(...) : null` | a number silently becomes `null` |
+| `standard_key` | `!== undefined` only | any JSON value, straight into a `text` column |
+| `cover_url` | `!== undefined` only | any JSON value, including a non-URL string |
+| `duration_seconds` | `!== undefined` only | `"abc"` reaches an `integer` column and fails with an opaque `22P02` |
+| `links` | `!== undefined` only, `JSON.stringify` unless already a string | `42`, or an array of anything |
 
-- Simply **dropping** the default (`<T extends QueryResultRow>`) achieves nothing. `@types/pg` declares `QueryResultRow` as `{ [column: string]: any }`, so an omitted type argument falls back to the constraint and rows stay `any`-valued. Measured: that variant produces exactly 1 compiler error in the whole repo. The non-`any` default is the only variant with teeth.
-- `Record<string, unknown>` satisfies the `QueryResultRow` constraint, and so do the existing domain **interfaces** (`Repertoire`, `Band`, `Playlist`, `Profile`, `GlobalSong`, `GlobalSongEdit`, `RepertoireTab`) - `query<Repertoire>(sql, params)` compiles today. Verified with a throwaway probe file.
+The parameter array is `const values: any[] = []` behind an
+`eslint-disable-next-line @typescript-eslint/no-explicit-any`
+(`src/lib/moderation.ts:118-119`). `rtk proxy npx eslint src/lib/moderation.ts`
+prints nothing today, so that disabled `any` contributes **zero** of the 8
+baseline eslint errors: removing it does not move the repo-wide total.
 
-`rtk proxy npx eslint src/lib/db.ts` currently prints nothing: a disable comment is not itself reported, so `db.ts` contributes 0 of the repo's 24 eslint problems. Removing the two disables plus the two `any`s therefore leaves the eslint total unchanged at 24 - the only eslint movement in this task comes from step 4.
+`submitGlobalSongEdit` (`src/lib/moderation.ts:6-24`) performs no validation at
+all: it stores `JSON.stringify(data)` verbatim into `proposed_data`.
 
-### Compiler worklist (29 errors, 10 files)
+`src/lib/moderation.ts:116` also holds `edit.proposed_data as Record<string, unknown>`,
+a redundant cast (the field is already declared `Record<string, unknown>` in
+`GlobalSongEdit`) that this task deletes. The one `.rows[0] as GlobalSongEdit`
+cast RH-54 deliberately left at `src/lib/moderation.ts:177` is on a line this
+task does not touch, so it stays.
 
-Applying `export type DbRow = Record<string, unknown>` plus `query<T extends QueryResultRow = DbRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>` (and the identical change on `Queryable.query`) yields exactly these errors. By code: 20x TS2352, 6x TS2322, 1x TS2345, 1x TS2339, 1x TS2739.
+### Every caller and the shape it submits
 
-| file | errors | lines | row type to name |
-|---|---|---|---|
-| `src/lib/songs.ts` | 8 | 61, 97, 191, 223, 341, 360, 400, 525 | `Repertoire` (61, 97, 223, 400, 525), `GlobalSong` (191), `{ id: string }` inline (341, 360) |
-| `src/lib/moderation.ts` | 4 | 18, 69, 98, 112 | `GlobalSongEdit` |
-| `src/lib/bands.server.ts` | 4 | 18, 19, 20, 21 | `BandByInviteCodeRow` (new) |
-| `src/lib/playlists.ts` | 3 | 34, 56, 240 | `Playlist` |
-| `src/lib/bands.ts` | 3 | 22, 99, 256 | `Band` (22, 99), `Playlist` (256) |
-| `src/lib/tabs.ts` | 2 | 55, 156 | `RepertoireTab` (via a generic `runTabQuery`) |
-| `src/app/api/spotify/playlists/[id]/sync/route.ts` | 2 | 90, 124 | `PlaylistSongIdRow` (new), `PlaylistSongLinksRow` (new) |
-| `src/lib/spotifyAuth.ts` | 1 | 19 | `SpotifyTokenRow` (new) |
-| `src/lib/profile.ts` | 1 | 10 | `Profile` |
-| `src/app/api/spotify/playlists/[id]/import/route.ts` | 1 | 107 | `Playlist` |
+- `src/app/actions/moderation.ts:11` `submitGlobalSongEditAction(songId, data: Record<string, unknown>)`
+  is a thin A2 action with no try/catch; it forwards to `submitGlobalSongEdit`.
+- `src/components/songs/CorrectionModal.tsx:52` submits
+  `{ title: string, artist: string, album: string | null, standard_key: string | null, reason: string | null }`.
+  `title` and `artist` are non-empty (the modal blocks empty ones at
+  `CorrectionModal.tsx:43`); `album` and `standard_key` are `trim() || null`.
+  **`reason` is not a `global_songs` column** and rides along inside `data`.
+  The modal is wired through `src/components/songs/SongForm.tsx:596` and
+  `src/app/page.tsx:109`.
+- `src/lib/songs.ts:477` (RH-34, `updateSongLinksAction` path) submits
+  `{ links: processedLinks }` when a link edit is destructive; `processedLinks`
+  is a `SongLink[]` and may legitimately be `[]` (the user removed every link).
+- `src/app/admin/moderation/page.tsx:163,178` renders `Object.entries(proposed)`
+  verbatim in the "Proposed Edits" column, so today the admin sees the
+  requester's `reason` next to the proposed columns. That must keep working.
 
-Verbatim samples (full list reproducible with the probe described above):
+Consequence for the design: unknown keys cannot be rejected (the modal would
+break) and `proposed_data` cannot be replaced by the parsed payload at
+submission time (the admin would lose the `reason`). They are **ignored** by the
+validator, and the approval UPDATE is built only from the seven known fields,
+which is already true today.
 
-```
-src/lib/songs.ts(61,12): error TS2352: Conversion of type 'DbRow[]' to type 'Repertoire[]' may be a mistake ...
-src/lib/songs.ts(341,7): error TS2322: Type 'unknown' is not assignable to type 'string'.
-src/lib/bands.server.ts(18,7): error TS2322: Type 'unknown' is not assignable to type 'string'.
-src/app/api/spotify/playlists/[id]/sync/route.ts(90,35): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
-src/app/api/spotify/playlists/[id]/sync/route.ts(124,36): error TS2339: Property 'find' does not exist on type '{}'.
-src/lib/spotifyAuth.ts(19,5): error TS2739: Type 'DbRow' is missing the following properties from type '{ access_token: string; refresh_token: string; expires_at: string; }': access_token, refresh_token, expires_at
-```
+### Tests that cover this code today
 
-Six of the ten files already import the domain type they need (`Repertoire`/`GlobalSong` in `songs.ts:5`, `GlobalSongEdit` in `moderation.ts:4`, `Playlist` in `playlists.ts:5` and in the import route, `Band`/`Playlist` in `bands.ts:4`, `Profile` in `profile.ts:3`, `RepertoireTab` in `tabs.ts:4`), so those fixes need no new import line.
+- `src/lib/__tests__/moderation.test.ts` (10 tests, `vi.mock('@/lib/db')`):
+  2 for `submitGlobalSongEdit`, 3 for `getPendingGlobalSongEdits`, 5 for
+  `reviewGlobalSongEdit`. The approval test asserts the third `query` call is
+  `UPDATE global_songs` with `expect.arrayContaining(['Plush', 'Core', 'Stone Temple Pilots', 'E', 'song-1'])`.
+  Order-independent, so the parsed-payload rewrite keeps it green.
+- `src/app/actions/__tests__/authzRepertoire.db.test.ts:217-290` (RH-34 ER9, real
+  DB): additive link write goes straight through; a removal routes to the queue
+  with `proposed_data.links` equal to `[ADDED_LINK]`; a system admin approving it
+  applies the removal. `ORIGINAL_LINK` and `ADDED_LINK` are
+  `{label: 'Chords', url: 'https://tabs.example/rh34-original'}` and
+  `{label: 'Video', url: 'https://youtu.be/rh34'}`, both valid under the new rules.
+- `src/lib/__tests__/transactionAtomicity.db.test.ts:111,192` inserts a
+  `global_song_edits` row with `proposed_data` `{ title: 'RH-36 Proposed <suffix>' }`
+  and approves it under injected failure. Valid under the new rules.
+- `src/app/actions/__tests__/thinActions.test.ts`,
+  `src/app/actions/__tests__/actionSessionGuard.test.ts` and
+  `src/components/songs/__tests__/SongForm.test.tsx` mock at the module boundary
+  or submit `{ title: 'x' }`, so none of them is affected.
 
-### The `songs.ts` line ceiling
-
-`src/lib/songs.ts` is **exactly 531 lines** and `eslint.config.mjs` pins it to `"max-lines": ["error", 531]`. The RH-39 ratchet may only shrink, and `src/lib/__tests__/complexityBudget.test.ts` fails on an override that is not exactly the file's current worst number. So `songs.ts` cannot take a single new line - not even an import. Its eight fixes are all line-neutral: six reuse types already imported on line 5, and the two `SELECT id` / `RETURNING id` sites use an inline `query<{ id: string }>(...)` type argument. Verified: after the reference implementation `wc -l src/lib/songs.ts` still prints 531 and the budget guard still passes 6/6.
-
-### Cast baseline
-
-```
-grep -rn "as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as " src --include='*.ts' | grep -v __tests__ | wc -l
-```
-
-prints **26** at `246313f`, spread over 8 files: `songs.ts` 8, `moderation.ts` 5, `bands.ts` 4, `playlists.ts` 4, `tabs.ts` 2, `profile.ts` 1, `spotify.ts` 1, `api/spotify/playlists/[id]/import/route.ts` 1. Exactly 20 of those 26 are the TS2352 sites above, so the reference implementation leaves **6** (`songs.ts` 2, `moderation.ts` 1, `bands.ts` 1, `playlists.ts` 1, `spotify.ts` 1) for RH-56/57/58. `grep -rn "as unknown as" src --include='*.ts' --include='*.tsx' | grep -v __tests__ | wc -l` prints **2** (`src/lib/db.ts:9` and `src/app/bands/[id]/page.tsx:376`); both must survive untouched, which is what stops a "fix" from laundering a cast through `as unknown as`.
-
-### Test files affected
-
-`tsconfig.json` **excludes** `**/__tests__/**` and `**/*.test.ts`, so `tsc --noEmit` never type-checks a test file, and vitest strips types without checking them. Consequence: typing the shared helper cannot break the build, and a `@ts-expect-error`-style type test placed in a `__tests__` file would be inert. The only compile-time proof of the new signature is a throwaway probe under `src/lib/` (ER3).
-
-`grep -rln "@/lib/db" src --include='*.test.ts*'` lists 21 test files; `createAdminTestClient` (whose declared return type changes from `any`) is consumed by 14 files. None of them needs to change: they are not type-checked, and the runtime behaviour of the helper is unchanged. **Whitelist: no existing test file is modified.** The only test artefacts in this task are the edit to `src/lib/__tests__/test-helpers.ts` and the new `src/lib/__tests__/dbRowTypes.test.ts`.
-
-### Verified baselines at 246313f
-
-- `./node_modules/.bin/tsc --noEmit` prints nothing, exit 0.
-- `rtk proxy npx eslint .` -> `24 problems (10 errors, 14 warnings)`; the 10 errors are 7x `react-hooks/set-state-in-effect`, 1x `@next/next/no-html-link-for-pages`, and 2x `@typescript-eslint/no-explicit-any` at `src/lib/__tests__/test-helpers.ts:96` and `:120`.
-- `rtk proxy npx vitest run` -> `Test Files 89 passed (89)`, `Tests 1040 passed (1040)`, 0 skipped (with Postgres live).
-- `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` -> 6 passed.
-- `npm run test:coverage` -> `All files | 97.14 | 84.45 | 99.4 | 97.66` against thresholds 80/65/78/80.
-- `npm run lint:dup` -> `Found 18 clones`, `230 (0.69%)` duplicated lines.
-- `npm run lint:dead` -> no output, exit 0. `npm run audit` -> `found 0 vulnerabilities`.
+I checked every payload any existing test submits: all of them validate under
+the rules below, so no existing test needs editing.
 
 ## Approach
 
-### 1. `src/lib/db.ts`
+### 1. `src/lib/globalSongEditPayload.ts` (new)
 
-Replace lines 22-35 with exactly this (the `QueryResult` and `QueryResultRow` types are already imported on line 1):
-
-```ts
-/**
- * The default row shape: a bare record whose values are `unknown`, not `any`.
- * A caller that names no type argument therefore has to prove what it reads,
- * instead of silently getting `any` back from `@types/pg`'s `QueryResultRow`
- * index signature (RH-54 / RH-25 F16).
- */
-export type DbRow = Record<string, unknown>
-
-export async function query<T extends QueryResultRow = DbRow>(text: string, params?: unknown[]): Promise<QueryResult<T>> {
-  return pool.query<T>(text, params)
-}
-
-/**
- * Anything that can run a parameterized statement: the pool itself, or one
- * client checked out of it inside `withTransaction`. A helper that takes a
- * `Queryable` works both standalone and as part of a caller's transaction.
- */
-export interface Queryable {
-  query<T extends QueryResultRow = DbRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>
-}
-```
-
-Both `eslint-disable-next-line @typescript-eslint/no-explicit-any` comments disappear with the `any`s they shielded. `const globalForDb = global as unknown as { pool?: Pool }` on line 9, the module-load `console.warn`, and `withTransaction` are untouched.
-
-### 2. `src/lib/dbRows.ts` (new)
-
-One exported interface per distinct SELECT list that is not already a domain type, named `<Subject>Row`, mirroring the projection column for column. Exactly four are needed by this task's worklist:
+Exports exactly two symbols:
 
 ```ts
-import type { SongLink } from '@/types/database'
-
-/** `SELECT * FROM get_band_by_invite_code($1)` - `member_count` is a bigint, so pg hands it back as text. */
-export interface BandByInviteCodeRow {
-  id: string
-  name: string
-  description: string | null
-  cover_url: string | null
-  member_count: string
+export interface GlobalSongEditPayload {
+  title?: string
+  artist?: string
+  album?: string | null
+  standard_key?: string | null
+  cover_url?: string | null
+  duration_seconds?: number | null
+  links?: SongLink[]
 }
 
-/** `SELECT song_id FROM playlist_songs WHERE playlist_id = $1` */
-export interface PlaylistSongIdRow {
-  song_id: string
-}
+export function parseGlobalSongEditPayload(data: unknown): GlobalSongEditPayload
+```
 
-/** `SELECT ps.song_id, ps.position, s.links FROM playlist_songs ps JOIN global_songs s ...` */
-export interface PlaylistSongLinksRow {
-  song_id: string
-  position: number
-  links: SongLink[] | null
-}
+Every field is optional (an edit proposes a subset), and at least one must be
+present. The module imports `sanitizeSongTitle` and `sanitizeAlbumName` from
+`@/lib/songSanitizer` and `SongLink` from `@/types/database`. It imports nothing
+from `@/app/*` (F21) and contains no `any` and no `eslint-disable`.
 
-/** `SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = $1` */
-export interface SpotifyTokenRow {
-  access_token: string
-  refresh_token: string
-  expires_at: string
+Per-field rules and the exact message thrown on rejection (every message starts
+with `Invalid global song edit: ` and names the field):
+
+| field | accepted | normalized to | message on reject |
+|---|---|---|---|
+| `title` | a string that is non-empty after `trim()` **and** after `sanitizeSongTitle` | `sanitizeSongTitle(value.trim())` | `Invalid global song edit: title must be a non-empty string` |
+| `artist` | a string that is non-empty after `trim()` | `value.trim()` | `Invalid global song edit: artist must be a non-empty string` |
+| `album` | a string, or `null` | `sanitizeAlbumName(value.trim())` (which returns `null` for an empty result), `null` stays `null` | `Invalid global song edit: album must be a string or null` |
+| `standard_key` | a string, or `null` | `value.trim() \|\| null` | `Invalid global song edit: standard_key must be a string or null` |
+| `cover_url` | `null`, or a string matching `/^https?:\/\/\S+$/i` after `trim()` | the trimmed string, or `null` | `Invalid global song edit: cover_url must be null or an http(s) URL` |
+| `duration_seconds` | `null`, or a `number` that is an integer `>= 0` | the number, or `null` | `Invalid global song edit: duration_seconds must be a non-negative integer or null` |
+| `links` | an array (possibly empty) whose every element is an object with a `string` `label` and a `string` `url` matching the same http(s) pattern | the array itself | `Invalid global song edit: links must be an array of {label, url} objects with http(s) urls` |
+
+Two payload-level rules:
+
+- `data` that is not a plain object (`null`, a primitive, or an array) throws
+  `Invalid global song edit: payload must be a plain object`.
+- A payload where none of the seven keys is present (or all seven are
+  `undefined`) throws
+  `Invalid global song edit: at least one of title, artist, album, standard_key, cover_url, duration_seconds, links must be present`.
+
+**Unknown keys are ignored, never rejected**, and never appear in the returned
+object: `parseGlobalSongEditPayload({ title: 'A', reason: 'typo' })` returns
+`{ title: 'A' }`. This is what keeps `CorrectionModal`'s `reason` working.
+
+Shape suggestion (measured: `parseGlobalSongEditPayload` complexity 12, every
+helper 5 or less, all under the base budget of 15, so the new file needs no
+override entry):
+
+```ts
+export function parseGlobalSongEditPayload(data: unknown): GlobalSongEditPayload {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new Error(`${PREFIX}: payload must be a plain object`)
+  }
+  const source: Record<string, unknown> = { ...data }
+  const payload: GlobalSongEditPayload = {}
+  if (source.title !== undefined) payload.title = parseTitle(source.title)
+  if (source.artist !== undefined) payload.artist = parseArtist(source.artist)
+  // ... one line per column, in column order ...
+  if (Object.keys(payload).length === 0) throw new Error(`${PREFIX}: at least one of ...`)
+  return payload
 }
 ```
 
-`links` is typed nullable so the existing `links?.find(...)` optional chain in the sync route keeps its exact current semantics.
+Building the object field by field in column order (rather than through a loop
+over a table) is deliberate: it keeps the result fully typed with no cast, and
+it makes `Object.entries(payload)` deterministic, which the approval UPDATE
+relies on. The `links` guard needs no cast either:
 
-Do **not** re-declare a domain type here. `Repertoire`, `Band`, `Playlist`, `Profile`, `GlobalSong`, `GlobalSongEdit` and `RepertoireTab` stay in `src/types/database.ts` and are named directly as type arguments. `knip` fails on an unused export, so no speculative row types.
-
-### 3. `AGENTS.md`
-
-Add this section immediately after the existing `# Transactions` section, verbatim:
-
-```markdown
-# Database Row Types
-
-`query()` and `Queryable.query()` in `src/lib/db.ts` default their row parameter to
-`DbRow = Record<string, unknown>`, never `any`: a call that names no type argument hands
-back `unknown`-valued columns, so the compiler forces every read to declare the shape it
-expects. Dropping the default instead of replacing it does nothing - `@types/pg` declares
-`QueryResultRow` as `{ [column: string]: any }`, so an omitted argument falls back to that
-constraint and rows stay `any`. Declare the shape as a type argument
-(`query<Repertoire>(sql, params)`), never as a cast on `res.rows`: a cast asserts a shape
-the checker never verified against the SELECT list, which is exactly what RH-25 F16 set out
-to remove.
-
-Row shapes that are not already a domain type from `src/types/database.ts` live in
-`src/lib/dbRows.ts` - one exported interface per distinct SELECT list, named `<Subject>Row`
-and mirroring the projection column for column (`SpotifyTokenRow`, `PlaylistSongIdRow`).
-They live there rather than beside their SQL because `src/lib/songs.ts` is pinned at
-`max-lines: 531` by the RH-39 ratchet and cannot grow by even one import line. Keep
-`src/types/database.ts` as the app's public vocabulary and `dbRows.ts` as an implementation
-detail of the data layer: never duplicate a domain type there, name it at the call site
-instead. `knip` (`npm run lint:dead`) fails on a row interface nobody imports, so do not add
-speculative ones. A single-column projection whose shape is evident at the call site
-(`query<{ id: string }>('... RETURNING id')`) may be written inline.
+```ts
+function parseLinks(value: unknown): SongLink[] {
+  if (Array.isArray(value)) {
+    const links = value.filter(isSongLink)
+    if (links.length === value.length) return links
+  }
+  throw new Error(`${PREFIX}: links must be an array of {label, url} objects with http(s) urls`)
+}
 ```
 
-### 4. Per-file fixes
+with `isSongLink(value: unknown): value is SongLink` reading `label` and `url`
+through the scoped structural cast the E1 convention already sanctions. I
+verified this whole shape compiles: `./node_modules/.bin/tsc --noEmit` exits 0
+against it.
 
-Every fix is "add a type argument, delete the cast the type argument makes unnecessary". No behaviour changes, no new runtime code.
+### 2. `submitGlobalSongEdit` (`src/lib/moderation.ts`)
 
-- **`src/lib/songs.ts`** (line-neutral, stays at 531 lines): `query<Repertoire>` at the five sites that returned `res.rows as Repertoire[]` / `res.rows[0] as Repertoire` (lines 61, 97, 223, 400, 525) with the cast deleted; `query<GlobalSong>` at line 191 with `as GlobalSong[]` deleted; `query<{ id: string }>(lookupSql, lookupParams)` and `query<{ id: string }>(insertSongSql, [...])` for the two `id` projections feeding `songId` (lines 341, 360).
-- **`src/lib/moderation.ts`**: `query<GlobalSongEdit>` on the four statements at lines 17, 62-68, 89 and 111; the three `as GlobalSongEdit` / `as GlobalSongEdit[]` casts and the `const edit = editRes.rows[0] as GlobalSongEdit` cast are deleted. **No other change to this file** - the `if (edit.status !== 'pending')` guards, the approval `UPDATE`, the `proposed_data as Record<string, unknown>` cast and every message string stay exactly as they are; validating the payload is RH-55's job.
-- **`src/lib/bands.server.ts`**: add `import type { BandByInviteCodeRow } from '@/lib/dbRows'`, use `query<BandByInviteCodeRow>(...)`. The `Number(row.member_count)` conversion stays.
-- **`src/lib/bands.ts`**: `query<Band>` at lines 22 and 99, `query<Playlist>` at line 256, casts deleted.
-- **`src/lib/playlists.ts`**: `query<Playlist>` at lines 34, 56, 240, casts deleted.
-- **`src/lib/profile.ts`**: `query<Profile>` at line 10, cast deleted.
-- **`src/lib/tabs.ts`**: make the shared wrapper generic - `async function runTabQuery<T extends QueryResultRow = DbRow>(...)` returning `query<T>(sql, params)` - which also retires the `params as never` cast now that `query` takes `unknown[]`. Call it as `runTabQuery<RepertoireTab>(...)` in `createTab` and `listTabs`; both `as RepertoireTab` casts are deleted. Needs `import type { QueryResultRow } from 'pg'` and `import { query, type DbRow } from '@/lib/db'`. The other four `runTabQuery` calls keep the default and are unchanged.
-- **`src/lib/spotifyAuth.ts`**: add `import type { SpotifyTokenRow } from '@/lib/dbRows'`, replace the inline `let tokenRow: { ... } | null = null` block with `let tokenRow: SpotifyTokenRow | null = null`, and use `query<SpotifyTokenRow>(...)`.
-- **`src/app/api/spotify/playlists/[id]/sync/route.ts`**: add `import type { PlaylistSongIdRow, PlaylistSongLinksRow } from '@/lib/dbRows'`; `query<PlaylistSongIdRow>` for the `SELECT song_id FROM playlist_songs` read, which also lets `localEntries.map((e) => e.song_id as string)` drop its cast; `query<PlaylistSongLinksRow>` for the push-direction read, which lets `links?.find((l: { label: string; url: string }) => ...)` drop its inline parameter annotation. The `spotify_playlist_id as string` cast on the separate `linkRes` read is **not** touched (RH-58 owns it).
-- **`src/app/api/spotify/playlists/[id]/import/route.ts`**: `query<Playlist>(insertPlaylistSql, [...])` at line 97, `as Playlist` at line 107 deleted.
+The signature does not change (`data: Record<string, unknown>`), so no caller
+moves. The validator is called **before** the wrapping `try`, following the L1a
+convention already used at `src/lib/songs.ts:460` ("Outside the wrapper: the UI
+shows this message verbatim"), so the message reaches `CorrectionModal`'s error
+banner unprefixed, and so no INSERT can possibly have run:
 
-### 5. `src/lib/__tests__/test-helpers.ts`
+```ts
+// Outside the wrapper (convention L1a): the UI shows this message verbatim.
+// Validation only - `proposed_data` is stored verbatim so the moderation queue
+// keeps the requester's `reason` (see src/app/admin/moderation/page.tsx).
+parseGlobalSongEditPayload(data)
+```
 
-Type the `SupabaseMockChain` so the file holds no `any` and no `eslint-disable` comment. ESLint 9 flat config reports unused disable directives as warnings, so the directives must go with the `any`s they shielded. Suggested shape (the module already only ever handles plain row records):
+The return value is deliberately discarded and the comment above says why.
 
-- a module-local `type MockRow = Record<string, unknown>`;
-- `private actionData: MockRow | MockRow[] | null = null`;
-- `private conditions: { type: 'eq' | 'in' | 'ilike'; col: string; val: unknown }[] = []`;
-- `insert(data: MockRow | MockRow[])`, `update(data: MockRow)`, `upsert(data: MockRow | MockRow[])`, `eq/in/ilike(col: string, val: unknown)`;
-- `const params: unknown[] = []`, `rows.map((row: MockRow) => ...)` at both former `any` sites (lines 96 and 120), `let data: unknown = res.rows`;
-- `then(onfulfilled?: (value: { data: unknown; error: { message?: string; code?: string } | null }) => unknown, onrejected?: (reason: unknown) => unknown)`;
-- `createAdminTestClient(): SupabaseMockClient` and `admin: SupabaseMockClient` on the four `createTestUser` / `deleteTestUser` / `...WithGoTrue` helpers.
+### 3. `reviewGlobalSongEdit` (`src/lib/moderation.ts`)
 
-The SQL built, the parameters pushed, and every returned value must be byte-identical to today - this is a type-only edit. The 14 suites that call `createAdminTestClient()` are not modified.
+The whole `116-157` block is replaced by:
 
-### 6. Test plan
+```ts
+const payload = parseGlobalSongEditPayload(edit.proposed_data)
+const setClauses: string[] = []
+const values: (string | number | null)[] = []
+for (const [column, value] of Object.entries(payload)) {
+  setClauses.push(`${column} = $${values.length + 1}`)
+  values.push(Array.isArray(value) ? JSON.stringify(value) : value)
+}
+```
 
-A permanent type-level test is impossible in a `__tests__` file (tsc excludes them, vitest strips types). Instead, add a source-scanning guard in the style of `errorHandlingStyle.test.ts`, reusing `fs`/`path` directly:
+`values` is typed, not `any[]`, so the `eslint-disable` goes away with it. The
+`if (setClauses.length > 0)` guard inside the transaction goes away too: the
+validator guarantees at least one field, so the UPDATE always has a SET list.
+Inside the transaction the song id is appended and the placeholder becomes
+`$${values.length}`.
 
-`src/lib/__tests__/dbRowTypes.test.ts`, `describe('db row typing (RH-54)')`, exactly three tests:
+The parse happens inside the existing `try` (it needs the row that the SELECT
+just returned), so the catch's re-throw allowlist gains one clause, exactly as
+L1a prescribes:
 
-1. `'src/lib/db.ts uses DbRow as the default row type for query and Queryable'` - asserts the file contains `export type DbRow = Record<string, unknown>` once and `= DbRow>` twice.
-2. `'src/lib/db.ts carries no any and no eslint-disable comment'` - asserts no `eslint-disable` occurrence and no `: any` / `= any` / `any[]` occurrence in the file.
-3. `'every type exported by src/lib/dbRows.ts is imported somewhere under src'` - parses the `export interface X` / `export type X` names out of `dbRows.ts` and asserts each appears in an import from `@/lib/dbRows` in at least one other file under `src/`.
+```ts
+err.message.startsWith('Invalid global song edit') ||
+```
 
-The guard test may build its `@/lib/dbRows` marker string however it likes - a plain string literal is fine, no concatenation or escaping trick is required. ER2's consumer grep filters `__tests__` out precisely so that this test file is never counted as a consumer, whichever form the marker takes.
+so the validation message survives verbatim instead of being wrapped in
+`Failed to review global song edit: ...`.
 
-The compile-time proof of the signature itself is the throwaway probe in ER3, run by the developer and by QA and deleted afterwards.
+The reject branch is untouched: rejecting an edit never validates the payload,
+because refusing a bad proposal must always be possible.
 
-### 7. Version and landing page
+### 4. Complexity budget consequence
 
-Bump `package.json` to `0.1.83-YYYYMMDDHHmm` (local time, strictly greater than `0.1.82-202609072252`). Per the Landing Page Rule this task is internal type hygiene with no user-visible behaviour, so it is **not** a selling point: `src/components/landing/LandingPage.tsx`, `src/i18n/dictionaries/en.json` and `src/i18n/dictionaries/pt-BR.json` must not change.
+Measured with the ESLint API against the shape above:
+
+| function | before | after |
+|---|---|---|
+| `submitGlobalSongEdit` | 3 | 3 |
+| `checkSystemAdmin` | 4 | 4 |
+| `getPendingGlobalSongEdits` | 4 | 4 |
+| `reviewGlobalSongEdit` | **19** | **13** |
+| the `withTransaction` arrow | 2 | 1 |
+
+13 is below the base budget of 15, and
+`src/lib/__tests__/complexityBudget.test.ts` fails any override whose ceiling is
+`<= BASE[rule]` ("relaxes only the five budget rules, and never below the base
+threshold"). So the override cannot be re-pinned to 13: the entry
+`{ ... files: ["src/lib/moderation.ts"], rules: { complexity: ["error", 19] } }`
+must be **deleted** from the `complexity-budget-overrides` block. That takes the
+list from 24 entries to 23, and the guard's own comment says "Lower this number
+when an override is removed; never raise it": set `MAX_OVERRIDES = 23`, update
+that test's title from "lists at most 24 per-file overrides" to
+"lists at most 23 per-file overrides", and update AGENTS.md line 94 from
+"the list growing past 24 entries" to "the list growing past 23 entries".
+
+### 5. Test plan
+
+**`src/lib/__tests__/globalSongEditPayload.test.ts` (new, 17 tests).** Pure unit
+tests, no mocks, no DB. Exactly these `it` names:
+
+1. `accepts a title and sanitizes the remaster suffix` - `{ title: 'Plush (2017 Remaster)' }` returns `{ title: 'Plush' }`.
+2. `rejects a title that is not a non-empty string` - `{ title: 42 }` and `{ title: '   ' }` both throw `Invalid global song edit: title must be a non-empty string`.
+3. `accepts an artist and trims it` - `{ artist: '  Stone Temple Pilots  ' }` returns `{ artist: 'Stone Temple Pilots' }`.
+4. `rejects an artist that is not a non-empty string` - `{ artist: null }` and `{ artist: '' }` both throw `Invalid global song edit: artist must be a non-empty string`.
+5. `accepts an album as a string or null` - `{ album: 'Core (Super Deluxe Edition)' }` returns `{ album: 'Core' }`; `{ album: null }` returns `{ album: null }`.
+6. `rejects an album that is neither a string nor null` - `{ album: 7 }` throws `Invalid global song edit: album must be a string or null`.
+7. `accepts a standard_key as a string or null` - `{ standard_key: 'Am' }` returns `{ standard_key: 'Am' }`; `{ standard_key: null }` returns `{ standard_key: null }`.
+8. `rejects a standard_key that is neither a string nor null` - `{ standard_key: ['A'] }` throws `Invalid global song edit: standard_key must be a string or null`.
+9. `accepts a cover_url that is an http(s) URL or null` - `{ cover_url: 'https://img.example/a.jpg' }` returns it unchanged; `{ cover_url: null }` returns `{ cover_url: null }`.
+10. `rejects a cover_url that is not an http(s) URL` - `{ cover_url: 'javascript:alert(1)' }` and `{ cover_url: 12 }` both throw `Invalid global song edit: cover_url must be null or an http(s) URL`.
+11. `accepts a duration_seconds that is a non-negative integer or null` - `{ duration_seconds: 217 }`, `{ duration_seconds: 0 }` and `{ duration_seconds: null }` all round-trip.
+12. `rejects a duration_seconds that is not a non-negative integer` - `{ duration_seconds: 'abc' }`, `{ duration_seconds: -1 }` and `{ duration_seconds: 3.5 }` all throw `Invalid global song edit: duration_seconds must be a non-negative integer or null`.
+13. `accepts links as an array of label/url objects with http(s) urls` - `{ links: [{ label: 'Chords', url: 'https://tabs.example/1' }] }` round-trips and `{ links: [] }` returns `{ links: [] }`.
+14. `rejects links that are not an array of label/url objects` - `{ links: 42 }`, `{ links: [{ label: 'x' }] }` and `{ links: [{ label: 'x', url: 'ftp://a/b' }] }` all throw `Invalid global song edit: links must be an array of {label, url} objects with http(s) urls`.
+15. `ignores keys that are not global_songs columns` - `{ title: 'Plush', reason: 'typo in the title' }` returns exactly `{ title: 'Plush' }` (asserted with `toEqual`, so the absence of `reason` is part of the assertion).
+16. `rejects a payload with no proposable field` - `{}` and `{ reason: 'typo' }` both throw `Invalid global song edit: at least one of title, artist, album, standard_key, cover_url, duration_seconds, links must be present`.
+17. `rejects a payload that is not a plain object` - `null`, `'x'` and `[]` all throw `Invalid global song edit: payload must be a plain object`.
+
+Rejection assertions use `expect(() => parseGlobalSongEditPayload(x)).toThrowError(new Error('<exact message>'))`, which compares the message for equality rather than substring.
+
+**`src/lib/__tests__/moderation.test.ts` (2 tests added, 10 existing untouched).**
+
+- `rejects an invalid payload at submission without touching the database`:
+  `await expect(submitGlobalSongEdit('user-1', 'song-1', { duration_seconds: 'abc' })).rejects.toThrowError(new Error('Invalid global song edit: duration_seconds must be a non-negative integer or null'))`
+  and `expect(query).not.toHaveBeenCalled()`.
+- `rejects a historical proposed_data that no longer validates before updating global_songs`:
+  admin check and edit lookup mocked as in the existing approval test, with
+  `proposed_data: { duration_seconds: 'abc' }`; the call rejects with the same
+  `toThrowError(new Error(...))` (verbatim, not wrapped in
+  `Failed to review global song edit:`) and `expect(query).toHaveBeenCalledTimes(2)`
+  proves no UPDATE was issued.
+
+**`src/lib/__tests__/moderationPayload.db.test.ts` (new, 2 tests, real DB).**
+Follows the pattern of `src/lib/__tests__/transactionAtomicity.db.test.ts`:
+`const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''`,
+`const admin = createAdminTestClient()`,
+`describe.skipIf(!SERVICE_ROLE_KEY)('global song edit payload validation (real database)', ...)`.
+`beforeAll` creates a requester and an admin with `createTestUser`, runs
+`UPDATE profiles SET is_system_admin = true WHERE id = $1` for the admin, and
+inserts one `global_songs` row
+(`INSERT INTO global_songs (title, artist, duration_seconds) VALUES ($1, $2, 217) RETURNING id`)
+with a `Date.now()` suffix in the title, because vitest runs files in parallel
+workers against shared tables. `afterAll` deletes the edits, the song and both
+users (`deleteTestUser`). No `BEGIN`/`COMMIT`/`ROLLBACK` literal anywhere
+(`transactionGuard.test.ts`).
+
+- `refuses an invalid payload at submission and inserts no edit row`: read
+  `SELECT count(*) FROM global_song_edits WHERE song_id = $1` before, call
+  `submitGlobalSongEdit(userId, songId, { duration_seconds: 'abc' })`, expect the
+  verbatim `Invalid global song edit: duration_seconds must be a non-negative integer or null`,
+  then assert the same count after.
+- `refuses a historical edit row whose proposed_data no longer validates`: insert
+  the row directly with
+  `INSERT INTO global_song_edits (song_id, requested_by, proposed_data, status) VALUES ($1, $2, $3, 'pending') RETURNING id`
+  and `JSON.stringify({ duration_seconds: 'abc' })`; call
+  `reviewGlobalSongEdit(adminUserId, editId, 'approve')`; expect the same
+  verbatim message; then assert
+  `SELECT title, duration_seconds FROM global_songs WHERE id = $1` still returns
+  the seeded title and `217`, and
+  `SELECT status FROM global_song_edits WHERE id = $1` still returns `pending`.
 
 ## Expected Results
 
-ER1 - `src/lib/db.ts` carries the new signature and no `any`. From the repo root, `grep -c "^export type DbRow = Record<string, unknown>$" src/lib/db.ts` prints `1`; `grep -c "= DbRow>" src/lib/db.ts` prints `2` (the `query` function and the `Queryable.query` member); `grep -c "params?: unknown\[\]" src/lib/db.ts` prints `2`; `grep -c "Promise<QueryResult<T>>" src/lib/db.ts` prints `2`; `grep -c "eslint-disable" src/lib/db.ts` prints `0`; and `grep -c ": any\|= any\|any\[\]" src/lib/db.ts` prints `0`. The line `const globalForDb = global as unknown as { pool?: Pool }` is still present (`grep -c "global as unknown as { pool?: Pool }" src/lib/db.ts` prints `1`).
+ER1 - the validator module exists with exactly one type and one function, and it is clean. From the repo root, `test -f src/lib/globalSongEditPayload.ts` succeeds; `grep -c "export interface GlobalSongEditPayload" src/lib/globalSongEditPayload.ts` prints `1`; `grep -c "export function parseGlobalSongEditPayload(data: unknown)" src/lib/globalSongEditPayload.ts` prints `1`; `grep -c "^export " src/lib/globalSongEditPayload.ts` prints `2` (nothing else is exported); `grep -cE "(title|artist|album|standard_key|cover_url|duration_seconds|links)\?:" src/lib/globalSongEditPayload.ts` prints `7` (one optional field per `global_songs` column); `grep -c ": any\|any\[\]\|eslint-disable\|@ts-expect-error\|@ts-ignore" src/lib/globalSongEditPayload.ts` prints `0`; and `grep -c "@/app/" src/lib/globalSongEditPayload.ts` prints `0`. `./node_modules/.bin/tsc --noEmit` prints nothing and exits 0.
 
-ER2 - `src/lib/dbRows.ts` exists, holds exactly the four new row types, and every one of them is consumed. `test -f src/lib/dbRows.ts` succeeds; `grep -c "^export interface " src/lib/dbRows.ts` prints `4`; `grep -c "^export interface BandByInviteCodeRow\|^export interface PlaylistSongIdRow\|^export interface PlaylistSongLinksRow\|^export interface SpotifyTokenRow" src/lib/dbRows.ts` prints `4`; `grep -rl "from '@/lib/dbRows'" src --include='*.ts' | grep -v __tests__ | sort` lists exactly `src/app/api/spotify/playlists/[id]/sync/route.ts`, `src/lib/bands.server.ts` and `src/lib/spotifyAuth.ts`; and `npm run lint:dead` prints no file or symbol list and exits 0 (knip flags any unused export, so this proves no speculative row type was added). `grep -c "^# Database Row Types$" AGENTS.md` prints `1` and `grep -c "src/lib/dbRows.ts" AGENTS.md` prints at least `1`.
+ER2 - `src/lib/moderation.ts` calls the validator on both paths and the ad-hoc block is gone. `grep -c "parseGlobalSongEditPayload(" src/lib/moderation.ts` prints `2` (once in `submitGlobalSongEdit`, once in `reviewGlobalSongEdit`); `grep -c "from '@/lib/globalSongEditPayload'" src/lib/moderation.ts` prints `1`; `grep -c "eslint-disable\|any\[\]" src/lib/moderation.ts` prints `0`; `grep -c "!== undefined" src/lib/moderation.ts` prints `0`; `grep -c "typeof proposed" src/lib/moderation.ts` prints `0`; `grep -c "as Record<string, unknown>" src/lib/moderation.ts` prints `0`; `grep -c "sanitizeSongTitle\|sanitizeAlbumName" src/lib/moderation.ts` prints `0` while `grep -c "sanitizeSongTitle\|sanitizeAlbumName" src/lib/globalSongEditPayload.ts` prints at least `2`; `grep -c "startsWith('Invalid global song edit')" src/lib/moderation.ts` prints `1`; and `grep -c "rows\[0\] as " src/lib/moderation.ts` prints `1` (the single cast RH-54 left behind is on a line this task does not touch and must remain).
 
-ER3 - the compiler now rejects reading an untyped row and accepts a typed one. First run `./node_modules/.bin/tsc --noEmit`: it prints nothing and exits 0. Then create a probe with `printf 'import { query } from "./db"\nexport async function probe() {\n  const r = (await query("SELECT 1 AS n")).rows[0]\n  const x: number = r.n\n  return x\n}\n' > src/lib/probeRow.ts` and run `./node_modules/.bin/tsc --noEmit` again: it prints a line containing `src/lib/probeRow.ts(4,9): error TS2322: Type 'unknown' is not assignable to type 'number'.` and exits non-zero. Then replace the probe's first `query(` call with `query<{ n: number }>(` (same file, otherwise identical) and re-run `./node_modules/.bin/tsc --noEmit`: it prints nothing and exits 0. Finally `rm src/lib/probeRow.ts` and confirm `git status --short` shows no entry for `src/lib/probeRow.ts`.
+ER3 - the per-field table test exists and passes. `rtk proxy npx vitest run src/lib/__tests__/globalSongEditPayload.test.ts --reporter=verbose` reports `Test Files 1 passed (1)`, `Tests 17 passed (17)` and `0 failed`, and its output contains these 17 test names verbatim: `accepts a title and sanitizes the remaster suffix`, `rejects a title that is not a non-empty string`, `accepts an artist and trims it`, `rejects an artist that is not a non-empty string`, `accepts an album as a string or null`, `rejects an album that is neither a string nor null`, `accepts a standard_key as a string or null`, `rejects a standard_key that is neither a string nor null`, `accepts a cover_url that is an http(s) URL or null`, `rejects a cover_url that is not an http(s) URL`, `accepts a duration_seconds that is a non-negative integer or null`, `rejects a duration_seconds that is not a non-negative integer`, `accepts links as an array of label/url objects with http(s) urls`, `rejects links that are not an array of label/url objects`, `ignores keys that are not global_songs columns`, `rejects a payload with no proposable field`, `rejects a payload that is not a plain object`. The seven reject messages asserted in that file are exactly `Invalid global song edit: title must be a non-empty string`, `Invalid global song edit: artist must be a non-empty string`, `Invalid global song edit: album must be a string or null`, `Invalid global song edit: standard_key must be a string or null`, `Invalid global song edit: cover_url must be null or an http(s) URL`, `Invalid global song edit: duration_seconds must be a non-negative integer or null` and `Invalid global song edit: links must be an array of {label, url} objects with http(s) urls`, plus the two payload-level messages `Invalid global song edit: payload must be a plain object` and `Invalid global song edit: at least one of title, artist, album, standard_key, cover_url, duration_seconds, links must be present`; `grep -c "Invalid global song edit:" src/lib/__tests__/globalSongEditPayload.test.ts` prints at least `9`.
 
-ER4 - the 20 compiler-flagged casts are gone and no cast was added or laundered anywhere. `grep -rn "as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as " src --include='*.ts' | grep -v __tests__ | wc -l` prints `6` (down from the `246313f` baseline of `26`), and `grep -rn "as [A-Z][A-Za-z]*\[\]\|rows\[0\] as \|\.rows as " src --include='*.ts' | grep -v __tests__ | sed 's/:.*//' | sort | uniq -c` shows exactly `1 src/lib/bands.ts`, `1 src/lib/moderation.ts`, `1 src/lib/playlists.ts`, `2 src/lib/songs.ts`, `1 src/lib/spotify.ts` and nothing else. `grep -rn "as unknown as" src --include='*.ts' --include='*.tsx' | grep -v __tests__ | wc -l` prints `2`, unchanged from baseline. `grep -rc "@ts-ignore\|@ts-expect-error\|@ts-nocheck" src --include='*.ts' --include='*.tsx' | grep -v ":0$" | wc -l` prints `0`.
+ER4 - the mocked moderation unit tests cover both wiring points and the existing ten still pass. `rtk proxy npx vitest run src/lib/__tests__/moderation.test.ts --reporter=verbose` reports `Test Files 1 passed (1)`, `Tests 12 passed (12)` and `0 failed`, and its output contains the two new names verbatim: `rejects an invalid payload at submission without touching the database` and `rejects a historical proposed_data that no longer validates before updating global_songs`. `grep -c "expect(query).not.toHaveBeenCalled()" src/lib/__tests__/moderation.test.ts` prints at least `1` (the submission test proves the INSERT never ran) and `grep -c "toThrowError(new Error('Invalid global song edit: duration_seconds must be a non-negative integer or null'))" src/lib/__tests__/moderation.test.ts` prints `2` (both messages are asserted for equality, so a message wrapped in `Failed to submit global song edit:` or `Failed to review global song edit:` would fail).
 
-ER5 - the shared db helper is typed and its consumers are untouched. `grep -c "eslint-disable" src/lib/__tests__/test-helpers.ts` prints `0` and `grep -c ": any\|= any\|any\[\]\|(admin: any" src/lib/__tests__/test-helpers.ts` prints `0`. `git diff --name-only 246313f -- src --diff-filter=M | grep "test.ts" | wc -l` prints `0` (no existing test file was modified). With Postgres live at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, `rtk proxy npx vitest run src/lib/__tests__/bands.test.ts src/lib/__tests__/playlists.test.ts src/lib/__tests__/profile.test.ts src/lib/__tests__/songs.test.ts src/lib/__tests__/spotify.test.ts src/lib/__tests__/joinBandByInvite.test.ts` reports `Test Files 6 passed (6)` and `0 failed`.
+ER5 - the real-database test proves an invalid submission never inserts and a historical bad row is refused at approval. With Postgres live at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, `rtk proxy npx vitest run src/lib/__tests__/moderationPayload.db.test.ts --reporter=verbose` reports `Test Files 1 passed (1)`, `Tests 2 passed (2)`, `0 failed` and `0 skipped`, and its output contains the names `refuses an invalid payload at submission and inserts no edit row` and `refuses a historical edit row whose proposed_data no longer validates`. `grep -c "BEGIN\|COMMIT\|ROLLBACK" src/lib/__tests__/moderationPayload.db.test.ts` prints `0`. Running the same command a second time also reports `Tests 2 passed (2)` (the fixtures clean up after themselves).
 
-ER6 - the new guard test exists and passes. `rtk proxy npx vitest run src/lib/__tests__/dbRowTypes.test.ts` reports `Test Files 1 passed (1)` and `Tests 3 passed (3)`, and its output contains the three test names `src/lib/db.ts uses DbRow as the default row type for query and Queryable`, `src/lib/db.ts carries no any and no eslint-disable comment` and `every type exported by src/lib/dbRows.ts is imported somewhere under src` (visible with `rtk proxy npx vitest run src/lib/__tests__/dbRowTypes.test.ts --reporter=verbose`).
+ER6 - nothing outside the data layer changed and every dependent suite is still green. `git diff f92c0f3 -- src/app src/components src/hooks src/store src/types src/i18n migrations` prints nothing. With the database precondition of ER5 satisfied, `rtk proxy npx vitest run src/app/actions/__tests__/authzRepertoire.db.test.ts src/lib/__tests__/transactionAtomicity.db.test.ts src/lib/__tests__/songs.test.ts src/app/actions/__tests__/repertoire.test.ts src/app/actions/__tests__/thinActions.test.ts src/app/actions/__tests__/actionSessionGuard.test.ts src/components/songs/__tests__/SongForm.test.tsx` reports `Test Files 7 passed (7)`, `0 failed` and `0 skipped`, and its output contains the four RH-34 link-flow names `writes an additive change straight through`, `routes a removal to the moderation queue and leaves the catalog untouched`, `applies the removal once a system admin approves it` and `passes the injected submitGlobalSongEdit down to the correction modal`.
 
-ER7 - the static gates hold and no budget override was loosened. `rtk proxy npx eslint .` ends with a summary line matching `problems (8 errors,` - the two `@typescript-eslint/no-explicit-any` errors are gone and no new error appeared - and `rtk proxy npx eslint . 2>&1 | grep -c "no-explicit-any"` prints `0`; `rtk proxy npx eslint . 2>&1 | grep -c "src/lib/db.ts\|src/lib/dbRows.ts"` prints `0`. `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` reports `Tests 6 passed (6)`. `git diff 246313f -- eslint.config.mjs` prints nothing, or prints only hunks that lower a number inside the `complexity-budget-overrides` block - no number may rise and no entry may be added. `wc -l src/lib/songs.ts` prints `531`. `npm run lint:dup` prints `Found 18 clones` with `230 (0.69%)` duplicated lines or fewer, and `npm run audit` prints `found 0 vulnerabilities`.
+ER7 - the static gates hold and the complexity ratchet tightened by one entry. `rtk proxy npx eslint .` ends with the summary line `22 problems (8 errors, 14 warnings)`, unchanged from `f92c0f3`, and `rtk proxy npx eslint src/lib/moderation.ts src/lib/globalSongEditPayload.ts src/lib/__tests__/globalSongEditPayload.test.ts src/lib/__tests__/moderationPayload.db.test.ts` prints nothing and exits 0. `rtk proxy npx eslint --rule '{"complexity":["error",14]}' src/lib/moderation.ts` prints nothing and exits 0 (the worst function complexity in that file was 19 at `f92c0f3` and is 13 after this change). `grep -c "src/lib/moderation.ts" eslint.config.mjs` prints `0` (the override entry is deleted, not re-pinned: a ceiling of 13 would be at or below the base budget of 15, which `complexityBudget.test.ts` rejects); `grep -c "complexity-budget/override" eslint.config.mjs` prints `23`; `grep -c "const MAX_OVERRIDES = 23" src/lib/__tests__/complexityBudget.test.ts` prints `1` and `grep -c "lists at most 23 per-file overrides" src/lib/__tests__/complexityBudget.test.ts` prints `1`; `grep -c "past 23 entries" AGENTS.md` prints `1` and `grep -c "past 24 entries" AGENTS.md` prints `0`. `rtk proxy npx vitest run src/lib/__tests__/complexityBudget.test.ts` reports `Tests 6 passed (6)` and `0 failed`. `npm run lint:dead` prints no file or symbol list and exits 0; `npm run lint:dup` exits 0 and its `Total:` row shows a duplicated-lines percentage of at most `1.00%` (baseline `229 (0.68%)` over 18 clones); `npm run audit` prints `found 0 vulnerabilities`.
 
-ER8 - behaviour is provably unchanged outside the data layer. `git diff 246313f -- src/app/actions src/components src/hooks src/store src/types src/i18n migrations` prints nothing. With the DB precondition of ER5 satisfied, `rtk proxy npx vitest run src/lib/__tests__/transactionAtomicity.db.test.ts src/lib/__tests__/spotifySyncAtomicity.db.test.ts src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts src/app/actions/__tests__/authzRepertoire.db.test.ts src/app/actions/__tests__/authzBands.db.test.ts src/app/actions/__tests__/authzPlaylists.db.test.ts src/app/actions/__tests__/authzTabs.db.test.ts src/lib/__tests__/moderation.test.ts src/lib/__tests__/tabs.test.ts src/lib/__tests__/bands.server.test.ts` reports `Test Files 10 passed (10)` and `Tests 114 passed (114)`.
+ER8 - the whole suite and the coverage gate stay green, and the new module is covered. With Postgres live at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, `rtk proxy npx vitest run` reports at least `Test Files 92 passed (92)` and at least `Tests 1064 passed (1064)`, with `0 failed` and `0 skipped` (the baseline at `f92c0f3` is 90 files / 1043 tests, plus the 17 of ER3, the 2 of ER4 and the 2 of ER5). `npm run test:coverage` exits 0, prints no line containing `does not meet threshold`, and its `All files` row shows statements >= 80, branches >= 65, functions >= 78 and lines >= 80; in the same output the row for `globalSongEditPayload.ts` shows statements, branch, funcs and lines each >= 90.
 
-ER9 - the whole suite and the coverage gate stay green. With Postgres live at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, `rtk proxy npx vitest run` reports at least `Test Files 90 passed (90)` and at least `Tests 1043 passed (1043)`, with `0 failed` and `0 skipped` (the baseline at `246313f` is 89 files / 1040 tests, plus the three tests of ER6). `npm run test:coverage` exits 0 and its `All files` row shows statements >= 80, branches >= 65, functions >= 78 and lines >= 80 (baseline 97.14 / 84.45 / 99.4 / 97.66), with no `ERROR: Coverage for ... does not meet threshold` line in the output.
+ER9 - the app still builds and renders server-side. `npx next build` exits 0 and prints `Compiled successfully`. `PLAYWRIGHT_WEB_SERVER='npx next start -p 3000 -H 127.0.0.1' npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed`.
 
-ER10 - the app still builds and renders server-side. `npx next build` exits 0 and prints `Compiled successfully`. `npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed`.
+ER10 - the version was bumped and the landing page was not touched. `node -p "require('./package.json').version"` prints a string matching `^0\.1\.84-[0-9]{12}$`, which sorts strictly after the `f92c0f3` value `0.1.83-202609080015`. `git diff f92c0f3 -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json` prints nothing: payload validation for the admin moderation queue is an internal correctness fix, not a selling point, so the Landing Page Rule requires no copy change.
 
-ER11 - version bumped, landing untouched, and the diff stays inside the whitelist. `node -p "require('./package.json').version"` prints a string matching `^0\.1\.83-[0-9]{12}$` that sorts strictly after `0.1.82-202609072252`. `git diff 246313f -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json` prints nothing (this task ships no selling point). `git diff --name-only 246313f | sort` lists only paths drawn from this closed set: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-54-spec.md`, `eslint.config.mjs`, `package.json`, `package-lock.json`, `src/app/api/spotify/playlists/[id]/import/route.ts`, `src/app/api/spotify/playlists/[id]/sync/route.ts`, `src/lib/__tests__/dbRowTypes.test.ts`, `src/lib/__tests__/test-helpers.ts`, `src/lib/bands.server.ts`, `src/lib/bands.ts`, `src/lib/db.ts`, `src/lib/dbRows.ts`, `src/lib/moderation.ts`, `src/lib/playlists.ts`, `src/lib/profile.ts`, `src/lib/songs.ts`, `src/lib/spotifyAuth.ts`, `src/lib/tabs.ts` - any other path fails this result.
+ER11 - the diff stays inside a closed whitelist. `git diff --name-only f92c0f3 | grep -v "^\.meridian/" | sort` lists only paths drawn from this set: `AGENTS.md`, `docs/suggestions-log.md`, `docs/tasks/RH-54-spec.md`, `eslint.config.mjs`, `package.json`, `package-lock.json`, `src/lib/__tests__/complexityBudget.test.ts`, `src/lib/__tests__/globalSongEditPayload.test.ts`, `src/lib/__tests__/moderation.test.ts`, `src/lib/__tests__/moderationPayload.db.test.ts`, `src/lib/globalSongEditPayload.ts`, `src/lib/moderation.ts`. Any other path fails this result. In particular `git diff --name-only f92c0f3 -- src/lib/songs.ts src/lib/db.ts src/lib/dbRows.ts src/lib/songSanitizer.ts` prints nothing.
 
 ## Out of Scope
 
-- The ~52 `query()` call sites the compiler does not flag, and the 6 remaining casts. RH-56 (`songs.ts`, `tabs.ts`), RH-57 (`bands.ts`, `bands.server.ts`, `playlists.ts`, `profile.ts`) and RH-58 (`spotifyAuth.ts`, `spotifyPlaylistSync.ts`, `spotify.ts`, `auth.ts`, the four route handlers) own them. This task deliberately leaves those files partially typed.
-- Any change to `src/lib/moderation.ts` behaviour: no payload validation, no restructuring of `reviewGlobalSongEdit`, no touching its pinned `complexity: 19` override. That is RH-55 (F17).
-- Schema changes. `migrations/` is not touched.
-- Server Actions, components, hooks, stores, i18n dictionaries and `src/types/database.ts`: none of them changes.
-- Landing page copy: this is internal type hygiene, not a selling point.
-- Retiring `kysely`, changing the pool configuration, or introducing an ORM.
+- **Parts 3, 4 and 5 of RH-40**: typing the rows of `src/lib/songs.ts` and
+  `src/lib/tabs.ts`, of `src/lib/bands*.ts` / `src/lib/playlists.ts` /
+  `src/lib/profile.ts`, and of the Spotify modules and route handlers. This task
+  touches `src/lib/moderation.ts` only.
+- **The remaining `.rows[0] as GlobalSongEdit` cast** at `src/lib/moderation.ts:177`.
+  RH-54 deliberately left exactly one there; the approval-UPDATE rewrite does not
+  touch that line, so it stays and ER2 pins it at `1`. A later part may retire it.
+- **Any schema change.** No migration is added. A CHECK constraint on
+  `global_songs`, or a `jsonb` schema constraint on `global_song_edits.proposed_data`,
+  is a different task with a different risk profile (existing rows).
+- **The Server Actions, `CorrectionModal`, `SongForm` and the admin queue page.**
+  Unknown keys are ignored rather than rejected precisely so none of them has to
+  change; ER6 pins that with an empty diff.
+- **Changing what `submitGlobalSongEdit` stores.** `proposed_data` keeps holding
+  the submitted object verbatim, including `reason`, so the moderation queue
+  keeps rendering it.
+- **The reject path of `reviewGlobalSongEdit`.** Refusing a proposal must stay
+  possible even when its payload is invalid, so it never parses.
+- **`src/lib/songSanitizer.ts`.** `sanitizeSongTitle` and `sanitizeAlbumName` are
+  reused as they are; their behaviour is not revisited.
 
 ## Post-merge checks (orchestrator)
 
-- RH-56 must re-measure `src/lib/songs.ts`: after this task the six `Repertoire`/`GlobalSong` sites are already typed, so its "19 call sites / 10 casts" figure drops to 11 call sites and 2 casts, and the same applies to `tabs.ts` (both casts already gone). Re-spec RH-56 against the post-merge tree rather than against `246313f`.
-- RH-57 and RH-58 likewise inherit `bands.server.ts`, `profile.ts`, `spotifyAuth.ts` and the two Spotify route handler sites already done here.
-- RH-55 inherits `moderation.ts` with four typed reads; the `proposed_data as Record<string, unknown>` cast it will delete is the one this task deliberately left in place.
+- After merge, `docs/plans/code-quality-review.md` F17 can be marked resolved; the
+  `## Suggestions` section of `.meridian/reports/RH-55-spec-1.md` lists the two
+  follow-ups worth capturing as new tasks (a `duration_seconds >= 0` CHECK
+  constraint, and rejecting unknown keys once `CorrectionModal` stops sending
+  `reason` inside `data`).

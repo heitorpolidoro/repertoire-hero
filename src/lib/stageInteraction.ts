@@ -11,7 +11,7 @@
  * This module must not import from `react` / `react-dom` and must not touch
  * `window` or `document`.
  *
- * See docs/tasks/RH-28-spec.previous.md §1 and §2a for the full reasoning.
+ * See docs/tasks/RH-27-spec.md §1 and §2a for the full reasoning.
  */
 
 /**

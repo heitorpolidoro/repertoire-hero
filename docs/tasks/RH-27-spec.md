@@ -1,5 +1,7 @@
 # RH-28 — Fix drawing-mode controls on tablet and add an on/off toggle
 
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
 Follow-up to RH-5 (`docs/tasks/RH-5-spec.md`), driven by operator testing on a tablet.
 Single deliverable, PR-sized: the PDF Stage Mode overlay in
 `src/app/songs/[id]/fast-view/page.tsx` and the drawing layer in

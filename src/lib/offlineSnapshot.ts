@@ -39,7 +39,7 @@
  * band-context download no longer photographs the band's charts and skips the
  * member's own.
  *
- * See docs/tasks/RH-79-spec.md §1, docs/tasks/RH-84-spec.md §5,
+ * See docs/tasks/RH-79-spec.md §1, docs/tasks/RH-83-spec.md §5,
  * docs/tasks/RH-123-spec.md §6 and docs/tasks/RH-124-spec.md §7.
  */
 

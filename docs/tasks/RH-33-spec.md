@@ -1,284 +1,370 @@
-# RH-33 — Corrigir vulnerabilidades de dependências (Dependabot / npm audit)
+# RH-34 — Fail-closed authorization on every Server Action
 
-**Priority:** HIGH · **blockedBy:** none · **Baseline commit:** `0f13814`
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Pinned to `27e44a8` (`fix(RH-33): patch browserslist and fast-uri advisories, add npm audit gate to CI`),
+the tip of `master` when this spec was written. Every baseline number below was
+re-measured on a clean tree at that commit, not copied from RH-25.
 
 ## Scope
 
-Bring the dependency tree to zero high-severity advisories and add a permanent CI gate so it
-cannot silently regress.
+A Server Action is a public POST endpoint. Anyone who can reach the page it is
+bound to can invoke it with arbitrary arguments; the UI that hides a button
+behind `isAdmin` is decoration. At `27e44a8`, 26 of the 45 exported actions
+(15 distinct defect classes) either resolve no session at all or resolve one and
+then authorize against a client-supplied id.
 
-**In scope (the complete file whitelist for this task):**
+This task makes one rule true everywhere, mechanically:
 
-| File | Change |
-|---|---|
-| `package.json` | version bump + one new `audit` script |
-| `package-lock.json` | patched transitive versions (produced by `npm audit fix`) |
-| `.github/workflows/ci.yml` | new `audit` job |
-| `AGENTS.md` | one line in **Testing & quality** documenting the audit gate |
-| `docs/tasks/RH-33-spec.md` | this file |
-| `docs/suggestions-log.md` | optional, for out-of-scope observations found while working |
+> **Every exported Server Action resolves the session through
+> `getRequiredUserId()` (directly, or through a helper in the same file that
+> does), and every action that touches a band, a playlist or a repertoire row
+> authorizes the caller against that row through a `src/lib` helper before any
+> read or write. When the caller is not entitled, the action fails closed: it
+> throws (or returns `{ error }` where that action already returns an envelope),
+> and the database is left byte-identical.**
 
-**Explicitly NOT in scope:**
+It covers all six action modules — `bands.ts`, `playlists.ts`, `repertoire.ts`,
+`tabs.ts`, `profile.ts`, `moderation.ts` — and the `src/lib` functions they call.
+It closes RH-25 findings **F1**, **F2**, **F3** and **F7**, plus the additional
+holes the sweep found that RH-25 did not enumerate (listed in "Audit at
+27e44a8" below).
 
-- Anything under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`. This task must not change a
-  single line of application code. If a test fails after the dependency bump, that is a finding to
-  report, not a licence to edit `src/`.
-- Upgrading direct dependencies (`next`, `webpack`, `@sentry/nextjs`, `eslint-config-next`, ...).
-  No direct dependency range in `package.json` changes.
-- Adding an `overrides` block. The investigation (see below) proved it is unnecessary; introducing
-  one anyway is a regression of this spec.
-- `npm audit fix --force`. Forbidden outright: it performs semver-major upgrades.
-- Moderate/low advisories, Dependabot version-update PRs, `Dockerfile`, `vercel.json`.
-- Landing page copy (see "Landing Page Rule" below).
+### Explicitly NOT in scope
 
-## Investigation results (already performed — do not redo)
+- **F5** — the Spotify route handlers (`src/app/api/spotify/playlists/[id]/**`).
+  Route handlers are a different surface with a different error convention (R1)
+  and their own task.
+- **F4** — the pool-level `BEGIN`/`COMMIT` transaction defect. `updateSong` and
+  `reviewGlobalSongEdit` keep their current (non-atomic) shape here.
+- **F6 / F8** — decomposing `FastViewPage`, or moving the remaining SQL out of
+  the action layer wholesale. This task moves only the SQL it must move (the
+  duplicated `band_members` membership check).
+- Any schema change. `git diff 27e44a8 -- migrations` must stay empty.
+- Rate limiting, SSRF allow-listing for `fetchUrlTitleAction` /
+  `fetchLyricsAction` (they gain a session requirement here, nothing more),
+  and "last admin cannot be removed" business rules.
+- Landing-page copy. This is a security fix, not a selling point — see
+  "Landing Page Rule" below.
 
-At `0f13814`, `npm audit --json` reports **2 high-severity package-level vulnerabilities**, both
-transitive, both `fixAvailable: true`:
+## Audit at 27e44a8
 
-| Package | Installed | Pulled in by | Advisories |
-|---|---|---|---|
-| `browserslist` | 4.28.2 (`<= 4.28.6` vulnerable) | `webpack@5.106.2` (direct **prod** dep) and `@sentry/nextjs > @sentry/bundler-plugin-core > @babel/core > @babel/helper-compilation-targets` | GHSA-c83g-rgw3-j3cx (unbounded memory growth / OOM), GHSA-73wf-gq98-2v4g (uncaught crash + prototype write via untrusted `browserslist-stats.json`) |
-| `fast-uri` | 3.1.5 (`>= 3.0.0 < 3.1.6` vulnerable) | `webpack@5.106.2 > schema-utils@4.3.3 > ajv@8.20.0` (and `ajv-formats > ajv`) | GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8 (host confusion / SSRF) |
+`for f in src/app/actions/*.ts; do echo "$f exports=$(grep -cE '^export (async )?(function|const)' "$f") requireCalls=$(grep -c 'getRequiredUserId()' "$f")"; done`
 
-**The "third" Dependabot alert.** `gh` is authenticated (account `heitorpolidoro`, scopes
-`gist, read:org, repo, workflow`) and
-`gh api repos/heitorpolidoro/repertoire-hero/dependabot/alerts?state=open` returns **6 open alerts,
-not 3** — alert numbers 101 and 102 for `browserslist` and 103, 104, 105 and 106 for `fast-uri`.
-Every one is `scope: runtime`, `relationship: transitive`, `severity: high`. There is **no third
-package**: GitHub opens one alert per advisory while `npm audit` groups advisories per package, so
-GitHub's 6 and npm's 2 describe the same two packages. Nothing is GitHub-only and nothing is
-already resolved. Patching `browserslist` to `>= 4.28.7` and `fast-uri` to `>= 3.1.6` closes all
-six.
+45 exported actions across six files. Read against the code, they classify as:
 
-**The fix is plain `npm audit fix`.** Both parents already accept the patched versions
-(`webpack` requires `browserslist@^4.28.1`, `ajv@8` requires `fast-uri@^3.0.1`), so no `overrides`
-entry is needed. Verified in a scratch copy of `package.json` + `package-lock.json`:
-`npm audit fix --package-lock-only` left `package.json` byte-identical, changed exactly seven
-lockfile entries, and `npm audit --audit-level=high` afterwards printed `found 0 vulnerabilities`
-and exited 0. `npm ci --dry-run` on the patched lockfile resolved 689 packages with no error.
+### Already correct (19)
 
-The seven entries that moved (the two vulnerable packages plus `browserslist`'s own data
-dependencies, all inside existing semver ranges) were:
+`profile.ts` (3/3), `moderation.ts` (3/3 — the two admin ones go through
+`checkSystemAdmin` in `src/lib/moderation.ts`), `tabs.ts` (5/5 — session plus a
+row-level `checkAccess`), and in the other files: `getBandsAction`,
+`createBandAction`, `leaveBandAction`, `regenerateBandInviteCodeAction`,
+`uploadBandCoverAction`, `getUserPlaylistsAction`, `createPlaylistAction`,
+`getPersonalEntryForSongAction`.
 
-```
-browserslist              4.28.2       -> 4.28.9
-fast-uri                  3.1.5        -> 3.1.7
-baseline-browser-mapping  2.10.30      -> 2.11.21
-caniuse-lite              1.0.30001793 -> 1.0.30001810
-electron-to-chromium      1.5.357      -> 1.5.422
-node-releases             2.0.44       -> 2.0.54
-update-browserslist-db    1.2.3        -> 1.3.2
-```
+### Unprotected: 15 defect classes covering 26 actions — what this task fixes
 
-`caniuse-lite` and `electron-to-chromium` publish daily, so the exact right-hand versions will
-drift; the acceptance criteria below constrain the *set of packages allowed to move* and the
-*minimum patched versions*, not the exact numbers.
+Rows 12, 13 and 15 each cover more than one exported action, which is why the
+table has 15 rows but accounts for 26 of the 45 exports (19 + 26 = 45).
+
+| # | Action | Defect at `27e44a8` |
+|---|---|---|
+| 1 | `updateBandAction` | F1. No session. `updateBand(bandId, data)` updates by id alone. |
+| 2 | `deleteBandAction` | F1. No session. `DELETE FROM bands WHERE id = $1`. |
+| 3 | `removeBandMemberAction` | F1. No session. `DELETE FROM band_members WHERE id = $1`, no band scoping. |
+| 4 | `getBandWithMembersAction` | No session. Leaks any band's member list (names, emails) **and its `invite_code`**. Not in RH-25. |
+| 5 | `getBandPlaylistsAction` | No session. Leaks any band's playlists. Not in RH-25. |
+| 6 | `createBandPlaylistAction` | No session. Inserts a playlist into any band. Not in RH-25. |
+| 7 | `updatePlaylistAction` | F2. No session. |
+| 8 | `deletePlaylistAction` | F2. No session. `DELETE FROM playlists WHERE id = $1`. |
+| 9 | `removeSongFromPlaylistAction` | F2. No session. |
+| 10 | `getPlaylistWithSongsAction` | F2. No session. Leaks any playlist's contents. |
+| 11 | `addSongToPlaylistAction` | Session resolved, but `addSongToPlaylist` never checks the caller may write to that playlist — authenticated cross-tenant write. Not in RH-25. |
+| 12 | `getPlaylistDetailsWithEntriesAction` (and its delegate `getPlaylistEntryIdsAction`) | Session resolved, but the playlist name is read unscoped and `bandId` is trusted from the client. Not in RH-25. |
+| 13 | the nine actions funnelling through `resolveOwner` — `getRepertoireAction`, `addSongAction`, `updateSongStatusAction`, `updateSongTagsAction`, `removeSongAction`, `getSongEntryAction`, `updateSongAction`, `createAndAddSongAction`, `updateLyricsAction` | F3. `resolveOwner` resolves the session, then discards it and returns `{ bandId }` unverified. Any signed-in user can read and mutate any band's repertoire. |
+| 14 | `updateSongLinksAction` | F7. No session, rewrites the shared `global_songs.links` for everyone. |
+| 15 | `searchGlobalSongsAction`, `fetchLyricsAction`, `fetchUrlTitleAction` | No session. `fetchUrlTitleAction` in particular is an unauthenticated server-side fetch of an arbitrary URL. Not in RH-25. |
+
+The four static gates are all green at `27e44a8` and must stay green:
+`npx tsc --noEmit` clean, `npx vitest run` **40 files / 478 tests / 0 skipped**,
+`npx eslint .` **30 problems (12 errors, 18 warnings)** (pre-existing),
+`npm run lint:dead` exit 0, `npm run lint:dup` exit 0 with **19 clones / 239
+duplicated lines / 1.08 %**, `npm run audit` **0 vulnerabilities**,
+`npm run test:coverage` **91.89 / 73.80 / 96.25 / 92.87** overall
+(`src/app/actions` row: 79.41 / 67.08 / 93.87 / 78.89) against thresholds
+80/65/78/80.
 
 ## Approach
 
-### 1. Patch the lockfile
+### 1. Two failure modes, chosen per action kind
 
-```bash
-npm audit fix
+Uniformity is the goal, but "fail closed" means different things for a read and
+a write, and picking the wrong one breaks working UI:
+
+- **Mutations assert and throw.** The thrown message starts with `Access denied`
+  — the prefix `src/lib/moderation.ts` already established, and which the L1a
+  rule in AGENTS.md re-throws unwrapped so the text survives to the UI. Actions
+  that already return an envelope (`tabs.ts`, `uploadBandCoverAction`) keep
+  returning `{ error: <that message> }`.
+- **Row reads scope in SQL and return the not-found value** (`null`, `[]`). A
+  caller without access gets exactly what they would get for an id that does not
+  exist, so existence is not leaked either. This also preserves the existing UI
+  paths verbatim: `useBandAdmin.load()` does
+  `Promise.all([getBandWithMembers, getBandPlaylists])` and branches on
+  `!bandData → onNotFound()`; `refreshPlaylist()` does
+  `if (!data) router.replace('/playlists')`. If those reads threw instead, a
+  non-member would get an error banner where they used to get "band not found".
+
+  The one deliberate exception is `resolveOwner`: the nine repertoire actions
+  take `bandId` from the caller's own band-context store, so a mismatch is never
+  a legitimate navigation, and F3's remediation asks for a throw. It throws for
+  reads too.
+
+### 2. New authorization helpers, in `src/lib` only
+
+No new module. The helpers live beside the domain code they guard, and no
+`band_members` SQL remains in `src/app/actions/*.ts` after this task.
+
+`src/lib/bands.ts`:
+
+```ts
+/** The caller's role in the band, or throws. */
+export async function assertBandMember(bandId: string, userId: string): Promise<'admin' | 'member'>
+// throws: Access denied: not a member of this band
+
+async function assertBandAdmin(bandId: string, userId: string): Promise<void>   // not exported
+// throws: Access denied: band admin required
 ```
 
-Nothing else. Do not pass `--force`. Do not hand-edit `package-lock.json`. If `npm audit fix`
-leaves any high advisory behind (it did not in the scratch run), stop and report rather than
-inventing an `overrides` block on your own authority.
+`src/lib/playlists.ts`:
 
-### 2. Add the `audit` npm script
-
-In `package.json`, immediately after `"lint:dup"`:
-
-```json
-    "audit": "npm audit --audit-level=high",
+```ts
+/** The playlist row the caller may act on, or throws. */
+export async function assertPlaylistAccess(
+  playlistId: string, userId: string,
+): Promise<{ id: string; user_id: string | null; band_id: string | null }>
+// predicate: user_id = $2 OR band_id IN (SELECT band_id FROM band_members WHERE user_id = $2)
+// throws (also for a non-existent id, so existence is not leaked):
+//   Access denied: not allowed on this playlist
 ```
 
-**Full tree, not `--omit=dev`.** Both vulnerable packages happen to sit in the production tree
-(`webpack` is listed under `dependencies`), so `--omit=dev` would have caught these two. It is
-still the wrong gate:
+`src/lib/songs.ts`:
 
-- Dependabot alerts on the **whole lockfile** regardless of scope. A `--omit=dev` gate would let a
-  Dependabot alert sit open on `master` while CI reported green, which is exactly the failure this
-  task exists to prevent.
-- CI runs `npm ci` with dev dependencies installed and executes them (`vitest`, `eslint`, `knip`,
-  `jscpd`, `playwright`), so dev-dependency code does run in the pipeline.
-- The baseline after this task is `0 vulnerabilities` across the **full** tree, so the stricter
-  gate starts noise-free today.
-
-`--audit-level=high` keeps the gate at the severity the project actually acts on; moderate and low
-advisories are reported but do not fail the build.
-
-Note for whoever wires it up: `npm audit` is a built-in npm command, so bare `npm audit` never
-invokes this script. CI must call `npm run audit`.
-
-### 3. Wire it into CI
-
-Add a fifth top-level job to `.github/workflows/ci.yml`, mirroring the shape of the existing
-`dead-code` and `duplication` jobs:
-
-```yaml
-  audit:
-    name: "Dependency audit (npm audit)"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 24.x
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24.x"
-          cache: "npm"
-
-      - name: npm audit (high and above)
-        run: npm run audit
+```ts
+/** The repertoire row the caller may act on, or throws. */
+export async function assertRepertoireAccess(
+  repertoireId: string, userId: string,
+): Promise<{ id: string; song_id: string; user_id: string | null; band_id: string | null }>
+// same predicate shape, over `repertoire`
+// throws: Access denied: not allowed on this repertoire entry
 ```
 
-Deliberately **no `npm ci` step**: `npm audit` resolves the tree from `package-lock.json` alone and
-`npm run` does not need `node_modules` to execute a script. This was verified in the scratch dir
-with no `node_modules` present (`npm run audit` printed `found 0 vulnerabilities`, exit 0). The job
-therefore finishes in seconds instead of paying for a full install.
+`src/app/actions/tabs.ts`'s local `checkAccess` is deleted and replaced by
+`assertRepertoireAccess` — it is the same query, and this removes the last
+`band_members` SQL from the action layer. Its thrown text changes from
+`Access denied` to `Access denied: not allowed on this repertoire entry`; update
+the two assertions in `src/app/actions/__tests__/tabs.test.ts` accordingly.
 
-### 4. Document the gate
+Keep each helper short and structurally distinct enough that `npm run lint:dup`
+stays under its 2 % threshold.
 
-Add one line to the **Testing & quality** bullet list in `AGENTS.md`, next to the `knip` and
-`jscpd` entries, naming the script, the severity threshold, the reason the audit covers the full
-tree rather than production-only, and the CI job that enforces it.
+### 3. Signature convention for the threaded `userId`
 
-### 5. Version bump
+`userId` goes **immediately after the entity id it authorizes against, before
+the payload**. The affected `src/lib` signatures become:
 
-Per the AGENTS.md Version Bumping Rule, bump `package.json` to `0.1.68-YYYYMMDDHHmm` using local
-time. The highest version already used is `0.1.67-202609052124`; the new version must sort strictly
-above it.
+```ts
+getBandWithMembers(bandId, userId)          // membership-scoped SELECT → null for non-members
+getBandPlaylists(bandId, userId)            // membership-scoped SELECT → [] for non-members
+createBandPlaylist(bandId, userId, name)    // assertBandMember (any member; the UI's
+                                            //  new-playlist form is not admin-gated)
+updateBand(bandId, userId, data)            // assertBandAdmin
+deleteBand(bandId, userId)                  // assertBandAdmin
+removeBandMember(memberId, userId)          // resolve band_id FROM band_members WHERE id = $1
+                                            //  server-side, then assertBandAdmin(that band);
+                                            //  DELETE ... WHERE id = $1 AND band_id = $2
+updatePlaylist(playlistId, userId, data)    // assertPlaylistAccess
+deletePlaylist(playlistId, userId)          // assertPlaylistAccess
+removeSongFromPlaylist(playlistId, userId, songId)   // assertPlaylistAccess
+addSongToPlaylist(playlistId, userId, songId)        // assertPlaylistAccess (argument order
+                                            //  changed from (userId, playlistId, songId))
+getPlaylistWithSongs(playlistId, userId)    // access-scoped SELECT → null
+```
 
-### 6. Landing Page Rule
+`removeBandMember` deliberately keeps its one-argument **action** signature:
+deriving `band_id` from the member row server-side is strictly safer than
+accepting it from the client, and it leaves `src/hooks/useBandAdmin.ts`
+untouched. No exported action signature changes anywhere except
+`updateSongLinksAction` (see §5).
 
-**This task ships no selling point.** Patching two transitive CVEs and adding a CI audit gate is
-internal and operational: no musician or band chooses the app for it, and there is no user-visible
-behaviour change at all. Per the Landing Page Rule, `src/components/landing/LandingPage.tsx` and
-the `landing.*` keys in `src/i18n/dictionaries/en.json` and `pt-BR.json` **must not be touched**.
-This is also enforced mechanically by ER11's "no file under `src/` changed" check.
+The assert call goes **outside** the wrapping `try` in each `src/lib` function,
+following the `regenerateBandInviteCode` precedent, so the `Access denied` text
+is not swallowed into a `Failed to …` prefix.
+
+### 4. `resolveOwner` (F3)
+
+```ts
+async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
+  const userId = await getRequiredUserId()
+  if (!bandId) return { userId }
+  await assertBandMember(bandId, userId)   // throws Access denied: not a member of this band
+  return { bandId }
+}
+```
+
+Four lines, nine actions fixed. Nothing else in `repertoire.ts` changes for
+those nine.
+
+`searchGlobalSongsAction`, `fetchLyricsAction` and `fetchUrlTitleAction` each
+gain a bare `await getRequiredUserId()`. In `fetchLyricsAction` it must go
+**before** the existing `try`, otherwise the `catch { return null }` swallows
+the authentication failure and the action fails open-ish (silent `null`).
+
+`getPersonalEntryForSongAction` already resolves the session inside a
+`try { … } catch { return null }`, so with no session it resolves `null`. That
+is fail-closed (no data crosses the boundary) and the fast-view call site has no
+rejection handler, so it keeps that shape — recorded as the single `null`-mode
+entry in the session guard table (§6).
+
+### 5. The global catalog write (F7) — chosen policy
+
+**Policy: a signed-in caller who owns a repertoire entry for the song may add
+links to the shared catalog directly; removing or rewriting an existing link is
+never a direct write — it is submitted to the RH-15/RH-27 moderation queue as a
+pending `global_song_edits` row and applied only on admin approval.**
+
+Why this and not the alternatives:
+
+- *Any signed-in user writes directly* keeps the abuse vector F7 names: one
+  account can still wipe the link list every other user sees.
+- *Everything through the queue* would break the behaviour the feature exists
+  for — a musician adds a chords link mid-rehearsal and needs to see it now, not
+  after an admin wakes up.
+- *Per-owner links on the `repertoire` row* is the "right" data model, but it is
+  a migration plus a visible product change (other users of the same song would
+  stop seeing contributed links) and belongs in its own task.
+
+The chosen split is the one the codebase already committed to twice. AGENTS.md
+describes `global_songs` as wiki-style — "any user can contribute a song" — and
+commit `d102d28` made a repertoire owner's catalog write *fill-if-empty*: it may
+add what is missing, never clobber what is there. RH-15/RH-27 then built
+`global_song_edits` precisely so that *corrections* to already-set catalog fields
+go through review. Additive-direct / destructive-moderated is the same rule
+applied to `links`, and it needs no new moderation plumbing:
+`reviewGlobalSongEdit` already applies `proposed.links`, and
+`src/app/admin/moderation/page.tsx` already renders object-valued proposals via
+`JSON.stringify`.
+
+Implementation:
+
+```ts
+export async function updateSongLinksAction(
+  repertoireId: string,
+  links: SongLink[],
+): Promise<{ success: boolean; pending?: boolean }>
+```
+
+1. `const userId = await getRequiredUserId()`.
+2. `const { song_id } = await assertRepertoireAccess(repertoireId, userId)`.
+   The polymorphic `repertoireIdOrSongId` parameter is **gone**: a
+   `global_songs.id` no longer resolves. No call site passes one (both call
+   sites in `src/app/songs/[id]/fast-view/page.tsx` pass `entry.id`), so this
+   removes only the crafted-call path. A repertoire id that does not exist or is
+   not the caller's still throws `Access denied: not allowed on this repertoire
+   entry`; keep `Song entry not found` for the case where the row exists but its
+   `song_id` does not resolve to a `global_songs` row.
+3. Auto-fetch missing labels via `fetchUrlTitle`, exactly as today.
+4. Read the current `global_songs.links`. If every current link's `url` is still
+   present in the submitted list — i.e. the change is purely additive, labels may
+   differ — `UPDATE global_songs SET links = $1 WHERE id = $2` and return
+   `{ success: true }`, the shape returned at `27e44a8`.
+5. Otherwise (a link was removed, or an existing entry's `url` changed) leave
+   `global_songs` untouched and call
+   `submitGlobalSongEdit(userId, song_id, { links: processedLinks })`; return
+   `{ success: true, pending: true }`.
+
+`src/app/songs/[id]/fast-view/page.tsx`: the add path (~line 550) is unchanged.
+The delete path (~line 605) inspects the result — when `pending` is true it
+leaves the link in the list and calls the existing `showToast(...)` with a
+`'warning'` tone saying the removal was submitted for review; otherwise it
+behaves exactly as today. No `alert()`/`confirm()` (AGENTS.md NO Browser Alerts;
+`src/lib/__tests__/noBrowserDialogs.test.ts` enforces it).
+
+### 6. Tests
+
+All new tests live in `src/app/actions/__tests__/`. The DB files mock **only**
+`@/lib/auth-session` (and `next/cache` for `revalidatePath`) and run against the
+real Postgres through `@/lib/db`, in the style of
+`src/lib/__tests__/joinBandByInvite.test.ts`: `describe.skipIf(!SUPABASE_SERVICE_ROLE_KEY)`,
+fixtures created in `beforeAll` via `createTestUser` from
+`src/lib/__tests__/test-helpers.ts`, everything they created deleted in
+`afterAll`. Every unauthorized case asserts **both** that the call was refused
+**and** that the target rows are unchanged, read back with a direct `query()`.
+
+1. **`actionAuthorizationGuard.test.ts`** — static scan. Reads every
+   `src/app/actions/*.ts`, extracts each top-level `export async function` name
+   and its body, and fails unless the body calls `getRequiredUserId()` or an
+   allowlisted session-resolving helper. The allowlist is a literal in the test
+   with a one-line justification per entry, and at merge holds exactly two:
+   `resolveOwner` and `getPlaylistDetailsWithEntriesAction` (the delegate target
+   of `getPlaylistEntryIdsAction`). A second case asserts
+   `grep -l band_members src/app/actions/*.ts` finds nothing.
+2. **`actionSessionGuard.test.ts`** — behavioural, mocked. A table with one
+   entry per exported action: its arguments and its fail-closed mode
+   (`throws` | `envelope` | `null`). One test asserts the table's key set equals
+   the export names scanned from the six files, so a new action cannot be added
+   without a decision. Then `it.each` over the table, with `getRequiredUserId`
+   mocked to reject `Not authenticated`, asserts the declared mode.
+3. **`authzBands.db.test.ts`**, **`authzPlaylists.db.test.ts`**,
+   **`authzRepertoire.db.test.ts`** — the real-DB cross-tenant suites described
+   in ER6/ER7/ER8/ER9.
+
+The five existing `src/app/actions/__tests__/*.test.ts` files from RH-24 stay
+green; they are extended (not rewritten) where a `src/lib` signature changed.
+The `src/lib/__tests__` files that call the re-signed functions —
+`bands.test.ts`, `playlists.test.ts`, `errors.test.ts`, `edge_cases.test.ts`,
+`joinBandByInvite.test.ts` — are updated to pass the new `userId` argument.
+
+### 7. Housekeeping
+
+- **Version bump** (AGENTS.md): highest used is `0.1.68-202609060011`; bump to
+  `0.1.69-<YYYYMMDDHHmm>` at commit time.
+- **Landing Page Rule**: this task ships **no** selling point. Closing an
+  authorization hole is table stakes, not a reason a musician picks the app, and
+  the rule explicitly excludes internal/operational changes. `landing.*` in both
+  dictionaries and `src/components/landing/**` must be untouched.
+- Log any deferred idea (F4, F5, per-owner links) to `docs/suggestions-log.md`
+  rather than widening this task.
 
 ## Expected Results
 
-ER1 - `package.json` changes are limited to the version bump and the new `audit` script, and no
-`overrides` block is introduced. Verify: `git diff 0f13814 -- package.json | grep -cE '^[+-][^+-]'`
-prints `3` (one removed and one added `"version"` line, one added `"audit"` line). Verify:
-`node -e "const p=require('./package.json'); console.log(('overrides' in p ? 'HAS-OVERRIDES' :
-'NO-OVERRIDES') + ' | ' + p.scripts.audit)"` prints exactly
-`NO-OVERRIDES | npm audit --audit-level=high`. Verify no direct dependency range moved:
-`git diff 0f13814 -- package.json | grep -E '^[+-] +"(next|webpack|react|react-dom|@sentry/nextjs|eslint-config-next)"'`
-prints nothing and exits 1.
+ER1 - Static gates unchanged from the `27e44a8` baseline. From the repo root on the task branch: `npx tsc --noEmit` exits 0 and writes nothing at all to stdout or stderr (zero bytes of diagnostic output, as at `27e44a8`); `npx eslint .` reports exactly 30 problems, 12 errors and 18 warnings, in its summary line (no new lint problem); `npm run lint:dead` exits 0 with no `Unused` section; `npm run lint:dup` exits 0 and reports at most 21 clones (baseline 19 clones / 239 duplicated lines / 1.08 %, threshold 2 %); `npm run audit` prints `found 0 vulnerabilities`.
 
-ER2 - `package-lock.json` moves only the vulnerable packages and their own data dependencies, adds
-nothing and removes nothing. Verify by running:
-```bash
-git show 0f13814:package-lock.json > /tmp/rh33-base-lock.json
-cat > /tmp/rh33-lockscope.mjs <<'EOF'
-import fs from 'fs'
-const B = JSON.parse(fs.readFileSync('/tmp/rh33-base-lock.json', 'utf8'))
-const A = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'))
-const V = l => Object.fromEntries(Object.entries(l.packages).filter(([k]) => k).map(([k, v]) => [k, v.version]))
-const b = V(B), a = V(A)
-const allow = new Set(['browserslist', 'fast-uri', 'baseline-browser-mapping', 'caniuse-lite', 'electron-to-chromium', 'node-releases', 'update-browserslist-db'])
-const bad = []
-for (const k of new Set([...Object.keys(b), ...Object.keys(a)])) {
-  if (b[k] === a[k]) continue
-  const name = k.split('node_modules/').pop()
-  if (b[k] === undefined) bad.push('ADDED ' + k)
-  else if (a[k] === undefined) bad.push('REMOVED ' + k)
-  else if (!allow.has(name)) bad.push('UNEXPECTED ' + k + ' ' + b[k] + ' -> ' + a[k])
-}
-console.log(bad.length === 0 ? 'LOCKFILE-SCOPE OK' : 'LOCKFILE-SCOPE FAIL\n' + bad.join('\n'))
-EOF
-node /tmp/rh33-lockscope.mjs
-```
-which prints exactly `LOCKFILE-SCOPE OK`. Verify the patched versions clear the advisories:
-`npm ls browserslist fast-uri` reports `browserslist` at `4.28.7` or higher and `fast-uri` at
-`3.1.6` or higher and below `4.0.0`, at every node it prints.
+ER2 - The whole suite grows and nothing skips. With Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with `npm run db:migrate` applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, `npx vitest run` reports `Test Files N passed (N)` with N >= 45, `Tests M passed (M)` with M >= 520, 0 failed and 0 skipped (baseline at `27e44a8`: 40 files / 478 tests / 0 skipped). All five of these files exist and are among the passing files: `src/app/actions/__tests__/actionAuthorizationGuard.test.ts`, `src/app/actions/__tests__/actionSessionGuard.test.ts`, `src/app/actions/__tests__/authzBands.db.test.ts`, `src/app/actions/__tests__/authzPlaylists.db.test.ts`, `src/app/actions/__tests__/authzRepertoire.db.test.ts`.
 
-ER3 - The tree is free of high-severity advisories. Verify: `npm audit --audit-level=high` prints a
-final line `found 0 vulnerabilities` and exits 0 (`echo $?` prints `0`). Verify the aggregate:
-`npm audit --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.stringify(JSON.parse(s).metadata.vulnerabilities)))"`
-prints `{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}`.
+ER3 - The coverage gate still passes with the actions layer no worse than baseline. `npm run test:coverage` exits 0 (thresholds statements 80 / branches 65 / functions 78 / lines 80), its `All files` row shows statements >= 80, branches >= 65, functions >= 78, lines >= 80, and its `src/app/actions` row shows statements >= 79.41 and lines >= 78.89 (the values at `27e44a8`).
 
-ER4 - The audit gate exists as an npm script and runs in CI. Verify: `npm run audit` prints
-`found 0 vulnerabilities` and exits 0 even with `node_modules` absent. Verify:
-`grep -nE '^  audit:$|Dependency audit \(npm audit\)|run: npm run audit' .github/workflows/ci.yml`
-prints exactly 3 matching lines. Verify: `grep -c 'npm ci' .github/workflows/ci.yml` still prints
-`4` (the audit job deliberately adds no install step). Verify the edited workflow is still valid
-YAML: `npx js-yaml .github/workflows/ci.yml > /dev/null` exits 0 (`echo $?` prints `0`), so the new
-job at least parses.
+ER4 - The rule is mechanical, not a convention. `npx vitest run src/app/actions/__tests__/actionAuthorizationGuard.test.ts` passes. That test scans every file matching `src/app/actions/*.ts`, collects each top-level `export async function`, and fails naming any whose body calls neither `getRequiredUserId()` nor a helper on an in-test allowlist that carries a one-line justification per entry; at merge the allowlist contains exactly the two entries `resolveOwner` and `getPlaylistDetailsWithEntriesAction`. A second case in the same file asserts no action file contains the string `band_members` (all membership SQL lives in `src/lib`), verifiable directly with `grep -l band_members src/app/actions/*.ts`, which prints nothing. Tamper check: delete the `getRequiredUserId()` call from `deletePlaylistAction`, re-run the file, and it fails with `deletePlaylistAction` in the message; restore the line and it passes again.
 
-ER5 - A clean install from the lockfile still works. Verify:
-`shasum -a 256 package-lock.json > /tmp/rh33-lock-before.sha && rm -rf node_modules && npm ci; echo $?`
-prints `0` with no `npm error` line in the output, and afterwards
-`shasum -a 256 -c /tmp/rh33-lock-before.sha` prints `package-lock.json: OK` (the install did not
-rewrite the lockfile).
+ER5 - Every exported Server Action refuses to run without a session. `npx vitest run src/app/actions/__tests__/actionSessionGuard.test.ts` passes with at least 46 tests. The file holds a table with one entry per exported action across `bands.ts`, `moderation.ts`, `playlists.ts`, `profile.ts`, `repertoire.ts` and `tabs.ts` (45 entries at merge), and one test asserts the table's key set is exactly equal to the set of exported action names scanned from those six files, so an action cannot be added without an entry. For every entry, with `getRequiredUserId` mocked to reject with `Not authenticated`, the action is invoked and matches its declared fail-closed mode: `throws` (rejects with a message containing `Not authenticated`), `envelope` (resolves to an object whose `error` property contains `Not authenticated`), or `null` (resolves to `null`). Exactly one entry uses mode `null`, `getPersonalEntryForSongAction`, and its table row carries the reason as a comment.
 
-ER6 - The unit/integration suite is unchanged and green. With local Postgres reachable at
-`postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a non-empty
-`SUPABASE_SERVICE_ROLE_KEY`, verify: `npx vitest run` prints `Test Files  40 passed (40)` and
-`Tests  478 passed (478)`, with no `skipped` count in either line, and exits 0. These are the
-`0f13814` baseline numbers and must be identical, because this task adds and removes no test.
+ER6 - Band actions refuse non-admins and non-members, and change nothing. `npx vitest run src/app/actions/__tests__/authzBands.db.test.ts` passes with 0 skipped, against the real database. Fixture: user A is admin/creator of band X, user B is a plain member, user C is not a member. Each of the following rejects with a message containing `Access denied`, and a direct SQL read-back taken after the call equals the snapshot taken before it: `updateBandAction` called as B and as C (`SELECT name, description, color FROM bands WHERE id = X` unchanged); `deleteBandAction` called as B and as C (`SELECT count(*) FROM bands WHERE id = X` still 1); `removeBandMemberAction` called as B and as C targeting B's `band_members` row (`SELECT count(*) FROM band_members WHERE id = <B row>` still 1); `createBandPlaylistAction` called as C (`SELECT count(*) FROM playlists WHERE band_id = X` unchanged). `getBandWithMembersAction(X)` called as C resolves to `null` and `getBandPlaylistsAction(X)` called as C resolves to `[]` (no throw, no data). The authorized paths still work in the same file: as A, `updateBandAction` changes the stored name, `createBandPlaylistAction` inserts a row, `removeBandMemberAction` deletes B's membership row and `deleteBandAction` removes the band; as B (before removal), `getBandWithMembersAction` returns the band with its members and `getBandPlaylistsAction` returns its playlists.
 
-ER7 - Every static gate stays at its `0f13814` baseline. Verify each command, from the repo root:
-`npx tsc --noEmit` prints no output and exits 0; `npm run lint:dead` prints no knip finding and
-exits 0; `npm run lint:dup` prints a Total row of `19` clones and `239 (1.08%)` duplicated lines
-and exits 0; `npx eslint .` ends with `30 problems (12 errors, 18 warnings)`.
+ER7 - Playlist actions refuse non-owners, and change nothing. `npx vitest run src/app/actions/__tests__/authzPlaylists.db.test.ts` passes with 0 skipped, against the real database. Fixture: user A owns personal playlist P holding at least one song; user C is unrelated. Called as C, each of `updatePlaylistAction`, `deletePlaylistAction`, `removeSongFromPlaylistAction` and `addSongToPlaylistAction` rejects with a message containing `Access denied`, and afterwards `SELECT name, description, tags FROM playlists WHERE id = P` and `SELECT count(*) FROM playlist_songs WHERE playlist_id = P` both equal their pre-call values. Called as C, `getPlaylistWithSongsAction(P)` resolves to `null`, and `getPlaylistDetailsWithEntriesAction(P, null)` rejects with `Access denied`; called as A but passing a `bandId` A is not a member of, `getPlaylistDetailsWithEntriesAction` also rejects with `Access denied`. Authorized paths in the same file still work and return the same shapes as at `27e44a8`: as A, update / add song / remove song / read succeed on P, and a member of a band-owned playlist can update it.
 
-ER8 - The production build still succeeds with the bumped `browserslist`. Verify: `npx next build`
-exits 0 (`echo $?` prints `0`) and its output contains no line starting with
-`Failed to compile`. Use `npx next build` rather than `npm run build`, which additionally runs
-`scripts/migrate.mjs` and `scripts/deduplicate-songs.mjs` against a live database.
+ER8 - Band repertoire is no longer cross-tenant. `npx vitest run src/app/actions/__tests__/authzRepertoire.db.test.ts` passes with 0 skipped, against the real database. Fixture: band X with member A and at least one repertoire entry; user C is not a member. Called as C with `bandId` = X, every one of `getRepertoireAction`, `addSongAction`, `updateSongStatusAction`, `updateSongTagsAction`, `removeSongAction`, `getSongEntryAction`, `updateSongAction`, `createAndAddSongAction` and `updateLyricsAction` rejects with a message containing `Access denied`; and for the mutating ones, `SELECT id, song_id, status, tags, lyrics FROM repertoire WHERE band_id = X ORDER BY id` afterwards is deeply equal to the same query taken before the call. Called as A (a member) the same nine succeed and return the same shapes as at `27e44a8`.
 
-ER9 - The SSR smoke suite passes against that production build. With Postgres running and
-migrations applied, verify:
-`PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts --project=chromium`
-prints `4 passed` and exits 0. This is the RH-32 guard against a toolchain change breaking
-server-side rendering, and it must run against `next start` (the production server), not `next dev`.
+ER9 - The shared catalog write is authorized and destructive changes go to moderation. In `src/app/actions/__tests__/authzRepertoire.db.test.ts`, with a global song S carrying at least one existing link and a repertoire entry R for S owned by user A: (a) with no session, `updateSongLinksAction` rejects with `Not authenticated` and `SELECT links FROM global_songs WHERE id = S` is unchanged; (b) called as user C who has no repertoire entry for S, it rejects with `Access denied` and the links are unchanged; (c) called with S's own `global_songs.id` in place of a repertoire id, it rejects (the id no longer resolves) and the links are unchanged; (d) called as A with the existing links plus one new URL, it resolves to `{ success: true }` with no truthy `pending`, `SELECT links FROM global_songs WHERE id = S` then contains the new URL, and `SELECT count(*) FROM global_song_edits WHERE song_id = S` is unchanged; (e) called as A with one existing link removed, it resolves to an object where `success` is `true` and `pending` is `true`, `SELECT links FROM global_songs WHERE id = S` is byte-identical to before the call, and exactly one new row exists with `SELECT status, requested_by, proposed_data FROM global_song_edits WHERE song_id = S ORDER BY created_at DESC LIMIT 1` returning `status` = `pending`, `requested_by` = A and `proposed_data->'links'` equal to the submitted list; (f) a system admin approving that row through `reviewGlobalSongEditAction(editId, 'approve')` then makes `SELECT links FROM global_songs WHERE id = S` match the submitted list. Additionally `npx vitest run src/lib/__tests__/noBrowserDialogs.test.ts` passes, and `grep -n "pending" "src/app/songs/[id]/fast-view/page.tsx"` shows the delete-link path branching on `pending` to keep the link visible and raise a Toast.
 
-ER10 - `AGENTS.md` documents the gate. Verify: `grep -n 'npm run audit' AGENTS.md` prints at least
-one line inside the **Testing & quality** section, and that line names both `--audit-level=high`
-and the CI job, and states that the audit covers the full dependency tree (not `--omit=dev`).
-Verify: `grep -c 'audit' AGENTS.md` is greater than at the baseline
-(`git show 0f13814:AGENTS.md | grep -c 'audit'`).
+ER10 - Authorized behaviour is unchanged end to end. `npx vitest run src/app/actions/__tests__/bands.test.ts src/app/actions/__tests__/playlists.test.ts src/app/actions/__tests__/repertoire.test.ts src/app/actions/__tests__/tabs.test.ts src/app/actions/__tests__/thinActions.test.ts` passes with 0 failed. `npx next build` exits 0. Then, with `next start` running and the environment loaded from `.env.local`, `npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed` (same as `27e44a8`).
 
-ER11 - The change touches only the whitelisted files and bumps the version. Verify:
-`{ git diff --name-only 0f13814; git ls-files --others --exclude-standard; } | sort -u` prints
-exactly `.github/workflows/ci.yml`, `AGENTS.md`, `docs/tasks/RH-33-spec.md`, `package-lock.json`,
-`package.json` (plus `docs/suggestions-log.md` only if a suggestion was logged) and nothing else.
-Verify no application code moved: `git diff --name-only 0f13814 -- src e2e migrations scripts`
-prints nothing and `git status --porcelain src e2e migrations scripts` prints nothing. Verify the
-landing page is untouched, per the Landing Page Rule decision that this task ships no selling
-point: `git diff --name-only 0f13814 -- src/components/landing src/i18n` prints nothing. Verify
-the version bump: `node -e "console.log(require('./package.json').version)"` prints a value
-matching `^0\.1\.68-20[0-9]{10}$` that sorts strictly above `0.1.67-202609052124`.
+ER11 - Version bumped, landing page untouched. `package.json` `version` matches `0.1.NN-YYYYMMDDHHmm` and is strictly greater than `0.1.68-202609060011`. `git diff --stat 27e44a8 -- src/components/landing src/i18n/dictionaries` prints nothing: closing an authorization hole is a security fix, not a selling point, and the AGENTS.md Landing Page Rule excludes internal/operational changes from the landing copy.
 
-## Post-merge checks (orchestrator/operator, not QA)
-
-These two checks are **not** expected results and must not be handed to QA: QA runs before the
-commit exists, so neither can pass at QA time. They are for the orchestrator or the operator to run
-after the commit is on `master`.
-
-- **Dependabot alerts close.** After the commit is pushed to `master` and GitHub's dependency-graph
-  rescan completes (may take minutes — the dismissal is asynchronous, so a `6` immediately after the
-  push is not a failure), `gh api repos/heitorpolidoro/repertoire-hero/dependabot/alerts?state=open --jq 'length'`
-  should print `0`. The six open alerts at `0f13814` (numbers 101-106, covering `browserslist` and
-  `fast-uri`) are the ones expected to close.
-- **The new CI job goes green.** Find the run with
-  `gh run list --branch master --limit 1 --json databaseId --jq '.[0].databaseId'`, then
-  `gh run view <run-id> --json jobs --jq '.jobs[] | select(.name == "Dependency audit (npm audit)") | .conclusion'`
-  should print `success`.
+ER12 - Change scope is contained and the schema is untouched. `git diff --name-only 27e44a8` lists only paths matching this whitelist: `src/app/actions/bands.ts`, `src/app/actions/playlists.ts`, `src/app/actions/repertoire.ts`, `src/app/actions/tabs.ts`, `src/lib/bands.ts`, `src/lib/playlists.ts`, `src/lib/songs.ts`, `src/app/songs/[id]/fast-view/page.tsx`, `src/app/actions/__tests__/*`, `src/lib/__tests__/*`, `docs/tasks/RH-33-spec.md`, `docs/suggestions-log.md`, `package.json`, `AGENTS.md`. `git diff 27e44a8 -- migrations` prints nothing.
 
 ## Out of Scope
 
-- Any change under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`.
-- Upgrading `next`, `webpack`, `@sentry/nextjs`, `eslint-config-next` or any other direct dependency.
-- Adding an `overrides` / `resolutions` block.
-- `npm audit fix --force` and any semver-major dependency change.
-- Acting on moderate or low severity advisories.
-- Enabling or configuring Dependabot version-update PRs (`.github/dependabot.yml`).
-- Landing page copy in either dictionary.
+Restated for the reviewer: F5 (Spotify route handlers), F4 (`withTransaction`),
+F6/F8 (FastViewPage decomposition, moving all remaining SQL out of the action
+layer), any migration, rate limiting, SSRF URL allow-listing, "last admin"
+rules, and landing-page copy.

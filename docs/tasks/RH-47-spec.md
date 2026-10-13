@@ -1,730 +1,544 @@
-# RH-47 - Invert SongForm, CorrectionModal and useBandAdmin, and ban @/app/* in ESLint
+# RH-48 — Fast View parte 1/5: extrair navegacao de playlist e UI de setlist
 
-Parent: RH-37, part 3 of 3 (RH-25 T4, the remainder of finding F21). Depends on RH-46
-(`51151d7`, done). This is the last part; when it lands, F21 can be closed.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+Parent: RH-38 (`Decompor a pagina Fast View`), part 1 of 5.
+Baseline: `c8665cd` (`docs(RH-37): close out data-access layering findings F8, F21 and F22`).
+Covers: F6 (first slice) and F26 (both halves — see "F26 scope note" below).
 
 ## Scope
 
-Three files under `src/components` and `src/hooks` still reach up into the App Router
-tree to call Server Actions. This task inverts all three so the calls arrive as props or
-as an injected dependency object, and then adds the ESLint `no-restricted-imports` rule
-that F21's remediation asks for - the rule that can only reach zero violations once this
-part lands.
+This task extracts exactly one vertical slice out of
+`src/app/songs/[id]/fast-view/page.tsx`: **playlist navigation and the setlist
+UI**. Concretely:
 
-In scope:
+- the pure navigation decisions (previous / next / position, the `returnTo`
+  playlist-id match, the query-string preservation, the swipe threshold, the
+  slide-out class) move to a new `src/lib` module;
+- the controller that owns the playlist fetch, the drawer open/closed state, the
+  slide-out animation and the actual `router.push` moves to a new `src/hooks`
+  hook, taking its Server Action as an injected typed dependency (the RH-47
+  `useBandAdmin` shape);
+- the mobile bottom-sheet drawer, the desktop sidebar, the mobile select, the
+  desktop previous arrow, the mobile `Setlist (X/Y)` pill and the mobile swipe
+  hint move to `src/components/fastview/*`, with **one shared row component**
+  used by both the drawer and the sidebar (which removes the one jscpd clone
+  that lives inside the page today);
+- the page stops reading `window.location.search` anywhere and reads
+  `returnTo` / `bandId` through `useSearchParams()`;
+- the pure alias Server Action `getPlaylistEntryIdsAction` is deleted, together
+  with its two guard-table entries and its unit test.
 
-- `src/hooks/useBandAdmin.ts` stops importing the eight band actions from
-  `@/app/actions/bands` and takes them as one required `actions: BandAdminActions`
-  option.
-- `src/app/bandAdminActions.ts` (new) composes that object once from the real actions;
-  `src/app/bands/[id]/page.tsx` and `src/app/profile/page.tsx` both pass it in.
-- `src/components/songs/SongForm.tsx` stops importing the four repertoire actions from
-  `@/app/actions/repertoire` and takes them, plus the correction submitter, as one
-  required `actions: SongFormActions` prop; `src/app/page.tsx` supplies it.
-- `src/components/songs/CorrectionModal.tsx` stops importing
-  `submitGlobalSongEditAction` from `@/app/actions/moderation` and takes an
-  `onSubmitCorrection` callback prop; `SongForm` forwards
-  `actions.submitGlobalSongEdit` into it.
-- `eslint.config.mjs` gains a scoped `no-restricted-imports` block banning `@/app/*` and
-  `@/app/**` under `src/components/**`, `src/lib/**` and `src/hooks/**`, with
-  `**/__tests__/**` deliberately exempt.
-- `src/hooks/__tests__/useBandAdmin.test.tsx` is retargeted: the
-  `vi.mock('@/app/actions/bands')` block is replaced by a fake `actions` object built
-  from `vi.fn()` spies and passed into the hook. All 29 existing test names, describe
-  blocks and assertions survive unchanged.
-- Two new jsdom suites: `src/components/songs/__tests__/SongForm.test.tsx` (5 tests) and
-  `src/components/songs/__tests__/CorrectionModal.test.tsx` (4 tests).
-- One line added to AGENTS.md recording the import-direction convention and naming the
-  rule that enforces it (AGENTS.md does not state this rule anywhere today - the closest
-  it comes is the `A2 - thin Server Actions` paragraph, which is about SQL, not about
-  which direction imports may point).
+**The page stays large.** After this slice it is still roughly 1440 lines and
+still a single component of complexity around 74. That is expected and
+budgeted: RH-49..RH-52 own the remaining four slices (tabs/upload, the PDF
+Stage Mode overlay, lyrics, and the entry/status/links/shell), and RH-38 closes
+F6 by re-measuring the whole page after all five have landed. Nothing in this
+task may touch those four slices.
 
-Behaviour is identical everywhere: the same actions are called with the same arguments in
-the same order, the same loading flags flip, the same error banners and toasts appear
-with the same text, and RH-18's `BANDS_PAGE_LOAD_POLICY` / `BAND_PROFILE_LOAD_POLICY`
-semantics (catch-or-propagate, clear-or-keep loading on not-found) are untouched. There is
-no deliberate behaviour delta in this task at all.
+### F26 scope note (deviation from the RH-38 decomposition report)
 
-## Audit at 51151d7
+The RH-38 report allocated the two load-effect `window.location.search` reads
+(lines 290-291 and 329-330) to part 5 and only the `navigateTo` / back-button
+reads (667-669 and 784) to part 1. This spec pulls **all four** into part 1,
+because the split is not actually available: once the page holds a
+`useSearchParams()`-derived `bandId` at the top (which part 1 needs anyway for
+the navigation query string), leaving the load effect reading
+`window.location.search` while a `bandId` binding is in scope either duplicates
+the read for no reason or trips `react-hooks/exhaustive-deps` the moment the
+derived value is used. Converting the load effect too costs four lines, closes
+F26 completely, and is verified mechanically by ER5.
 
-`git log --oneline -1` prints
-`51151d7 refactor(RH-46): TabDrawingStage and AppLayout receive their data by props`.
-`git status --porcelain` prints nothing. `package.json` version is `0.1.73-202609071401`.
+This has one deliberate, user-visible consequence, and it is the F26
+remediation: the load effect's dependency array becomes `[id, bandId]`, so a
+client-side navigation that changes only `?bandId=` now refetches the entry
+instead of showing the previous context's data.
 
-### The three remaining inward imports
+## Audit at c8665cd
 
-`grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints exactly
-three lines today, which are exactly this task's targets:
+`wc -l "src/app/songs/[id]/fast-view/page.tsx"` prints `1625`. The whole file is
+one exported client component, `FastViewPage` (line 92), measured with
+`npx eslint "src/app/songs/[id]/fast-view/page.tsx" --rule '{"complexity":["error",15],"max-lines-per-function":["error",200]}'`
+as `Function 'FastViewPage' has too many lines (1534)` and
+`Function 'FastViewPage' has a complexity of 88`.
+
+Default `npx eslint "src/app/songs/[id]/fast-view/page.tsx"` prints:
 
 ```
-src/components/songs/SongForm.tsx:16:} from "@/app/actions/repertoire";
-src/components/songs/CorrectionModal.tsx:5:import { submitGlobalSongEditAction } from "@/app/actions/moderation";
-src/hooks/useBandAdmin.ts:11:} from "@/app/actions/bands";
+   15:10  warning  'getPlaylistEntryIdsAction' is defined but never used      @typescript-eslint/no-unused-vars
+   18:7   error    'html' is never reassigned. Use 'const' instead            prefer-const
+  150:10  warning  'uploadDestination' is assigned a value but never used     @typescript-eslint/no-unused-vars
+  150:29  warning  'setUploadDestination' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  870:74  error    Unexpected any. Specify a different type                   @typescript-eslint/no-explicit-any
+
+5 problems (2 errors, 3 warnings)
 ```
 
-The full grep (without the `__tests__` filter) adds six test-file hits: four
-`src/lib/__tests__` suites importing route handlers from `@/app/api/...`
-(`devProfiles.test.ts:27`, `spotify.test.ts:58` and `:59`,
-`spotifyPlaylistRouteAuthz.db.test.ts:32-34`, `spotifySyncAtomicity.db.test.ts:20`) and
-`src/hooks/__tests__/useBandAdmin.test.tsx:5` and `:34`. Those four `src/lib` suites are
-testing the route handlers themselves and must keep importing them, which is why the new
-ESLint rule exempts `__tests__` (see the Approach).
+Only the first of the five belongs to this slice (it disappears when the alias
+action is deleted). `prefer-const` at 18 is inside `parseLyricsMarkdown`
+(RH-51), the two `uploadDestination` warnings are RH-49, and the
+`no-explicit-any` at 870 is inside the status dropdown (RH-52). The repo-wide
+total is `29 problems (12 errors, 17 warnings)` and drops by exactly one
+warning.
 
-### `src/hooks/useBandAdmin.ts` (345 lines)
+### The nav / setlist responsibilities in the page
 
-Eight actions, imported aliased at L2-L11 and called at these sites:
+| Region | Lines | What it is |
+|---|---|---|
+| Import of the alias action | 15 | `getPlaylistEntryIdsAction` imported and never used, alongside `getPlaylistDetailsWithEntriesAction` |
+| Nav state | 153-167 | `playlistNav` (`{prevId, nextId, position, total, playlistId, playlistName}`), `playlistEntries`, `isDrawerOpen`, `touchStartX` ref, `slideOut` |
+| Nav fetch | 328-348 | Inside the `load()` effect: reads `returnTo`, matches `/^\/playlists\/([\w-]+)$/`, calls `getPlaylistDetailsWithEntriesAction(playlistId, queryBandId)`, computes prev/next/position/total, swallows errors |
+| `navigateTo` | 665-677 | Rebuilds the query string from `returnTo` + `bandId`, sets `slideOut`, `setTimeout(220)` then `router.push` |
+| Mobile drawer | 681-746 | Bottom sheet: backdrop, header with the music-note glyph + playlist name + close button, scroll container `flex-1 overflow-y-auto p-4 flex flex-col gap-1.5`, one button row per entry |
+| Desktop arrow | 748-760 | `fixed left-4 top-1/2 ... hidden lg:flex`, `aria-label="Previous song"`. There is **no** next arrow (see "Preserved asymmetry") |
+| Slide-out class | 766-768 | `slideOut === 'left' ? '-translate-x-full' : slideOut === 'right' ? 'translate-x-full' : 'translate-x-0'` |
+| Swipe handlers | 769-777 | `onTouchStart` records `clientX`; `onTouchEnd` needs `abs(delta) >= 60`, `delta > 0` goes to `nextId` sliding `left`, `delta < 0` goes to `prevId` sliding `right` |
+| Setlist pill | 798-807 | `lg:hidden` pill, label `Setlist ({position}/{total})` |
+| Mobile select | 810-832 | `lg:hidden` `<select value={id}>`, options `"{idx+1}. {title} - {artist}"` |
+| Swipe hint | 1360-1367 | `lg:hidden` strip: left-arrow `prev` when `prevId`, `{position} / {total}`, `next` right-arrow when `nextId` |
+| Desktop sidebar | 1371-1426 | `<aside className="w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen overflow-y-auto hidden lg:flex flex-col z-20">`, sticky header with the playlist name and a `{position} / {total}` badge, then the same scroll container and the same row markup as the drawer |
 
-| Action (aliased) | Call site | Notes |
-| --- | --- | --- |
-| `getBandWithMembersAction as getBandWithMembers` | L106, inside `load`'s `Promise.all` | `Promise<Band \| null>`; `null` drives the not-found branch |
-| `getBandPlaylistsAction as getBandPlaylists` | L107, same `Promise.all` | `Promise<Playlist[]>` |
-| `uploadBandCoverAction` | L182, in `handleSaveEdit` | returns `{ coverUrl?, error? }`; an `error` aborts the save |
-| `updateBandAction as updateBand` | L191, in `handleSaveEdit` | `Promise<void>` |
-| `deleteBandAction as deleteBand` | L246, `confirmPendingAction` case `deleteBand` | |
-| `leaveBandAction as leaveBand` | L255, case `leaveBand` | |
-| `removeBandMemberAction as removeBandMember` | L266, case `removeMember` | takes `member.id`, not `bandId` |
-| `createBandPlaylistAction as createBandPlaylist` | L296, `handleCreatePlaylist` | `Promise<string>` (the new playlist id) |
+### The two duplicated row blocks
 
-Signatures confirmed in `src/app/actions/bands.ts` at L24, L39, L52, L57, L62, L67, L72
-and L82.
+`npm run lint:dup` reports `Found 19 clones.` / `239 (0.88%)` duplicated lines
+overall, `10` clones and `140 (1.22%)` duplicated lines in the `tsx` bucket. One
+of those tsx clones is inside this page: `[713:23 - 722:26]` against
+`[1394:19 - 1403:22]` — the drawer row markup against the sidebar row markup.
+The rows differ only in two Tailwind fragments: the sidebar's current row adds
+`ring-1 ring-emerald-400/20` and its idle row adds `hover:border-gray-200`.
+The two headers (690-695 / 1375-1380) and the two scroll containers (704 /
+1386) are character-identical.
 
-**How it is consumed.** Two pages, both `'use client'`:
+### The two `window.location.search` reads named by F26 (plus two more)
 
-- `src/app/bands/[id]/page.tsx:64` destructures 33 members of the return value and passes
-  `bandId`, `showToast`, `onNotFound: () => router.replace('/bands')`,
-  `loadPolicy: BANDS_PAGE_LOAD_POLICY`, `onGone`, `onNavigateToPlaylist` and
-  `messages: BAND_PAGE_MESSAGES`.
-- `src/app/profile/page.tsx:38` (inside `BandProfileView`) passes the same option names
-  with `loadPolicy: BAND_PROFILE_LOAD_POLICY`, `onNotFound: () => setError('Band not found.')`
-  and `messages: BAND_PROFILE_MESSAGES`.
+`grep -c "window.location.search" "src/app/songs/[id]/fast-view/page.tsx"`
+prints `4`, at lines 290, 329, 667 and 784:
 
-Both pages already declare their `messages` object at **module level** with the comment
-"Module-level so the hook's `load` callback stays referentially stable" - the precedent
-this task follows for the injected actions object.
+- 290 — `queryBandId` for `getSongEntry(id, queryBandId)` inside `load()`;
+- 329 — `returnTo` for the playlist-nav fetch inside `load()`;
+- 667 — `returnTo` + `bandId` inside `navigateTo`;
+- 784 — `returnTo` for the back button (`router.push(returnTo)` else `router.back()`).
 
-**`src/lib/bandAdminLoad.ts` and the load policies.** `bandAdminLoad.ts` holds only
-`BandAdminLoadPolicy`, the two policy constants and `resolveLoadErrorMessage`. It imports
-nothing from `@/app` and calls no action; it is pure data plus one pure function, and
-this task does not touch it. `useBandAdmin`'s `load` is
-`useCallback(..., [bandId, loadPolicy, loadErrorMessage])` and the load effect at L136-L139
-depends on `load`, so **anything that goes into `load`'s dependency array must be
-referentially stable or the load runs on every render**. That is the single constraint
-that shapes the design below.
+### The alias action
 
-**Existing coverage.** `src/hooks/__tests__/useBandAdmin.test.tsx` is a jsdom suite of 29
-tests in five describe blocks (`useBandAdmin load policies` 6, `useBandAdmin derived state`
-6, `useBandAdmin edit modal` 8, `useBandAdmin destructive actions` 6,
-`useBandAdmin playlist creation` 3), verified by
-`npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx --reporter=verbose`. It mocks
-`@/app/actions/bands` wholesale at L5-L14 and asserts against those module mocks. Once the
-hook takes its actions as an option, that `vi.mock` becomes dead weight - the hook would
-never touch the mocked module - so the suite must be retargeted, not merely tolerated.
+`src/app/actions/playlists.ts:77-83`:
 
-### `src/components/songs/SongForm.tsx` (575 lines)
+```ts
+export async function getPlaylistEntryIdsAction(
+  playlistId: string,
+  bandId?: string | null
+): Promise<PlaylistEntrySummary[]> {
+  const details = await getPlaylistDetailsWithEntriesAction(playlistId, bandId)
+  return details.entries
+}
+```
 
-Four actions, imported aliased at L11-L16:
+`grep -rn "getPlaylistEntryIdsAction" src` returns five hits:
 
-| Action (aliased) | Call site | Notes |
-| --- | --- | --- |
-| `updateSongAction as updateSong` | L210, edit branch of `handleSubmit` | `(entry: Repertoire, data: SongUpdateInput)`, `Promise<void>` |
-| `createAndAddSongAction as createAndAddSong` | L222, create branch | returns the created `Repertoire`; only `entry.id` is read |
-| `updateSongStatusAction as updateSongStatus` | L234 | called only when `form.status !== 'unknown'` |
-| `updateSongTagsAction as updateSongTags` | L236 | called only when `tags.length > 0` |
+- `src/app/songs/[id]/fast-view/page.tsx:15` — imported, never used;
+- `src/app/actions/playlists.ts:77` — the definition;
+- `src/app/actions/__tests__/playlists.test.ts:36` (import) and `:180-186`
+  (a one-test `describe` block);
+- `src/app/actions/__tests__/actionSessionGuard.test.ts:72` (import) and
+  `:156` (the `FAIL_CLOSED` table entry);
+- `src/app/actions/__tests__/actionAuthorizationGuard.test.ts:28` — a comment
+  only; the `SESSION_RESOLVING_HELPERS` map itself has just two keys
+  (`getPlaylistDetailsWithEntriesAction`, `resolveOwner`) and is asserted
+  literally at line 65, so it does **not** change.
 
-The last two run inside one `Promise.all` immediately after the create. After either
-branch the component calls `await loadSongs()` (from `useRepertoireStore`) and then
-`onSuccess()`; a throw is caught and rendered in the inline error paragraph as
-`err instanceof Error ? err.message : 'An unexpected error occurred.'`. Signatures
-confirmed in `src/app/actions/repertoire.ts` at L46, L53, L77 and L88;
-`SongUpdateInput` is declared at `src/lib/songs.ts:232`.
+`actionSessionGuard.test.ts:207` asserts
+`expect(Object.keys(FAIL_CLOSED).sort()).toEqual(allExportedActionNames())`, and
+`FAIL_CLOSED` currently holds **45** entries. Deleting the action therefore
+requires deleting the table entry in the same commit; the table drops to **44**.
 
-**Consumers:** exactly one. `src/app/page.tsx:19` imports it and renders it at L600-L604
-as `<SongForm song={modal.song} onClose={closeModal} onSuccess={handleSuccess} />`, inside
-`{modal.open && ...}`. `grep -rn "SongForm" src e2e` finds no other import; the only other
-mentions are two comments in `e2e/helpers.ts` (L42, L62) about waiting for the dialog.
-`src/app/page.tsx` already imports `createAndAddSongAction as createAndAddSong` at L11 for
-its own quick-add flow, so three of the five actions the form needs are new imports there.
+### `useSearchParams()` and the build (verified, not assumed)
 
-**Transitive note.** `SongForm` also imports `useRepertoireStore` from
-`@/store/repertoireStore`, and `src/store/repertoireStore.ts:6` imports
-`@/app/actions/repertoire`. That transitive edge is real but is **not** in scope: F21 named
-`src/components`, `src/lib` and `src/hooks`, `src/store` is not in the new rule's `files`
-list, and inverting the zustand store is a different task. Verified with a probe run of the
-rule over the whole tree: `src/store` produces no violation.
+`npx next build` at `c8665cd` prints `ƒ /songs/[id]/fast-view` — every app route
+in this project is `ƒ (Dynamic) server-rendered on demand`, because
+`src/proxy.ts` gates every request. I verified the concern empirically: I
+temporarily added `const searchParams = useSearchParams()` plus a
+`searchParams.get('bandId')` read to `FastViewPage`, ran `npx next build`, and it
+exited 0 with the route still `ƒ`, with **no** "missing Suspense boundary with
+`useSearchParams`" error. **No Suspense boundary is needed.** The probe edit was
+reverted; the working tree is byte-identical to `c8665cd`.
 
-### `src/components/songs/CorrectionModal.tsx` (158 lines)
+### `e2e/fast-view-mobile.spec.ts` is RED at baseline (do not gate on it)
 
-One action: `submitGlobalSongEditAction` (`src/app/actions/moderation.ts:11`,
-`(songId: string, data: Record<string, unknown>) => Promise<GlobalSongEdit>`), called at
-L37 inside `handleSubmit` with `(song.id, { title, artist, album, standard_key, reason })`,
-all trimmed, with `album`/`standard_key`/`reason` falling back to `null` when blank. On
-success it calls `onSuccess()` then `onClose()`; on throw it sets the inline error to
-`err.message` or `'Failed to submit correction request.'`; `finally` clears `submitting`.
-There is also a pre-flight guard: a blank title or artist sets
-`'Title and artist are required.'` and returns without calling the action.
+Verified locally at `c8665cd` after `npx next build`:
 
-**Consumers:** exactly one, and it is `SongForm` itself
-(`src/components/songs/SongForm.tsx:18` and L557-L565), rendered when
-`showCorrectionModal && song?.song`. Its `onSuccess` sets `SongForm`'s own
-`toastMessage` to `'Correction request submitted for admin review!'` for 4 s. So the
-injected callback has to be threaded two levels: `src/app/page.tsx` -> `SongForm` ->
-`CorrectionModal`.
+```
+set -a; . ./.env.local; set +a; \
+PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" \
+npx playwright test e2e/fast-view-mobile.spec.ts --project=mobile
+```
 
-### Gate baselines measured at 51151d7
+prints `2 failed` / `1 passed`. Both failures are the shared `addSong` helper
+(`e2e/helpers.ts:57`, `dialog[open]` never reaching count 0) — the same RH-44
+breakage that makes `e2e/songs-crud.spec.ts` red. It is therefore **not** an
+expected result of this task. (Note also that `--project=chromium` runs zero
+tests here: `playwright.config.ts` gives the `chromium` project
+`testIgnore: '**/fast-view-mobile.spec.ts'` and routes that file to the
+`mobile` project.) `e2e/ssr-smoke.spec.ts` (4 tests) is green and is the e2e
+gate.
 
-- `./node_modules/.bin/tsc --noEmit` exits 0 and prints nothing. Use that exact binary
-  path; `npx tsc` is intercepted by a shell hook in this environment.
-- `npx eslint .` reports `29 problems (12 errors, 17 warnings)`.
-  `npx eslint src/hooks/useBandAdmin.ts src/components/songs/SongForm.tsx src/components/songs/CorrectionModal.tsx src/app/page.tsx "src/app/bands/[id]/page.tsx" src/app/profile/page.tsx eslint.config.mjs src/hooks/__tests__/useBandAdmin.test.tsx src/lib/bandAdminLoad.ts`
-  reports `1 problem (1 error, 0 warnings)`: `react-hooks/set-state-in-effect` at
-  `src/app/profile/page.tsx:670:5`, on the `setActiveTab(context.type === "band" ? "band" : "personal")`
-  inside the band-context sync effect. Every other file in that list is clean. Note that
-  `useBandAdmin.ts:137` already carries an inline
-  `// eslint-disable-next-line react-hooks/set-state-in-effect` over `load()`; it stays.
-- `npm run lint:dead` (knip) clean. `npm run lint:dup` (jscpd) `Found 19 clones.`, 239
-  duplicated lines, 0.90 %, threshold 2 %. `npm run audit` 0 vulnerabilities.
-- `npx vitest run` 57 files / 727 tests / 0 skipped, with Postgres at
-  `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (migrations applied) and a
-  non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`.
-- `npm run test:coverage` thresholds statements 80 / branches 65 / functions 78 / lines 80,
-  over `coverage.include` = `src/lib/**/*.ts`, `src/app/actions/*.ts`, `src/hooks/**/*.ts`,
-  `src/proxy.ts`. **`src/hooks/useBandAdmin.ts` is inside that universe**; its per-file
-  numbers in `coverage/coverage-final.json` at `51151d7` are statements 136/138 = 98.55 %,
-  branches 57/73 = 78.08 %, functions 18/19 = 94.74 %. `src/lib/bandAdminLoad.ts` is 100 %
-  on all three.
-- `npx next build` ok; `npx playwright test e2e/ssr-smoke.spec.ts` 4 passed;
-  `npx playwright test e2e/bands-confirm.spec.ts` 3 passed. `e2e/songs-crud.spec.ts` is
-  **red at this baseline** - all 3 tests fail (`dialog[open]` never reaching count 0 at
-  `e2e/helpers.ts:57`, `[aria-label="Song list"]` never visible at `e2e/helpers.ts:27`),
-  pre-existing and tracked as RH-44. It is therefore not usable as a gate here; see ER11 and
-  Out of Scope.
+### Preserved asymmetry (deliberate, not a defect fixed here)
 
-### Constraints discovered while auditing (do not learn these the hard way)
-
-1. **jsdom has no `HTMLDialogElement.prototype.showModal`.** `SongForm` calls
-   `dialogRef.current?.showModal()` in a mount effect (L137-L139), and under jsdom 29 that
-   throws `TypeError: dialogRef.current?.showModal is not a function`, failing every render
-   in the suite. Verified with a throwaway probe. The `SongForm` suite must install a stub
-   in `beforeAll`:
-   ```ts
-   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
-     configurable: true,
-     value(this: HTMLDialogElement) {
-       this.open = true
-     },
-   })
-   ```
-   `CorrectionModal` renders `<dialog open>` declaratively and needs no stub.
-2. **`CorrectionModal`'s labels are not associated with their inputs** - they are bare
-   `<label>` elements with no `htmlFor` and no wrapping, so `getByLabelText` does not find
-   the fields. Query them with `screen.getByDisplayValue(...)` instead. Verified with a
-   probe.
-3. **Use `fireEvent.submit(container.querySelector('form')!)`** for the blank-title guard
-   test: clicking the submit button with a `required` input empty is at the mercy of
-   jsdom's constraint validation, while dispatching `submit` on the form always reaches
-   React's `onSubmit`. Verified with a probe; the guard text
-   `Title and artist are required.` appears.
-4. **`submitGlobalSongEditAction`'s second parameter is `Record<string, unknown>`.** A
-   callback prop typed with an `interface` for that payload will **not** accept the action
-   (TypeScript gives implicit index signatures to object *type aliases* but not to
-   interfaces, so `interface X {...}` is not assignable to `Record<string, unknown>` and
-   parameter contravariance rejects the assignment). Declare the payload as
-   `export type GlobalSongCorrectionInput = { ... }`. I compiled both shapes through
-   `./node_modules/.bin/tsc --noEmit` in a probe file; the `type` alias passes.
-5. **Every prop/deps contract below was type-checked before this spec was written**, in a
-   probe module that assigned all thirteen real actions into the three interfaces given in
-   the Approach. `./node_modules/.bin/tsc --noEmit` exited 0. The probe files were deleted;
-   `git status --porcelain` is empty.
-6. **The ESLint rule was measured before this spec was written.** Run through a throwaway
-   copy of `eslint.config.mjs` over the whole tree, the exact block in the Approach reports
-   **3 errors and nothing else** - `SongForm.tsx:11`, `CorrectionModal.tsx:5`,
-   `useBandAdmin.ts:2` - taking the repo from 29 problems (12 errors) to 32 (15 errors). No
-   `__tests__` file and no `src/store` file is flagged. The three errors are exactly the
-   three imports this task removes, so the post-change total lands back on 29 / 12 / 17.
+Desktop renders a **previous** arrow only; there is no next arrow, while the
+mobile swipe supports both directions. This slice preserves that exactly — the
+component is named `PlaylistPrevArrow` so the asymmetry is explicit rather than
+accidental. A newly appearing next arrow is a regression, not an improvement.
 
 ## Approach
 
-### 1. `src/hooks/useBandAdmin.ts` - one injected `actions` object
+### 1. `src/lib/playlistNav.ts` (new, pure, no React, no DOM, no `window`)
 
-Delete the `@/app/actions/bands` import block (L2-L11) and add, next to `PendingAction`:
+Written in the style of `src/lib/stageInteraction.ts`: DOM-free decision helpers
+with a module doc comment explaining why they are out here.
 
 ```ts
-/**
- * The eight band Server Actions the controller calls. Injected rather than
- * imported, so `src/hooks` never points back into the App Router tree (F21).
- * Required and never defaulted - a default would have to import `@/app`.
- */
-export interface BandAdminActions {
-  getBandWithMembers: (bandId: string) => Promise<Band | null>;
-  getBandPlaylists: (bandId: string) => Promise<Playlist[]>;
-  updateBand: (
-    bandId: string,
-    data: {
-      name?: string;
-      description?: string | null;
-      cover_url?: string | null;
-      color?: string | null;
-    },
-  ) => Promise<void>;
-  deleteBand: (bandId: string) => Promise<void>;
-  leaveBand: (bandId: string) => Promise<void>;
-  removeBandMember: (memberId: string) => Promise<void>;
-  createBandPlaylist: (bandId: string, name: string) => Promise<string>;
-  uploadBandCover: (formData: FormData) => Promise<{ coverUrl?: string; error?: string }>;
+/** One playlist entry as the setlist UI needs it. Structurally identical to
+ *  `PlaylistEntrySummary` in `src/lib/playlists.ts`, redeclared here so this
+ *  client-safe module never pulls the `pg` pool into the browser bundle. */
+export interface PlaylistEntry {
+  repertoireId: string
+  songId: string
+  title: string
+  artist: string | null
+}
+
+export interface PlaylistNav {
+  prevId: string | null
+  nextId: string | null
+  position: number
+  total: number
+  playlistId: string
+  playlistName: string
+}
+
+export type SlideDirection = 'left' | 'right'
+
+/** `/playlists/<id>` -> `<id>`; anything else (incl. null) -> null. */
+export function playlistIdFromReturnTo(returnTo: string | null): string | null
+
+/** null when `entries` is empty or `currentRepertoireId` is not in it. */
+export function computePlaylistNav(
+  entries: PlaylistEntry[],
+  currentRepertoireId: string,
+  playlistId: string,
+  playlistName: string,
+): PlaylistNav | null
+
+/** `/songs/<id>/fast-view?returnTo=..&bandId=..`, both omitted when empty,
+ *  always in that order (byte-identical to today's `navigateTo`). */
+export function fastViewHref(
+  repertoireId: string,
+  returnTo: string | null,
+  bandId: string | null,
+): string
+
+/** 'left' when the target sits later in the list, otherwise 'right'. */
+export function slideDirection(
+  entries: PlaylistEntry[],
+  currentRepertoireId: string,
+  targetRepertoireId: string,
+): SlideDirection
+
+/** deltaX = startX - endX. |deltaX| < 60 -> null. */
+export function swipeTarget(
+  deltaX: number,
+  nav: PlaylistNav | null,
+): { repertoireId: string; direction: SlideDirection } | null
+
+/** The full className of the page's <main>, including the transform. */
+export function slideOutClassName(slideOut: SlideDirection | null): string
+
+/** What the back button must do. */
+export function backTarget(
+  returnTo: string | null,
+): { kind: 'push'; href: string } | { kind: 'back' }
+```
+
+`slideOutClassName` must return, character-for-character, the string the page
+produces today:
+`min-h-screen px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto transition-transform duration-200 ease-in-out ` followed by
+`-translate-x-full` / `translate-x-full` / `translate-x-0`.
+
+`SWIPE_THRESHOLD_PX = 60` and `SLIDE_OUT_MS = 220` are exported named constants
+so the hook and its tests share one source of truth.
+
+### 2. `src/hooks/usePlaylistNav.ts` (new controller)
+
+```ts
+export interface PlaylistNavActions {
+  /** Injected, never imported: `src/hooks` must not reach into `@/app/*`. */
+  getPlaylistDetailsWithEntries: (
+    playlistId: string,
+    bandId?: string | null,
+  ) => Promise<{ name: string; entries: PlaylistEntry[] }>
+}
+
+export interface UsePlaylistNavOptions {
+  currentRepertoireId: string
+  returnTo: string | null
+  bandId: string | null
+  actions: PlaylistNavActions
+  /** `router.push` */
+  navigate: (href: string) => void
+  /** `router.back` */
+  navigateBack: () => void
+}
+
+export interface PlaylistNavController {
+  nav: PlaylistNav | null
+  entries: PlaylistEntry[]
+  isDrawerOpen: boolean
+  slideOut: SlideDirection | null
+  openDrawer: () => void
+  closeDrawer: () => void
+  /** No-op when `repertoireId` is the current entry. */
+  selectEntry: (repertoireId: string) => void
+  goPrev: () => void
+  goBack: () => void
+  onTouchStart: (clientX: number) => void
+  onTouchEnd: (clientX: number) => void
+}
+
+export function usePlaylistNav(options: UsePlaylistNavOptions): PlaylistNavController
+```
+
+Behaviour, unchanged from the page:
+
+- On mount and whenever `currentRepertoireId`, `returnTo` or `bandId` changes:
+  if `playlistIdFromReturnTo(returnTo)` is null, do nothing (no request). Else
+  call `actions.getPlaylistDetailsWithEntries(playlistId, bandId)`, and on
+  success set `entries` and `computePlaylistNav(...)`. An empty entry list, a
+  current id absent from the list, or a rejection all leave `nav` at `null` and
+  are swallowed (navigation is optional; today's `.catch(() => {})`). A
+  `cancelled` flag guards the unmount, exactly as `load()` does.
+- `selectEntry(targetId)` returns immediately when `targetId ===
+  currentRepertoireId`; otherwise sets `slideOut` to
+  `slideDirection(entries, currentRepertoireId, targetId)` and, after
+  `SLIDE_OUT_MS` (`setTimeout`, cleared on unmount), calls
+  `navigate(fastViewHref(targetId, returnTo, bandId))`.
+- `goPrev()` is `selectEntry(nav.prevId)` with an explicit `'right'` slide
+  (matching the desktop arrow today), and is a no-op when `nav?.prevId` is null.
+- `onTouchStart(clientX)` stores `clientX` in a ref; `onTouchEnd(clientX)`
+  computes `deltaX = start - clientX`, clears the ref, and routes the result of
+  `swipeTarget(deltaX, nav)` into the same slide-then-push path.
+- `goBack()` switches on `backTarget(returnTo)`: `push` calls
+  `navigate(href)`, `back` calls `navigateBack()`.
+
+### 3. `src/app/fastViewNavActions.ts` (new, the injection point)
+
+Module-level, so the object identity is stable across renders and cannot restart
+the hook's effect (the `src/app/bandAdminActions.ts` pattern):
+
+```ts
+import { getPlaylistDetailsWithEntriesAction } from '@/app/actions/playlists'
+import type { PlaylistNavActions } from '@/hooks/usePlaylistNav'
+
+export const PLAYLIST_NAV_ACTIONS: PlaylistNavActions = {
+  getPlaylistDetailsWithEntries: getPlaylistDetailsWithEntriesAction,
 }
 ```
 
-`UseBandAdminOptions` gains one required member, documented in the same style as
-`loadPolicy`:
+### 4. `src/components/fastview/*` (new, presentational)
 
-```ts
-  /** Required, never defaulted - see `src/app/bandAdminActions.ts`. */
-  actions: BandAdminActions;
-```
+Every one of these takes `nav: PlaylistNav | null` (or the equivalent) and
+**returns `null` itself** when it has nothing to render. That is deliberate: it
+keeps every nav conditional out of `FastViewPage`, which is what makes the
+page's measured complexity drop.
 
-Wiring inside the hook:
+| File | Component | Notes |
+|---|---|---|
+| `SetlistRow.tsx` | `SetlistRow` | The single shared row. Props `{ index, entry, isCurrent, variant: 'drawer' \| 'sidebar', onSelect }`. Renders the `w-5 shrink-0 text-right font-mono text-xs` position number, title, optional artist, and the current-row badge ending in `NOW`. `variant === 'sidebar'` appends `ring-1 ring-emerald-400/20` to the current row and `hover:border-gray-200` to an idle row; everything else is identical for both variants. Calls `onSelect(entry.repertoireId)` only when `!isCurrent`. |
+| `SetlistPanel.tsx` | `SetlistPanel` | The header + scroll list shared by the drawer and the sidebar. Props `{ playlistName, trailing, headerClassName, entries, currentRepertoireId, variant, onSelect }`. Header is the music-note glyph plus `<h3 className="font-bold text-gray-900 text-sm truncate" title={playlistName}>`; body is `<div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">` mapping `entries` to `SetlistRow`. Existing to remove the header/container duplication, not only the row duplication. |
+| `SetlistDrawer.tsx` | `SetlistDrawer` | `{ open, nav, entries, currentRepertoireId, onClose, onSelect }`. Returns `null` unless `open && nav`. Keeps `fixed inset-0 z-50 flex flex-col justify-end lg:hidden`, the backdrop, the `rounded-t-2xl max-h-[80vh] ... animate-in slide-in-from-bottom duration-200` sheet, and the close button. A row click calls `onClose()` and then `onSelect(id)`. |
+| `SetlistSidebar.tsx` | `SetlistSidebar` | `{ nav, entries, currentRepertoireId, onSelect }`. Returns `null` unless `nav && entries.length > 0`. Root `<aside>` keeps `w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen overflow-y-auto hidden lg:flex flex-col z-20` verbatim (AGENTS.md contract), trailing badge `{position} / {total}`. |
+| `SetlistSelect.tsx` | `SetlistSelect` | `{ nav, entries, currentRepertoireId, onSelect }`. Returns `null` unless `nav && entries.length > 0`. Same `lg:hidden` wrapper, same `<select value={currentRepertoireId}>`, same option text `"{idx+1}. {title} - {artist}"`. |
+| `SetlistPill.tsx` | `SetlistPill` | `{ nav, onOpen }`. Returns `null` without `nav`. The `lg:hidden` pill whose label is `Setlist ({position}/{total})` (AGENTS.md contract). |
+| `PlaylistPrevArrow.tsx` | `PlaylistPrevArrow` | `{ prevId, onNavigate }`. Returns `null` without `prevId`. The `fixed left-4 top-1/2 ... hidden lg:flex` button with `aria-label="Previous song"`. No next arrow (see "Preserved asymmetry"). |
+| `SwipeHint.tsx` | `SwipeHint` | `{ nav }`. Returns `null` without `nav`. The `lg:hidden` strip with the two conditional arrow glyphs and `{position} / {total}`. |
 
-- Add, immediately after the existing `onNotFoundRef` block and for the same reason:
-  ```ts
-  // `load` reads the actions through a ref so `actions` can stay out of its
-  // dependency array; a caller that rebuilds the object every render must not
-  // be able to restart the load effect.
-  const actionsRef = useRef(actions);
-  useEffect(() => {
-    actionsRef.current = actions;
-  });
-  ```
-- `load`'s `Promise.all` becomes
-  `[actionsRef.current.getBandWithMembers(bandId), actionsRef.current.getBandPlaylists(bandId)]`.
-  Its dependency array stays exactly `[bandId, loadPolicy, loadErrorMessage]`, and the
-  load effect at L136-L139, including its inline `eslint-disable-next-line`, is unchanged.
-- Every other call site is inside a plain (non-memoized) inner function that is re-created
-  each render, so it reads the prop directly, with no ref: `handleSaveEdit` calls
-  `actions.uploadBandCover(formData)` and `actions.updateBand(bandId, {...})`;
-  `confirmPendingAction` calls `actions.deleteBand(bandId)`, `actions.leaveBand(bandId)`
-  and `actions.removeBandMember(member.id)`; `handleCreatePlaylist` calls
-  `actions.createBandPlaylist(bandId, newPlaylistName.trim())`.
-- Nothing else moves. The four `*_ERROR` constants, `saveErrorMessage` /
-  `loadErrorMessage`, every `useState`, `currentMember` / `isAdmin` / `inviteUrl`, the
-  bandContext sync in `handleSaveEdit`, the toast on member removal and the whole 33-member
-  return object keep their exact current bodies.
+### 5. `src/app/songs/[id]/fast-view/page.tsx` (edited)
 
-### 2. `src/app/bandAdminActions.ts` (new) - the composition root
+- `useSearchParams` added to the existing `next/navigation` import; the
+  `@/app/actions/playlists` import line is removed entirely and replaced by
+  `import { PLAYLIST_NAV_ACTIONS } from '@/app/fastViewNavActions'`.
+- Near the top of the component:
+  `const searchParams = useSearchParams()`,
+  `const returnTo = searchParams.get('returnTo')`,
+  `const queryBandId = searchParams.get('bandId')`.
+- The `load()` effect uses `queryBandId` directly (no `URLSearchParams`, no
+  `typeof window` guard) and its dependency array becomes `[id, queryBandId]`.
+  Lines 328-348 (the nav fetch) are deleted outright.
+- The five nav `useState`s, the `touchStartX` ref and `navigateTo` are replaced
+  by one `usePlaylistNav({ currentRepertoireId: id, returnTo, bandId:
+  queryBandId, actions: PLAYLIST_NAV_ACTIONS, navigate: (href) =>
+  router.push(href), navigateBack: () => router.back() })` call.
+- The back button's `onClick` becomes `playlist.goBack`.
+- `<main className={slideOutClassName(playlist.slideOut)}
+  onTouchStart={(e) => playlist.onTouchStart(e.touches[0].clientX)}
+  onTouchEnd={(e) => playlist.onTouchEnd(e.changedTouches[0].clientX)}>`.
+- The seven JSX regions become seven self-guarding component elements in the
+  **same DOM order** as today: `SetlistDrawer` and `PlaylistPrevArrow` before
+  the layout `<div>`, `SetlistPill` in the back-button row, `SetlistSelect`
+  after it, `SwipeHint` at the end of `<main>`, `SetlistSidebar` after
+  `</main>`'s wrapper.
 
-One module, imported by both pages, so the object literal exists once (no jscpd clone) and
-is referentially stable for free:
+Nothing else in the page changes. In particular, no state, effect, handler or
+JSX belonging to tabs, PDF Stage Mode, lyrics, status, links, delete
+confirmation or the Toast may be touched.
 
-```ts
-import {
-  getBandWithMembersAction,
-  getBandPlaylistsAction,
-  updateBandAction,
-  deleteBandAction,
-  leaveBandAction,
-  removeBandMemberAction,
-  createBandPlaylistAction,
-  uploadBandCoverAction,
-} from "@/app/actions/bands";
-import type { BandAdminActions } from "@/hooks/useBandAdmin";
+### 6. Deletions
 
-/**
- * The band Server Actions injected into `useBandAdmin` by `/bands/[id]` and the
- * band tab of `/profile`. Module-level, so the object identity is stable and the
- * hook's `load` effect cannot be restarted by a re-render (RH-47, finding F21).
- */
-export const BAND_ADMIN_ACTIONS: BandAdminActions = {
-  getBandWithMembers: getBandWithMembersAction,
-  getBandPlaylists: getBandPlaylistsAction,
-  updateBand: updateBandAction,
-  deleteBand: deleteBandAction,
-  leaveBand: leaveBandAction,
-  removeBandMember: removeBandMemberAction,
-  createBandPlaylist: createBandPlaylistAction,
-  uploadBandCover: uploadBandCoverAction,
-};
-```
+- `src/app/actions/playlists.ts`: delete `getPlaylistEntryIdsAction` and its doc
+  comment. Drop the now-unused `PlaylistEntrySummary` import only if it becomes
+  unused (it does not — `getPlaylistDetailsWithEntriesAction` still names it).
+- `src/app/actions/__tests__/playlists.test.ts`: delete the import at line 36
+  and the whole `describe('getPlaylistEntryIdsAction', ...)` block.
+- `src/app/actions/__tests__/actionSessionGuard.test.ts`: delete the import at
+  line 72 and the `FAIL_CLOSED` entry at line 156. The table goes from 45 to 44
+  entries and `allExportedActionNames()` follows automatically.
+- `src/app/actions/__tests__/actionAuthorizationGuard.test.ts`: update the
+  comment at lines 26-29 so it no longer names the deleted action. Comment only
+  — the `SESSION_RESOLVING_HELPERS` map and the assertion at line 65 must not
+  change.
 
-`bandAdminActions.ts` is not a reserved App Router filename, so it creates no route -
-the same reasoning that let RH-46 add `src/app/AppShell.tsx`.
+### 7. Test plan (exact files and test names)
 
-### 3. The two `useBandAdmin` consumers
+**`src/lib/__tests__/playlistNav.test.ts`** — node environment, 20 tests:
 
-Both pages add `import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";` and one
-option:
+- `playlistIdFromReturnTo` > `extracts the playlist id from a /playlists/:id returnTo`
+- `playlistIdFromReturnTo` > `returns null for null, an empty string and a non-playlist returnTo`
+- `playlistIdFromReturnTo` > `returns null for a nested path below /playlists/:id`
+- `computePlaylistNav` > `reports position, total, previous and next for a middle entry`
+- `computePlaylistNav` > `reports no previous for the first entry and no next for the last`
+- `computePlaylistNav` > `returns null when the entry list is empty`
+- `computePlaylistNav` > `returns null when the current repertoire id is not in the list`
+- `computePlaylistNav` > `carries the playlist id and name through unchanged`
+- `fastViewHref` > `preserves returnTo and bandId in that order`
+- `fastViewHref` > `omits an absent returnTo and an absent bandId`
+- `fastViewHref` > `percent-encodes the returnTo value`
+- `slideDirection` > `slides left when the target is further down the setlist`
+- `slideDirection` > `slides right when the target is further up the setlist`
+- `swipeTarget` > `ignores a horizontal movement below the 60 pixel threshold`
+- `swipeTarget` > `advances to the next entry on a leftward swipe`
+- `swipeTarget` > `returns to the previous entry on a rightward swipe`
+- `swipeTarget` > `returns null when the requested direction has no neighbour`
+- `slideOutClassName` > `returns the untranslated classes when no slide is in progress`
+- `slideOutClassName` > `translates the page fully left and fully right`
+- `backTarget` > `pushes the returnTo path when there is one, and falls back to history when there is not`
 
-- `src/app/bands/[id]/page.tsx`: `useBandAdmin({ bandId, actions: BAND_ADMIN_ACTIONS, showToast, ... })`.
-- `src/app/profile/page.tsx`: `useBandAdmin({ bandId, actions: BAND_ADMIN_ACTIONS, showToast, ... })`.
+**`src/hooks/__tests__/usePlaylistNav.test.tsx`** — `// @vitest-environment jsdom`
+first line, `renderHook` + `act` from `@testing-library/react`,
+`afterEach(cleanup)`, fake timers for the 220 ms slide, 11 tests:
 
-Nothing else on either page changes. In particular
-`src/app/bands/[id]/page.tsx` keeps its own direct `regenerateBandInviteCodeAction`
-import - it is a page importing an action, which is the direction the rule permits.
+- `does not call the playlist action when returnTo is not a playlist path`
+- `loads the playlist entries and exposes the computed navigation`
+- `exposes no navigation when the playlist action rejects`
+- `exposes no navigation when the current entry is absent from the playlist`
+- `opens and closes the drawer`
+- `navigates to the selected entry after the slide-out delay, preserving returnTo and bandId`
+- `does not navigate when the selected entry is the current one`
+- `goPrev slides right to the previous entry and does nothing on the first entry`
+- `advances to the next entry on a leftward swipe past the threshold`
+- `ignores a swipe shorter than the threshold`
+- `refetches the playlist when the bandId option changes`
 
-### 4. `src/components/songs/SongForm.tsx` - one `actions` prop
+**`src/components/fastview/__tests__/SetlistRow.test.tsx`** — jsdom, 5 tests:
+`renders the one-based position, title and artist`;
+`omits the artist line when the entry has none`;
+`marks the current entry with the NOW badge and does not call onSelect for it`;
+`calls onSelect with the repertoire id of a non-current entry`;
+`adds the sidebar-only ring class only in the sidebar variant`.
 
-Delete the `@/app/actions/repertoire` import block (L11-L16) and declare, above
-`SongFormProps`:
+**`src/components/fastview/__tests__/SetlistDrawer.test.tsx`** — jsdom, 5 tests:
+`renders nothing when it is closed`;
+`renders nothing when there is no playlist navigation`;
+`shows the playlist name and one row per entry`;
+`closes on the backdrop click and on the close button`;
+`closes the drawer and selects the entry when a row is clicked`.
 
-```ts
-type SongFormCreateInput = {
-  title: string;
-  artist: string;
-  album?: string;
-  standard_key?: string;
-  cover_url?: string;
-  duration_seconds?: number;
-  links?: SongLink[];
-};
+**`src/components/fastview/__tests__/SetlistSidebar.test.tsx`** — jsdom, 4 tests:
+`renders nothing when there is no playlist navigation`;
+`carries the desktop sidebar classes required by AGENTS.md`;
+`shows the playlist name, the position counter and one row per entry`;
+`calls onSelect with the clicked entry`.
 
-type SongFormEditInput = {
-  title: string;
-  artist: string;
-  album?: string | null;
-  key: string | null;
-  status: SongStatus;
-  tags: string[];
-  links: SongLink[];
-  cover_url?: string | null;
-  duration_seconds?: number | null;
-};
+**`src/components/fastview/__tests__/SetlistControls.test.tsx`** — jsdom, 10 tests
+covering `SetlistPill` (2), `SetlistSelect` (3), `PlaylistPrevArrow` (2) and
+`SwipeHint` (3), as listed in ER4.
 
-/**
- * The Server Actions the form and its correction modal call. Injected rather
- * than imported, so `src/components` never points back into `src/app` (F21).
- */
-export interface SongFormActions {
-  createAndAddSong: (data: SongFormCreateInput) => Promise<Repertoire>;
-  updateSong: (entry: Repertoire, data: SongFormEditInput) => Promise<void>;
-  updateSongStatus: (repertoireId: string, status: SongStatus) => Promise<void>;
-  updateSongTags: (repertoireId: string, tags: string[]) => Promise<void>;
-  submitGlobalSongEdit: CorrectionModalProps["onSubmitCorrection"];
-}
-```
+That is 55 new tests across 6 new files, minus the 1 deleted alias test.
 
-`SongFormCreateInput` and `SongFormEditInput` are deliberately **not** exported (knip
-reports unused exports, and no other module needs them); they restate the shapes
-`createAndAddSongAction` and `SongUpdateInput` already have, so the real actions assign
-into the interface with no cast. `submitGlobalSongEdit` reuses `CorrectionModal`'s own prop
-type so the two cannot drift; `CorrectionModalProps` must therefore be exported from
-`CorrectionModal.tsx` (see below). `SongFormProps` gains `actions: SongFormActions`, and
-`SongForm` destructures it: `export default function SongForm({ song, onClose, onSuccess, actions }: SongFormProps)`.
+### 8. Conventions this task must not break
 
-Call sites become `actions.updateSong(song, {...})`, `actions.createAndAddSong({...})`,
-`actions.updateSongStatus(entry.id, form.status)` and
-`actions.updateSongTags(entry.id, tags)` - same arguments, same order, same
-`Promise.all`, same `await loadSongs()` and `onSuccess()` afterwards, same catch. The
-`CorrectionModal` element at L557-L565 gains one prop:
-`onSubmitCorrection={actions.submitGlobalSongEdit}`. `parseTags`, `buildInitialState`,
-`mapFormFields`, `extractYoutubeAndOtherLinks` and the entire markup are untouched.
-
-### 5. `src/components/songs/CorrectionModal.tsx` - one callback prop
-
-Delete the `@/app/actions/moderation` import (L5) and declare:
-
-```ts
-/**
- * The correction payload. A `type` alias, not an `interface`: only an alias gets
- * an implicit index signature, and without one it cannot be passed to a
- * `Record<string, unknown>` parameter (see the action's signature).
- */
-export type GlobalSongCorrectionInput = {
-  title: string;
-  artist: string;
-  album: string | null;
-  standard_key: string | null;
-  reason: string | null;
-};
-
-export interface CorrectionModalProps {
-  song: GlobalSong;
-  onClose: () => void;
-  onSuccess: () => void;
-  /** Injected `submitGlobalSongEditAction` - `src/components` never imports `@/app` (F21). */
-  onSubmitCorrection: (songId: string, data: GlobalSongCorrectionInput) => Promise<unknown>;
-}
-```
-
-`handleSubmit` calls `await onSubmitCorrection(song.id, { ... })` with the identical
-trimmed payload it builds today. The required-fields guard, the error text, the
-`submitting` flag, `onSuccess()` then `onClose()` on success, and the whole dialog markup
-are unchanged.
-
-### 6. `src/app/page.tsx` - supplies the form's actions
-
-Extend the existing `@/app/actions/repertoire` import (L10-L14, which already has
-`createAndAddSongAction as createAndAddSong`) with `updateSongAction`,
-`updateSongStatusAction` and `updateSongTagsAction`; add
-`import { submitGlobalSongEditAction } from "@/app/actions/moderation";` and
-`import SongForm, { type SongFormActions } from "@/components/songs/SongForm";`. Then, at
-module level next to the other module-level constants:
-
-```tsx
-/** Module-level so the object identity is stable across renders (RH-47). */
-const SONG_FORM_ACTIONS: SongFormActions = {
-  createAndAddSong,
-  updateSong: updateSongAction,
-  updateSongStatus: updateSongStatusAction,
-  updateSongTags: updateSongTagsAction,
-  submitGlobalSongEdit: submitGlobalSongEditAction,
-};
-```
-
-The call site at L600 becomes:
-
-```tsx
-<SongForm
-  song={modal.song}
-  onClose={closeModal}
-  onSuccess={handleSuccess}
-  actions={SONG_FORM_ACTIONS}
-/>
-```
-
-### 7. `eslint.config.mjs` - the rule, verbatim
-
-Insert this object between the existing test-file override block and the `globalIgnores`
-call:
-
-```js
-  // F21/RH-47: src/components, src/hooks and src/lib are leaves. They may depend
-  // on each other and on src/types, never on the App Router tree. A page (or a
-  // wrapper under src/app) owns the Server Action and passes it down as a prop or
-  // an injected dependency. `__tests__` is exempt on purpose: a test that
-  // exercises a route handler or a Server Action has to import it.
-  {
-    files: ["src/components/**", "src/lib/**", "src/hooks/**"],
-    ignores: ["**/__tests__/**"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["@/app/*", "@/app/**"],
-              message:
-                "src/components, src/hooks and src/lib must not import from the App Router tree. Pass the Server Action down from the page as a prop or an injected dependency (F21/RH-47)",
-            },
-          ],
-        },
-      ],
-    },
-  },
-```
-
-Both patterns are needed: minimatch's `*` does not cross `/`, so `@/app/*` alone matches
-`@/app/actions` but not `@/app/actions/bands`. The message has no trailing period because
-ESLint concatenates it after its own sentence and strips one.
-
-**Mechanical tamper check (the rule is proved to bite, then the tree is restored).** From
-the repository root:
-
-```
-printf "import { getBandsAction } from '@/app/actions/bands'\n\nexport const probe = getBandsAction\n" > src/lib/rh47RuleProbe.ts
-npx eslint src/lib/rh47RuleProbe.ts
-rm src/lib/rh47RuleProbe.ts
-test ! -e src/lib/rh47RuleProbe.ts && echo restored
-git status --porcelain -- src
-```
-
-The `npx eslint` run must print `1 problem (1 error, 0 warnings)` and a line naming
-`no-restricted-imports` and `'@/app/actions/bands'`; the `test` must print `restored` and
-the final `git status --porcelain -- src` must print nothing. Scope the status check to
-`src`: an unscoped run legitimately reports this task's own untracked `docs/` files. I ran exactly this against a throwaway copy of the config and got:
-
-```
-  1:1  error  '@/app/actions/bands' import is restricted from being used by a pattern. ...  no-restricted-imports
-
-[x] 1 problem (1 error, 0 warnings)
-```
-
-### 8. AGENTS.md - one line
-
-AGENTS.md states the SQL-layering rule (`A2 - thin Server Actions`) but says nothing about
-import direction. Add exactly one bullet at the end of the **Testing & quality** list,
-where the other mechanical gates are already named:
-
-```
-- **Import direction (F21).** Nothing under `src/components`, `src/hooks` or `src/lib` may import from `@/app/*`; a page or a wrapper under `src/app` owns the Server Action and passes it down as a prop or an injected dependency (`src/app/bandAdminActions.ts` is the pattern). Enforced by the `no-restricted-imports` block in `eslint.config.mjs`, which exempts `__tests__` because a route-handler test has to import the handler.
-```
-
-Do not touch the `<!-- BEGIN:nextjs-agent-rules -->` block; `next dev` rewrites it.
-
-### 9. Test plan
-
-All three suites follow the house pattern established by RH-46: `// @vitest-environment jsdom`
-as the literal first line, `import { cleanup } from '@testing-library/react'` with an
-explicit `afterEach(cleanup)` (because `globals: false`), plain-property assertions (there
-is no jest-dom), and **no `vi.mock` of any `@/app/actions/*` module** - the whole point of
-the task is that the spy arrives as a value.
-
-**`src/hooks/__tests__/useBandAdmin.test.tsx` - retargeted, not rewritten.** Delete the
-`vi.mock('@/app/actions/bands', ...)` block (L5-L14) and the eight-name import from
-`@/app/actions/bands` (L25-L34). Keep the `@/lib/auth-client` and `@/lib/imageCompressor`
-mocks. Add a factory that returns a fresh spy object with the same default behaviours the
-old `beforeEach` installed:
-
-```ts
-type BandAdminActionSpies = { [K in keyof BandAdminActions]: Mock }
-
-function makeActions(): BandAdminActionSpies {
-  return {
-    getBandWithMembers: vi.fn().mockResolvedValue(BAND),
-    getBandPlaylists: vi.fn().mockResolvedValue(PLAYLISTS),
-    updateBand: vi.fn().mockResolvedValue(undefined),
-    deleteBand: vi.fn().mockResolvedValue(undefined),
-    leaveBand: vi.fn().mockResolvedValue(undefined),
-    removeBandMember: vi.fn().mockResolvedValue(undefined),
-    createBandPlaylist: vi.fn().mockResolvedValue('pl-1'),
-    uploadBandCover: vi.fn().mockResolvedValue({ coverUrl: null }),
-  }
-}
-```
-
-`setup(overrides = {}, actions = makeActions())` passes `actions` into the hook and returns
-it alongside `result`, `showToast`, `onNotFound`, `onGone` and `onNavigateToPlaylist`;
-`setupLoaded` forwards both arguments. A test that needs a non-default behaviour builds the
-object first and programs it before rendering, e.g.
-`const actions = makeActions(); actions.getBandWithMembers.mockResolvedValue(null); const { result, onNotFound } = setup({ loadPolicy }, actions)`.
-Every assertion `expect(getBandWithMembersAction).toHaveBeenCalledWith(BAND_ID)` becomes
-`expect(actions.getBandWithMembers).toHaveBeenCalledWith(BAND_ID)`, and so on for the other
-seven. **All 29 test names, all five describe names, and every non-mock assertion stay
-character-for-character identical**, including the `it.each` label arrays (the two rows in
-the destructive-actions table key off `'deleteBand'` / `'leaveBand'` action names, which
-now name keys of the spy object instead of imported symbols). The
-`captureUnhandledRejection` helper and the `BANDS_PAGE_LOAD_POLICY` unhandled-rejection
-test are untouched - they are the guard that RH-18's load policies still mean what they
-say.
-
-**`src/components/songs/__tests__/SongForm.test.tsx` (new, 5 tests).** Mocks
-`@/store/repertoireStore` only (a `useRepertoireStore` returning `{ loadSongs }`, which
-also keeps `@/app/actions/repertoire` out of the module graph entirely). Installs the
-`showModal` stub from constraint 1 in `beforeAll`. Builds `actions` as an object of five
-`vi.fn()`s. Fixture `ENTRY` is a `Repertoire` with `id: 'rep-1'`, `status: 'learning'`,
-`tags: ['rock']`, `personal_key: 'G'` and an inner `song` `{ id: 'song-1', title: 'Yellow',
-artist: 'Coldplay', album: 'Parachutes', standard_key: 'B', duration_seconds: 269, links: [] }`.
-Describe block `SongForm calls its injected actions (RH-47)`:
-
-1. `creates a song through the injected createAndAddSong action` - render with no `song`;
-   the dialog is `getByRole('dialog', { name: 'Add song' })`; fill `getByLabelText(/^Title/)`
-   with `Yellow` and `getByLabelText('Artist')` with `Coldplay`; click the `Add` button.
-   `actions.createAndAddSong` was called once with
-   `expect.objectContaining({ title: 'Yellow', artist: 'Coldplay' })`,
-   `actions.updateSongStatus` and `actions.updateSongTags` were **not** called (status is
-   `unknown` and there are no tags), and `onSuccess` was called once.
-2. `applies the status and tags through their injected actions after creating` - same
-   setup plus `getByLabelText('Tags')` set to `rock, live` and the `Learning` status radio
-   clicked. `actions.updateSongStatus` was called with `('rep-1', 'learning')` and
-   `actions.updateSongTags` with `('rep-1', ['rock', 'live'])`, where `rep-1` is the `id`
-   of the `Repertoire` the mocked `createAndAddSong` resolved.
-3. `saves an edit through the injected updateSong action` - render with `song={ENTRY}` and
-   click `Save`. `actions.updateSong` was called once with `ENTRY` as the first argument
-   and, as the second,
-   `{ title: 'Yellow', artist: 'Coldplay', album: 'Parachutes', key: 'G', cover_url: null, duration_seconds: 269, status: 'learning', tags: ['rock'], links: [] }`.
-4. `shows the error message when an injected action rejects` - `createAndAddSong` rejects
-   `new Error('Song already in repertoire')`; after submitting, that text is in the
-   document and `onSuccess` was not called.
-5. `passes the injected submitGlobalSongEdit down to the correction modal` - render with
-   `song={ENTRY}`, click `Correct Global Info`, then click `Submit for Moderation`.
-   `actions.submitGlobalSongEdit` was called once with
-   `('song-1', { title: 'Yellow', artist: 'Coldplay', album: 'Parachutes', standard_key: 'B', reason: null })`
-   and the text `Correction request submitted for admin review!` appears.
-
-All five argument shapes above were captured from a probe run against the current
-component, so they are today's behaviour, not a guess.
-
-**`src/components/songs/__tests__/CorrectionModal.test.tsx` (new, 4 tests).** Mocks
-nothing at all. `SONG` is the same inner `GlobalSong` as above. Describe block
-`CorrectionModal submits through its injected callback (RH-47)`:
-
-1. `seeds its fields from the song prop` - `getByDisplayValue` finds `Yellow`, `Coldplay`,
-   `Parachutes` and `B` (see constraint 2: the labels are not associated with the inputs).
-2. `submits the trimmed fields through onSubmitCorrection, then succeeds and closes` -
-   change the title field to `'  Yellow (Live)  '` and
-   `fireEvent.submit(container.querySelector('form')!)`; `onSubmitCorrection` was called
-   once with
-   `('song-1', { title: 'Yellow (Live)', artist: 'Coldplay', album: 'Parachutes', standard_key: 'B', reason: null })`,
-   and `onSuccess` and `onClose` were each called once.
-3. `refuses to submit when the title is blank` - set the title to `'   '` and submit;
-   `Title and artist are required.` is in the document and `onSubmitCorrection` was not
-   called.
-4. `shows the failure message when onSubmitCorrection rejects` - reject with
-   `new Error('Song not found')`; that text appears and `onClose` was not called.
-
-All four were verified against the current component in a probe run (with the action
-module mocked to stand in for the future prop), including the trimming in test 2 and the
-`fireEvent.submit` route in test 3.
-
-**Suite arithmetic.** 9 new tests in 2 new files: 57 files / 727 tests becomes 59 files /
-736 tests. `useBandAdmin.test.tsx` stays at 29.
+- No `alert()` / `confirm()` anywhere (`src/lib/__tests__/noBrowserDialogs.test.ts`
+  walks all of `src/`).
+- No `catch (x: any)`; the P1 pattern applies to any new catch in a component
+  (`src/lib/__tests__/errorHandlingStyle.test.ts` walks all of `src/`). The
+  playlist-fetch catch stays a deliberate S1 swallow with its one-line comment.
+- Nothing under `src/lib`, `src/hooks` or `src/components` may import `@/app/*`
+  (`no-restricted-imports` in `eslint.config.mjs`).
+- The AGENTS.md "Fast View Playlist Layout" classes are a contract, not a
+  description.
+- This is an internal refactor with no user-facing feature: it is **not** a
+  landing-page selling point, and the landing copy must not change.
 
 ## Expected Results
 
-ER1 - The static gates are all green at the merge commit, run from the repository root. `./node_modules/.bin/tsc --noEmit` exits 0 and prints nothing (use that exact binary path; `npx tsc` is intercepted by a shell hook in this environment). `npx eslint .` reports exactly `29 problems (12 errors, 17 warnings)`, which is the unchanged baseline of commit `51151d7` even though a new rule was added. Within that total, `npx eslint src/hooks/useBandAdmin.ts src/components/songs/SongForm.tsx src/components/songs/CorrectionModal.tsx src/app/page.tsx "src/app/bands/[id]/page.tsx" src/app/profile/page.tsx src/app/bandAdminActions.ts eslint.config.mjs src/hooks/__tests__/useBandAdmin.test.tsx src/components/songs/__tests__/SongForm.test.tsx src/components/songs/__tests__/CorrectionModal.test.tsx` reports exactly `1 problem (1 error, 0 warnings)`: a single `react-hooks/set-state-in-effect` error in `src/app/profile/page.tsx` on the `setActiveTab(context.type === "band" ? "band" : "personal")` line inside the band-context sync effect, which is the pre-existing baseline error for that file and is not touched by this task. `npm run lint:dead` exits 0 and reports no unused files, exports or dependencies. `npm run lint:dup` exits 0 and prints a total duplication percentage below 2 %. `npm run audit` exits 0 and prints `found 0 vulnerabilities`.
+ER1 - From the project root the following eleven files exist and are non-empty: `src/lib/playlistNav.ts`, `src/hooks/usePlaylistNav.ts`, `src/app/fastViewNavActions.ts`, `src/components/fastview/SetlistRow.tsx`, `src/components/fastview/SetlistPanel.tsx`, `src/components/fastview/SetlistDrawer.tsx`, `src/components/fastview/SetlistSidebar.tsx`, `src/components/fastview/SetlistSelect.tsx`, `src/components/fastview/SetlistPill.tsx`, `src/components/fastview/PlaylistPrevArrow.tsx`, `src/components/fastview/SwipeHint.tsx`. `grep -rn "@/app/" src/lib/playlistNav.ts src/hooks/usePlaylistNav.ts src/components/fastview` prints nothing and exits with status 1. `grep -rln "usePlaylistNav" src` lists exactly these four paths and no others, in any order: `src/hooks/usePlaylistNav.ts`, `src/hooks/__tests__/usePlaylistNav.test.tsx`, `src/app/fastViewNavActions.ts`, `src/app/songs/[id]/fast-view/page.tsx`. `grep -c "PLAYLIST_NAV_ACTIONS" "src/app/songs/[id]/fast-view/page.tsx"` prints a number greater than 0.
 
-ER2 - No file under `src/components`, `src/lib` or `src/hooks` imports from the App Router tree any more, tests aside. `grep -rn "@/app/" src/components src/lib src/hooks | grep -v __tests__` prints nothing and exits 1. Per file, `grep -n "@/app/" src/hooks/useBandAdmin.ts src/components/songs/SongForm.tsx src/components/songs/CorrectionModal.tsx` also prints nothing and exits 1. The six pre-existing test-file hits are unaffected and are expected to remain: `grep -rln "@/app/" src/lib/__tests__ | sort` still prints the four paths `src/lib/__tests__/devProfiles.test.ts`, `src/lib/__tests__/spotify.test.ts`, `src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts`, `src/lib/__tests__/spotifySyncAtomicity.db.test.ts`, because those suites import the `src/app/api/**` route handlers they exist to test.
+ER2 - `npx vitest run src/lib/__tests__/playlistNav.test.ts --reporter=verbose` exits 0 and reports at least 20 passed and 0 failed tests, among which these exact names all appear and pass: `extracts the playlist id from a /playlists/:id returnTo`, `returns null for null, an empty string and a non-playlist returnTo`, `returns null for a nested path below /playlists/:id`, `reports position, total, previous and next for a middle entry`, `reports no previous for the first entry and no next for the last`, `returns null when the entry list is empty`, `returns null when the current repertoire id is not in the list`, `carries the playlist id and name through unchanged`, `preserves returnTo and bandId in that order`, `omits an absent returnTo and an absent bandId`, `percent-encodes the returnTo value`, `slides left when the target is further down the setlist`, `slides right when the target is further up the setlist`, `ignores a horizontal movement below the 60 pixel threshold`, `advances to the next entry on a leftward swipe`, `returns to the previous entry on a rightward swipe`, `returns null when the requested direction has no neighbour`, `returns the untranslated classes when no slide is in progress`, `translates the page fully left and fully right`, `pushes the returnTo path when there is one, and falls back to history when there is not`.
 
-ER3 - The direction is enforced mechanically, and the enforcement is proved to bite. `eslint.config.mjs` contains a config object whose `files` is exactly `["src/components/**", "src/lib/**", "src/hooks/**"]`, whose `ignores` is `["**/__tests__/**"]`, and whose `rules` sets `"no-restricted-imports"` to `"error"` with a `patterns` entry whose `group` contains both `"@/app/*"` and `"@/app/**"`. Tamper check, run from the repository root at the merge commit: `printf "import { getBandsAction } from '@/app/actions/bands'\n\nexport const probe = getBandsAction\n" > src/lib/rh47RuleProbe.ts` then `npx eslint src/lib/rh47RuleProbe.ts` prints exactly `1 problem (1 error, 0 warnings)`, and the reported line names the rule id `no-restricted-imports` and quotes the import source `'@/app/actions/bands'`. Then `rm src/lib/rh47RuleProbe.ts`, after which `test ! -e src/lib/rh47RuleProbe.ts && echo restored` prints `restored` and `git status --porcelain -- src` prints nothing, proving the probe left no trace under `src`. The check is scoped to `src` on purpose: an unscoped `git status --porcelain` also reports this task's own untracked spec and log files and would fail a correct implementation.
+ER3 - `npx vitest run src/hooks/__tests__/usePlaylistNav.test.tsx --reporter=verbose` exits 0 and reports at least 11 passed and 0 failed tests, among which these exact names all appear and pass: `does not call the playlist action when returnTo is not a playlist path`, `loads the playlist entries and exposes the computed navigation`, `exposes no navigation when the playlist action rejects`, `exposes no navigation when the current entry is absent from the playlist`, `opens and closes the drawer`, `navigates to the selected entry after the slide-out delay, preserving returnTo and bandId`, `does not navigate when the selected entry is the current one`, `goPrev slides right to the previous entry and does nothing on the first entry`, `advances to the next entry on a leftward swipe past the threshold`, `ignores a swipe shorter than the threshold`, `refetches the playlist when the bandId option changes`. The first line of that file is exactly `// @vitest-environment jsdom` and the file contains `afterEach(cleanup)`.
 
-ER4 - `useBandAdmin` receives its eight band actions as an injected object and both consumers supply it. `grep -n "export interface BandAdminActions" src/hooks/useBandAdmin.ts` prints one line, and inside that interface `grep -c "=> Promise<" src/hooks/useBandAdmin.ts` counts at least 8 members covering `getBandWithMembers`, `getBandPlaylists`, `updateBand`, `deleteBand`, `leaveBand`, `removeBandMember`, `createBandPlaylist` and `uploadBandCover` (each name appears at least once in the file: `grep -c "getBandWithMembers\|getBandPlaylists\|updateBand\|deleteBand\|leaveBand\|removeBandMember\|createBandPlaylist\|uploadBandCover" src/hooks/useBandAdmin.ts` prints a number of 16 or more). `grep -n "actions: BandAdminActions" src/hooks/useBandAdmin.ts` prints one line inside `UseBandAdminOptions`. The composition root exists: `src/app/bandAdminActions.ts` is a file, `grep -c "Action," src/app/bandAdminActions.ts` prints 16 or more (the eight `...Action,` import specifiers plus the eight `key: ...Action,` assignments in `BAND_ADMIN_ACTIONS`) and `grep -n "export const BAND_ADMIN_ACTIONS" src/app/bandAdminActions.ts` prints one line. Both consumers wire it: `grep -n "BAND_ADMIN_ACTIONS" "src/app/bands/[id]/page.tsx" src/app/profile/page.tsx` prints exactly two lines per file, one import and one `actions: BAND_ADMIN_ACTIONS` inside the `useBandAdmin({ ... })` call.
+ER4 - `npx vitest run src/components/fastview --reporter=verbose` exits 0 and reports at least 24 passed and 0 failed tests across exactly these four files: `src/components/fastview/__tests__/SetlistRow.test.tsx` (at least 5 tests, including `marks the current entry with the NOW badge and does not call onSelect for it` and `adds the sidebar-only ring class only in the sidebar variant`), `src/components/fastview/__tests__/SetlistDrawer.test.tsx` (at least 5 tests, including `renders nothing when it is closed` and `closes the drawer and selects the entry when a row is clicked`), `src/components/fastview/__tests__/SetlistSidebar.test.tsx` (at least 4 tests, including `carries the desktop sidebar classes required by AGENTS.md`, which asserts that the rendered `aside` element's class attribute contains every one of `w-80`, `shrink-0`, `border-l`, `border-gray-200`, `bg-white`, `sticky`, `top-0`, `h-screen`), and `src/components/fastview/__tests__/SetlistControls.test.tsx` (at least 10 tests, including `renders a Previous song button that calls onNavigate`, which asserts a button with `aria-label="Previous song"`, and a `SetlistPill` test asserting the rendered label text matches the regular expression `Setlist \(\d+/\d+\)`). Every one of those four files has `// @vitest-environment jsdom` as its literal first line and calls `afterEach(cleanup)`.
 
-ER5 - `SongForm` and `CorrectionModal` receive their server calls from above, and the page supplies them. `grep -n "export interface SongFormActions" src/components/songs/SongForm.tsx` and `grep -n "actions: SongFormActions" src/components/songs/SongForm.tsx` each print at least one line, and `grep -c "actions\." src/components/songs/SongForm.tsx` prints 5 or more (the four repertoire calls plus the forward into the modal). `grep -n "onSubmitCorrection" src/components/songs/CorrectionModal.tsx` prints at least two lines (the prop declaration and the call in `handleSubmit`), and `grep -n "onSubmitCorrection={" src/components/songs/SongForm.tsx` prints exactly one line, inside the single `<CorrectionModal` element in that file. `grep -n "SONG_FORM_ACTIONS" src/app/page.tsx` prints exactly two lines, the module-level declaration and the `actions={SONG_FORM_ACTIONS}` prop on the single `<SongForm` element. `grep -c "submitGlobalSongEditAction" src/app/page.tsx` prints 2 (its import and its use in that object) while `grep -c "submitGlobalSongEditAction" src/components/songs/CorrectionModal.tsx` prints 0.
+ER5 - `grep -c "window.location.search" "src/app/songs/[id]/fast-view/page.tsx"` prints `0` (it printed `4` at commit `c8665cd`), and `grep -c "useSearchParams" "src/app/songs/[id]/fast-view/page.tsx"` prints a number greater than 0. `grep -rn "getPlaylistEntryIdsAction" src` prints nothing and exits with status 1. `grep -c "export async function" src/app/actions/playlists.ts` prints exactly one less than it printed at `c8665cd`. `grep -c "mode: '" src/app/actions/__tests__/actionSessionGuard.test.ts` prints `44` (it prints `45` at `c8665cd`; the unquoted `mode: FailMode` type declaration is not matched). `npx vitest run src/app/actions/__tests__/actionSessionGuard.test.ts src/app/actions/__tests__/actionAuthorizationGuard.test.ts src/app/actions/__tests__/actionDataAccessGuard.test.ts src/app/actions/__tests__/playlists.test.ts` exits 0 with 0 failed tests.
 
-ER6 - The existing `useBandAdmin` suite proves the hook still behaves identically while now driven by an injected fake. `npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx` exits 0 reporting exactly 29 passed tests, 0 failed. `npx vitest run src/hooks/__tests__/useBandAdmin.test.tsx --reporter=verbose` shows the same five describe blocks as at `51151d7`, with the same per-block counts: `useBandAdmin load policies` 6 tests, `useBandAdmin derived state` 6, `useBandAdmin edit modal` 8, `useBandAdmin destructive actions` 6, `useBandAdmin playlist creation` 3. Among them, `BANDS_PAGE_LOAD_POLICY lets the load failure reject unhandled instead of showing a banner`, `BAND_PROFILE_LOAD_POLICY clears loading on not-found` and `BANDS_PAGE_LOAD_POLICY keeps loading on not-found` are present and passing, which is what proves RH-18's two load policies still mean what they mean. `grep -n "@/app/" src/hooks/__tests__/useBandAdmin.test.tsx` prints nothing and exits 1: the suite no longer mocks the action module, it injects spies.
+ER6 - `npx eslint src/lib/playlistNav.ts src/hooks/usePlaylistNav.ts src/app/fastViewNavActions.ts src/components/fastview --rule '{"complexity":["error",15],"max-lines-per-function":["error",200]}'` exits 0 and prints no output at all. `wc -l` on each of the eleven files listed in ER1 prints a number strictly less than 400. `wc -l "src/app/songs/[id]/fast-view/page.tsx"` prints a number strictly less than 1500 (it printed 1625 at `c8665cd`). `npx eslint "src/app/songs/[id]/fast-view/page.tsx" --rule '{"complexity":["error",15]}'` prints exactly one line matching `Function 'FastViewPage' has a complexity of N`, and that N is at most 79 (it was 88 at `c8665cd`).
 
-ER7 - Two new jsdom suites prove the two components render and call outward from props alone. `src/components/songs/__tests__/SongForm.test.tsx` exists, its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, and `npx vitest run src/components/songs/__tests__/SongForm.test.tsx` passes with exactly 5 tests and 0 failures, named verbatim: `creates a song through the injected createAndAddSong action`; `applies the status and tags through their injected actions after creating`; `saves an edit through the injected updateSong action`; `shows the error message when an injected action rejects`; `passes the injected submitGlobalSongEdit down to the correction modal`. `src/components/songs/__tests__/CorrectionModal.test.tsx` exists, its literal first line is `// @vitest-environment jsdom`, it calls `afterEach(cleanup)`, and `npx vitest run src/components/songs/__tests__/CorrectionModal.test.tsx` passes with exactly 4 tests and 0 failures, named verbatim: `seeds its fields from the song prop`; `submits the trimmed fields through onSubmitCorrection, then succeeds and closes`; `refuses to submit when the title is blank`; `shows the failure message when onSubmitCorrection rejects`. The second `CorrectionModal` test asserts the injected callback was called once with the song id `song-1` and a payload whose `title` is the trimmed `Yellow (Live)` and whose `reason` is `null`.
+ER7 - `npx eslint .` prints the summary line `28 problems (12 errors, 16 warnings)` and nothing worse, and `npx eslint "src/app/songs/[id]/fast-view/page.tsx"` prints the summary line `4 problems (2 errors, 2 warnings)`, with the four remaining problems being one `prefer-const` error on the `let html` declaration inside `parseLyricsMarkdown` (its line number shifts, because the page gains net new import lines above it), two `no-unused-vars` warnings for `uploadDestination` and `setUploadDestination`, and one `no-explicit-any`. `./node_modules/.bin/tsc --noEmit` exits 0 and prints nothing. `npm run lint:dead` exits 0 and reports no unused files, exports, types or dependencies. `npm run lint:dup` exits 0 and prints `Found N clones.` with N at most 18 (it was 19 at `c8665cd`), with a total duplicated-lines percentage at most 0.88% and no reported clone whose two locations are both inside `src/app/songs/[id]/fast-view/page.tsx`. `npm run audit` exits 0 and reports 0 vulnerabilities.
 
-ER8 - Neither new suite, and not the retargeted one, mocks a Server Action module. `grep -n "@/app/actions" src/components/songs/__tests__/SongForm.test.tsx src/components/songs/__tests__/CorrectionModal.test.tsx src/hooks/__tests__/useBandAdmin.test.tsx` prints nothing and exits 1. `grep -c "vi.mock" src/components/songs/__tests__/CorrectionModal.test.tsx` prints 0. `grep -n "vi.mock" src/components/songs/__tests__/SongForm.test.tsx` prints exactly one line, mocking `@/store/repertoireStore`, and `grep -n "vi.mock" src/hooks/__tests__/useBandAdmin.test.tsx` prints exactly two lines, mocking `@/lib/auth-client` and `@/lib/imageCompressor`.
+ER8 - `git diff c8665cd -- src/lib/__tests__/erasePersistence.test.ts src/lib/__tests__/stageInteraction.test.ts src/lib/__tests__/annotationMath.test.ts src/lib/__tests__/pdfWorkerAsset.test.ts src/components/tabs/__tests__/TabDrawingStage.test.tsx src/lib/__tests__/noBrowserDialogs.test.ts src/lib/__tests__/errorHandlingStyle.test.ts` prints nothing, and `npx vitest run src/lib/__tests__/erasePersistence.test.ts src/lib/__tests__/stageInteraction.test.ts src/lib/__tests__/annotationMath.test.ts src/lib/__tests__/pdfWorkerAsset.test.ts src/components/tabs/__tests__/TabDrawingStage.test.tsx src/lib/__tests__/noBrowserDialogs.test.ts src/lib/__tests__/errorHandlingStyle.test.ts` exits 0 with 0 failed tests.
 
-ER9 - Behaviour elsewhere is provably unchanged and the whole suite is green. `git diff 51151d7 -- src/lib src/app/actions src/proxy.ts src/types src/store migrations e2e` prints nothing, proving no domain module, Server Action, migration or end-to-end spec was touched - in particular `src/lib/bandAdminLoad.ts` and its suite `src/lib/__tests__/bandAdminLoad.test.ts` are byte-identical, so RH-18's load policies were satisfied rather than adjusted. `npx vitest run src/lib/__tests__/bandAdminLoad.test.ts src/lib/__tests__/bands.test.ts src/lib/__tests__/bands.server.test.ts src/lib/__tests__/moderation.test.ts src/lib/__tests__/errorHandlingStyle.test.ts src/lib/__tests__/noBrowserDialogs.test.ts src/hooks/__tests__/useToast.test.tsx` reports 7 passed files and 0 failures. Then, with Postgres running at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with migrations applied (`npm run db:migrate`) and a non-empty `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` or the environment, `npx vitest run` exits 0 reporting at least 59 test files and at least 736 tests passed, with 0 failed and 0 skipped. Without those two preconditions six DB-backed files skip 51 tests and the run does not count.
+ER9 - With a live Postgres reachable at `postgresql://postgres:postgres@127.0.0.1:54322/postgres` with all migrations applied and a non-empty `SUPABASE_SERVICE_ROLE_KEY` exported into the environment (for example `set -a; . ./.env.local; set +a`), `npx vitest run` exits 0 and its summary reports at least 65 test files passed, 0 test files failed, at least 790 tests passed, 0 tests failed and 0 tests skipped (the same command at `c8665cd` reported 59 files and 736 tests).
 
-ER10 - The coverage gate still passes and `useBandAdmin.ts` did not lose coverage. With the same Postgres and `SUPABASE_SERVICE_ROLE_KEY` preconditions as ER9, `npm run test:coverage` exits 0 with all four thresholds met (statements 80, branches 65, functions 78, lines 80). In the printed text table, the row for `useBandAdmin.ts` shows `% Stmts` at least 95, `% Branch` at least 75, `% Funcs` at least 90 and `% Lines` at least 95; the baseline at `51151d7` was 98.55 / 78.08 / 94.74 / 98.55, so this is a floor, not a target. The coverage universe itself is unchanged: `git diff 51151d7 -- vitest.config.ts` prints nothing.
+ER10 - Under the same Postgres and `SUPABASE_SERVICE_ROLE_KEY` precondition as ER9, `npm run test:coverage` exits 0 with no threshold error, and in its per-file table the `All files` row shows statements at least 95, branches at least 78, functions at least 97 and lines at least 95; the `playlistNav.ts` row shows statements 100, functions 100, lines 100 and branches at least 90; and the `usePlaylistNav.ts` row shows statements at least 95, branches at least 78, functions at least 90 and lines at least 95.
 
-ER11 - The app still builds and server-renders, and the band-admin flow still works end to end. `npx next build` exits 0. `npx playwright test e2e/ssr-smoke.spec.ts` reports `4 passed`. `npx playwright test e2e/bands-confirm.spec.ts` exits 0 reporting `3 passed` (`delete band via the inline confirmation`, `cancel keeps the band`, `Escape dismisses the confirmation`), which exercises the real `useBandAdmin` confirmations against real Server Actions rather than injected spies. `e2e/songs-crud.spec.ts` is explicitly not part of this result and must not be run as a gate for this task: all three of its tests are already red at the `51151d7` baseline for reasons unrelated to this change (tracked as RH-44 - `locator('dialog[open]')` never reaches count 0 at `e2e/helpers.ts:57`, and `[aria-label="Song list"]` never becomes visible at `e2e/helpers.ts:27`), so it cannot distinguish a correct implementation from a broken one. The `SongForm` path is instead covered by ER7's jsdom suite plus `e2e/ssr-smoke.spec.ts`.
+ER11 - `npx next build` exits 0, prints no error mentioning a missing Suspense boundary or `useSearchParams`, and its route table lists `/songs/[id]/fast-view` marked `f` (Dynamic, server-rendered on demand). Immediately afterwards, `set -a; . ./.env.local; set +a; PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/ssr-smoke.spec.ts --project=chromium` prints `4 passed` and exits 0.
 
-ER12 - The version was bumped, the landing page was left alone, and nothing outside the task's footprint was touched. `node -p "require('./package.json').version"` prints a string matching `^0\.1\.74-20[0-9]{10}$` (patch 74, then a 12-digit `YYYYMMDDHHmm` local-time stamp), strictly greater than the `0.1.73-202609071401` at `51151d7`. This task ships no user-facing feature - it is an internal dependency inversion plus a lint rule - so it is not a selling point, and `git diff --stat 51151d7 -- src/components/landing src/i18n/dictionaries` prints nothing. `git diff --name-only 51151d7` prints a subset of exactly this whitelist and nothing else: `AGENTS.md`, `docs/tasks/RH-47-spec.md`, `docs/suggestions-log.md`, `package.json`, `eslint.config.mjs`, `src/app/bandAdminActions.ts`, `src/app/page.tsx`, `src/app/bands/[id]/page.tsx`, `src/app/profile/page.tsx`, `src/components/songs/SongForm.tsx`, `src/components/songs/CorrectionModal.tsx`, `src/components/songs/__tests__/SongForm.test.tsx`, `src/components/songs/__tests__/CorrectionModal.test.tsx`, `src/hooks/useBandAdmin.ts`, `src/hooks/__tests__/useBandAdmin.test.tsx`. The only change permitted inside `AGENTS.md` is one added bullet at the end of the `**Testing & quality**` list stating that `src/components`, `src/hooks` and `src/lib` must not import `@/app/*` and naming `eslint.config.mjs` as the enforcer: `git diff 51151d7 -- AGENTS.md` shows added lines only, no deletions, and no change inside the `<!-- BEGIN:nextjs-agent-rules -->` block.
+ER12 - `git diff --name-only c8665cd` lists only paths drawn from this closed set and nothing else: `AGENTS.md`, `package.json`, `.meridian/tasks.json`, `docs/tasks/RH-47-spec.md`, `docs/suggestions-log.md`, `src/app/songs/[id]/fast-view/page.tsx`, `src/app/fastViewNavActions.ts`, `src/app/actions/playlists.ts`, `src/app/actions/__tests__/playlists.test.ts`, `src/app/actions/__tests__/actionSessionGuard.test.ts`, `src/app/actions/__tests__/actionAuthorizationGuard.test.ts`, `src/lib/playlistNav.ts`, `src/lib/__tests__/playlistNav.test.ts`, `src/hooks/usePlaylistNav.ts`, `src/hooks/__tests__/usePlaylistNav.test.tsx`, `src/components/fastview/SetlistRow.tsx`, `src/components/fastview/SetlistPanel.tsx`, `src/components/fastview/SetlistDrawer.tsx`, `src/components/fastview/SetlistSidebar.tsx`, `src/components/fastview/SetlistSelect.tsx`, `src/components/fastview/SetlistPill.tsx`, `src/components/fastview/PlaylistPrevArrow.tsx`, `src/components/fastview/SwipeHint.tsx`, `src/components/fastview/__tests__/SetlistRow.test.tsx`, `src/components/fastview/__tests__/SetlistDrawer.test.tsx`, `src/components/fastview/__tests__/SetlistSidebar.test.tsx`, `src/components/fastview/__tests__/SetlistControls.test.tsx`. In particular that list contains no path under `migrations/`, no `eslint.config.mjs`, no `vitest.config.ts`, no `src/lib/tabs.ts`, no `src/lib/songs.ts`, no `docs/plans/code-quality-review.md` and no file under `src/components/landing/` or `src/i18n/dictionaries/`. The `version` field in `package.json` matches `0.1.76-` followed by exactly twelve digits, and `git diff c8665cd -- src/components/landing/LandingPage.tsx src/i18n/dictionaries/en.json src/i18n/dictionaries/pt-BR.json` prints nothing.
 
 ## Out of Scope
 
-- **`src/store/repertoireStore.ts` keeps its `@/app/actions/repertoire` import.** `SongForm`
-  still calls `loadSongs()` through `useRepertoireStore`, so the inward edge survives
-  transitively. F21 named `src/components`, `src/lib` and `src/hooks`; `src/store` is
-  deliberately outside the new rule's `files` list, and inverting a zustand store that four
-  pages share is a different change with a different risk profile. Recorded as a suggestion.
-- **No change to any Server Action or `src/lib` module.** `src/app/actions/bands.ts`,
-  `repertoire.ts` and `moderation.ts` keep their exact signatures; this task only changes
-  who imports them. `src/lib/bandAdminLoad.ts` is untouched.
-- **No behaviour change anywhere.** Same actions, same arguments, same order, same loading
-  flags, same error text, same toasts, same `revalidatePath` (which happens inside the
-  actions and is not moved). Unlike RH-46 this task has no accepted behaviour delta at all,
-  which is what makes ER6's "29 tests, same names, same assertions" checkable.
-- **No unification of the two `useBandAdmin` consumers.** `/bands/[id]` and the `/profile`
-  band tab keep their deliberately different markup and their different load policies, as
-  RH-18 settled.
-- **No new coverage-gate entries.** `src/components/**` and `src/app/**` stay outside
-  `coverage.include`; the two new jsdom suites are regression protection, not gate movement.
-  `src/app/bandAdminActions.ts` is a nine-line composition root with no logic and gets no
-  test of its own - it is exercised end to end by `e2e/bands-confirm.spec.ts`.
-- **`e2e/songs-crud.spec.ts` is not a gate for this task and is not repaired here.** All
-  three of its tests fail at the `51151d7` baseline, before any change in this task:
-  `e2e/helpers.ts:57` waits for `locator('dialog[open]')` to reach count 0 and it never
-  does, and `e2e/helpers.ts:27` waits for `[aria-label="Song list"]` to become visible and
-  it never does. That is a pre-existing failure tracked as RH-44, in a spec this task does
-  not touch (ER9 requires `git diff 51151d7 -- e2e` to print nothing). Running it would only
-  reproduce RH-44's red, so ER11 gates on `e2e/bands-confirm.spec.ts` - green at baseline
-  with `3 passed` - and the `SongForm` path is covered by the new jsdom suite (ER7) plus
-  `e2e/ssr-smoke.spec.ts`.
-- **The ESLint rule is not extended to other directions.** It bans `@/app/*` from three
-  directories. It does not police `src/components` importing `src/lib`, relative-path
-  escapes such as `../../app/actions/x`, or `src/lib` importing `src/components`. Those are
-  not violations that exist today and inventing patterns for them would be untested config.
+- The other four Fast View slices: tabs/upload with the destination modal
+  (RH-49), the PDF Stage Mode overlay including `findScrollHost` and the visual
+  viewport measurement (RH-50), lyrics and `parseLyricsMarkdown` (RH-51), and
+  the entry load / band-vs-personal reconciliation / status dropdown / links /
+  delete confirmation / page shell (RH-52). The page keeps all of them
+  unchanged.
+- Reaching the F6 target (no function over complexity 15, no file over 400
+  lines) for `page.tsx` itself. That is RH-38's integration task, after all five
+  parts land.
+- Closing F6 or F26 in `docs/plans/code-quality-review.md`. That file must not
+  be edited by this task; RH-38 closes both findings.
+- Adding a desktop **next** arrow. The current previous-only asymmetry is
+  preserved verbatim.
+- Fixing `e2e/fast-view-mobile.spec.ts` or `e2e/songs-crud.spec.ts`. Both are
+  red at `c8665cd` for the same RH-44 `addSong` helper reason and are not gates
+  here.
+- Adding ESLint complexity budgets to `eslint.config.mjs` (RH-39) — that must
+  land after all five RH-38 parts, or the page fails `npx eslint .` for the
+  whole decomposition.
+- Any landing-page or dictionary change: this refactor ships no user-facing
+  selling point.
+- Any change to `migrations/`, `vitest.config.ts`, `src/lib/tabs.ts` or
+  `src/lib/songs.ts`.
 
 ## Post-merge checks (orchestrator)
 
-- `docs/plans/code-quality-review.md` F21 can now be closed. Its text still says "the two
-  inward dependencies found by M4" and its remediation still asks for the ESLint rule; both
-  are satisfied only after RH-47, across RH-46 and this task. The undercount (five, not two)
-  is recorded in `.meridian/reports/RH-37-spec-1.md`.
-- F8 and F22 were closed by RH-45 (`a493731`); confirm the review document reflects that
-  before archiving RH-37.
-- RH-37 should return to `backlog` for its own integration spec (or be closed as fully
-  delivered by RH-45 / RH-46 / RH-47), since all three parts of its decomposition will have
-  landed.
+- Re-run `npx eslint "src/app/songs/[id]/fast-view/page.tsx" --rule '{"complexity":["error",15],"max-lines-per-function":["error",200]}'` and record the new complexity and line count in the RH-38 tracking notes, so parts 2-5 each get a fresh floor to beat.
+- RH-49's spec should be written against the post-RH-48 page, not against `c8665cd` line numbers.
