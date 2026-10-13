@@ -9981,3 +9981,7 @@ Non-blocking suggestions from spec review round 1:
 - `page.tsx` diff: several unrelated explanatory comments were shortened or reworded (file library, PDF stage, lyrics). Scope noise; revert unless needed for a size budget.
 - `songWindow.ts`: the module-level cache is keyed by band or personal only, not by user, and never evicted. Sign-out and sign-in as another user in the same tab without a reload could serve the previous user's personal entries. Add `resetSongWindow()` on sign-out or a user id in the key.
 - `songWindowData.ts` matches `error.message.includes('Song version not found')`; brittle coupling to an error string. Prefer a typed error from `ownerSongs`.
+
+## [RH-139] Roll back the repertoire rows a failed Spotify sync leaves behind — 2026-10-13
+- `spotifySyncAtomicity.db.test.ts`: the success test hard-codes `removed: 2`, which depends on the seeded fixture; a short comment on where the 2 comes from would help.
+- `sync/route.ts`: inside the transaction `ensureInRepertoire` runs one query per version; a batched insert is possible later if playlists get large (not needed now).

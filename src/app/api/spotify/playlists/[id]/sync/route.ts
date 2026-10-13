@@ -79,7 +79,6 @@ export async function POST(
 
       for (const track of spotifyTracks) {
         const { versionId } = await findOrCreateSong(track)
-        await ensureInRepertoire(versionId, owner)
         resolvedVersionIds.push(versionId)
       }
 
@@ -107,9 +106,15 @@ export async function POST(
       // F9): a failing re-insert used to leave the playlist permanently empty,
       // with no record of what it held. Deletes precede inserts inside the
       // transaction, so `uq_playlist_song_position` is never transiently
-      // violated and does not need to be deferrable.
+      // violated and does not need to be deferrable. The owner's repertoire
+      // seeding (RH-139) joins the same transaction, so a failed rewrite leaves
+      // no `user_songs` / `band_songs` row behind either.
       await withTransaction(async (client) => {
         await client.query<never>('DELETE FROM playlist_songs WHERE playlist_id = $1', [localPlaylistId])
+
+        for (const versionId of spotifyVersionIdsInOrder) {
+          await ensureInRepertoire(versionId, owner, client)
+        }
 
         if (spotifyVersionIdsInOrder.length > 0) {
           const { sql, values } = buildPlaylistSongsInsert(localPlaylistId, spotifyVersionIdsInOrder)

@@ -34,17 +34,10 @@ const TRACK_TITLE = 'RH-36 Track'
 const TRACK_ARTIST = 'RH-36 Track Artist'
 
 /**
- * RH-126 — the band pull pulls a **different** track from the personal one.
- *
- * The two tests below used to share `oneTrackPage`, which made the band test's
- * "no member row for this version" assertion depend on test order: the personal
- * test runs first, and the `ensureInRepertoire({ userId })` it reaches sits
- * *outside* the `withTransaction` the failing `playlist_songs` insert rolls
- * back, so it legitimately commits the owner's own `user_songs` row for that
- * version. Counting over every user — which is the only count that can see a
- * fan-out to the other members — would then read that legitimate personal row
- * as a violation. One track each makes the assertion mean what it says and
- * holds whether the file runs whole or filtered to one test.
+ * RH-126 — each test pulls its own distinct track, so a "no row for this song"
+ * assertion never depends on test order or on what another test seeded. Since
+ * RH-139 the repertoire seeding runs inside the same transaction as the
+ * `playlist_songs` rewrite, so a failing insert leaves no repertoire row either.
  */
 const BAND_TRACK_TITLE = 'RH-36 Band Track'
 const BAND_TRACK_ARTIST = 'RH-36 Band Track Artist'
@@ -64,6 +57,14 @@ const oneTrackPageFor = (id: string, name: string, artist: string) => ({
   ],
   next: null,
 })
+
+const FAIL_PERSONAL_TITLE = 'RH-139 Personal Fail Track'
+const FAIL_BAND_TITLE = 'RH-139 Band Fail Track'
+const OK_PERSONAL_TITLE = 'RH-139 Personal Ok Track'
+const RH139_ARTIST = 'RH-139 Track Artist'
+const failPersonalPage = oneTrackPageFor('rh139failp', FAIL_PERSONAL_TITLE, RH139_ARTIST)
+const failBandPage = oneTrackPageFor('rh139failb', FAIL_BAND_TITLE, RH139_ARTIST)
+const okPersonalPage = oneTrackPageFor('rh139okp', OK_PERSONAL_TITLE, RH139_ARTIST)
 
 const oneTrackPage = oneTrackPageFor('rh36track1', TRACK_TITLE, TRACK_ARTIST)
 const bandTrackPage = oneTrackPageFor('rh36bandtrack1', BAND_TRACK_TITLE, BAND_TRACK_ARTIST)
@@ -95,6 +96,11 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     const res = await query(sql, params as never)
     return res.rows[0]
   }
+
+  const mockPage = (page: unknown) =>
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(page) } as Response),
+    )
 
   const callSync = (id: string) =>
     syncPOST(
@@ -196,6 +202,7 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
       BAND_TRACK_TITLE,
       BAND_TRACK_ARTIST,
     ])
+    await query('DELETE FROM songs WHERE artist = $1', [RH139_ARTIST])
     await query('DROP FUNCTION IF EXISTS rh36_sync_raise() CASCADE')
   })
 
@@ -207,9 +214,23 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
     installedTriggers.push('rh36_fail_playlist_songs')
 
     asUser(ownerId)
+    mockPage(failPersonalPage)
 
     const response = await callSync(playlistId)
     expect(response.status).toBe(500)
+
+    // RH-139: the repertoire seeding rolls back with the playlist rewrite.
+    const pulled = await query('SELECT id FROM songs WHERE title = $1 AND artist = $2', [
+      FAIL_PERSONAL_TITLE,
+      RH139_ARTIST,
+    ])
+    expect(pulled.rows).toHaveLength(1)
+    const heldPersonally = await one(
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user}
+       WHERE v.song_id = $1 AND o.user_id = $2`,
+      [pulled.rows[0].id, ownerId],
+    )
+    expect(heldPersonally.count).toBe(0)
 
     // The DELETE that precedes the re-insert is rolled back with it, so the
     // playlist still holds exactly what it held before the sync.
@@ -261,5 +282,51 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify pull resync (real database)', () => 
       [syncedSongId],
     )
     expect(memberRows.count).toBe(0)
+  })
+
+  it('a failing playlist_songs insert on a band pull leaves no band_songs row', async () => {
+    await query(
+      `CREATE TRIGGER rh139_fail_band_playlist_songs BEFORE INSERT ON playlist_songs
+       FOR EACH ROW WHEN (NEW.playlist_id = '${bandPlaylistId}') EXECUTE FUNCTION rh36_sync_raise()`,
+    )
+    installedTriggers.push('rh139_fail_band_playlist_songs')
+
+    asUser(ownerId)
+    mockPage(failBandPage)
+
+    const response = await callSync(bandPlaylistId)
+    expect(response.status).toBe(500)
+
+    const pulled = await query('SELECT id FROM songs WHERE title = $1 AND artist = $2', [
+      FAIL_BAND_TITLE,
+      RH139_ARTIST,
+    ])
+    expect(pulled.rows).toHaveLength(1)
+    const bandRows = await one(
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.band}
+       WHERE v.song_id = $1 AND o.band_id = $2`,
+      [pulled.rows[0].id, bandId],
+    )
+    expect(bandRows.count).toBe(0)
+  })
+
+  it('a successful personal pull seeds the caller row and answers added/removed', async () => {
+    asUser(ownerId)
+    mockPage(okPersonalPage)
+
+    const response = await callSync(playlistId)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ added: 1, removed: 2 })
+
+    const song = await one('SELECT id FROM songs WHERE title = $1 AND artist = $2', [
+      OK_PERSONAL_TITLE,
+      RH139_ARTIST,
+    ])
+    const held = await one(
+      `SELECT count(*)::int AS count FROM ${OWNER_SONG_FROM.user}
+       WHERE v.song_id = $1 AND o.user_id = $2`,
+      [song.id, ownerId],
+    )
+    expect(held.count).toBe(1)
   })
 })
