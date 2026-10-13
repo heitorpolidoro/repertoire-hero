@@ -10180,3 +10180,13 @@ Non-blocking suggestions from QA round 1:
 - (code review) `CatalogFlowPanel.tsx` is 292 lines and `useCatalogAdmin.ts` is 205. Both are under budget, but the per-flow components could be split further if they grow.
 - (code review) The `Confirm` wrapper relies on the `ConfirmPanel` default `tone="danger"`. The spec says to name the tone explicitly, so pass `tone="danger"` to be safe.
 - (code review) `useCatalogAdmin` resets `openSongIds` and `radii` after every successful action, so every card collapses after a mutation. This is acceptable, but a UX note.
+
+## [RH-117] Build the admin catalog screen: merge, split and delete — 2026-10-13
+
+- (spec review) ER4 bundles several gates (tsc, lint, lint:dead, existing tests) in one line. It is mechanically verifiable, so not blocking. The spec body also mentions the unit and db suites, which ER4 omits.
+- (spec review) The spec says "five catalog actions" without naming them. src/app/actions/catalogAdmin.ts exports exactly five: getCatalogBlastRadiusAction, mergeSongVersionsAction, deleteSongVersionAction, splitSongVersionsAction, mergeSongsAction. Naming them would remove any doubt.
+
+## [RH-159] Add whole-playlist practice review list — 2026-10-13
+
+- (code review) `PracticeReviewList` uses `review.confirm().catch(console.error)`; confirm already handles errors, so it is harmless.
+- (qa) Run the new DB test after `npm run db:migrate` on the local DB to confirm ER14 end to end.

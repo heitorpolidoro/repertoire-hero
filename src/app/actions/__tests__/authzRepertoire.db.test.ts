@@ -775,5 +775,19 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect((await practiceRow('user_songs', 'user_id', userAId, versionId)).lp).not.toBeNull()
       expect((await practiceRow('band_songs', 'band_id', bandId, versionId)).lp).toBeNull()
     })
+
+    it('RH-159: a batch with one failing item writes no row of the batch', async () => {
+      const first = await bandVersionFor('RH-159 Batch A')
+      const second = await bandVersionFor('RH-159 Batch B')
+      const unknown = '00000000-0000-0000-0000-000000000000'
+      asUser(userAId)
+      await expect(
+        recordPracticeAction([{ versionId: first }, { versionId: second, status: 'mastered' }, { versionId: unknown }], bandId),
+      ).rejects.toThrow()
+      for (const versionId of [first, second]) {
+        expect(await practiceRow('user_songs', 'user_id', userAId, versionId)).toBeUndefined()
+        expect((await practiceRow('band_songs', 'band_id', bandId, versionId)).lp).toBeNull()
+      }
+    })
   })
 })

@@ -40,6 +40,8 @@ export interface PlaylistDetailHeaderProps {
   reordering: boolean;
   /** Enters or leaves that mode. */
   onToggleReorder: () => void;
+  /** RH-159 — opens the whole-playlist practice review; omit to hide the button. */
+  onReviewPractice?: () => void;
 }
 
 /**
@@ -65,6 +67,7 @@ export function PlaylistDetailHeader({
   canReorder,
   reordering,
   onToggleReorder,
+  onReviewPractice,
 }: PlaylistDetailHeaderProps) {
   const renaming = panel.kind === "rename";
   // The rename in flight: Save says so and cannot fire twice.
@@ -179,6 +182,8 @@ export function PlaylistDetailHeader({
               <ReorderToggle reordering={reordering} onToggle={onToggleReorder} />
             )}
 
+            {onReviewPractice && <ReviewPracticeButton onClick={onReviewPractice} />}
+
             {/* Add songs */}
             <SongPickerToggle
               open={panel.kind === "picker"}
@@ -290,6 +295,19 @@ function PlaylistDeleteConfirm({
         No
       </button>
     </span>
+  );
+}
+
+/** RH-159 — opens the whole-playlist practice review. */
+function ReviewPracticeButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="px-2 py-1 rounded text-xs font-medium text-emerald-700 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+    >
+      Review practice
+    </button>
   );
 }
 

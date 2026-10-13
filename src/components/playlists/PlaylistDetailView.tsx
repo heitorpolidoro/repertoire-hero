@@ -6,6 +6,7 @@ import { PlaylistSongList } from "@/components/playlists/PlaylistSongList";
 import { PlaylistSummary } from "@/components/playlists/PlaylistSummary";
 import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
 import { OfflineDownloadButton } from "@/components/playlists/OfflineDownloadButton";
+import { PracticeReviewList } from "@/components/playlists/PracticeReviewList";
 import { SongPicker } from "@/components/playlists/SongPicker";
 import { TagFilterBar } from "@/components/playlists/TagFilterBar";
 import {
@@ -95,6 +96,9 @@ export function PlaylistDetailView({
         canReorder={canReorder && !filtering}
         reordering={detail.reordering}
         onToggleReorder={() => detail.setReordering(!detail.reordering)}
+        onReviewPractice={
+          detail.songs.length > 0 ? detail.openPracticeReview : undefined
+        }
       />
 
       {/* Playlist tags — the bar owns the ownership gate */}
@@ -193,6 +197,17 @@ export function PlaylistDetailView({
         onMoveSong={detail.moveSong}
         onReorderSongs={detail.reorderSongs}
       />
+
+      {/* RH-159: whole-playlist practice review */}
+      {detail.panel.kind === "practice-review" && (
+        <PracticeReviewList
+          review={detail.practiceReview}
+          songs={detail.songs}
+          repertoireMap={detail.repertoireMap}
+          readOnly={Boolean(playlist.band_id)}
+          onClose={() => detail.dispatch({ type: "close" })}
+        />
+      )}
 
       {/* Add-song search panel (toggled by the + button in the header) */}
       {detail.panel.kind === "picker" && <SongPicker picker={detail.picker} />}

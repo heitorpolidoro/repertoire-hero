@@ -19,6 +19,7 @@ export type PlaylistPanel =
   | { kind: 'rename'; draft: string }
   | { kind: 'delete-confirm' }
   | { kind: 'picker' }
+  | { kind: 'practice-review' }
 
 /** Everything the header can ask of the panel state. */
 export type PlaylistPanelAction =
@@ -26,6 +27,7 @@ export type PlaylistPanelAction =
   | { type: 'change-rename-draft'; draft: string }
   | { type: 'open-delete-confirm' }
   | { type: 'toggle-picker' }
+  | { type: 'open-practice-review' }
   | { type: 'close' }
 
 /** The initial state, so no call site has to spell the literal. */
@@ -45,6 +47,8 @@ export function playlistPanelReducer(
       return { kind: 'delete-confirm' }
     case 'toggle-picker':
       return state.kind === 'picker' ? NO_PANEL : { kind: 'picker' }
+    case 'open-practice-review':
+      return { kind: 'practice-review' }
     case 'close':
       return NO_PANEL
   }

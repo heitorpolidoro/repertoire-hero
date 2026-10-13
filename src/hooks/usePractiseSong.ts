@@ -7,7 +7,7 @@ import type { SongStatus } from '@/types/database'
  * the action applies the admin rule to it.
  */
 export interface PractiseActions {
-  recordPractice(items: { versionId: string }[], bandId?: string | null): Promise<void>
+  recordPractice(items: { versionId: string; status?: SongStatus }[], bandId?: string | null): Promise<void>
   recordPracticeStatus(items: { versionId: string; status: SongStatus }[], bandId?: string | null): Promise<void>
 }
 
