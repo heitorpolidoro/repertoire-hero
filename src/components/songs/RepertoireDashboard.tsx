@@ -16,6 +16,8 @@ import { useRepertoireSearch,type RepertoireSearchActions } from "@/hooks/useRep
 import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
 import { AddToRepertoireSection } from "@/components/songs/AddToRepertoireSection";
 import { StatusNotes } from "@/components/ui/StatusNotes";
+import { PracticeStart } from "@/components/songs/PracticeStart";
+import type { PracticeActions } from "@/hooks/usePracticeStart";
 
 /**
  * RH-77 — the signed-in half of `/`, moved verbatim out of `src/app/page.tsx`
@@ -31,6 +33,8 @@ export interface RepertoireDashboardActions
     Pick<ManualEntryActions, "findCatalogSong"> {
   /** The caller's role in the active band (RH-96); see `useBandRole`. */
   getBandRole: (bandId: string) => Promise<BandRole>;
+  /** RH-168: the two reads behind "Start practice". */
+  practice: PracticeActions;
 }
 
 interface RepertoireDashboardProps {
@@ -186,9 +190,12 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
     <div className="flex flex-col h-full">
       {/* Page header */}
       <header className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3 md:px-6">
-        <h1 className="text-xl font-bold text-gray-900 mb-3">
-          {bandContext.type === 'band' ? `🎸 ${bandContext.name}` : 'My Repertoire'}
-        </h1>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <h1 className="text-xl font-bold text-gray-900">
+            {bandContext.type === 'band' ? `🎸 ${bandContext.name}` : 'My Repertoire'}
+          </h1>
+          {bandContext.type === 'user' && <PracticeStart bandId={null} actions={actions.practice} />}
+        </div>
 
         {/* Search */}
         <div>

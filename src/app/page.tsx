@@ -10,6 +10,7 @@ import {
   updateSongTagsAction,
 } from "@/app/actions/repertoire";
 import { getBandRoleAction } from "@/app/actions/bands";
+import { PRACTICE_ACTIONS } from "@/app/practiceActions";
 import { cookies, headers } from "next/headers";
 import {
   acknowledgeSuggestionOutcomesAction,
@@ -41,6 +42,7 @@ const REPERTOIRE_DASHBOARD_ACTIONS: RepertoireDashboardActions = {
   updateSongTags: updateSongTagsAction,
   submitCatalogSuggestion: submitCatalogSuggestionAction,
   getBandRole: getBandRoleAction,
+  practice: PRACTICE_ACTIONS,
 };
 
 /** RH-111: the banner's one write, injected for the same reason (F21). */

@@ -154,3 +154,18 @@ export interface SuggestionOutcomeRow {
   title: string
   artist: string
 }
+
+/** `practiceCandidates.ts` (RH-168): one song of a practice source; the owner columns are null without an owner row. */
+export interface PracticeCandidateRow {
+  version_id: string
+  title: string
+  artist: string | null
+  status: SongStatus | null
+  last_practiced: Date | string | null
+}
+
+/** `listPracticePlaylists` (RH-168): the id and name a source menu needs. */
+export interface PracticePlaylistRow {
+  id: string
+  name: string
+}

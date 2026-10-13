@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-168 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-50 p-6 max-w-md mx-auto text-gray-900">
+<h1 class="font-semibold mb-1">Start practice (RH-168)</h1>
+<p class="text-xs text-gray-500 mb-4">Same control on the band screen and the personal dashboard. Click it.</p>
+<div class="relative bg-white rounded-lg border p-4">
+  <div class="flex items-center justify-between"><h2 class="font-semibold">The Wrenches (band)</h2>
+    <button id="b" class="rounded bg-emerald-600 text-white text-sm px-3 py-1.5">Start practice</button></div>
+  <ul id="menu" class="hidden absolute right-4 top-14 w-56 bg-white border rounded shadow text-sm">
+    <li class="px-3 py-2 hover:bg-gray-100 cursor-pointer" data-s="Whole repertoire">Whole repertoire</li>
+    <li class="px-3 py-2 hover:bg-gray-100 cursor-pointer" data-s="Friday gig">Friday gig</li>
+    <li class="px-3 py-2 hover:bg-gray-100 cursor-pointer" data-s="">Empty playlist</li></ul>
+  <p id="msg" class="mt-3 text-sm text-gray-500">Nothing started yet.</p>
+</div>
+<script>
+const m=document.getElementById('menu'),msg=document.getElementById('msg');
+document.getElementById('b').onclick=()=>m.classList.toggle('hidden');
+m.querySelectorAll('li').forEach(li=>li.onclick=()=>{m.classList.add('hidden');
+ msg.textContent=li.dataset.s?('Queue written, most overdue first, from "'+li.dataset.s+'"; opening Fast View on the first song.'):'Nothing to practise here.';});
+</script></body></html>

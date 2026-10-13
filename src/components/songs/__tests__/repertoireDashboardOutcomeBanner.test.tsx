@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import RepertoireDashboard, { type RepertoireDashboardActions } from '../RepertoireDashboard'
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => undefined }) }))
 vi.mock('@/app/actions/repertoire', () => ({
   getRepertoireAction: vi.fn().mockResolvedValue([]),
   removeSongAction: vi.fn(),

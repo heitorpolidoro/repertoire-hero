@@ -10244,3 +10244,9 @@ Non-blocking suggestions from QA round 1:
 - (code review) SongFormCatalogSection.tsx:71 has `}:SongFormCatalogSectionProps` with no space after the colon. Cosmetic only.
 - (code review) The eslint.config.mjs comment says "~330 lines". Replace it with the measured count.
 - (code review) The first placement test uses `queryByLabelText(label) ?? queryByText(label)`, which is slightly loose. It is acceptable.
+
+## [RH-168] Start a practice session in due order from a playlist or the whole repertoire — 2026-10-13
+
+- (code review) `getPracticeCandidates` does not check that a playlist source belongs to the same owner as `bandId`. `assertPlaylistAccess` is user-level, so a member can read a playlist of another of their contexts through the wrong owner join. The UI never does this and the effect is only a wrong unassessed status, so it is harmless.
+- (code review) The start catch block shows `err.message` in the UI, which can leak internal "Failed to fetch practice candidates: ..." text. Consider a generic message.
+- (QA) The test DB schema is out of date (missing `songs.links`), so the real-DB suites cannot run locally.

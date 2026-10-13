@@ -38,6 +38,7 @@ const { getRepertoireAction, removeSongAction, updateSongStatusAction } = vi.hoi
   updateSongStatusAction: vi.fn(),
 }))
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => undefined }) }))
 vi.mock('@/app/actions/repertoire', () => ({
   getRepertoireAction,
   removeSongAction,

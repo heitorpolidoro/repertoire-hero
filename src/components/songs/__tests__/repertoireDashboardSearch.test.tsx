@@ -21,6 +21,7 @@ import RepertoireDashboard, { type RepertoireDashboardActions } from '../Reperto
 
 const { getRepertoireAction } = vi.hoisted(() => ({ getRepertoireAction: vi.fn() }))
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => undefined }) }))
 vi.mock('@/app/actions/repertoire', () => ({
   getRepertoireAction,
   removeSongAction: vi.fn(),

@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { regenerateBandInviteCodeAction } from "@/app/actions/bands";
 import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";
+import { PRACTICE_ACTIONS } from "@/app/practiceActions";
+import { PracticeStart } from "@/components/songs/PracticeStart";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
@@ -302,6 +304,7 @@ export default function BandDetailPage() {
         <section className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-gray-900">Playlists</h2>
+            <PracticeStart bandId={bandId} actions={PRACTICE_ACTIONS} />
             <button
               onClick={newPlaylist.toggle}
               className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"

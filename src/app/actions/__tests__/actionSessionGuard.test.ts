@@ -98,6 +98,7 @@ import {
   getPlaylistWithSongsAction,
   getPlaylistDetailsWithEntriesAction,
 } from '../playlists'
+import { getPracticeCandidatesAction, getPracticePlaylistsAction } from '../practice'
 import { getProfileAction, updateProfileAction, requestEmailChangeAction } from '../profile'
 import {
   getRepertoireAction,
@@ -252,6 +253,10 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- audio.ts (RH-162) ---
   uploadAudioAction: { run: () => uploadAudioAction(emptyFormData()), mode: 'envelope' },
   getAudioAction: { run: () => getAudioAction(SONG_ID), mode: 'throws' },
+
+  // --- practice.ts (RH-168) ---
+  getPracticeCandidatesAction: { run: () => getPracticeCandidatesAction({ kind: 'repertoire' }, BAND_ID), mode: 'throws' },
+  getPracticePlaylistsAction: { run: () => getPracticePlaylistsAction(BAND_ID), mode: 'throws' },
 }
 
 beforeEach(() => {
