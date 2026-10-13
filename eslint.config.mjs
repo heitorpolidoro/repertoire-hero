@@ -123,7 +123,10 @@ const eslintConfig = defineConfig([
   // `SongGroupCard` map, and the row's delete button and inline confirm moved
   // into a module-scope `DeleteControl` (the 17 was the row's arrow function,
   // not the component's own 15).
-  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { "max-lines-per-function": ["error", 334], "max-lines": ["error", 445] } },
+  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { "max-lines-per-function": ["error", 290], "max-lines": ["error", 403] } },
+  // RH-152: the add section (results, spinner, "No matches" hint) moved into
+  // `AddToRepertoireSection.tsx` to make room for the manual-entry panel:
+  // 334 -> 290 and 445 -> 403.
   // RH-97: the link rows moved into `SongLinksEditor.tsx`, one populated shared
   // field into `SharedCatalogField.tsx` and the refusal notice into
   // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog

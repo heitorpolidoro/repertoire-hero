@@ -18,6 +18,7 @@ import {
   type RepertoireOwner,
 } from '@/lib/ownerSongs'
 import { addVersionToRepertoire } from '@/lib/ownerVersionAdd'
+import { findSongByIdentity } from '@/lib/songIdentity'
 import { applySongLinkUpdate, searchSongs, type SongUpdateInput } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import {
@@ -172,6 +173,12 @@ export async function recordPracticeStatusAction(items: PracticeStatusItem[], ba
 export async function searchSongsAction(queryStr: string) {
   await getRequiredUserId()
   return searchSongs(queryStr)
+}
+
+/** RH-152: read-only - does this title and artist already identify a catalog song? */
+export async function findCatalogSongAction(title: string, artist: string) {
+  await getRequiredUserId()
+  return findSongByIdentity(title, artist)
 }
 
 /**

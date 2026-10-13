@@ -11,9 +11,10 @@ import { useBandRole, type BandRole } from "@/hooks/useBandRole";
 import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
 import { clearSongQueue } from "@/lib/songQueue";
 import { shouldSearchPicker } from "@/lib/songPicker";
-import { useRepertoireSearch, type RepertoireSearchActions } from "@/hooks/useRepertoireSearch";
+import type { ManualEntryActions } from "@/hooks/useManualEntry";
+import { useRepertoireSearch,type RepertoireSearchActions } from "@/hooks/useRepertoireSearch";
 import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
-import { SongGroupCard } from "@/components/playlists/SongGroupCard";
+import { AddToRepertoireSection } from "@/components/songs/AddToRepertoireSection";
 import { StatusNotes } from "@/components/ui/StatusNotes";
 
 /**
@@ -26,7 +27,8 @@ import { StatusNotes } from "@/components/ui/StatusNotes";
  */
 export interface RepertoireDashboardActions
   extends SongFormActions,
-    Pick<RepertoireSearchActions, "addSong" | "addVersion" | "searchSongs"> {
+    Pick<RepertoireSearchActions, "addSong" | "addVersion" | "searchSongs">,
+    Pick<ManualEntryActions, "findCatalogSong"> {
   /** The caller's role in the active band (RH-96); see `useBandRole`. */
   getBandRole: (bandId: string) => Promise<BandRole>;
 }
@@ -151,6 +153,15 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
   );
   const canEditStatus = bandContext.type !== "band" || bandRole === "admin";
 
+  const manualActions: ManualEntryActions = useMemo(
+    () => ({
+      createAndAddSong: actions.createAndAddSong,
+      updateSongStatus: actions.updateSongStatus,
+      findCatalogSong: actions.findCatalogSong,
+    }),
+    [actions],
+  );
+
   const [modal, setModal] = useState<ModalState>({ open: false });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const search = useRepertoireSearch({
@@ -170,10 +181,6 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
   const openEdit = (song: Repertoire) => setModal({ open: true, song });
   const closeModal = () => setModal({ open: false });
   const handleSuccess = () => setModal({ open: false });
-
-  const showSearchResults =
-    shouldSearchPicker(searchQuery) &&
-    (search.loading || search.results.length > 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -359,63 +366,14 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
           </ul>
         )}
 
-        {/* Separator + addable results */}
-        {showSearchResults && (
-          <section aria-label="Add to your repertoire" className="mt-4">
-            {/* Divider */}
-            <div className="flex items-center gap-3 mb-3">
-              <hr className="flex-1 border-gray-200" />
-              <span className="text-xs font-medium text-gray-400">
-                Add to your repertoire
-              </span>
-              <hr className="flex-1 border-gray-200" />
-            </div>
-
-            {/* One card per song (RH-151) */}
-            <ul className="flex flex-col gap-2" aria-live="polite">
-              {search.results.map((row) => (
-                <SongGroupCard
-                  key={row.id}
-                  row={row}
-                  adding={search.addingId === row.id}
-                  error={search.rowErrors[row.id]}
-                  onAdd={(picked) => {
-                    void search.addRow(picked);
-                  }}
-                />
-              ))}
-
-              {search.loading && (
-                <li
-                  className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400"
-                  aria-busy="true"
-                >
-                  <svg
-                    className="animate-spin h-4 w-4 text-emerald-500 shrink-0"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Searching Spotify...
-                </li>
-              )}
-            </ul>
-          </section>
+        {/* Separator + addable results + manual entry (RH-151, RH-152) */}
+        {shouldSearchPicker(searchQuery) && (
+          <AddToRepertoireSection
+            search={search}
+            query={searchQuery}
+            manualActions={manualActions}
+            onAdded={loadSongs}
+          />
         )}
       </section>
 

@@ -226,7 +226,7 @@ const REPERTOIRE_ACTIONS = 'src/app/actions/repertoire.ts'
  *
  *     grep -c '^export async function' src/app/actions/repertoire.ts
  */
-const REPERTOIRE_ACTION_EXPORTS = 20
+const REPERTOIRE_ACTION_EXPORTS = 21 // RH-152 added findCatalogSongAction (read-only)
 
 /**
  * The seven mutators ER7 drives: every action that resolves its owner through

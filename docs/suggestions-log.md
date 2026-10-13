@@ -10148,3 +10148,24 @@ Non-blocking suggestions from QA round 1:
 - `songs.ts`: `storedLinkUrls` adds one extra query per save even when no link is a short link; it could be made lazy. Minor.
 - `spotifyShortLink.ts`: the off-list hop error message calls `new URL(next).origin`; safe since `next` is always absolute.
 - QA: the coverage gate could not be evaluated end to end because the unrelated `songs.links` DB failures stop vitest writing a coverage report; re-run it once the test DB schema is fixed.
+
+## [RH-166] Add a practice transport with loop, slow-down and count-in — 2026-10-13
+
+- ER2 and ER5 each assert two or three things (seek plus refusal; mount, switch, loop and speed with no play). Splitting them would make QA verdicts cleaner.
+- ER4 says "only then starts the audio" in a scheduler unit test, but the scheduler only calls back at the end. State that the hook-level start-after-last-beat test is the component test named in Test criteria, or reword ER4.
+- Decision 3 requires a frame/timer tick for the loop check but does not say how that tick is faked in tests. Name it, for example rAF with fake timers.
+- Migration number 0025 should be re-verified at implementation time.
+- (round 2) ER3 asserts `preservesPitch` true, but the component test line only says "rate button sets `playbackRate`". Add `preservesPitch` to that test line.
+- (round 2) ER5 includes "switching file" and "changing loop or speed" in the no-play/no-AudioContext assertion, but the component test line mentions mount only. Extend it to cover those actions.
+- (round 2) Test criteria lists "A >= B refused" under the loop decision unit tests. Make it explicit whether the refusal lives in `practiceLoop.ts` validation (the Files touched entry says it does).
+
+## [RH-167] Add a setlist player over the RH-133 queue — 2026-10-13
+
+- ER 1 and ER 5 each bundle two assertions (no-autoplay plus start position; skip plus end-of-queue). They are still verifiable. Consider splitting them if QA reports are hard to read.
+- Pin down the "few seconds" refusal timeout as a named constant in `setlistPlayer.ts` so the fake-timer test and the code agree.
+- Consider noting that the YouTube IFrame API script loads from youtube.com. If a script-src CSP is added later, it needs an entry.
+
+## [RH-152] Show manual entry beside results with a reduced form — 2026-10-13
+
+- (code review) `src/components/songs/RepertoireDashboard.tsx:15`: formatting nit, `useRepertoireSearch,type` is missing a space after the comma.
+- (code review) The "No matches" hint in `AddToRepertoireSection` sits below the list. This is fine for layout B.

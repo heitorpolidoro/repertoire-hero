@@ -278,7 +278,8 @@ describe('RepertoireDashboard grouped search results (RH-151)', () => {
     searchSpotifyMock.mockResolvedValue([spotifyTrack()])
     await searchFor(actions)
 
-    expect(screen.queryByRole('region', { name: 'Add to your repertoire' })).toBeNull()
+    // RH-152: the section stays (it hosts the manual entry) but offers no card.
+    expect(within(resultsList()).queryByRole('button', { name: 'Add' })).toBeNull()
   })
 })
 

@@ -652,8 +652,14 @@ is right there in the response and wins.
 - The limit counts songs, not versions. Limiting versions first and grouping after drops
   whole songs from the results depending on how many versions the earlier ones happened to
   have.
-- Manual entry sits alongside the results, always, not behind an empty one. See *Add a
-  song to the repertoire*.
+- Manual entry sits with the results, always, not behind an empty one (RH-152): the
+  dashboard's "Add to your repertoire" section ends with an "Add manually" panel, below
+  the result cards, for any query of two or more characters, with or without matches.
+  It shows Title (pre-filled from the query), Artist, Album and Status; Key, Duration,
+  Cover and Links sit behind a "More details" disclosure. When the title and artist
+  already identify a catalog song (the same normalisation as the write path), nothing is
+  written: the panel offers "Add as new version" or "Cancel". See *Add a song to the
+  repertoire*.
 - **Two candidates for one recording collapse by album name and label** (RH-108). A row
   names a song; a candidate inside it names a recording, and its key is
   `(lower(trim(album name)), lower(trim(label)))`, with a null and an empty string

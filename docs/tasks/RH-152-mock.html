@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-152 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-100 p-6 font-sans text-sm text-gray-900">
+<h1 class="text-lg font-bold mb-1">RH-152 - manual entry beside the results</h1>
+<p class="mb-4 text-gray-600">Dashboard "Add to your repertoire" section, searching for "wonderwall". Use the buttons to change the state.</p>
+
+<div class="mb-2 font-semibold">Question - Placement (A or B is enough)</div>
+<div class="mb-4 flex gap-2 flex-wrap">
+ <button data-l="A" class="lay px-3 py-1 rounded bg-emerald-600 text-white">A: beside the results (spec pick)</button>
+ <button data-l="B" class="lay px-3 py-1 rounded bg-gray-300">B: below the results</button>
+</div>
+<div class="mb-4 flex gap-2 flex-wrap">
+ <button data-s="results" class="st px-3 py-1 rounded bg-emerald-600 text-white">Results found</button>
+ <button data-s="empty" class="st px-3 py-1 rounded bg-gray-300">No results</button>
+ <button data-s="more" class="st px-3 py-1 rounded bg-gray-300">Disclosure open</button>
+ <button data-s="dup" class="st px-3 py-1 rounded bg-gray-300">Duplicate offer</button>
+</div>
+
+<div class="max-w-4xl bg-white rounded-xl shadow p-4">
+ <input class="w-full rounded-lg border border-gray-200 px-3 py-2 mb-3" value="wonderwall" readonly>
+ <div class="flex items-center gap-3 mb-3"><hr class="flex-1"><span class="text-xs text-gray-400">Add to your repertoire</span><hr class="flex-1"></div>
+ <div id="wrap" class="flex flex-col md:flex-row gap-4">
+  <ul id="results" class="flex-1 flex flex-col gap-2">
+   <li class="rounded-lg border border-gray-100 shadow-sm px-3 py-2 flex items-center gap-3"><div class="w-10 h-10 rounded bg-gray-200"></div><div class="flex-1"><b>Wonderwall</b><p class="text-xs text-gray-500">Oasis - 2 versions</p></div><button class="px-3 py-1 rounded bg-emerald-600 text-white text-xs">Add</button></li>
+   <li class="rounded-lg border border-gray-100 shadow-sm px-3 py-2 flex items-center gap-3"><div class="w-10 h-10 rounded bg-gray-200"></div><div class="flex-1"><b>Wonderwall (Cover)</b><p class="text-xs text-gray-500">Ryan Adams</p></div><button class="px-3 py-1 rounded bg-emerald-600 text-white text-xs">Add</button></li>
+  </ul>
+  <p id="nores" class="hidden flex-1 text-gray-400 text-sm px-3 py-2">No matches. Add it by hand.</p>
+  <form id="manual" class="md:w-80 shrink-0 rounded-lg border-2 border-dashed border-blue-400 p-3" onsubmit="return false">
+   <h3 class="font-semibold mb-2">Add manually</h3>
+   <label class="text-xs text-gray-600">Title</label><input id="t" class="w-full border rounded p-1.5 mb-2" value="Wonderwall">
+   <label class="text-xs text-gray-600">Artist</label><input id="a" class="w-full border rounded p-1.5 mb-2" value="Oasis">
+   <label class="text-xs text-gray-600">Album</label><input class="w-full border rounded p-1.5 mb-2" value="">
+   <label class="text-xs text-gray-600">Status</label>
+   <select class="w-full border rounded p-1.5 mb-2"><option>Want to learn</option><option>Learning</option><option>Learned</option></select>
+   <button type="button" id="disc" class="text-xs text-emerald-700 underline mb-2">More details (key, duration, cover, links)</button>
+   <div id="more" class="hidden mb-2 space-y-2">
+    <div><label class="text-xs text-gray-600">Key</label><input class="w-full border rounded p-1.5"></div>
+    <div><label class="text-xs text-gray-600">Duration (m:ss)</label><input class="w-full border rounded p-1.5"></div>
+    <div><label class="text-xs text-gray-600">Cover URL</label><input class="w-full border rounded p-1.5"></div>
+    <div><label class="text-xs text-gray-600">Links</label><input class="w-full border rounded p-1.5" placeholder="https://..."></div>
+   </div>
+   <div id="dupbox" class="hidden mb-2 rounded bg-amber-100 text-amber-900 p-2 text-xs">
+    "Wonderwall" by Oasis is already in the catalog. Add it as a new version, or cancel?
+    <div class="mt-2 flex gap-2"><button type="button" class="px-2 py-1 rounded bg-amber-600 text-white">Add as new version</button><button type="button" id="cancel" class="px-2 py-1 rounded bg-white border">Cancel</button></div>
+   </div>
+   <button id="sub" type="button" class="w-full py-1.5 rounded bg-emerald-600 text-white">Add song</button>
+  </form>
+ </div>
+</div>
+<script>
+var $=function(i){return document.getElementById(i)};
+function lay(l){$('wrap').className=l=='A'?'flex flex-col md:flex-row gap-4':'flex flex-col gap-4';
+ $('manual').className=(l=='A'?'md:w-80 ':'')+'shrink-0 rounded-lg border-2 border-dashed border-blue-400 p-3';
+ document.querySelectorAll('.lay').forEach(function(b){b.className='lay px-3 py-1 rounded '+(b.dataset.l==l?'bg-emerald-600 text-white':'bg-gray-300')})}
+function st(s){$('results').classList.toggle('hidden',s=='empty');$('nores').classList.toggle('hidden',s!='empty');
+ $('more').classList.toggle('hidden',s!='more');$('dupbox').classList.toggle('hidden',s!='dup');
+ document.querySelectorAll('.st').forEach(function(b){b.className='st px-3 py-1 rounded '+(b.dataset.s==s?'bg-emerald-600 text-white':'bg-gray-300')})}
+document.querySelectorAll('.lay').forEach(function(b){b.onclick=function(){lay(b.dataset.l)}});
+document.querySelectorAll('.st').forEach(function(b){b.onclick=function(){st(b.dataset.s)}});
+$('disc').onclick=function(){$('more').classList.toggle('hidden')};
+$('sub').onclick=function(){st('dup')};$('cancel').onclick=function(){st('results')};
+</script></body></html>

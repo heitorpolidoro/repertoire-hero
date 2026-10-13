@@ -30,6 +30,7 @@
 import { pool, type Queryable } from '@/lib/db'
 import type { SongLinksRow } from '@/lib/dbRows'
 import { dedupeLinksByUrl, songLinkInsertRows, songLinksJson } from '@/lib/songLinksSql'
+import type { CatalogSongMatch } from '@/lib/manualEntry'
 import { splitSongTitle } from '@/lib/songTitle'
 import type { SongLink } from '@/types/database'
 
@@ -179,6 +180,27 @@ async function lookupSongIdentity(
   const res = await db.query<SongLinksRow>(LOOKUP_SQL, [identity.title, identity.artist])
   const row = res.rows[0]
   return row ? { id: row.id, links: row.links ?? [], created: false, label: identity.label } : null
+}
+
+/**
+ * RH-152 — the read-only half of {@link resolveOrCreateSongIdentity}: whether
+ * `(title, artist)` already identifies a catalog row, by the same
+ * {@link songIdentityOf} normalisation and the same predicate as `LOOKUP_SQL`.
+ * Never inserts, so the dashboard can ask before it writes.
+ */
+export async function findSongByIdentity(
+  title: string,
+  artist: string,
+  db: Queryable = pool,
+): Promise<CatalogSongMatch | null> {
+  const identity = songIdentityOf(title, artist)
+  const res = await db.query<CatalogSongMatch>(
+    `SELECT id, title, artist FROM songs
+     WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))
+     LIMIT 1`,
+    [identity.title, identity.artist],
+  )
+  return res.rows[0] ?? null
 }
 
 /**

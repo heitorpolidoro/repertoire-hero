@@ -111,6 +111,7 @@ import {
   recordPracticeAction,
   recordPracticeStatusAction,
   searchSongsAction,
+  findCatalogSongAction,
   getResolvedEntryForVersionAction,
   getSongWindowAction,
   updateSongAction,
@@ -224,6 +225,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
     mode: 'throws',
   },
   searchSongsAction: { run: () => searchSongsAction('nirvana'), mode: 'throws' },
+  findCatalogSongAction: { run: () => findCatalogSongAction('Wonderwall', 'Oasis'), mode: 'throws' },
   getResolvedEntryForVersionAction: {
     run: () => getResolvedEntryForVersionAction(VERSION_ID, BAND_ID),
     mode: 'throws',

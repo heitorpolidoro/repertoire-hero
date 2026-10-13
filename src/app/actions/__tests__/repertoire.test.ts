@@ -51,6 +51,10 @@ vi.mock('@/lib/songs', () => ({
   applySongLinkUpdate: vi.fn(),
 }))
 
+vi.mock('@/lib/songIdentity', () => ({
+  findSongByIdentity: vi.fn(),
+}))
+
 vi.mock('@/lib/bands', () => ({
   assertBandMember: vi.fn(),
   assertBandAdmin: vi.fn(),
@@ -74,7 +78,9 @@ import {
   updateSongLinksAction,
   getPersonalEntryForSongAction,
   fetchUrlTitleAction,
+  findCatalogSongAction,
 } from '../repertoire'
+import { findSongByIdentity } from '@/lib/songIdentity'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { revalidatePath } from 'next/cache'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
@@ -295,6 +301,16 @@ describe('owner resolution', () => {
     expect(fetchUrlTitle).toHaveBeenCalledWith('https://example.com')
 
     expect(getRequiredUserId).toHaveBeenCalledTimes(2)
+  })
+
+  it('looks a catalog song up by identity after resolving a session (RH-152)', async () => {
+    const match = { id: 'song-1', title: 'Wonderwall', artist: 'Oasis' }
+    vi.mocked(findSongByIdentity).mockResolvedValue(match)
+
+    await expect(findCatalogSongAction('Wonderwall', 'Oasis')).resolves.toEqual(match)
+
+    expect(findSongByIdentity).toHaveBeenCalledWith('Wonderwall', 'Oasis')
+    expect(getRequiredUserId).toHaveBeenCalledTimes(1)
   })
 })
 
