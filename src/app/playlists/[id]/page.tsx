@@ -5,7 +5,12 @@ import {
   removeSongFromPlaylistAction,
   reorderPlaylistSongsAction,
 } from "@/app/actions/playlists";
-import { updateSongStatusAction, updateSongTagsAction } from "@/app/actions/repertoire";
+import {
+  recordPracticeAction,
+  recordPracticeStatusAction,
+  updateSongStatusAction,
+  updateSongTagsAction,
+} from "@/app/actions/repertoire";
 import { OFFLINE_DOWNLOAD_ACTIONS } from "@/app/offlineActions";
 import { SONG_PICKER_ACTIONS } from "@/app/songPickerActions";
 import { PlaylistDetailView } from "@/components/playlists/PlaylistDetailView";
@@ -25,6 +30,8 @@ const PLAYLIST_DETAIL_ACTIONS: PlaylistDetailActions = {
   removeSongFromPlaylist: removeSongFromPlaylistAction,
   updateSongStatus: updateSongStatusAction,
   updateSongTags: updateSongTagsAction,
+  recordPractice: recordPracticeAction,
+  recordPracticeStatus: recordPracticeStatusAction,
   reorderPlaylistSongs: reorderPlaylistSongsAction,
 };
 

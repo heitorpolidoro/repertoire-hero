@@ -109,6 +109,8 @@ function props(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSongList
     onReorderSongs: vi.fn(async () => {}),
     onStatusChange: vi.fn().mockResolvedValue(undefined),
     onRemoveSong: vi.fn().mockResolvedValue(undefined),
+    onPractise: vi.fn().mockResolvedValue(true),
+    onPractiseStatus: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }

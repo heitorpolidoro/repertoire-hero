@@ -98,6 +98,8 @@ const ACTIONS = {
   removeSongFromPlaylist: vi.fn().mockResolvedValue(undefined),
   updateSongStatus: vi.fn().mockResolvedValue(undefined),
   updateSongTags: vi.fn().mockResolvedValue(undefined),
+  recordPractice: vi.fn().mockResolvedValue(undefined),
+  recordPracticeStatus: vi.fn().mockResolvedValue(undefined),
   reorderPlaylistSongs: vi.fn().mockResolvedValue(undefined),
 }
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { PlaylistSongIdentity } from "@/components/playlists/PlaylistSongIdentity";
+import { PractiseButton } from "@/components/playlists/PractiseButton";
 import { TagEditRow } from "@/components/playlists/TagEditRow";
 import type { TagEditorController } from "@/hooks/useTagEditor";
 import { StatusNotes } from "@/components/ui/StatusNotes";
@@ -23,6 +24,10 @@ export interface PlaylistSongHandlers {
    */
   onStatusChange: (versionId: string, status: SongStatus) => Promise<void>;
   onRemoveSong: (versionId: string) => Promise<void>;
+  /** RH-158: writes the date; resolves `false` when it failed (the page shows why). */
+  onPractise: (versionId: string) => Promise<boolean>;
+  /** RH-158: the level chosen after the tap — status only, never the date. */
+  onPractiseStatus: (versionId: string, status: SongStatus) => Promise<void>;
   tagEditor: TagEditorController;
 }
 
@@ -69,6 +74,8 @@ export function PlaylistSongRow({
   tagEditor,
   onStatusChange,
   onRemoveSong,
+  onPractise,
+  onPractiseStatus,
   onOpenFastView,
 }: PlaylistSongRowProps) {
 
@@ -97,6 +104,15 @@ export function PlaylistSongRow({
           readOnly={Boolean(bandId)}
           onChange={(next) => {
             onStatusChange(ps.version_id, next).catch(console.error);
+          }}
+        />
+        <PractiseButton
+          title={ps.song?.title ?? "song"}
+          status={entry?.status ?? "unknown"}
+          readOnly={Boolean(bandId)}
+          onPractise={() => onPractise(ps.version_id)}
+          onLevel={(next) => {
+            onPractiseStatus(ps.version_id, next).catch(console.error);
           }}
         />
         {/* Remove */}

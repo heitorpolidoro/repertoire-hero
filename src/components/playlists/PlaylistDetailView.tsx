@@ -187,6 +187,8 @@ export function PlaylistDetailView({
         tagEditor={detail.songTagEditor}
         onStatusChange={detail.changeStatus}
         onRemoveSong={detail.removeSong}
+        onPractise={detail.practise}
+        onPractiseStatus={detail.practiseStatus}
         reordering={detail.reordering}
         onMoveSong={detail.moveSong}
         onReorderSongs={detail.reorderSongs}

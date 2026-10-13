@@ -80,6 +80,8 @@ function makeActions(overrides: Partial<Record<keyof PlaylistDetailActions, Mock
     removeSongFromPlaylist: vi.fn().mockResolvedValue(undefined),
     updateSongStatus: vi.fn().mockResolvedValue(undefined),
     updateSongTags: vi.fn().mockResolvedValue(undefined),
+    recordPractice: vi.fn().mockResolvedValue(undefined),
+    recordPracticeStatus: vi.fn().mockResolvedValue(undefined),
     reorderPlaylistSongs: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as MockedActions
@@ -130,7 +132,20 @@ describe('usePlaylistDetail (RH-71)', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('renames optimistically, calls updatePlaylist and asks for a refresh', async () => {
+  it('exposes the practise commands, carrying the playlist band id (RH-158)', async () => {
+    const { result, actions, onRefresh } = setup({ playlist: playlist({ user_id: null, band_id: 'band-1' }) })
+
+    await act(async () => {
+      await result.current.practise('s1')
+      await result.current.practiseStatus('s1', 'learning')
+    })
+
+    expect(actions.recordPractice).toHaveBeenCalledWith([{ versionId: 's1' }], 'band-1')
+    expect(actions.recordPracticeStatus).toHaveBeenCalledWith([{ versionId: 's1', status: 'learning' }], 'band-1')
+    expect(onRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('renames optimistically,calls updatePlaylist and asks for a refresh', async () => {
     const { result, actions, onRefresh } = setup()
 
     act(() => result.current.dispatch({ type: 'open-rename', name: 'Gig night' }))

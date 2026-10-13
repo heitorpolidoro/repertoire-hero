@@ -37,6 +37,8 @@ import {
   createAndAddSongAction,
   updateLyricsAction,
   updateSongLinksAction,
+  recordPracticeAction,
+  recordPracticeStatusAction,
 } from '../repertoire'
 import {
   approveCatalogFieldOptionAction,
@@ -635,6 +637,72 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       await updateSongAction(entry, formInput(entry, { last_practiced: '2026-02-02' }), bandId)
 
       expect(await stored('band_songs', rowId)).toBe('2026-02-02T00:00:00.000Z')
+    })
+  })
+
+  describe('the practice actions (RH-158)', () => {
+    const practiceRow = async (table: 'user_songs' | 'band_songs', col: string, owner: string, version: string) =>
+      (
+        await query<{ lp: Date | null; status: string }>(
+          `SELECT last_practiced AS lp, status FROM ${table} WHERE ${col} = $1 AND version_id = $2`,
+          [owner, version],
+        )
+      ).rows[0]
+
+    /** A fresh song the band holds a row for; returns its version id. */
+    const bandVersionFor = async (title: string) => {
+      const rowId = await seedOwnerSong({ bandId }, await createSong(`${title} ${suffix}`))
+      const res = await query<{ version_id: string }>('SELECT version_id FROM band_songs WHERE id = $1', [rowId])
+      return res.rows[0].version_id
+    }
+
+    it('a non-member is refused and writes nothing', async () => {
+      const versionId = await bandVersionFor('RH-158 Outsider')
+      asUser(userCId)
+      await expect(recordPracticeAction([{ versionId }], bandId)).rejects.toThrow(
+        'Access denied: not a member of this band',
+      )
+      await expect(recordPracticeStatusAction([{ versionId, status: 'mastered' }], bandId)).rejects.toThrow(
+        'Access denied',
+      )
+      expect(await practiceRow('user_songs', 'user_id', userCId, versionId)).toBeUndefined()
+      expect((await practiceRow('band_songs', 'band_id', bandId, versionId)).lp).toBeNull()
+    })
+
+    it('a plain member writes only the personal row, without an error', async () => {
+      const versionId = await bandVersionFor('RH-158 Member')
+      asUser(userBId)
+      await expect(recordPracticeAction([{ versionId }], bandId)).resolves.toBeUndefined()
+      const own = await practiceRow('user_songs', 'user_id', userBId, versionId)
+      expect(own.lp).not.toBeNull()
+      expect(own.status).toBe('unknown')
+      expect((await practiceRow('band_songs', 'band_id', bandId, versionId)).lp).toBeNull()
+
+      await recordPracticeStatusAction([{ versionId, status: 'polishing' }], bandId)
+      expect((await practiceRow('band_songs', 'band_id', bandId, versionId)).status).toBe('unknown')
+      expect((await practiceRow('user_songs', 'user_id', userBId, versionId)).status).toBe('polishing')
+    })
+
+    it('a band admin writes both rows, and the level choice leaves the date alone', async () => {
+      const versionId = await bandVersionFor('RH-158 Admin')
+      asUser(userAId)
+      await recordPracticeAction([{ versionId }], bandId)
+      const band = await practiceRow('band_songs', 'band_id', bandId, versionId)
+      expect(band.lp).not.toBeNull()
+      expect((await practiceRow('user_songs', 'user_id', userAId, versionId)).lp).not.toBeNull()
+
+      await recordPracticeStatusAction([{ versionId, status: 'mastered' }], bandId)
+      const after = await practiceRow('band_songs', 'band_id', bandId, versionId)
+      expect(after.status).toBe('mastered')
+      expect(after.lp?.getTime()).toBe(band.lp?.getTime())
+    })
+
+    it('a personal tap with no band id writes only the caller row', async () => {
+      const versionId = await bandVersionFor('RH-158 Personal')
+      asUser(userAId)
+      await recordPracticeAction([{ versionId }])
+      expect((await practiceRow('user_songs', 'user_id', userAId, versionId)).lp).not.toBeNull()
+      expect((await practiceRow('band_songs', 'band_id', bandId, versionId)).lp).toBeNull()
     })
   })
 })

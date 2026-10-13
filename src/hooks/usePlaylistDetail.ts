@@ -1,5 +1,6 @@
 import { useMemo, useReducer, useState, type Dispatch } from 'react'
-import { useSongPicker, type SongPickerActions } from '@/hooks/useSongPicker'
+import { usePractiseSong, type PractiseActions, type PractiseController } from '@/hooks/usePractiseSong'
+import { useSongPicker,type SongPickerActions } from '@/hooks/useSongPicker'
 import { useSpotifySync, type SpotifySyncController } from '@/hooks/useSpotifySync'
 import { useTagEditor, type TagEditorController } from '@/hooks/useTagEditor'
 import {
@@ -38,7 +39,7 @@ import type { Playlist, PlaylistSong, Repertoire, SongStatus } from '@/types/dat
  * song-tag edit under a band hat succeed instead of being rejected as
  * `Repertoire entry not found or access denied` (RH-71).
  */
-export interface PlaylistDetailActions {
+export interface PlaylistDetailActions extends PractiseActions {
   updatePlaylist(id: string, data: { name?: string; tags?: string[] }): Promise<void>
   deletePlaylist(id: string): Promise<void>
   /** RH-125: removal is by `(playlist_id, version_id)`. */
@@ -64,7 +65,7 @@ export interface UsePlaylistDetailOptions {
 }
 
 /** Commands and values only — never a raw state setter (F14). */
-export interface PlaylistDetailController {
+export interface PlaylistDetailController extends PractiseController {
   /** The server playlist with this tab's rename and tag edits over it. */
   playlist: Playlist
   songs: PlaylistSong[]
@@ -279,14 +280,9 @@ export function usePlaylistDetail({
     }
   }
 
+  const { practise, practiseStatus } = usePractiseSong({ actions, bandId, setError, onRefresh })
   const { moveSong, reorderSongs } = reorderCommands({
-    playlistId: playlist.id,
-    songs,
-    actions,
-    record,
-    setError,
-    pushIfNeeded: sync.pushIfNeeded,
-    onRefresh,
+    playlistId: playlist.id, songs, actions, record, setError, pushIfNeeded: sync.pushIfNeeded, onRefresh,
   })
 
   const rename = async () => {
@@ -368,6 +364,8 @@ export function usePlaylistDetail({
     songTagEditor,
     removeSong,
     changeStatus,
+    practise,
+    practiseStatus,
     reordering,
     setReordering,
     moveSong,

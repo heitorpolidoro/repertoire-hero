@@ -19,6 +19,12 @@ import {
 } from '@/lib/ownerSongs'
 import { applySongLinkUpdate, searchSongs, type SongUpdateInput } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
+import {
+  recordPractice,
+  recordPracticeStatus,
+  type PracticeItem,
+  type PracticeStatusItem,
+} from '@/lib/practiceWrite'
 import { getSongWindow } from '@/lib/songWindowData'
 import type { SongWindowRecord } from '@/lib/songWindow'
 import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
@@ -102,6 +108,41 @@ export async function removeSongAction(repertoireId: string, bandId?: string | n
   const result = await removeSongFromRepertoire(owner, repertoireId)
   revalidatePath('/')
   return result
+}
+
+/**
+ * Which band, if any, a practice write may also reach (RH-158).
+ *
+ * "I practised it" is a per-musician write, so a plain member is not refused:
+ * they get the personal write alone and no error. Only a band admin carries the
+ * band id on to the lib, and only after `assertBandMember` has established the
+ * role — a non-member throws its verbatim `Access denied` here, before any
+ * statement runs.
+ */
+async function resolvePracticeBand(userId: string, bandId?: string | null): Promise<string | undefined> {
+  if (!bandId) return undefined
+  const role = await assertBandMember(bandId, userId)
+  return role === 'admin' ? bandId : undefined
+}
+
+/**
+ * The per-song "Practised" tap: `last_practiced` = the server's now on the
+ * presser's own row (created `unknown` when absent), and on the band's existing
+ * row too when the presser is its admin. List-shaped for the later review list.
+ */
+export async function recordPracticeAction(items: PracticeItem[], bandId?: string | null) {
+  const userId = await getRequiredUserId()
+  const band = await resolvePracticeBand(userId, bandId)
+  await recordPractice(userId, band, items)
+  revalidatePath('/')
+}
+
+/** The level chosen after the tap: status only, never the date. Same owners and band rule. */
+export async function recordPracticeStatusAction(items: PracticeStatusItem[], bandId?: string | null) {
+  const userId = await getRequiredUserId()
+  const band = await resolvePracticeBand(userId, bandId)
+  await recordPracticeStatus(userId, band, items)
+  revalidatePath('/')
 }
 
 export async function searchSongsAction(queryStr: string) {

@@ -104,6 +104,8 @@ import {
   updateSongTuningAction,
   updateSongTagsAction,
   removeSongAction,
+  recordPracticeAction,
+  recordPracticeStatusAction,
   searchSongsAction,
   getResolvedEntryForVersionAction,
   getSongWindowAction,
@@ -207,6 +209,11 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   updateSongTuningAction: { run: () => updateSongTuningAction(REPERTOIRE_ID, 'Drop D', BAND_ID), mode: 'throws' },
   updateSongTagsAction: { run: () => updateSongTagsAction(REPERTOIRE_ID, ['rock'], BAND_ID), mode: 'throws' },
   removeSongAction: { run: () => removeSongAction(REPERTOIRE_ID, BAND_ID), mode: 'throws' },
+  recordPracticeAction: { run: () => recordPracticeAction([{ versionId: REPERTOIRE_ID }], BAND_ID), mode: 'throws' },
+  recordPracticeStatusAction: {
+    run: () => recordPracticeStatusAction([{ versionId: REPERTOIRE_ID, status: 'learning' }], BAND_ID),
+    mode: 'throws',
+  },
   searchSongsAction: { run: () => searchSongsAction('nirvana'), mode: 'throws' },
   getResolvedEntryForVersionAction: {
     run: () => getResolvedEntryForVersionAction(VERSION_ID, BAND_ID),

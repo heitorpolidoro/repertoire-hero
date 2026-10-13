@@ -10013,3 +10013,23 @@ Non-blocking suggestions from spec review round 1:
 
 ## [RH-154] Add admin catalog data layer: blast radius, merge versions, delete — 2026-10-12
 - Code review: merge repoint of playlist_songs relies on the pre-delete to keep (playlist_id, version_id) unique when A and B share a playlist; reviewer found it correct, no change needed.
+
+## [RH-157] Accept last_practiced in the edit-panel write path — 2026-10-13
+- Code review: SongForm.tsx has unrelated reformatting (extractYoutubeAndOtherLinks filter, h2 title) and handleBackdropClick rewritten as an expression; likely done to hold the F20 ceilings, but it is diff noise and the h2/filter reflows could be dropped.
+- Code review: the updateSong call line in SongForm is long; consider extracting the payload to a local const.
+- QA: src/lib/songs.ts mixes the RH-157 SongUpdateInput field with unrelated RH-113 searchSongs work; stage only the RH-157 hunk when committing.
+
+## [RH-143] Drop songs.links and the forward bridge trigger — 2026-10-13
+- Spec review: Scope item 5 has a muddled sentence ("If the count reaches 0 net change the pin stays 678"); reword to "if the file does not shrink, no pin edit".
+- Spec review: ER6 bundles several assertions (grep, tsc, lint, tests); consider splitting if QA reports get noisy.
+- Spec review: the spec lists `npm run lint:dead` and `lint:dup` as gates, but no ER covers them.
+
+## [RH-155] Add admin catalog data layer: split song and merge songs — 2026-10-13
+- Spec review: split to an existing song: say whether a source song_link with a url the target already has leaves the target's position untouched (implied by DO NOTHING; fine).
+- Spec review: the test criteria should assert that no `catalog_suggestions` row targets A in `songs` after merge (matches ER5 wording).
+- Spec review: ER5 and ER6 do not mention the song_links suggestion repoint; the spec's test criteria cover it, so this is fine.
+- Spec review: in a merge, when B has two links with the same url, the "surviving link with the same url" lookup needs (song_id, url) uniqueness; the `ON CONFLICT (song_id, url)` clause in the split rule implies that constraint exists.
+
+## [RH-158] Add batch practice write and per-song Practised button — 2026-10-13
+- Code review: `src/hooks/usePlaylistDetail.ts` line 3: `useSongPicker,type SongPickerActions` is missing a space after the comma (formatting nit).
+- Code review: the `reorderCommands({...})` call in `usePlaylistDetail.ts` was collapsed onto one line in an otherwise unrelated change; consider reverting it to keep the diff focused.

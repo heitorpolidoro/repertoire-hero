@@ -116,6 +116,8 @@ function listProps(overrides: Partial<PlaylistSongListProps> = {}): PlaylistSong
     tagEditor: tagEditor(),
     onStatusChange: vi.fn(async () => {}),
     onRemoveSong: vi.fn(async () => {}),
+    onPractise: vi.fn(async () => true),
+    onPractiseStatus: vi.fn(async () => {}),
     reordering: false,
     onMoveSong: vi.fn(async () => {}),
     onReorderSongs: vi.fn(async () => {}),
