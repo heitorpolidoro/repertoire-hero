@@ -10142,3 +10142,9 @@ Non-blocking suggestions from QA round 1:
 - `useSongEntry.ts` `applyMap`: the refetch on `null` swallows errors silently; the stale-map case after a failed refetch is untested.
 - `authzFixtures.createTestSong` still inserts `songs.links`, which migrations no longer provide, so the DB suite cannot run on a freshly migrated database.
 - `vitest.config.ts` `loadEnv` overrides an explicit `DATABASE_URL`; letting an explicit env var win would simplify throwaway-DB runs.
+
+## [RH-142] Resolve spotify.link short links before the Spotify push — 2026-10-13
+
+- `songs.ts`: `storedLinkUrls` adds one extra query per save even when no link is a short link; it could be made lazy. Minor.
+- `spotifyShortLink.ts`: the off-list hop error message calls `new URL(next).origin`; safe since `next` is always absolute.
+- QA: the coverage gate could not be evaluated end to end because the unrelated `songs.links` DB failures stop vitest writing a coverage report; re-run it once the test DB schema is fixed.

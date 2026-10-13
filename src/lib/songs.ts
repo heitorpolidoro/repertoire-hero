@@ -20,6 +20,7 @@ import {
   upsertAlbumAndVersion,
 } from '@/lib/songVersions'
 import { splitCatalogUpdate } from '@/lib/catalogFields'
+import { resolveSpotifyShortLink } from '@/lib/spotifyShortLink'
 import { dedupeLinksByUrl, songLinkInsertRows } from '@/lib/songLinksSql'
 import type { CatalogSearchResult, Song, SongLink, SongStatus, RefusedCatalogField } from '@/types/database'
 
@@ -259,8 +260,10 @@ export async function applySongLinkUpdate(
   links: SongLink[],
 ): Promise<{ success: true; pending?: true }> {
   let songRes
+  let stored: Set<string>
   try {
     songRes = await query<{ id: string }>('SELECT id FROM songs WHERE id = $1', [songId])
+    stored = await storedLinkUrls(songId)
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('Failed to update song links', err, { songId })
@@ -275,13 +278,19 @@ export async function applySongLinkUpdate(
   // Holding a Postgres transaction open across an arbitrary network round trip
   // pins a connection from the pool and holds the `songs` row's locks for the
   // fetcher's timeout, once per link.
+  //
+  // RH-142: a Spotify share short link is resolved in this same step, to the
+  // canonical track url, before the label fetch so the title lookup hits the
+  // better oEmbed target. An url already stored on the song is left alone, so an
+  // unchanged re-submission is never read as a removal.
   const processedLinks = await Promise.all(
     links.map(async (l) => {
+      const url = stored.has(l.url) ? l.url : await resolveSpotifyShortLink(l.url)
       if (!l.label || !l.label.trim()) {
-        const fetchedTitle = await fetchUrlTitle(l.url)
-        return { label: fetchedTitle || l.url, url: l.url }
+        const fetchedTitle = await fetchUrlTitle(url)
+        return { label: fetchedTitle || url, url }
       }
-      return l
+      return { ...l, url }
     })
   )
 
@@ -323,6 +332,12 @@ export async function applySongLinkUpdate(
   }
 
   return { success: true }
+}
+
+/** The urls the song already stores, read outside the transaction (RH-142). */
+async function storedLinkUrls(songId: string): Promise<Set<string>> {
+  const res = await query<{ url: string }>('SELECT url FROM song_links WHERE song_id = $1', [songId])
+  return new Set(res.rows.map((r) => r.url))
 }
 
 /**

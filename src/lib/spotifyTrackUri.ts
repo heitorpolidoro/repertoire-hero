@@ -54,8 +54,11 @@ function isSpotifyHost(hostname: string): boolean {
  * Deliberately out of scope (RH-135): the `spotify:track:<id>` URI scheme, and
  * the `spotify.link` / `spoti.fi` short links the mobile share sheet produces.
  * Both answer `null`, which is the per-song skip that already existed — such a
- * song contributes nothing to the push rather than failing it. Resolving a
- * short link would mean a network round trip per song inside the push loop.
+ * song contributes nothing to the push rather than failing it. RH-142 resolves
+ * a short link once, at write time (`resolveSpotifyShortLink`, called by
+ * `applySongLinkUpdate`), and stores the canonical track url; this function
+ * stays pure — no `fetch` — and still answers `null` for a short link, so the
+ * push loop never makes a network round trip per song.
  */
 export function spotifyTrackUriFromUrl(url: string): string | null {
   let parsed: URL

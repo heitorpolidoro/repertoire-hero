@@ -69,7 +69,7 @@ describe('spotifyTrackUriFromUrl', () => {
     expect(spotifyTrackUriFromUrl('spotify:track:abc123')).toBeNull()
   })
 
-  it('rejects a spotify.link short share link (known follow-up gap)', () => {
+  it('stays pure and rejects a spotify.link short link — it is resolved at write time (RH-142)', () => {
     expect(spotifyTrackUriFromUrl('https://spotify.link/abc123')).toBeNull()
   })
 
