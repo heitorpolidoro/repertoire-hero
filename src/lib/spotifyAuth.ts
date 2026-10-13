@@ -2,6 +2,17 @@ import { query } from '@/lib/db'
 import type { SpotifyTokenRow } from '@/lib/dbRows'
 import { logger } from '@/lib/logger'
 
+/** The scope string recorded at consent (RH-164); null for no row or a legacy row. */
+export async function getSpotifyGrantedScope(userId: string): Promise<string | null> {
+  try {
+    const res = await query<{ scope: string | null }>('SELECT scope FROM spotify_tokens WHERE user_id = $1 LIMIT 1', [userId])
+    return res.rows[0]?.scope ?? null
+  } catch (error) {
+    logger.error('Failed to query Spotify scope', error instanceof Error ? error : new Error(String(error)))
+    return null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Returns a valid Spotify access token for the given user,
 // automatically refreshing the token when it is within 60 seconds of expiry.

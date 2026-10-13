@@ -10204,3 +10204,14 @@ Non-blocking suggestions from QA round 1:
 - (code review) The privacy page test asserts only section count and English regexes; pt-BR content is not checked beyond the title.
 - (qa) The assetlinks fingerprint is an all-zero placeholder and must be replaced with the real signing cert fingerprint before release.
 - (qa) No live HTTP request was made to /privacy or /.well-known/assetlinks.json; ER4 was judged from code and tests.
+
+## [RH-161] Launch the TWA on Google Play and record device evidence — 2026-10-13
+
+- (spec review) Line 53 of the spec says the address-bar symptom is "the check for ER3", but that symptom belongs to ER4 (the no-address-bar screenshot); ER3 is the curl output.
+- (spec review) The all-zero fingerprint rule is stated only as "no fingerprint is all zeros"; name the pattern, for example `^(00:){31}00$`, so the test is unambiguous.
+
+## [RH-164] Play the linked Spotify track in Fast View — 2026-10-13
+
+- (code review) `firstTrackUri` takes the first link that yields a track uri, not only a link labelled Spotify; the spec says "the song's own Spotify link", so confirm this is intended.
+- (code review) `playback-token/route.ts` calls Spotify `/me` on every mount of a song page with a track link; caching the Premium flag briefly would cut those calls.
+- (code review) `spotifyWebPlayback.ts` keeps a module-level `deviceId` singleton; the 401 path is covered but the SDK `account_error` path is not.

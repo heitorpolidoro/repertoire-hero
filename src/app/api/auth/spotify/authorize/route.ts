@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import crypto from 'crypto'
+import { PLAYBACK_SCOPES } from '@/lib/spotifyPlayback'
 
 // ---------------------------------------------------------------------------
 // GET /api/auth/spotify/authorize
@@ -35,6 +36,8 @@ export async function GET(): Promise<NextResponse> {
     'playlist-modify-public',
     'playlist-modify-private',
     'user-read-private',
+    // RH-164: Web Playback SDK in Fast View (needs Premium; existing users re-consent).
+    ...PLAYBACK_SCOPES,
   ].join(' ')
 
   const authUrl = new URL('https://accounts.spotify.com/authorize')

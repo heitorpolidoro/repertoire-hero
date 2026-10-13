@@ -91,6 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     access_token: string
     refresh_token: string
     expires_in: number
+    scope?: string
   }
 
   // --- Fetch Spotify user profile to get the stable spotify_user_id ---
@@ -120,14 +121,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const upsertSql = `
-      INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at, spotify_user_id, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at, spotify_user_id, created_at, updated_at, scope)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (user_id) DO UPDATE
       SET access_token = EXCLUDED.access_token,
           refresh_token = EXCLUDED.refresh_token,
           expires_at = EXCLUDED.expires_at,
           spotify_user_id = EXCLUDED.spotify_user_id,
-          updated_at = EXCLUDED.updated_at
+          updated_at = EXCLUDED.updated_at,
+          scope = EXCLUDED.scope
     `
     await query<never>(upsertSql, [
       userId,
@@ -137,6 +139,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       spotifyUserId,
       now,
       now,
+      tokenJson.scope, // undefined is sent as NULL
     ])
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
