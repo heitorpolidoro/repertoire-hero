@@ -4,9 +4,11 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { regenerateBandInviteCodeAction } from "@/app/actions/bands";
+import { getRepertoireAction } from "@/app/actions/repertoire";
 import { BAND_ADMIN_ACTIONS } from "@/app/bandAdminActions";
 import { PRACTICE_ACTIONS } from "@/app/practiceActions";
 import { PracticeStart } from "@/components/songs/PracticeStart";
+import { BandSongPicker, type BandSongPickerActions } from "@/components/songs/BandSongPicker";
 import { BandColorPicker } from "@/components/bands/BandColorPicker";
 import { INSTRUMENT_ICONS } from "@/components/profile/InstrumentPicker";
 import { ConfirmPanel } from "@/components/ui/ConfirmPanel";
@@ -14,11 +16,15 @@ import { Toast } from "@/components/ui/Toast";
 import { useToast } from "@/hooks/useToast";
 import { useBandAdmin } from "@/hooks/useBandAdmin";
 import { BANDS_PAGE_LOAD_POLICY } from "@/lib/bandAdminLoad";
+import { playlistSummary } from "@/lib/playlistSummary";
 import { PendingButton } from "@/components/ui/PendingButton";
 import { CoverPicker } from "@/components/bands/CoverPicker";
 
 /** Module-level so the hook's `load` callback stays referentially stable. */
 const BAND_PAGE_MESSAGES = { save: "Failed to save" };
+
+/** RH-170: the read-only list behind "Select songs"; module-level for a stable identity. */
+const BAND_SONG_ACTIONS: BandSongPickerActions = { getBandSongs: getRepertoireAction };
 
 export default function BandDetailPage() {
   const { id: bandId } = useParams<{ id: string }>();
@@ -300,6 +306,8 @@ export default function BandDetailPage() {
           )}
         </section>
 
+        <BandSongPicker bandId={bandId} actions={BAND_SONG_ACTIONS} />
+
         {/* Band playlists */}
         <section className="bg-white rounded-2xl border border-gray-200 px-5 py-4">
           <div className="flex items-center justify-between mb-3">
@@ -353,26 +361,7 @@ export default function BandDetailPage() {
                       {playlist.name}
                     </span>
                     <span className="text-xs text-gray-400 tabular-nums">
-                      {(() => {
-                        const songs =
-                          (
-                            playlist as unknown as {
-                              songs?: Array<{
-                                song?: { duration_seconds?: number | null };
-                              }>;
-                            }
-                          ).songs ?? [];
-                        const count = songs.length;
-                        const secs = songs.reduce(
-                          (sum, ps) => sum + (ps.song?.duration_seconds ?? 0),
-                          0,
-                        );
-                        const dur =
-                          secs > 0
-                            ? ` · ${Math.floor(secs / 3600) > 0 ? `${Math.floor(secs / 3600)}:${String(Math.floor((secs % 3600) / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`}`
-                            : "";
-                        return `${count} ${count === 1 ? "song" : "songs"}${dur}`;
-                      })()}
+                      {playlistSummary(playlist)}
                     </span>
                     <span className="text-gray-400">›</span>
                   </button>

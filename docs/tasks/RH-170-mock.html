@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-170 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-50 p-6 max-w-md mx-auto text-gray-900">
+<h1 class="font-semibold mb-1">Hand-picked selection (RH-170)</h1>
+<p class="text-xs text-gray-500 mb-4">Same mode on the band screen and the dashboard. Click "Select songs", tap rows, tap a picked row to un-pick (numbers shift), then Start practice or Cancel.</p>
+<div class="bg-white rounded-lg border p-4">
+  <div class="flex items-center justify-between mb-3"><h2 class="font-semibold">The Wrenches (band)</h2>
+    <div class="flex gap-2">
+      <button id="enter" class="rounded border text-sm px-3 py-1.5">Select songs</button>
+      <button class="rounded bg-emerald-600 text-white text-sm px-3 py-1.5">Start practice</button></div></div>
+  <div id="bar" class="hidden flex items-center justify-between mb-3 rounded bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm">
+    <span id="count" class="font-medium">0 picked</span>
+    <span class="flex gap-2"><button id="cancel" class="px-2 py-1 rounded border bg-white">Cancel</button>
+    <button id="go" class="px-2 py-1 rounded bg-emerald-600 text-white disabled:opacity-40" disabled>Start practice</button></span></div>
+  <ul id="list" class="divide-y text-sm"></ul>
+  <p id="msg" class="mt-3 text-xs text-gray-500">Nothing started yet.</p>
+</div>
+<script>
+const songs=[["v1","Hallelujah","Leonard Cohen"],["v2","Black","Pearl Jam"],["v3","Under the Bridge","RHCP"],["v4","Wonderwall","Oasis"],["v5","Creep","Radiohead"]];
+let mode=false,picks=[];
+const $=id=>document.getElementById(id);
+function render(){
+ $('bar').classList.toggle('hidden',!mode);
+ $('count').textContent=picks.length+' picked';$('go').disabled=!picks.length;
+ $('list').innerHTML=songs.map(([id,t,a])=>{const n=picks.indexOf(id)+1;
+  return `<li data-id="${id}" class="flex items-center gap-3 py-2 cursor-pointer ${n?'bg-emerald-50':''}">
+  ${mode?`<span class="w-6 h-6 rounded-full border text-xs flex items-center justify-center ${n?'bg-emerald-600 text-white border-emerald-600':''}">${n||''}</span>`:''}
+  <span class="flex-1"><b>${t}</b><br><span class="text-xs text-gray-500">${a}</span></span></li>`}).join('');
+ document.querySelectorAll('#list li').forEach(li=>li.onclick=()=>{const id=li.dataset.id;
+  if(!mode){$('msg').textContent='Opens Fast View on '+id+' (no picker).';return}
+  picks=picks.includes(id)?picks.filter(x=>x!==id):[...picks,id];render()});
+}
+$('enter').onclick=()=>{mode=true;picks=[];render()};
+$('cancel').onclick=()=>{mode=false;picks=[];$('msg').textContent='Cancelled: no queue written.';render()};
+$('go').onclick=()=>{$('msg').textContent='Queue written in pick order ['+picks.join(', ')+'], originHref /bands/<id>; opening Fast View on '+picks[0]+'.';mode=false;picks=[];render()};
+render();
+</script></body></html>

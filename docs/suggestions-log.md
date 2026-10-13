@@ -10257,3 +10257,9 @@ Non-blocking suggestions from QA round 1:
 - (code review) `usePracticeFinish.ts` `setError: message => message && notify(...)` returns a string or null from a void callback. It is harmless, but an explicit `if` would read more clearly.
 - (QA) tsc and eslint could not be run in the QA sandbox. Run `npm run lint` and `tsc --noEmit` before committing.
 - (QA) Re-run the db tests after migrating the local test DB, to confirm ER5 end to end.
+
+## [RH-170] Start a practice session from a hand-picked selection — 2026-10-13
+
+- (code review) Spec names the hook `useSongPicker.ts`; implementation is `usePickedSelection.ts` (consistent with `pickedSelection.ts`). Naming deviation only.
+- (code review) `BandSongPicker` swallows read errors into an empty "No songs yet." state, which cannot be told apart from a truly empty band; consider a distinct error line.
+- (code review) `playlistSummary(playlist: unknown)` loses type safety; a narrow structural type would be better (carried over verbatim from the old cast).

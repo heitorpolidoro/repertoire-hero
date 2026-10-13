@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState, useMemo, type ReactNode } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
-import type { SongStatus, Repertoire } from "@/types/database";
+import type { Repertoire } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { useBandContextStore, type BandContext } from "@/store/bandContextStore";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useBandRole, type BandRole } from "@/hooks/useBandRole";
-import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
+import { STATUS_CONFIG } from "@/lib/statusConfig";
+import { StatusFilterPills } from "@/components/songs/StatusFilterPills";
 import { clearSongQueue } from "@/lib/songQueue";
 import { shouldSearchPicker } from "@/lib/songPicker";
 import type { ManualEntryActions } from "@/hooks/useManualEntry";
@@ -18,6 +19,8 @@ import { AddToRepertoireSection } from "@/components/songs/AddToRepertoireSectio
 import { StatusNotes } from "@/components/ui/StatusNotes";
 import { PracticeStart } from "@/components/songs/PracticeStart";
 import type { PracticeActions } from "@/hooks/usePracticeStart";
+import { usePickedSelection } from "@/hooks/usePickedSelection";
+import { PickableRowLink, SelectSongsButton, SongPickerBar } from "@/components/songs/SongPickerBar";
 
 /**
  * RH-77 — the signed-in half of `/`, moved verbatim out of `src/app/page.tsx`
@@ -47,14 +50,6 @@ interface RepertoireDashboardProps {
 const SERVER_BAND_CONTEXT: BandContext = { type: "user" };
 
 type ModalState = { open: false } | { open: true; song?: Repertoire };
-
-const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
-  { value: null, label: "All" },
-  ...ALL_STATUSES.map((s) => ({
-    value: s as SongStatus,
-    label: STATUS_CONFIG[s].label,
-  })),
-];
 
 interface DeleteControlProps {
   title: string;
@@ -181,6 +176,24 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
 
   const songs = filteredSongs();
 
+  // RH-170: picks are over every loaded row, so a filter never drops one.
+  const router = useRouter();
+  const pickRows = useMemo(
+    () =>
+      allSongs.map((s) => ({
+        versionId: s.version_id,
+        title: s.song?.title ?? "—",
+        artist: s.song?.artist ?? null,
+      })),
+    [allSongs],
+  );
+  const picker = usePickedSelection({
+    rows: pickRows,
+    owner: bandContext.type === "band" ? { type: "band", bandId: bandContext.id } : { type: "personal" },
+    originHref: "/",
+    push: router.push,
+  });
+
   const openAdd = () => setModal({ open: true });
   const openEdit = (song: Repertoire) => setModal({ open: true, song });
   const closeModal = () => setModal({ open: false });
@@ -194,11 +207,16 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
           <h1 className="text-xl font-bold text-gray-900">
             {bandContext.type === 'band' ? `🎸 ${bandContext.name}` : 'My Repertoire'}
           </h1>
-          {bandContext.type === 'user' && <PracticeStart bandId={null} actions={actions.practice} />}
+          <div className="flex gap-2">
+            <SelectSongsButton picker={picker} />
+            {bandContext.type === 'user' && !picker.active && <PracticeStart bandId={null} actions={actions.practice} />}
+          </div>
         </div>
 
+        <SongPickerBar picker={picker} />
+
         {/* Search */}
-        <div>
+        <div className="mt-3">
           <label
             htmlFor="search-input"
             className="text-sm font-medium text-gray-700 mb-1 block"
@@ -216,33 +234,7 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
         </div>
 
         {/* Status filter pills */}
-        <div
-          role="group"
-          aria-label="Filter by status"
-          className="flex gap-2 mt-3 overflow-x-auto pb-1 scrollbar-none"
-        >
-          {ALL_STATUS_FILTERS.map(({ value, label }) => {
-            const isActive = selectedStatus === value;
-            const cfg = value ? STATUS_CONFIG[value] : null;
-            return (
-              <button
-                key={value ?? "all"}
-                type="button"
-                onClick={() => setSelectedStatus(value)}
-                aria-pressed={isActive}
-                className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                  isActive
-                    ? cfg
-                      ? `${cfg.bgColor} ${cfg.textColor} border-current`
-                      : "bg-emerald-600 text-white border-emerald-600"
-                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <StatusFilterPills selected={selectedStatus} onSelect={setSelectedStatus} />
       </header>
 
       {outcomeBanner}
@@ -293,9 +285,11 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
                       dispatches no click event and hands the new tab a copy of
                       the queue; recorded under **Open** in `docs/use-cases.md`
                       *Walk a queue of songs*. */}
-                  <Link
+                  <PickableRowLink
+                    picker={picker}
+                    versionId={song.version_id}
                     href={`/songs/${song.version_id}/fast-view${bandContext.type === 'band' ? `?bandId=${bandContext.id}` : ''}`}
-                    onClick={clearSongQueue}
+                    onOpen={clearSongQueue}
                     className="flex flex-1 items-center gap-3 min-w-0 focus:outline-none"
                   >
                     {/* Cover image or status color square */}
@@ -329,7 +323,7 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
                         </p>
                       )}
                     </div>
-                  </Link>
+                  </PickableRowLink>
 
                   {/* RH-102: four notes; RH-96's gate decides who may tap. */}
                   <StatusNotes
