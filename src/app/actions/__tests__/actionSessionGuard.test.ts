@@ -130,7 +130,7 @@ import {
   saveTabAnnotationsAction,
   getTabsAction,
 } from '../tabs'
-import { uploadAudioAction, getAudioAction } from '../audio'
+import { uploadAudioAction, getAudioAction, getQueueSourcesAction } from '../audio'
 import type { Repertoire } from '@/types/database'
 
 const BAND_ID = 'band-1'
@@ -253,6 +253,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- audio.ts (RH-162) ---
   uploadAudioAction: { run: () => uploadAudioAction(emptyFormData()), mode: 'envelope' },
   getAudioAction: { run: () => getAudioAction(SONG_ID), mode: 'throws' },
+  getQueueSourcesAction: { run: () => getQueueSourcesAction('version-1'), mode: 'throws' },
 
   // --- practice.ts (RH-168) ---
   getPracticeCandidatesAction: { run: () => getPracticeCandidatesAction({ kind: 'repertoire' }, BAND_ID), mode: 'throws' },

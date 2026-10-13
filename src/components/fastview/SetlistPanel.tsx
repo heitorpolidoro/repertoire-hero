@@ -16,6 +16,8 @@ export interface SetlistPanelProps {
   currentVersionId: string
   variant: SetlistRowVariant
   onSelect: (versionId: string) => void
+  /** RH-167: the "Play setlist" tap; the control is absent without it. */
+  onPlay?: () => void
 }
 
 /**
@@ -31,6 +33,7 @@ export function SetlistPanel({
   currentVersionId,
   variant,
   onSelect,
+  onPlay,
 }: SetlistPanelProps) {
   return (
     <>
@@ -43,6 +46,16 @@ export function SetlistPanel({
         </div>
         {trailing}
       </div>
+
+      {onPlay && (
+        <button
+          type="button"
+          onClick={onPlay}
+          className="mx-4 mt-3 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+        >
+          &#9654; Play setlist
+        </button>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
         {entries.map((entry, index) => (

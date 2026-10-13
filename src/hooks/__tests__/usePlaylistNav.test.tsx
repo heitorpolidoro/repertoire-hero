@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, renderHook, cleanup } from '@testing-library/react'
 import { usePlaylistNav, type UsePlaylistNavOptions } from '../usePlaylistNav'
 import { SLIDE_OUT_MS } from '@/lib/playlistNav'
+import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
 import { writeSongQueue, SONG_QUEUE_KEY, type SongQueue } from '@/lib/songQueue'
 
 afterEach(cleanup)
@@ -86,6 +87,23 @@ describe('usePlaylistNav', () => {
       total: 3,
       queueLabel: 'Gig',
     })
+  })
+
+  it('playSetlist hands the queue and the song on screen to the player and navigates nowhere (RH-167)', async () => {
+    seed()
+    useSetlistPlayerStore.getState().reset()
+    const { result, navigate } = setup()
+    await flush()
+    expect(useSetlistPlayerStore.getState().request).toBeNull()
+
+    act(() => result.current.playSetlist())
+
+    expect(useSetlistPlayerStore.getState().request).toEqual({
+      entries: ENTRIES,
+      versionId: 'v-rep-2',
+      bandId: 'band-7',
+    })
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('exposes no navigation when the stored queue is malformed, and does not throw', async () => {
@@ -347,6 +365,7 @@ describe('usePlaylistNav', () => {
         'onTouchEnd',
         'onTouchStart',
         'openDrawer',
+        'playSetlist',
         'selectEntry',
         'slideOut',
       ])

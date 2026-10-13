@@ -186,7 +186,7 @@ export default function FastViewPage() {
         entries={playlist.entries}
         currentVersionId={versionId}
         onClose={playlist.closeDrawer}
-        onSelect={playlist.selectEntry}
+        onSelect={playlist.selectEntry} onPlay={playlist.playSetlist}
       />
 
       {/* Desktop: Side Arrow Navigation Button (previous only, by design) */}
@@ -273,7 +273,7 @@ export default function FastViewPage() {
           nav={playlist.nav}
           entries={playlist.entries}
           currentVersionId={versionId}
-          onSelect={playlist.selectEntry}
+          onSelect={playlist.selectEntry} onPlay={playlist.playSetlist}
         />
       </div>
 

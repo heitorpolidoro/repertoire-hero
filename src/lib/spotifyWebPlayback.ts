@@ -30,7 +30,33 @@ async function freshToken(): Promise<string> {
 interface SdkPlayer {
   connect(): Promise<boolean>
   activateElement(): Promise<void>
-  addListener(event: string, cb: (payload: { device_id: string }) => void): void
+  addListener<T>(event: string, cb: (payload: T) => void): void
+  pause?(): Promise<void>
+  resume?(): Promise<void>
+}
+
+/** The slice of the SDK's `player_state_changed` payload the setlist player reads (RH-167). */
+export interface SpotifyPlayerState {
+  paused: boolean
+  position: number
+  track_window: { current_track: { id: string }; previous_tracks: { id: string }[] }
+}
+type StateListener = (state: SpotifyPlayerState | null) => void
+const stateListeners = new Set<StateListener>()
+let sdkPlayer: SdkPlayer | null = null
+
+/** Listens to the SDK player's state (RH-167); nothing is connected by subscribing. */
+export function subscribeSpotifyState(listener: StateListener): () => void {
+  stateListeners.add(listener)
+  return () => void stateListeners.delete(listener)
+}
+
+/** Pauses / resumes the connected SDK device, if there is one (RH-167). */
+export function pauseSpotify(): void {
+  void sdkPlayer?.pause?.()
+}
+export function resumeSpotify(): Promise<void> {
+  return sdkPlayer?.resume?.() ?? Promise.resolve()
 }
 interface SdkWindow {
   Spotify?: { Player: new (opts: { name: string; getOAuthToken: (cb: (t: string) => void) => void }) => SdkPlayer }
@@ -60,10 +86,14 @@ function connectPlayer(): Promise<string> {
           name: 'Repertoire Hero',
           getOAuthToken: (cb) => void freshToken().then(cb, () => undefined),
         })
-        player.addListener('ready', ({ device_id }) => resolve(device_id))
-        player.addListener('initialization_error', () => reject(new Error('Spotify player is not supported here')))
-        player.addListener('authentication_error', () => reject(new Error('Spotify authentication failed')))
-        player.addListener('account_error', () => reject(new Error('Spotify Premium is required to play here')))
+        sdkPlayer = player
+        player.addListener<SpotifyPlayerState | null>('player_state_changed', (state) =>
+          stateListeners.forEach((listener) => listener(state)),
+        )
+        player.addListener<{ device_id: string }>('ready', ({ device_id }) => resolve(device_id))
+        player.addListener<unknown>('initialization_error', () => reject(new Error('Spotify player is not supported here')))
+        player.addListener<unknown>('authentication_error', () => reject(new Error('Spotify authentication failed')))
+        player.addListener<unknown>('account_error', () => reject(new Error('Spotify Premium is required to play here')))
         void player.activateElement()
         player.connect().then((ok) => ok || reject(new Error('Could not connect the Spotify player')), reject)
       }),

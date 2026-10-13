@@ -10,6 +10,7 @@ import {
   type PlaylistNav,
   type SlideDirection,
 } from '@/lib/playlistNav'
+import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
 import { readSongQueue, resolveQueueOwner, type SongQueueEntry } from '@/lib/songQueue'
 
 export interface UsePlaylistNavOptions {
@@ -40,6 +41,8 @@ export interface PlaylistNavController {
   selectEntry: (versionId: string) => void
   goPrev: () => void
   goBack: () => void
+  /** "Play setlist": asks the setlist player to start at this song (RH-167). */
+  playSetlist: () => void
   onTouchStart: (clientX: number) => void
   onTouchEnd: (clientX: number) => void
 }
@@ -223,6 +226,12 @@ export function usePlaylistNav({
     navigateBack()
   }, [navigate, navigateBack, queue?.originHref])
 
+  // RH-167: the only way the setlist player starts. It hands the queue and the
+  // song on screen to the player and moves nothing else.
+  const playSetlist = useCallback(() => {
+    useSetlistPlayerStore.getState().requestStart({ entries, versionId: currentVersionId, bandId: hrefBandId })
+  }, [currentVersionId, entries, hrefBandId])
+
   const openDrawer = useCallback(() => setIsDrawerOpen(true), [])
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), [])
 
@@ -236,6 +245,7 @@ export function usePlaylistNav({
     selectEntry,
     goPrev,
     goBack,
+    playSetlist,
     onTouchStart,
     onTouchEnd,
   }

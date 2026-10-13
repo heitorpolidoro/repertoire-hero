@@ -11,6 +11,8 @@ import {
   UNSUPPORTED_AUDIO_MESSAGE,
 } from '@/lib/audioIngest'
 import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/ownerSongs'
+import { resolveVersionSources } from '@/lib/queueSources'
+import type { QueueSources } from '@/lib/setlistPlayer'
 import { createTab, listAudio, recordAbandonedBlob, sumAudioBytes } from '@/lib/tabs'
 import { put } from '@vercel/blob'
 import { revalidatePath } from 'next/cache'
@@ -84,4 +86,13 @@ export async function uploadAudioAction(formData: FormData): Promise<UploadAudio
 export async function getAudioAction(songId: string): Promise<SongFile[]> {
   const userId = await getRequiredUserId()
   return listAudio(userId, songId)
+}
+
+/**
+ * RH-167 - what one queue entry can play, from the caller's own rows only: the
+ * newest audio file they uploaded and the song's Spotify and YouTube links.
+ */
+export async function getQueueSourcesAction(versionId: string): Promise<QueueSources> {
+  const userId = await getRequiredUserId()
+  return resolveVersionSources(userId, versionId)
 }

@@ -11,6 +11,7 @@ export interface SetlistDrawerProps {
   currentVersionId: string
   onClose: () => void
   onSelect: (versionId: string) => void
+  onPlay?: () => void
 }
 
 /**
@@ -26,6 +27,7 @@ export function SetlistDrawer({
   currentVersionId,
   onClose,
   onSelect,
+  onPlay,
 }: SetlistDrawerProps) {
   if (!open || !nav) return null
 
@@ -48,6 +50,13 @@ export function SetlistDrawer({
           entries={entries}
           currentVersionId={currentVersionId}
           variant="drawer"
+          onPlay={
+            onPlay &&
+            (() => {
+              onClose()
+              onPlay()
+            })
+          }
           onSelect={(versionId) => {
             onClose()
             onSelect(versionId)

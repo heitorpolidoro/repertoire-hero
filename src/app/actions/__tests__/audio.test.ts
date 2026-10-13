@@ -15,10 +15,12 @@ vi.mock('@/lib/tabs', () => ({
   sumAudioBytes: vi.fn(),
   recordAbandonedBlob: vi.fn(),
 }))
+vi.mock('@/lib/queueSources', () => ({ resolveVersionSources: vi.fn() }))
 vi.mock('@vercel/blob', () => ({ put: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-import { uploadAudioAction, getAudioAction } from '../audio'
+import { uploadAudioAction, getAudioAction, getQueueSourcesAction } from '../audio'
+import { resolveVersionSources } from '@/lib/queueSources'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { addSongToRepertoire, getPersonalEntryForSong } from '@/lib/ownerSongs'
 import { createTab, listAudio, sumAudioBytes, recordAbandonedBlob } from '@/lib/tabs'
@@ -162,5 +164,19 @@ describe('getAudioAction', () => {
     vi.mocked(listAudio).mockResolvedValue([{ id: 'a' }] as never)
     expect(await getAudioAction('song-1')).toEqual([{ id: 'a' }])
     expect(listAudio).toHaveBeenCalledWith('user-1', 'song-1')
+  })
+})
+
+describe('getQueueSourcesAction (RH-167)', () => {
+  it('resolves the session user and delegates the lookup to that user', async () => {
+    vi.mocked(resolveVersionSources).mockResolvedValue({ youtubeUrl: 'https://youtu.be/abcdefghijk' })
+    expect(await getQueueSourcesAction('version-1')).toEqual({ youtubeUrl: 'https://youtu.be/abcdefghijk' })
+    expect(resolveVersionSources).toHaveBeenCalledWith('user-1', 'version-1')
+  })
+
+  it('rejects a signed-out caller without reading anything', async () => {
+    vi.mocked(getRequiredUserId).mockRejectedValue(new Error('Unauthorized'))
+    await expect(getQueueSourcesAction('version-1')).rejects.toThrow('Unauthorized')
+    expect(resolveVersionSources).not.toHaveBeenCalled()
   })
 })

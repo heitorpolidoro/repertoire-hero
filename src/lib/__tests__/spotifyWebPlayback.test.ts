@@ -45,6 +45,30 @@ describe('loadPlaybackFacts', () => {
   })
 })
 
+describe('setlist player hooks into the SDK (RH-167)', () => {
+  it('forwards player_state_changed to subscribers and pauses / resumes the connected device', async () => {
+    fetchMock.mockImplementation(async (url: string) => (url.includes('/me/player/play') ? { ok: true } : tokenOk))
+    const mod = await import('../spotifyWebPlayback')
+    const seen = vi.fn()
+    const off = mod.subscribeSpotifyState(seen)
+    mod.pauseSpotify()
+    await expect(mod.resumeSpotify()).resolves.toBeUndefined()
+    await mod.playTrack('spotify:track:abc')
+    const pause = vi.fn().mockResolvedValue(undefined)
+    const resume = vi.fn().mockResolvedValue(undefined)
+    Object.assign(FakePlayer.last, { pause, resume })
+    listeners.player_state_changed({ paused: false } as never)
+    expect(seen).toHaveBeenCalledWith({ paused: false })
+    mod.pauseSpotify()
+    await mod.resumeSpotify()
+    expect(pause).toHaveBeenCalled()
+    expect(resume).toHaveBeenCalled()
+    off()
+    listeners.player_state_changed({ paused: true } as never)
+    expect(seen).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('playTrack', () => {
   it('connects the SDK device and PUTs the track to it', async () => {
     fetchMock.mockImplementation(async (url: string) => (url.includes('/me/player/play') ? { ok: true } : tokenOk))

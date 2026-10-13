@@ -10274,3 +10274,8 @@ Non-blocking suggestions from QA round 1:
 
 - (spec review) The spec's operator gate (decision on the card) stays open. The work skill should not start the build until the operator confirms it.
 - (code review) The `next.config.ts` comment has an awkward line break ("nothing else. Other directives stay unset on / purpose"). Cosmetic.
+
+## [RH-167] Add a setlist player over the RH-133 queue — 2026-10-13
+
+- (code review) `runtime.ts` `runFrom`/`step`: on previous/next while an entry is playing, the old engine keeps playing until the next source resolves. Pausing the active engine first would give snappier feedback.
+- (code review) The skipped-title message set via `onSkip` is overwritten by later patches. Fine, but worth a test if it is not already covered.

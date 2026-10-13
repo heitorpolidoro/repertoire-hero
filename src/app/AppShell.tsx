@@ -5,6 +5,10 @@ import { authClient } from '@/lib/auth-client'
 import { getBandsAction } from '@/app/actions/bands'
 import { getProfileAction } from '@/app/actions/profile'
 import ConditionalLayout from '@/components/layout/ConditionalLayout'
+import { SetlistPlayer } from '@/components/layout/SetlistPlayer'
+import { SETLIST_PLAYER_ACTIONS } from '@/app/setlistPlayerActions'
+import { useOfflineStatus } from '@/hooks/useOfflineStatus'
+import { useSetlistPlayer } from '@/hooks/useSetlistPlayer'
 import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
 import { reconcileBandContext } from '@/lib/bandContext'
@@ -66,10 +70,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [userId])
 
+  // RH-167: the setlist player lives here, above every route, so its audio and
+  // YouTube nodes survive navigation. Hidden until a "Play setlist" tap.
+  const setlistPlayer = useSetlistPlayer({
+    actions: SETLIST_PLAYER_ACTIONS,
+    offline: useOfflineStatus(),
+    enabled: !!userId,
+  })
+
   return (
-    <ConditionalLayout bands={bands} isSystemAdmin={!!userId && isSystemAdmin}>
-      {children}
-    </ConditionalLayout>
+    <>
+      <ConditionalLayout bands={bands} isSystemAdmin={!!userId && isSystemAdmin}>
+        {children}
+      </ConditionalLayout>
+      <SetlistPlayer {...setlistPlayer} />
+    </>
   )
 }
 

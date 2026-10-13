@@ -45,6 +45,16 @@ describe('SetlistSidebar', () => {
    * that is not a playlist can name itself. A rename nothing renders would
    * surface only as a type error, which no gate command runs.
    */
+  it('shows "Play setlist" only when it is wired, and taps through to onPlay (RH-167)', () => {
+    expect(renderSidebar().container.textContent).not.toContain('Play setlist')
+    cleanup()
+
+    const onPlay = vi.fn()
+    renderSidebar({ onPlay })
+    fireEvent.click(screen.getByRole('button', { name: /Play setlist/ }))
+    expect(onPlay).toHaveBeenCalledTimes(1)
+  })
+
   it('renders the queueLabel of the queue it was given', () => {
     const nav = { ...(NAV as NonNullable<typeof NAV>), queueLabel: 'Practice session' }
     renderSidebar({ nav })

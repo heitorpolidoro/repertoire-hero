@@ -395,6 +395,21 @@ Step 3 happens even in band context — see *What creates a personal row in band
   offline snapshot: offline, Fast View shows "Video is not available offline". The app's
   only Content-Security-Policy is `frame-src https://www.youtube-nocookie.com https://docs.google.com`
   (`next.config.ts`; the second origin keeps the tab PDF preview loading); a full CSP is a separate task.
+- Setlist player (RH-167): a persistent bar at the bottom of the screen plays the RH-133
+  queue in order, one song's own audio at a time. It is hidden, and nothing loads or
+  plays, until the musician taps "Play setlist" in the Fast View setlist; it then starts at
+  the song on screen if that has a source, otherwise at the next one that does. Per song the
+  source is the first available of: the reader's newest uploaded audio, the Spotify track
+  (only when the RH-164 decision says `ready`), the YouTube video. Uploaded audio stays the
+  reader's alone, so in band context the listener's own files play. The bar sits above the
+  routes (`AppShell`): navigating, clearing the queue or writing a new one never moves a
+  running player, and the title opens that song's Fast View. When a track ends the next
+  playable entry is loaded in its own engine and played; if that engine refuses (a rejected
+  play, or no "playing" within 4 seconds) the player stays on that entry paused with "Tap to
+  play <title>" and skips nothing. An entry with no source, or whose source fails to load, is
+  passed over and the bar says "Skipped: <title> (no audio or video)". At the end it stops;
+  it never wraps. Offline the bar shows "Playback is not available offline" and mounts no
+  audio, iframe or SDK. The close control stops and disposes the engine and hides the bar.
 - A file attached to a song whose versions differ sharply — an acoustic reworking — is
   the wrong file, with no way to scope it to one version. Deliberate: scoping to the
   version would break the case that made the decision, tabs written in sections that

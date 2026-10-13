@@ -9,6 +9,7 @@ export interface SetlistSidebarProps {
   /** The route's `song_versions.id` (RH-132). */
   currentVersionId: string
   onSelect: (versionId: string) => void
+  onPlay?: () => void
 }
 
 /**
@@ -18,7 +19,7 @@ export interface SetlistSidebarProps {
  * (`w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen`) and
  * are asserted by this component's test, not merely described here.
  */
-export function SetlistSidebar({ nav, entries, currentVersionId, onSelect }: SetlistSidebarProps) {
+export function SetlistSidebar({ nav, entries, currentVersionId, onSelect, onPlay }: SetlistSidebarProps) {
   if (!nav || entries.length === 0) return null
 
   return (
@@ -35,6 +36,7 @@ export function SetlistSidebar({ nav, entries, currentVersionId, onSelect }: Set
         currentVersionId={currentVersionId}
         variant="sidebar"
         onSelect={onSelect}
+        onPlay={onPlay}
       />
     </aside>
   )
