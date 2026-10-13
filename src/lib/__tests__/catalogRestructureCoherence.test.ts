@@ -226,7 +226,7 @@ const REPERTOIRE_ACTIONS = 'src/app/actions/repertoire.ts'
  *
  *     grep -c '^export async function' src/app/actions/repertoire.ts
  */
-const REPERTOIRE_ACTION_EXPORTS = 18
+const REPERTOIRE_ACTION_EXPORTS = 19
 
 /**
  * The seven mutators ER7 drives: every action that resolves its owner through
@@ -238,6 +238,8 @@ const REPERTOIRE_ACTION_EXPORTS = 18
  */
 const WRITE_OWNER_CALLERS = [
   'addSongAction',
+  // RH-151: adds exactly the named version.
+  'addVersionAction',
   'createAndAddSongAction',
   'removeSongAction',
   'updateLyricsAction',

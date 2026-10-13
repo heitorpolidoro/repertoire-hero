@@ -607,10 +607,15 @@ already exists and already hides the drawing controls — it just does not hide 
 3. each group is one card, showing one representative version
 4. expanding a card lists every version it has
 
-**One list, not two.** Today the two sources are held in separate state and rendered
-separately, so a song already in the catalog appears twice — once from each — and nothing
-says which row to press. Merging is what makes the grouped card possible at all: twenty
-Spotify rows and three catalog rows become four cards.
+**One list, not two.** The two sources used to be held in separate state and rendered
+separately, so a song already in the catalog appeared twice — once from each — and nothing
+said which row to press. Merging is what makes the grouped card possible at all: twenty
+Spotify rows and three catalog rows become four cards. Both surfaces now work this way:
+the dashboard's "Add to your repertoire" section shows one card per song, and `Add` on a
+collapsed card adds the representative version while `Add` on an expanded version adds
+exactly that version (a catalog version is added by its id, so a non-representative one
+is reachable). A version already in the repertoire is not offered again, but an unheld
+sibling version of the same song is.
 
 Spotify is optional. `searchSpotify` answers `[]` on any network or API failure, so a
 search still returns the catalog alone rather than failing.

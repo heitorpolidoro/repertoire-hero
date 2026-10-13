@@ -114,7 +114,16 @@ const eslintConfig = defineConfig([
   // handler reference adds no branch. A pinned file may grow if its pin grows
   // with it — clause (e) requires the pin to equal the file's worst number, not
   // that the number never move.
-  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { complexity: ["error", 17], "max-lines-per-function": ["error", 538], "max-lines": ["error", 594] } },
+  //
+  // RH-151 lowered all three: complexity 17 -> 15 (the global budget, so the
+  // key is dropped and the file now sits under the base like any other),
+  // 538 -> 334 and 594 -> 445. The search,
+  // the merge, the held filter and the add command moved into
+  // `src/hooks/useRepertoireSearch.ts`, the two result lists became one
+  // `SongGroupCard` map, and the row's delete button and inline confirm moved
+  // into a module-scope `DeleteControl` (the 17 was the row's arrow function,
+  // not the component's own 15).
+  { name: "complexity-budget/override", files: ["src/components/songs/RepertoireDashboard.tsx"], rules: { "max-lines-per-function": ["error", 334], "max-lines": ["error", 445] } },
   // RH-97: the link rows moved into `SongLinksEditor.tsx`, one populated shared
   // field into `SharedCatalogField.tsx` and the refusal notice into
   // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog

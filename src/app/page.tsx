@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth-session";
 import {
   createAndAddSongAction,
   addSongAction,
+  addVersionAction,
   searchSongsAction,
   updateSongAction,
   updateSongStatusAction,
@@ -31,6 +32,7 @@ import RepertoireDashboard, {
 const REPERTOIRE_DASHBOARD_ACTIONS: RepertoireDashboardActions = {
   createAndAddSong: createAndAddSongAction,
   addSong: addSongAction,
+  addVersion: addVersionAction,
   searchSongs: searchSongsAction,
   updateSong: updateSongAction,
   updateSongStatus: updateSongStatusAction,

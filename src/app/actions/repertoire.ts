@@ -17,6 +17,7 @@ import {
   getPersonalEntryForSong,
   type RepertoireOwner,
 } from '@/lib/ownerSongs'
+import { addVersionToRepertoire } from '@/lib/ownerVersionAdd'
 import { applySongLinkUpdate, searchSongs, type SongUpdateInput } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import {
@@ -73,6 +74,14 @@ export async function getRepertoireAction(bandId?: string | null) {
 export async function addSongAction(songId: string, bandId?: string | null) {
   const owner = await resolveWriteOwner(bandId)
   const result = await addSongToRepertoire(owner, songId)
+  revalidatePath('/')
+  return result
+}
+
+/** RH-151: adds exactly the named version, not the song's representative one. */
+export async function addVersionAction(versionId: string, bandId?: string | null) {
+  const owner = await resolveWriteOwner(bandId)
+  const result = await addVersionToRepertoire(owner, versionId)
   revalidatePath('/')
   return result
 }

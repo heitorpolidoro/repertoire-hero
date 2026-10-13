@@ -10040,3 +10040,39 @@ Non-blocking suggestions from spec review round 1:
 ## [RH-144] Decide which version an add holds when the song already exists — 2026-10-13
 - Code review: `src/lib/ownerSongs.ts` lines 96-101: the `addRowSql` docblock wrapping is awkward and the signature line is long; the inline `// RH-144` comment near line 385 could be dropped.
 - Code review: `songId` returned by `resolveCatalogSongForAdd` is now unused by its only caller; could be trimmed (YAGNI).
+
+## [RH-160] Scaffold the Trusted Web Activity repo files with placeholders — 2026-10-13
+- Spec review: the spec still says "File is RH-161 by the repo's id+1 filename offset"; the rename note says that rule was a mistake, so the stale sentence could be deleted.
+- Spec review: ER4 says "GET /privacy returns 200" but the test criteria only list a render test and a proxy-matcher test; word the ER as "renders without a session lookup and is not in the proxy matcher", or say the render test stands in for the 200.
+- Spec review: ER6 and the README heading test live in "the listing or hygiene test"; name one file so QA knows where to look.
+
+## [RH-109] Address the Fast View by version and navigate a queue — 2026-10-13
+- Spec review: remove the stale "Filename note" block (lines 6-8) and the "Renamed" banner; they contradict each other about the "board id + 1" rule.
+- Spec review: ER2 and ER3 each bundle several assertions in one line; consider splitting them if QA reports are hard to read.
+- Spec review: ER7 relies on "the task report" as the place the audit is listed; say where that report is written.
+- Spec review: behaviour 6 (`?bandId=` beats the queue's recorded owner) has no expected result; add one or note that it is covered under ER2.
+
+## [RH-147] Define which of a song's files is the primary one — 2026-10-13
+- Code review: migrations/0024_song_file_primary.sql:1 header says "Migration 0025" but the file is 0024; fix the comment.
+- Code review: src/lib/tabs.ts createSongFile: two concurrent first uploads make one fail with a unique violation instead of storing as non-primary; rare, but a retry or ON CONFLICT fallback would be gentler.
+- Code review: src/hooks/useTabLibrary.ts setPrimaryTab: rolling back to the captured `before` can clobber a list change that landed during the await; minor.
+- QA: ER1's literal git-diff check lists 0022 and 0023 because the baseline commit predates them; rebase the expectation or baseline.
+- QA: knip config hints: remove esbuild and @serwist/cli from ignoreDependencies.
+
+## [RH-160] Scaffold the Trusted Web Activity repo files with placeholders — 2026-10-13
+
+- Line 6 still says "File is RH-161 by the repo's id+1 filename offset", which contradicts the rename note on line 3; delete it.
+- ER4 says "GET /privacy returns 200"; the spec only provides a render test plus a proxy-matcher non-match test. State in the spec that those two together are the verification, so QA does not look for an HTTP-level test.
+- ER1 and ER6 bundle several assertions in one sentence; acceptable since each maps to one test, but keep them from growing.
+- The README heading check is placed "in the listing or hygiene test"; pick one so the implementer and QA agree.
+
+## [RH-159] Add whole-playlist practice review list — 2026-10-13
+
+- Line 6 still says "File is RH-160 by the repo's id+1 filename offset", which contradicts the rename note on line 3; delete the stale sentence.
+- The AGENTS.md line is conditional ("if a practice-write rule already exists there"); say which outcome is expected, or drop it.
+- Say how the user changes a row's level; the spec says "via the existing StatusNotes" but does not name the interaction.
+
+## [RH-151] Move the dashboard onto the grouped card — 2026-10-13
+
+- `eslint.config.mjs` comment: the line wrap after "445. The search," is awkward. Cosmetic only.
+- Apply pending migrations to the local test database so the full db suite is green (30 failures: `column "links" of relation "songs" does not exist`).

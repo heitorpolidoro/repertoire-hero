@@ -17,6 +17,7 @@ afterEach(cleanup)
 const ACTIONS = {
   createAndAddSong: vi.fn(),
   addSong: vi.fn(),
+  addVersion: vi.fn(),
   searchSongs: vi.fn().mockResolvedValue([]),
   updateSong: vi.fn(),
   updateSongStatus: vi.fn(),

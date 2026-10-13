@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from "react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import type { SongStatus, Repertoire, Song } from "@/types/database";
+import type { SongStatus, Repertoire } from "@/types/database";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { useBandContextStore, type BandContext } from "@/store/bandContextStore";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useBandRole, type BandRole } from "@/hooks/useBandRole";
 import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
-import { searchSpotify, type SpotifyTrack } from "@/lib/spotify";
 import { clearSongQueue } from "@/lib/songQueue";
+import { shouldSearchPicker } from "@/lib/songPicker";
+import { useRepertoireSearch, type RepertoireSearchActions } from "@/hooks/useRepertoireSearch";
 import SongForm, { type SongFormActions } from "@/components/songs/SongForm";
-import SongResultItem from "@/components/songs/SongResultItem";
+import { SongGroupCard } from "@/components/playlists/SongGroupCard";
 import { StatusNotes } from "@/components/ui/StatusNotes";
 
 /**
@@ -23,9 +24,9 @@ import { StatusNotes } from "@/components/ui/StatusNotes";
  * injected instead: `src/components` must never point back into the App Router
  * tree (F21). `src/app/page.tsx` owns the bundle.
  */
-export interface RepertoireDashboardActions extends SongFormActions {
-  addSong: (songId: string) => Promise<unknown>;
-  searchSongs: (query: string) => Promise<Song[]>;
+export interface RepertoireDashboardActions
+  extends SongFormActions,
+    Pick<RepertoireSearchActions, "addSong" | "addVersion" | "searchSongs"> {
   /** The caller's role in the active band (RH-96); see `useBandRole`. */
   getBandRole: (bandId: string) => Promise<BandRole>;
 }
@@ -49,8 +50,62 @@ const ALL_STATUS_FILTERS: Array<{ value: SongStatus | null; label: string }> = [
   })),
 ];
 
-const SPOTIFY_DEBOUNCE_MS = 500;
+interface DeleteControlProps {
+  title: string;
+  confirming: boolean;
+  onAsk: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
 
+/** A row's delete button, which turns into an inline `Sure? Yes / No` confirm. */
+function DeleteControl({ title, confirming, onAsk, onConfirm, onCancel }: DeleteControlProps) {
+  if (confirming) {
+    return (
+      <span className="shrink-0 flex items-center gap-1">
+        <span className="text-xs text-gray-600">Sure?</span>
+        <button
+          type="button"
+          onClick={onConfirm}
+          aria-label={`Confirm delete ${title}`}
+          className="text-xs text-red-500 hover:text-red-700 focus:outline-none focus:underline"
+        >
+          Yes
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Cancel delete"
+          className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+        >
+          No
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onAsk}
+      aria-label={`Delete ${title}`}
+      className="shrink-0 text-red-500 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 rounded"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        className="h-4 w-4"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          fillRule="evenodd"
+          d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+          clipRule="evenodd"
+        />
+      </svg>
+    </button>
+  );
+}
 
 function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProps) {
   const {
@@ -98,178 +153,27 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
 
   const [modal, setModal] = useState<ModalState>({ open: false });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [spotifyRowErrors, setSpotifyRowErrors] = useState<
-    Record<string, string>
-  >({});
-
-  // Catalog search state
-  const [catalogResults, setCatalogResults] = useState<Song[]>([]);
-  const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
-  const [catalogRowErrors, setCatalogRowErrors] = useState<
-    Record<string, string>
-  >({});
-
-  // Spotify state
-  const [spotifyResults, setSpotifyResults] = useState<SpotifyTrack[]>([]);
-  const [spotifyLoading, setSpotifyLoading] = useState(false);
-  const [addingId, setAddingId] = useState<string | null>(null);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Tracks the most-recently-fired query so stale responses are discarded
-  const latestQuery = useRef("");
+  const search = useRepertoireSearch({
+    actions,
+    query: searchQuery,
+    entries: allSongs,
+    onAdded: loadSongs,
+  });
 
   useEffect(() => {
     loadSongs();
   }, [loadSongs]);
 
-  // Debounced search — catalog + Spotify in parallel
-  const runSearch = useCallback(async (query: string) => {
-    latestQuery.current = query;
-
-    if (query.trim().length < 2) {
-      setCatalogResults([]);
-      setSpotifyResults([]);
-      setSpotifyLoading(false);
-      return;
-    }
-
-    // Clear stale row-level errors from previous searches
-    setCatalogRowErrors({});
-    setSpotifyRowErrors({});
-    setSpotifyLoading(true);
-
-    try {
-      const [catalog, spotify] = await Promise.all([
-        actions.searchSongs(query).catch(() => [] as Song[]),
-        searchSpotify(query).catch(() => [] as SpotifyTrack[]),
-      ]);
-      // Discard if a newer query already fired
-      if (latestQuery.current !== query) return;
-      setCatalogResults(catalog);
-      setSpotifyResults(spotify);
-    } finally {
-      if (latestQuery.current === query) setSpotifyLoading(false);
-    }
-  }, [actions]);
-
-  useEffect(() => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-    }
-
-    debounceTimer.current = setTimeout(() => {
-      runSearch(searchQuery);
-    }, SPOTIFY_DEBOUNCE_MS);
-
-    return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-    };
-  }, [searchQuery, runSearch]);
-
   const songs = filteredSongs();
-
-  // Build a Set of "title|artist" keys for the user's repertoire — O(n) once per render
-  const repertoireKeys = useMemo(
-    () =>
-      new Set(
-        allSongs
-          .filter((e) => e.song)
-          .map(
-            (e) =>
-              e.song ? `${e.song.title.toLowerCase()}|${e.song.artist.toLowerCase()}` : '',
-          ),
-      ),
-    [allSongs],
-  );
-
-  // Catalog results: not already in user's repertoire — O(m) lookups
-  const visibleCatalogResults = useMemo(
-    () =>
-      catalogResults.filter(
-        (s) =>
-          !repertoireKeys.has(
-            `${s.title.toLowerCase()}|${s.artist.toLowerCase()}`,
-          ),
-      ),
-    [catalogResults, repertoireKeys],
-  );
-
-  // Spotify results: not in repertoire AND not already shown from catalog — O(m+k) lookups
-  const catalogKeys = useMemo(
-    () =>
-      new Set(
-        visibleCatalogResults.map(
-          (s) => `${s.title.toLowerCase()}|${s.artist.toLowerCase()}`,
-        ),
-      ),
-    [visibleCatalogResults],
-  );
-
-  const visibleSpotifyResults = useMemo(
-    () =>
-      spotifyResults.filter((t) => {
-        const key = `${t.title.toLowerCase()}|${t.artist.toLowerCase()}`;
-        return !repertoireKeys.has(key) && !catalogKeys.has(key);
-      }),
-    [spotifyResults, repertoireKeys, catalogKeys],
-  );
 
   const openAdd = () => setModal({ open: true });
   const openEdit = (song: Repertoire) => setModal({ open: true, song });
   const closeModal = () => setModal({ open: false });
   const handleSuccess = () => setModal({ open: false });
 
-  const handleAddFromCatalog = async (song: Song) => {
-    setAddingCatalogId(song.id);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    setCatalogRowErrors(({ [song.id]: _, ...rest }) => rest);
-    try {
-      await actions.addSong(song.id);
-      await loadSongs();
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "An unexpected error occurred.";
-      setCatalogRowErrors((prev) => ({ ...prev, [song.id]: message }));
-    } finally {
-      setAddingCatalogId(null);
-    }
-  };
-
-  const handleAddFromSpotify = async (track: SpotifyTrack) => {
-    setAddingId(track.id);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    setSpotifyRowErrors(({ [track.id]: _, ...rest }) => rest);
-    try {
-      await actions.createAndAddSong({
-        title: track.title,
-        artist: track.artist,
-        album: track.album ?? undefined,
-        cover_url: track.albumArt ?? undefined,
-        links: [{ label: "Spotify", url: track.spotifyUrl }],
-      });
-      await loadSongs();
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "An unexpected error occurred.";
-      if (message.includes("already in your repertoire")) {
-        setSpotifyRowErrors((prev) => ({
-          ...prev,
-          [track.id]: "Already in your repertoire.",
-        }));
-      } else {
-        setSpotifyRowErrors((prev) => ({ ...prev, [track.id]: message }));
-      }
-    } finally {
-      setAddingId(null);
-    }
-  };
-
   const showSearchResults =
-    searchQuery.trim().length >= 2 &&
-    (spotifyLoading ||
-      visibleCatalogResults.length > 0 ||
-      visibleSpotifyResults.length > 0);
+    shouldSearchPicker(searchQuery) &&
+    (search.loading || search.results.length > 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -439,51 +343,16 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
                   </button>
 
                   {/* Delete button with inline confirm */}
-                  {confirmDeleteId === song.id ? (
-                    <span className="shrink-0 flex items-center gap-1">
-                      <span className="text-xs text-gray-600">Sure?</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          removeSong(song.id);
-                          setConfirmDeleteId(null);
-                        }}
-                        aria-label={`Confirm delete ${song.song?.title ?? "song"}`}
-                        className="text-xs text-red-500 hover:text-red-700 focus:outline-none focus:underline"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        aria-label="Cancel delete"
-                        className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
-                      >
-                        No
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(song.id)}
-                      aria-label={`Delete ${song.song?.title ?? "song"}`}
-                      className="shrink-0 text-red-500 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 rounded"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-4 w-4"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    </button>
-                  )}
+                  <DeleteControl
+                    title={song.song?.title ?? "song"}
+                    confirming={confirmDeleteId === song.id}
+                    onAsk={() => setConfirmDeleteId(song.id)}
+                    onConfirm={() => {
+                      removeSong(song.id);
+                      setConfirmDeleteId(null);
+                    }}
+                    onCancel={() => setConfirmDeleteId(null)}
+                  />
                 </li>
               );
             })}
@@ -502,24 +371,21 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
               <hr className="flex-1 border-gray-200" />
             </div>
 
-            {/* Flat list: catalog first, then Spotify */}
+            {/* One card per song (RH-151) */}
             <ul className="flex flex-col gap-2" aria-live="polite">
-              {visibleCatalogResults.map((song) => (
-                <SongResultItem
-                  key={song.id}
-                  coverUrl={song.cover_url}
-                  title={song.title}
-                  artist={song.artist}
-                  album={song.album}
-                  adding={addingCatalogId === song.id}
-                  error={catalogRowErrors[song.id]}
-                  onAdd={() => {
-                    handleAddFromCatalog(song);
+              {search.results.map((row) => (
+                <SongGroupCard
+                  key={row.id}
+                  row={row}
+                  adding={search.addingId === row.id}
+                  error={search.rowErrors[row.id]}
+                  onAdd={(picked) => {
+                    void search.addRow(picked);
                   }}
                 />
               ))}
 
-              {spotifyLoading ? (
+              {search.loading && (
                 <li
                   className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400"
                   aria-busy="true"
@@ -547,21 +413,6 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
                   </svg>
                   Searching Spotify...
                 </li>
-              ) : (
-                visibleSpotifyResults.map((track) => (
-                  <SongResultItem
-                    key={track.id}
-                    coverUrl={track.albumArt}
-                    title={track.title}
-                    artist={track.artist}
-                    album={track.album}
-                    adding={addingId === track.id}
-                    error={spotifyRowErrors[track.id]}
-                    onAdd={() => {
-                      handleAddFromSpotify(track);
-                    }}
-                  />
-                ))
               )}
             </ul>
           </section>

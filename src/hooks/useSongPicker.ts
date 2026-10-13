@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { logger } from '@/lib/logger'
-import { searchSpotify, type SpotifyTrack } from '@/lib/spotify'
+import { searchMergedRows } from '@/lib/songSearchFetch'
 import {
   findRepertoireVersionIdByTrack,
   heldPickerVersionId,
   isAlreadyInRepertoireError,
   shouldSearchPicker,
+  trackCreateInput,
   withPickerRowError,
   withoutPickerRowError,
   type SongPickerController,
 } from '@/lib/songPicker'
 import {
-  mergeSongSearchResults,
   withoutHeldVersions,
   type SearchVersionCandidate,
   type SongSearchRow,
@@ -114,16 +114,11 @@ export function useSongPicker({
       }
       setLoading(true)
       try {
-        const [catalog, spotify] = await Promise.all([
-          actions.searchCatalog(next).catch(() => [] as CatalogSearchResult[]),
-          searchSpotify(next).catch(() => [] as SpotifyTrack[]),
-        ])
+        // One merge over both responses (`searchMergedRows`).
+        const rows = await searchMergedRows(actions.searchCatalog, next)
         // A slower earlier query must not overwrite the answer to this one.
         if (latestQuery.current !== next) return
-        // One merge over both responses — the `.catch(() => [])` on each half
-        // is what makes a Spotify outage a complete catalog-only list rather
-        // than an empty panel, and the reverse.
-        setMerged(mergeSongSearchResults(catalog, spotify))
+        setMerged(rows)
       } finally {
         if (latestQuery.current === next) setLoading(false)
       }
@@ -183,19 +178,7 @@ export function useSongPicker({
   const resolveTrackVersionId = useCallback(
     async (row: SongSearchRow, pick: SearchVersionCandidate): Promise<string> => {
       try {
-        const created = await actions.createAndAddSong({
-          // The **unsplit** source title: `resolveOrCreateSongIdentity` splits
-          // it and `upsertAlbumAndVersion` stores the right half as
-          // `song_versions.label`. The row's display title would write a null
-          // label for `"Bad - Remaster 2012"` (RH-122).
-          title: pick.rawTitle,
-          artist: row.artist,
-          album: pick.albumName ?? undefined,
-          cover_url: pick.coverUrl ?? undefined,
-          // The only reason `spotifyUrl` is on the candidate: without it every
-          // song created from a Spotify row loses its Spotify URL.
-          links: pick.spotifyUrl ? [{ label: 'Spotify', url: pick.spotifyUrl }] : [],
-        })
+        const created = await actions.createAndAddSong(trackCreateInput(row, pick))
         return created.version_id
       } catch (error) {
         if (!isAlreadyInRepertoireError(error)) throw error

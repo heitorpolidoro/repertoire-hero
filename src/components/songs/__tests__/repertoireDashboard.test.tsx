@@ -55,6 +55,9 @@ const NOOP_ACTIONS = {
   addSong: async () => {
     throw new Error('not called in a first render')
   },
+  addVersion: async () => {
+    throw new Error('not called in a first render')
+  },
   searchSongs: async () => [],
   updateSong: async () => {},
   updateSongStatus: async () => {},

@@ -42,6 +42,10 @@ vi.mock('@/lib/ownerSongs', () => ({
   getPersonalEntryForSong: vi.fn(),
 }))
 
+vi.mock('@/lib/ownerVersionAdd', () => ({
+  addVersionToRepertoire: vi.fn(),
+}))
+
 vi.mock('@/lib/songs', () => ({
   searchSongs: vi.fn(),
   applySongLinkUpdate: vi.fn(),
@@ -55,6 +59,7 @@ vi.mock('@/lib/bands', () => ({
 import {
   getRepertoireAction,
   addSongAction,
+  addVersionAction,
   updateSongStatusAction,
   updateSongTagsAction,
   updateSongTuningAction,
@@ -86,6 +91,7 @@ import {
   updateLyrics,
   getPersonalEntryForSong,
 } from '@/lib/ownerSongs'
+import { addVersionToRepertoire } from '@/lib/ownerVersionAdd'
 import { applySongLinkUpdate, searchSongs } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
 import type { Repertoire, SongLink } from '@/types/database'
@@ -136,6 +142,14 @@ const DELEGATIONS: Array<{
     lib: () => vi.mocked(addSongToRepertoire),
     run: (bandId) => addSongAction(SONG_ID, bandId),
     tail: [SONG_ID],
+    revalidates: true,
+    adminGated: true,
+  },
+  {
+    label: 'addVersionAction',
+    lib: () => vi.mocked(addVersionToRepertoire),
+    run: (bandId) => addVersionAction(VERSION_ID, bandId),
+    tail: [VERSION_ID],
     revalidates: true,
     adminGated: true,
   },
@@ -301,6 +315,11 @@ describe('the band-admin gate on all seven mutating actions', () => {
       label: 'addSongAction',
       lib: () => vi.mocked(addSongToRepertoire),
       run: (bandId) => addSongAction(SONG_ID, bandId),
+    },
+    {
+      label: 'addVersionAction',
+      lib: () => vi.mocked(addVersionToRepertoire),
+      run: (bandId) => addVersionAction(VERSION_ID, bandId),
     },
     {
       label: 'removeSongAction',

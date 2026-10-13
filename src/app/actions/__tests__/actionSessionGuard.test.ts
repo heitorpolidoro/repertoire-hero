@@ -100,6 +100,7 @@ import { getProfileAction, updateProfileAction, requestEmailChangeAction } from 
 import {
   getRepertoireAction,
   addSongAction,
+  addVersionAction,
   updateSongStatusAction,
   updateSongTuningAction,
   updateSongTagsAction,
@@ -205,6 +206,7 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- repertoire.ts ---
   getRepertoireAction: { run: () => getRepertoireAction(BAND_ID), mode: 'throws' },
   addSongAction: { run: () => addSongAction(SONG_ID, BAND_ID), mode: 'throws' },
+  addVersionAction: { run: () => addVersionAction(REPERTOIRE_ID, BAND_ID), mode: 'throws' },
   updateSongStatusAction: { run: () => updateSongStatusAction(REPERTOIRE_ID, 'learning', BAND_ID), mode: 'throws' },
   updateSongTuningAction: { run: () => updateSongTuningAction(REPERTOIRE_ID, 'Drop D', BAND_ID), mode: 'throws' },
   updateSongTagsAction: { run: () => updateSongTagsAction(REPERTOIRE_ID, ['rock'], BAND_ID), mode: 'throws' },

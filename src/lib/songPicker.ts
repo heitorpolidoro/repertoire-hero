@@ -21,8 +21,8 @@
  */
 
 import { songIdentityKey } from '@/lib/songTitle'
-import type { SongSearchRow } from '@/lib/songSearchMerge'
-import type { Repertoire } from '@/types/database'
+import type { SearchVersionCandidate, SongSearchRow } from '@/lib/songSearchMerge'
+import type { Repertoire, SongLink } from '@/types/database'
 
 /** Shortest query the picker will search for, counted after trimming. */
 export const MIN_PICKER_QUERY_LENGTH = 2
@@ -60,6 +60,35 @@ export function heldPickerVersionId(
 ): string | null {
   const versionId = row.versions[0]?.versionId ?? null
   return versionId && repertoire.has(versionId) ? versionId : null
+}
+
+/** What `createAndAddSong` is given for a Spotify candidate (RH-151: shared). */
+export interface TrackCreateInput {
+  title: string
+  artist: string
+  album?: string
+  cover_url?: string
+  links: SongLink[]
+}
+
+/**
+ * The create payload for a Spotify candidate of `row`, shared by the playlist
+ * picker and the dashboard so neither can drift from the other.
+ *
+ * `title` is the **unsplit** source title: `resolveOrCreateSongIdentity` splits
+ * it and `upsertAlbumAndVersion` stores the right half as
+ * `song_versions.label`; the row's display title would write a null label for
+ * `"Bad - Remaster 2012"` (RH-122). `links` carries the Spotify URL, without
+ * which every song created from a Spotify row loses it.
+ */
+export function trackCreateInput(row: SongSearchRow, pick: SearchVersionCandidate): TrackCreateInput {
+  return {
+    title: pick.rawTitle,
+    artist: row.artist,
+    album: pick.albumName ?? undefined,
+    cover_url: pick.coverUrl ?? undefined,
+    links: pick.spotifyUrl ? [{ label: 'Spotify', url: pick.spotifyUrl }] : [],
+  }
 }
 
 /**
