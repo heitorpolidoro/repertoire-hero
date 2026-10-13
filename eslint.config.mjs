@@ -127,12 +127,10 @@ const eslintConfig = defineConfig([
   // RH-152: the add section (results, spinner, "No matches" hint) moved into
   // `AddToRepertoireSection.tsx` to make room for the manual-entry panel:
   // 334 -> 290 and 445 -> 403.
-  // RH-97: the link rows moved into `SongLinksEditor.tsx`, one populated shared
-  // field into `SharedCatalogField.tsx` and the refusal notice into
-  // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog
-  // lookups moved to module scope — complexity 17 to 16, the component function
-  // 459 lines to 375 and the file 612 to 602.
-  { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 16], "max-lines-per-function": ["error", 362], "max-lines": ["error", 591] } },
+  // RH-153: `SongForm.tsx` left the list. Its two field groups moved into
+  // `SongFormCatalogSection.tsx` and `SongFormRepertoireSection.tsx`, so the
+  // file (591 -> ~330 lines), its component function and its complexity (16)
+  // are all inside the global budget and the override had nothing left to pin.
   // RH-99: `drawPath` moved to `src/lib/strokeRenderer.ts`, which paid for the
   // `readOnly` prop that disables `Toggle drawing` offline and left the ratchet
   // lower than it found it — the component function 757 lines to 743 and the

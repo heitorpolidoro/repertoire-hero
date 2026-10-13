@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 
 const loadSongs = vi.fn().mockResolvedValue(undefined)
 
@@ -416,5 +416,118 @@ describe('SongForm last practiced (RH-157)', () => {
     setup()
 
     expect(screen.queryByLabelText('Last practiced')).toBeNull()
+  })
+})
+
+/**
+ * RH-153 — the form groups its fields into the shared catalog and the owner's
+ * own repertoire, and says out loud that a catalog field is fill-empty-only.
+ */
+describe('SongForm sections (RH-153)', () => {
+  const sections = () => ({
+    catalog: screen.getByRole('region', { name: 'Shared catalog' }),
+    repertoire: screen.getByRole('region', { name: 'My repertoire' }),
+  })
+
+  it('renders a shared catalog section and a my repertoire section', () => {
+    for (const song of [undefined, ENTRY]) {
+      const { unmount } = setup(song)
+
+      const { catalog, repertoire } = sections()
+      expect(
+        catalog.compareDocumentPosition(repertoire) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      unmount()
+    }
+  })
+
+  it('keeps catalog fields in the catalog section and personal fields in the repertoire section', () => {
+    for (const song of [undefined, HALF_FILLED]) {
+      const { unmount } = setup(song)
+      const { catalog, repertoire } = sections()
+      const inCatalog = within(catalog)
+      const inRepertoire = within(repertoire)
+
+      for (const label of ['Title', 'Artist', 'Album', 'Duration', 'Cover Image URL']) {
+        const found = inCatalog.queryByLabelText(label) ?? inCatalog.queryByText(label)
+        expect(found, `${label} in catalog`).not.toBeNull()
+        expect(inRepertoire.queryByLabelText(label), `${label} not in repertoire`).toBeNull()
+      }
+      expect(inCatalog.getByRole('button', { name: '+ Add link' })).toBeDefined()
+      expect(inRepertoire.queryByRole('button', { name: '+ Add link' })).toBeNull()
+
+      expect(inRepertoire.getByLabelText('Key')).toBeDefined()
+      expect(inRepertoire.getAllByRole('radio')).toHaveLength(ALL_STATUSES.length)
+      expect(inRepertoire.getByLabelText('Tags')).toBeDefined()
+      for (const label of ['Key', 'Tags']) {
+        expect(inCatalog.queryByLabelText(label)).toBeNull()
+      }
+      expect(inCatalog.queryAllByRole('radio')).toHaveLength(0)
+      unmount()
+    }
+  })
+
+  it('puts Last practiced in the repertoire section only, in edit mode', () => {
+    setup(ENTRY)
+    const { catalog, repertoire } = sections()
+
+    expect(within(repertoire).getByLabelText('Last practiced')).toBeDefined()
+    expect(within(catalog).queryByLabelText('Last practiced')).toBeNull()
+  })
+
+  it('keeps the locked links in the catalog section', () => {
+    setup({ ...HALF_FILLED, song: { ...HALF_FILLED.song!, links: LINK_ROWS } } as unknown as Repertoire)
+    const { catalog, repertoire } = sections()
+
+    expect(
+      within(catalog).getAllByRole('button', { name: /^Suggest a correction to link / }),
+    ).toHaveLength(2)
+    expect(
+      within(repertoire).queryByRole('button', { name: /^Suggest a correction to link / }),
+    ).toBeNull()
+  })
+
+  it('states that a catalog field is filled only when empty and never overwritten', () => {
+    for (const song of [undefined, ENTRY]) {
+      const { unmount } = setup(song)
+      const { catalog, repertoire } = sections()
+
+      expect(catalog.textContent).toMatch(/empty field can be filled in/i)
+      expect(catalog.textContent).toMatch(/never overwritten/i)
+      expect(repertoire.textContent).not.toMatch(/never overwritten/i)
+      unmount()
+    }
+  })
+
+  it('keeps a filled catalog value unchanged on save', async () => {
+    const { actions } = setup(ENTRY)
+
+    expect(screen.queryByLabelText('Title')).toBeNull()
+    expect(screen.queryByLabelText('Artist')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(actions.updateSong).toHaveBeenCalledTimes(1))
+    expect(actions.updateSong.mock.calls[0][1]).toMatchObject({
+      title: 'Yellow',
+      artist: 'Coldplay',
+      album: 'Parachutes',
+      duration_seconds: 269,
+    })
+  })
+
+  it('fills an empty catalog field on save', async () => {
+    const { actions } = setup(HALF_FILLED)
+
+    fireEvent.change(within(sections().catalog).getByLabelText('Album'), {
+      target: { value: 'Parachutes' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(actions.updateSong).toHaveBeenCalledTimes(1))
+    expect(actions.updateSong.mock.calls[0][1]).toMatchObject({
+      title: 'Yellow',
+      artist: 'Coldplay',
+      album: 'Parachutes',
+    })
   })
 })

@@ -10238,3 +10238,9 @@ Non-blocking suggestions from QA round 1:
 - (spec review) ER5 relies on "extend authzRepertoire.db.test.ts only if not already asserted"; name the exact test so QA can find the admin and member assertions.
 - (spec review) "Last entry" is `nav.nextId === null`; for a one-entry queue the control shows immediately. State whether that is intended.
 - (spec review) The component move to `src/components/ui/` touches import paths of existing tests; list them in the PR.
+
+## [RH-153] Split SongForm into catalog and repertoire sections — 2026-10-13
+
+- (code review) SongFormCatalogSection.tsx:71 has `}:SongFormCatalogSectionProps` with no space after the colon. Cosmetic only.
+- (code review) The eslint.config.mjs comment says "~330 lines". Replace it with the measured count.
+- (code review) The first placement test uses `queryByLabelText(label) ?? queryByText(label)`, which is slightly loose. It is acceptable.

@@ -9,22 +9,25 @@ import type {
   SongUpdateResult,
   Repertoire,
 } from "@/types/database";
-import { ALL_STATUSES, STATUS_CONFIG } from "@/lib/statusConfig";
 import {
   catalogDraftFromRefusals,
-  catalogDraftFromSong,
-  isCatalogFieldEmpty,
   parseDurationInput,
-  type CatalogColumn,
   type CatalogDraft,
 } from "@/lib/catalogFields";
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { CatalogRefusalNotice } from "./CatalogRefusalNotice";
 import { CorrectionModal, type CorrectionModalProps } from "./CorrectionModal";
-import { LastPracticedField, lastPracticedDraft, lastPracticedPatch } from "./LastPracticedField";
-import { LockedLinksList } from "./LockedLinksList";
-import { SharedCatalogField } from "./SharedCatalogField";
-import { SongLinksEditor, type EditableLink } from "./SongLinksEditor";
+import { lastPracticedDraft, lastPracticedPatch } from "./LastPracticedField";
+import {
+  SongFormCatalogSection,
+  type CatalogFormValues,
+  type CatalogSuggestRequest,
+} from "./SongFormCatalogSection";
+import {
+  SongFormRepertoireSection,
+  parseTags,
+  type RepertoireFormValues,
+} from "./SongFormRepertoireSection";
 
 type SongFormCreateInput = {
   title: string;
@@ -68,32 +71,12 @@ interface SongFormProps {
   actions: SongFormActions;
 }
 
-interface FormState {
-  title: string;
-  artist: string;
-  album: string;
-  key: string;
-  cover_url: string;
-  youtube_url: string;
-  duration: string;
-  status: SongStatus;
-  tagsInput: string;
-  links: EditableLink[];
-}
+/** The catalog half and the repertoire half the two sections edit, side by side. */
+type FormState = CatalogFormValues & RepertoireFormValues;
 
 /** What a "Suggest a correction" control opens the modal with. */
-type CorrectionRequest = {
-  focusField?: CatalogColumn;
-  focusLinkId?: string;
+type CorrectionRequest = CatalogSuggestRequest & {
   prefill?: Partial<CatalogDraft>;
-};
-
-// Helper re-exported so the dialog can call parseTags without duplication
-export const parseTags = (raw: string): string[] => {
-  return raw
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
 };
 
 const extractYoutubeAndOtherLinks = (
@@ -172,33 +155,7 @@ const buildInitialState = (song?: Repertoire): FormState => {
   return stateMap[key]();
 };
 
-/** The shared text columns the form renders through `SharedCatalogField`. */
-type SharedTextColumn = "title" | "artist" | "album" | "cover_url" | "duration_seconds";
-
-/**
- * What the catalog holds for one shared text field, in `SharedCatalogField`'s
- * three-state vocabulary: `null` when there is no catalog row yet, `""` when
- * the row leaves the column blank (so it stays editable — filling a blank
- * overwrites nobody), the value itself otherwise.
- */
-const sharedText = (
-  catalog: Song | null,
-  column: SharedTextColumn,
-): string | null => {
-  if (!catalog) return null;
-  if (isCatalogFieldEmpty(catalog, column)) return "";
-  const draft = catalogDraftFromSong(catalog);
-  if (column === "duration_seconds") return draft.duration;
-  return draft[column];
-};
-
-/**
- * The catalog row behind a repertoire entry, or `null` in create mode.
- *
- * Module scope, like the two payload builders below: `SongForm` sits exactly at
- * its F20 `complexity` ceiling, and the ratchet may only shrink, so a decision
- * that does not need the component's state is made outside it.
- */
+/** The catalog row behind a repertoire entry, or `null` in create mode. */
 const catalogOf = (song?: Repertoire): Song | null => song?.song ?? null;
 
 /** The links fieldset is locked as a unit once the catalog holds any `song_links` row. */
@@ -258,8 +215,8 @@ export default function SongForm({
 
   // ---- field helpers ----
 
-  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const patchForm = (patch: Partial<FormState>) => {
+    setForm((prev) => ({ ...prev, ...patch }));
   };
 
   // ---- submit ----
@@ -350,185 +307,23 @@ export default function SongForm({
           onSuggest={() => setCorrection({ prefill: catalogDraftFromRefusals(refused) })}
         />
 
-        <SharedCatalogField
-          id="sf-title"
-          label="Title"
-          catalogValue={sharedText(catalog, "title")}
-          value={form.title}
-          onChange={(v) => setField("title", v)}
-          onSuggest={() => setCorrection({ focusField: "title" })}
-          placeholder="Song name"
+        <SongFormCatalogSection
+          catalog={catalog}
+          values={form}
+          linksLocked={linksLocked}
+          onPatch={patchForm}
+          onSuggest={setCorrection}
         />
 
-        <SharedCatalogField
-          id="sf-artist"
-          label="Artist"
-          catalogValue={sharedText(catalog, "artist")}
-          value={form.artist}
-          onChange={(v) => setField("artist", v)}
-          onSuggest={() => setCorrection({ focusField: "artist" })}
-          placeholder="Artist name"
+        <SongFormRepertoireSection
+          catalog={catalog}
+          values={form}
+          isEditMode={isEditMode}
+          practiced={practiced}
+          onPracticedChange={setPracticed}
+          onPatch={patchForm}
+          onSuggestKey={() => setCorrection({ focusField: "standard_key" })}
         />
-
-        <SharedCatalogField
-          id="sf-album"
-          label="Album"
-          catalogValue={sharedText(catalog, "album")}
-          value={form.album}
-          onChange={(v) => setField("album", v)}
-          onSuggest={() => setCorrection({ focusField: "album" })}
-          placeholder="Album name"
-        />
-
-        {/* Key — personal, so always editable; the catalog's key sits beside it. */}
-        <div className="flex flex-col gap-1">
-          <label htmlFor="sf-key" className="text-sm font-medium text-gray-700">
-            Key
-          </label>
-          <div className="flex items-center gap-3">
-            <input
-              id="sf-key"
-              type="text"
-              value={form.key}
-              onChange={(e) => setField("key", e.target.value)}
-              placeholder="ex: Am, G, C#"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-32"
-            />
-            <span className="text-xs text-gray-500">your key</span>
-          </div>
-          {catalog?.standard_key && (
-            <div className="flex items-center justify-between gap-3 mt-1">
-              <p className="text-xs text-gray-600">
-                Catalog key:{" "}
-                <span className="font-medium text-gray-900">
-                  {catalog.standard_key}
-                </span>
-              </p>
-              <button
-                type="button"
-                onClick={() => setCorrection({ focusField: "standard_key" })}
-                aria-label="Suggest a correction to the catalog key"
-                className="text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg transition-colors"
-              >
-                Suggest a correction
-              </button>
-            </div>
-          )}
-        </div>
-
-        <SharedCatalogField
-          id="sf-duration"
-          label="Duration"
-          catalogValue={sharedText(catalog, "duration_seconds")}
-          value={form.duration}
-          onChange={(v) => setField("duration", v)}
-          onSuggest={() => setCorrection({ focusField: "duration_seconds" })}
-          placeholder="ex: 3:45 ou 225"
-          inputClassName="w-32"
-        />
-
-        <SharedCatalogField
-          id="sf-cover-url"
-          label="Cover Image URL"
-          catalogValue={sharedText(catalog, "cover_url")}
-          value={form.cover_url}
-          onChange={(v) => setField("cover_url", v)}
-          onSuggest={() => setCorrection({ focusField: "cover_url" })}
-          type="url"
-          placeholder="https://..."
-        >
-          {form.cover_url.trim() && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={form.cover_url.trim()}
-              alt="Cover preview"
-              className="mt-1 h-16 w-16 rounded object-cover"
-            />
-          )}
-        </SharedCatalogField>
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-gray-700">Status</legend>
-
-          <div className="flex flex-wrap gap-2" role="radiogroup">
-            {ALL_STATUSES.map((s) => {
-              const cfg = STATUS_CONFIG[s];
-              const checked = form.status === s;
-              return (
-                <label key={s} className="cursor-pointer">
-                  <input
-                    type="radio"
-                    name="sf-status"
-                    value={s}
-                    checked={checked}
-                    onChange={() => setField("status", s)}
-                    className="sr-only"
-                  />
-                  <span
-                    className={`inline-block px-3 py-1 rounded-full text-xs font-medium border-2 transition-colors ${cfg.bgColor} ${cfg.textColor} ${
-                      checked ? "border-current" : "border-transparent"
-                    }`}
-                  >
-                    {cfg.label}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="sf-tags" className="text-sm font-medium text-gray-700">Tags</label>
-          <input
-            id="sf-tags"
-            type="text"
-            value={form.tagsInput}
-            onChange={(e) => setField("tagsInput", e.target.value)}
-            placeholder="bossa nova, 80s, samba (comma-separated)"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-          {form.tagsInput && (
-            <ul className="flex flex-wrap gap-1.5 mt-1" aria-label="Tag preview">
-              {parseTags(form.tagsInput).map((tag) => (
-                <li
-                  key={tag}
-                  className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs"
-                >
-                  {tag}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Links — the catalog's own when it has any, editable while it has none. */}
-        {linksLocked ? (
-          <LockedLinksList
-            links={catalog!.links}
-            onSuggest={(linkId) => setCorrection({ focusLinkId: linkId })}
-          />
-        ) : (
-          <>
-            {/* YouTube Link */}
-            <div className="flex flex-col gap-1">
-              <label htmlFor="sf-youtube" className="text-sm font-medium text-gray-700">YouTube Link</label>
-              <input
-                id="sf-youtube"
-                type="url"
-                value={form.youtube_url}
-                onChange={(e) => setField("youtube_url", e.target.value)}
-                placeholder="https://youtube.com/watch?v=..."
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-            <SongLinksEditor
-              links={form.links}
-              onChange={(links) => setField("links", links)}
-            />
-          </>
-        )}
-
-        <LastPracticedField visible={isEditMode} value={practiced} onChange={setPracticed} />
 
         {error && (
           <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
