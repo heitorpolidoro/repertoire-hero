@@ -67,3 +67,19 @@ describe('LandingPage locale derivation (RH-129)', () => {
     expect(screen.queryByText(EN.landing.badge)).toBeNull()
   })
 })
+
+describe('LandingPage footer privacy link (RH-160)', () => {
+  it('links to /privacy with the dictionary label in both locales', () => {
+    const pt = render(<LandingPage />)
+    expect(pt.container.querySelector('footer a[href="/privacy"]')?.textContent).toBe(
+      PT.landing.privacyLink,
+    )
+    cleanup()
+
+    document.cookie = `${COOKIE_NAME}=en; path=/`
+    const en = render(<LandingPage />)
+    expect(en.container.querySelector('footer a[href="/privacy"]')?.textContent).toBe(
+      EN.landing.privacyLink,
+    )
+  })
+})

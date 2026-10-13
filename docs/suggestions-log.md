@@ -10190,3 +10190,17 @@ Non-blocking suggestions from QA round 1:
 
 - (code review) `PracticeReviewList` uses `review.confirm().catch(console.error)`; confirm already handles errors, so it is harmless.
 - (qa) Run the new DB test after `npm run db:migrate` on the local DB to confirm ER14 end to end.
+
+## [RH-114] Make last_practiced writable, with the review list — 2026-10-13
+
+- (spec review) ER4 is verified by reading code; consider asserting it with a test (mocked action spy in the review-list and per-song button tests) so QA can check it mechanically.
+- (spec review) ER3 relies on "original requirement" categories listed in parentheses because the original spec is superseded; the task report should enumerate the requirement-to-test mapping explicitly.
+- (spec review) Audit claims name test files (practiceWrite.db.test.ts, practiceReview.test.tsx, usePracticeReview.test.tsx); only recordPracticeAction in repertoire.ts, lib/practiceWrite.ts, playlists/[id]/page.tsx and authzRepertoire.db.test.ts was confirmed. The developer should verify the others exist.
+
+## [RH-160] Scaffold the Trusted Web Activity repo files with placeholders — 2026-10-13
+
+- (code review) en.json / pt-BR.json "Deleting your data" refers to "the contact address of the project owner" without giving one; add a real contact email before the Play submission.
+- (code review) twaRepoHygiene proxy check wraps matcher entries in a raw RegExp; it would misbehave if a matcher used Next path syntax (:path*). Low risk.
+- (code review) The privacy page test asserts only section count and English regexes; pt-BR content is not checked beyond the title.
+- (qa) The assetlinks fingerprint is an all-zero placeholder and must be replaced with the real signing cert fingerprint before release.
+- (qa) No live HTTP request was made to /privacy or /.well-known/assetlinks.json; ER4 was judged from code and tests.

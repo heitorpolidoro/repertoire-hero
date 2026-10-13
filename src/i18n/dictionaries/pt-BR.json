@@ -74,6 +74,24 @@
     "ctaTitle": "Pronto para Levar seu Setlist para o Próximo Nível?",
     "ctaSubtitle": "Junte-se ao Repertoire Hero hoje e mantenha suas músicas catalogadas, sincronizadas e prontas para o palco.",
     "ctaButton": "Criar Sua Conta Gratuita",
-    "footer": "© {year} Repertoire Hero. Todos os direitos reservados."
+    "footer": "© {year} Repertoire Hero. Todos os direitos reservados.",
+    "privacyLink": "Política de Privacidade"
+  },
+  "privacy": {
+    "title": "Política de Privacidade",
+    "sections": [
+      {
+        "heading": "O que coletamos",
+        "body": "Coletamos o email com que você se cadastra, os dados de repertório que você registra (músicas, status, tags, letras, playlists e bandas) e os arquivos que você envia, como PDFs de cifras, fotos e áudio."
+      },
+      {
+        "heading": "Como usamos",
+        "body": "Seus dados são usados apenas para o Repertoire Hero funcionar para você e para as bandas em que você entra. Seus dados pessoais não são vendidos nem compartilhados com anunciantes."
+      },
+      {
+        "heading": "Exclusão dos seus dados",
+        "body": "Para excluir sua conta e tudo o que está ligado a ela, envie um pedido, a partir do email com que se cadastrou, ao contato do responsável pelo projeto. Excluímos a conta, o repertório e os arquivos enviados quando solicitado."
+      }
+    ]
   }
 }

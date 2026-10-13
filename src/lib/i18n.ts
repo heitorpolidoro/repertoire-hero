@@ -70,6 +70,11 @@ export function getSuggestionOutcomeCopy(locale: Locale): SuggestionOutcomeCopy 
   return (dictionaries[locale] || dictionaries[DEFAULT_LOCALE]).suggestionOutcomes
 }
 
+/** The public `/privacy` page copy (RH-160); same server-resolved exception as above. */
+export function getPrivacyCopy(locale: Locale): typeof enDict.privacy {
+  return (dictionaries[locale] || dictionaries[DEFAULT_LOCALE]).privacy
+}
+
 export function getDictionary(locale: Locale) {
   return dictionaries[locale] || dictionaries[DEFAULT_LOCALE]
 }

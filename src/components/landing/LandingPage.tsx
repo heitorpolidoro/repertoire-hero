@@ -194,6 +194,9 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-gray-800/80 py-8 px-4 text-center text-xs text-gray-500">
         <p>{dict.landing.footer.replace("{year}", new Date().getFullYear().toString())}</p>
+        <Link href="/privacy" className="mt-2 inline-block underline hover:text-gray-300">
+          {dict.landing.privacyLink}
+        </Link>
       </footer>
     </div>
   );

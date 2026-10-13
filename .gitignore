@@ -60,3 +60,13 @@ next-env.d.ts
 # Build artifact: emitted by the `serwist build` stage of `npm run build` (RH-78)
 /public/sw.js
 /public/sw.js.map
+
+# Android signing material and build artifacts (RH-160) - never commit these
+*.keystore
+*.jks
+*.aab
+*.apk
+/android/build/
+/android/app/
+/android/.gradle/
+/android/signing/

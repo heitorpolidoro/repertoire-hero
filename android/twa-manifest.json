@@ -1,0 +1,21 @@
+{
+  "packageId": "app.repertoirehero.twa",
+  "host": "repertoire-hero.vercel.app",
+  "name": "Repertoire Hero",
+  "launcherName": "Repertoire",
+  "display": "standalone",
+  "themeColor": "#111827",
+  "navigationColor": "#111827",
+  "backgroundColor": "#ffffff",
+  "startUrl": "/",
+  "iconUrl": "https://repertoire-hero.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://repertoire-hero.vercel.app/icons/icon-512.png",
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "enableNotifications": false,
+  "signingKey": {
+    "path": "./signing/repertoire-hero.keystore",
+    "alias": "repertoire-hero"
+  },
+  "fallbackType": "customtabs"
+}

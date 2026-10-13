@@ -74,6 +74,24 @@
     "ctaTitle": "Ready to Take Your Setlist to the Next Stage?",
     "ctaSubtitle": "Join Repertoire Hero today and keep your music cataloged, synchronized, and gig-ready.",
     "ctaButton": "Create Your Free Account",
-    "footer": "© {year} Repertoire Hero. All rights reserved."
+    "footer": "© {year} Repertoire Hero. All rights reserved.",
+    "privacyLink": "Privacy Policy"
+  },
+  "privacy": {
+    "title": "Privacy Policy",
+    "sections": [
+      {
+        "heading": "What we collect",
+        "body": "We collect the email address you sign up with, the repertoire data you enter (songs, statuses, tags, lyrics, playlists and bands) and the files you upload, such as PDF charts, photos and audio."
+      },
+      {
+        "heading": "How we use it",
+        "body": "Your data is used only to run Repertoire Hero for you and for the bands you join. Your personal data is not sold, and it is not shared with advertisers."
+      },
+      {
+        "heading": "Deleting your data",
+        "body": "To have your account and everything attached to it deleted, send a request from the email address you signed up with to the contact address of the project owner. We delete the account, its repertoire and its uploaded files on request."
+      }
+    ]
   }
 }
