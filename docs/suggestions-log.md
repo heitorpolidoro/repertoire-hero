@@ -10001,3 +10001,7 @@ Non-blocking suggestions from spec review round 1:
 - The "Cancel" button in `SongTuningControl` is not disabled while busy, which is harmless.
 - QA: run the db suite with `RUN_DB_TESTS=1` before commit to confirm the db tests against a live Postgres.
 - QA: knip hints — remove `esbuild` and `@serwist/cli` from `ignoreDependencies` in `knip.json`.
+
+## [RH-150] Add a grouped card to the playlist picker — 2026-10-12
+- `SongGroupCard.test.tsx` collapsed case asserts `versions[0]` is the first version but not that `versions` is exactly `[versions[0]]`; only the test wording is loose.
+- The expander uses text glyphs with an aria-label; an icon would be more consistent.

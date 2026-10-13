@@ -1,20 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { PickerRow } from "@/components/playlists/PickerRow";
+import { SongGroupCard } from "@/components/playlists/SongGroupCard";
 import { Spinner } from "@/components/ui/Spinner";
 import { shouldSearchPicker, type SongPickerController } from "@/lib/songPicker";
-import type { SongSearchRow } from "@/lib/songSearchMerge";
-
-/**
- * The year of the row's representative candidate, or null.
- *
- * A release date is `YYYY-MM-DD` from the catalog and may be a bare `YYYY` or
- * `YYYY-MM` from Spotify, so the year is always its first four characters.
- */
-function rowYear(row: SongSearchRow): string | null {
-  return row.versions[0]?.releaseDate?.slice(0, 4) ?? null;
-}
 
 export interface SongPickerProps {
   /** The controller from `useSongPicker`; the panel decides nothing itself. */
@@ -29,11 +18,11 @@ export interface SongPickerProps {
  * component when the panel closes, which is what the e2e net asserts.
  *
  * RH-108 replaced the two `.map`s with one over `picker.results`, inside the
- * **same** `<ul aria-live="polite">` and through the same `PickerRow`. There
+ * **same** `<ul aria-live="polite">` and through `SongGroupCard` (RH-150). There
  * never were two sections to merge: the list was always one, and what was wrong
  * is that one song occupied two rows in it. Nothing a user sees about the panel
- * changes except that those two rows are now one — no section heading, no
- * "in catalog" tag, no re-layout.
+ * changes except that those two rows are now one — no section heading and no
+ * catalog tag.
  */
 export function SongPicker({ picker }: SongPickerProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -71,17 +60,13 @@ export function SongPicker({ picker }: SongPickerProps) {
           <li className="text-xs text-gray-400 text-center py-3">No results</li>
         ) : (
           picker.results.map((row) => (
-            <PickerRow
+            <SongGroupCard
               key={row.id}
-              coverUrl={row.coverUrl}
-              title={row.title}
-              artist={row.artist}
-              album={row.album}
-              year={rowYear(row)}
+              row={row}
               adding={picker.addingId === row.id}
               error={picker.rowErrors[row.id]}
-              onAdd={() => {
-                void picker.addRow(row);
+              onAdd={(picked) => {
+                void picker.addRow(picked);
               }}
             />
           ))
