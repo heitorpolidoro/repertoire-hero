@@ -126,6 +126,17 @@ export const PENDING_SUGGESTION_GROUPS_SQL = `
 `
 
 /**
+ * RH-141 — the same per-submission projection restricted to `song_links` rows:
+ * the link-row corrections (RH-138), which stay decided one submission at a
+ * time. The `songs` column rows leave this read; the grouped field read in
+ * `catalogFieldSql.ts` owns them.
+ */
+export const PENDING_LINK_GROUPS_SQL = PENDING_SUGGESTION_GROUPS_SQL.replace(
+  "WHERE cs.status = 'pending'",
+  `WHERE cs.status = 'pending' AND cs.target_table = '${LINK_SUGGESTION_TARGET_TABLE}'`,
+)
+
+/**
  * One group's rows, **with no status filter**, which is the review path's read.
  *
  * The tempting simplification — read only `pending` rows, so an
@@ -155,6 +166,21 @@ export const REJECT_SUGGESTION_GROUP_SQL = `
    WHERE group_id = $3 AND status = 'pending'
    RETURNING *
 `
+
+/**
+ * RH-141 — the link-rows-only twins of the two group statements above, for the
+ * screen that decides link corrections while the `songs` columns are decided
+ * per field: a submission mixing both must not have its column rows approved
+ * or rejected from the link side.
+ */
+export const APPROVE_LINK_ROWS_SQL = APPROVE_SUGGESTION_GROUP_SQL.replace(
+  "status = 'pending'",
+  `status = 'pending' AND target_table = '${LINK_SUGGESTION_TARGET_TABLE}'`,
+)
+export const REJECT_LINK_ROWS_SQL = REJECT_SUGGESTION_GROUP_SQL.replace(
+  "status = 'pending'",
+  `status = 'pending' AND target_table = '${LINK_SUGGESTION_TARGET_TABLE}'`,
+)
 
 /**
  * Closes the competing suggestions for the columns just approved.

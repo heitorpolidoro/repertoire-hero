@@ -5,10 +5,21 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
+  APPROVE_LINK_ROWS_SQL,
+  APPROVE_SUGGESTION_GROUP_SQL,
+  PENDING_LINK_GROUPS_SQL,
   PENDING_SUGGESTION_GROUPS_SQL,
+  REJECT_LINK_ROWS_SQL,
+  REJECT_SUGGESTION_GROUP_SQL,
   SUPERSEDE_LINK_SUGGESTIONS_SQL,
   suggestionInsert,
 } from '@/lib/catalogSuggestionSql'
+import {
+  APPROVE_FIELD_VALUE_SQL,
+  PENDING_FIELD_GROUPS_SQL,
+  REJECT_FIELD_SQL,
+  SUGGESTION_ROWS_FOR_UPDATE_SQL,
+} from '@/lib/catalogFieldSql'
 
 describe('suggestionInsert', () => {
   it('binds the table and target per entry, with one group, requester and reason', () => {
@@ -38,6 +49,50 @@ describe('PENDING_SUGGESTION_GROUPS_SQL', () => {
     expect(PENDING_SUGGESTION_GROUPS_SQL).toContain("FILTER (WHERE c.target_table = 'song_links')")
     expect(PENDING_SUGGESTION_GROUPS_SQL).toContain("'suggestion_id', c.id")
     expect(PENDING_SUGGESTION_GROUPS_SQL).toContain('sl.id = cs.target_id')
+  })
+})
+
+// RH-141 - the link-only variants are derived by text substitution, so each
+// test pins that the substitution actually landed (a silent no-op `replace`
+// would leave the songs rows in the link screen).
+describe('link-rows-only variants (RH-141)', () => {
+  it('restricts the per-submission read to song_links rows, and nothing else', () => {
+    expect(PENDING_LINK_GROUPS_SQL).not.toBe(PENDING_SUGGESTION_GROUPS_SQL)
+    expect(PENDING_LINK_GROUPS_SQL).toContain("WHERE cs.status = 'pending' AND cs.target_table = 'song_links'")
+    expect(PENDING_LINK_GROUPS_SQL.replace(" AND cs.target_table = 'song_links'", '')).toBe(
+      PENDING_SUGGESTION_GROUPS_SQL,
+    )
+  })
+
+  it('restricts the group approve and reject to song_links rows', () => {
+    for (const [linkSql, groupSql] of [
+      [APPROVE_LINK_ROWS_SQL, APPROVE_SUGGESTION_GROUP_SQL],
+      [REJECT_LINK_ROWS_SQL, REJECT_SUGGESTION_GROUP_SQL],
+    ]) {
+      expect(linkSql).toContain("AND status = 'pending' AND target_table = 'song_links'")
+      expect(linkSql.replace(" AND target_table = 'song_links'", '')).toBe(groupSql)
+    }
+  })
+})
+
+describe('field statements (RH-141)', () => {
+  it('reads only pending songs rows, grouped by value and ordered by count', () => {
+    expect(PENDING_FIELD_GROUPS_SQL).toContain("cs.status = 'pending' AND cs.target_table = 'songs'")
+    expect(PENDING_FIELD_GROUPS_SQL).toContain('GROUP BY song_id, target_column, current_value, value')
+    expect(PENDING_FIELD_GROUPS_SQL).toContain('ORDER BY o.count DESC')
+  })
+
+  it('locks the named rows without a status filter', () => {
+    expect(SUGGESTION_ROWS_FOR_UPDATE_SQL).toContain('FOR UPDATE')
+    expect(SUGGESTION_ROWS_FOR_UPDATE_SQL).not.toContain('status')
+  })
+
+  it('approves and rejects by target column, pending rows only', () => {
+    expect(APPROVE_FIELD_VALUE_SQL).toContain('IS NOT DISTINCT FROM')
+    expect(APPROVE_FIELD_VALUE_SQL).toContain("status = 'pending'")
+    expect(REJECT_FIELD_SQL).toContain("status = 'rejected'")
+    expect(REJECT_FIELD_SQL).toContain("status = 'pending'")
+    expect(REJECT_FIELD_SQL).not.toContain('value')
   })
 })
 

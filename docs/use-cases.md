@@ -723,6 +723,11 @@ personal level, so rejection there is a notice and nothing more.
   proposal left pending to be approved on Wednesday over Tuesday's better one, because
   Monday and Tuesday were decided together.
 
+  **Built (RH-141)** for the `songs` columns: `/admin/moderation` shows one card per song
+  with a section per contested field, an option row per distinct value (count and
+  requesters), "Approve this" and "Reject all for this field". Link corrections (RH-138)
+  are still decided per submission, below the song cards.
+
   Column-level, not row-level. Two people fixing different fields of one album are not
   competing — one corrects the cover, the other the date, and both apply.
 - Fields are decided independently, so an outcome is partial: two of three approved, one

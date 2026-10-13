@@ -1,4 +1,3 @@
-import { PendingEditDiff } from "@/components/admin/PendingEditDiff";
 import { PendingLinkChanges } from "@/components/admin/PendingLinkChanges";
 import type { PendingCatalogSuggestionGroup } from "@/types/database";
 
@@ -23,9 +22,9 @@ function approveLabel(isProcessing: boolean, rejectedCount: number): string {
 }
 
 /**
- * One card of the moderation queue. Presentational and stateless — every piece
- * of state it renders is owned by `ModerationQueue`, which is the only client
- * component in this tree that holds any.
+ * One submission's link corrections (RH-138). Presentational and stateless -
+ * every piece of state it renders is owned by `ModerationQueue`, which is the
+ * only client component in this tree that holds any.
  */
 export function PendingEditCard({
   group,
@@ -63,10 +62,13 @@ export function PendingEditCard({
         </span>
       </div>
 
-      {/* Diff Comparison */}
-      <PendingEditDiff song={group.song} proposed={group.proposed_data} />
+      <p className="text-sm font-bold text-gray-900">
+        {group.song?.title || "Unknown song"}{" "}
+        <span className="font-normal text-gray-500">- {group.song?.artist || "Unknown artist"}</span>
+      </p>
 
-      {/* Link rows are decided one by one (RH-138); song columns go with Apply. */}
+      {/* Link rows are decided one by one (RH-138). The song's own columns are
+          decided per field, in the cards above (RH-141). */}
       <PendingLinkChanges
         changes={group.link_changes ?? []}
         rejectedIds={rejectedLinkIds}

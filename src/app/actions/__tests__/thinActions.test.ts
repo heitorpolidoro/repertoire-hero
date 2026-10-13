@@ -25,11 +25,20 @@ vi.mock('@/lib/moderation', () => ({
   reviewCatalogSuggestionGroup: vi.fn(),
 }))
 
+vi.mock('@/lib/moderationFields', () => ({
+  getPendingFieldGroups: vi.fn(),
+  approveCatalogFieldOption: vi.fn(),
+  rejectCatalogField: vi.fn(),
+}))
+
 import { getProfileAction, updateProfileAction, requestEmailChangeAction } from '../profile'
 import {
   submitCatalogSuggestionAction,
   getPendingCatalogSuggestionsAction,
-  reviewCatalogSuggestionGroupAction,
+  reviewLinkChangesAction,
+  getPendingFieldGroupsAction,
+  approveCatalogFieldOptionAction,
+  rejectCatalogFieldAction,
 } from '../moderation'
 import { getRequiredUserId } from '@/lib/auth-session'
 import { getProfile, updateProfile } from '@/lib/profile'
@@ -39,6 +48,11 @@ import {
   getPendingCatalogSuggestions,
   reviewCatalogSuggestionGroup,
 } from '@/lib/moderation'
+import {
+  getPendingFieldGroups,
+  approveCatalogFieldOption,
+  rejectCatalogField,
+} from '@/lib/moderationFields'
 
 const USER_ID = 'user-1'
 const SONG_ID = 'song-1'
@@ -91,32 +105,55 @@ const THIN_ACTIONS: Array<{
     expected: [USER_ID],
   },
   {
-    name: 'reviewCatalogSuggestionGroupAction (approve)',
-    invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'approve'),
+    name: 'reviewLinkChangesAction (approve)',
+    invoke: () => reviewLinkChangesAction(GROUP_ID, 'approve'),
     target: () => vi.mocked(reviewCatalogSuggestionGroup),
     expected: [
       USER_ID,
       GROUP_ID,
       'approve',
-      { reason: undefined, rejectLinkSuggestionIds: undefined },
+      { reason: undefined, rejectLinkSuggestionIds: undefined, linksOnly: true },
     ],
   },
   {
-    name: 'reviewCatalogSuggestionGroupAction (reject with a reason)',
-    invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'reject', 'Wrong album'),
+    name: 'reviewLinkChangesAction (reject with a reason)',
+    invoke: () => reviewLinkChangesAction(GROUP_ID, 'reject', 'Wrong album'),
     target: () => vi.mocked(reviewCatalogSuggestionGroup),
     expected: [
       USER_ID,
       GROUP_ID,
       'reject',
-      { reason: 'Wrong album', rejectLinkSuggestionIds: undefined },
+      { reason: 'Wrong album', rejectLinkSuggestionIds: undefined, linksOnly: true },
     ],
   },
   {
-    name: 'reviewCatalogSuggestionGroupAction (approve, rejecting link rows)',
-    invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'approve', 'No', ['row-1']),
+    name: 'reviewLinkChangesAction (approve, rejecting link rows)',
+    invoke: () => reviewLinkChangesAction(GROUP_ID, 'approve', 'No', ['row-1']),
     target: () => vi.mocked(reviewCatalogSuggestionGroup),
-    expected: [USER_ID, GROUP_ID, 'approve', { reason: 'No', rejectLinkSuggestionIds: ['row-1'] }],
+    expected: [
+      USER_ID,
+      GROUP_ID,
+      'approve',
+      { reason: 'No', rejectLinkSuggestionIds: ['row-1'], linksOnly: true },
+    ],
+  },
+  {
+    name: 'getPendingFieldGroupsAction',
+    invoke: () => getPendingFieldGroupsAction(),
+    target: () => vi.mocked(getPendingFieldGroups),
+    expected: [USER_ID],
+  },
+  {
+    name: 'approveCatalogFieldOptionAction',
+    invoke: () => approveCatalogFieldOptionAction(['s1', 's2']),
+    target: () => vi.mocked(approveCatalogFieldOption),
+    expected: [USER_ID, ['s1', 's2']],
+  },
+  {
+    name: 'rejectCatalogFieldAction',
+    invoke: () => rejectCatalogFieldAction(SONG_ID, 'standard_key', 'Wrong key'),
+    target: () => vi.mocked(rejectCatalogField),
+    expected: [USER_ID, SONG_ID, 'standard_key', 'Wrong key'],
   },
 ]
 

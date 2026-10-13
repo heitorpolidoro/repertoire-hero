@@ -9985,3 +9985,9 @@ Non-blocking suggestions from spec review round 1:
 ## [RH-139] Roll back the repertoire rows a failed Spotify sync leaves behind — 2026-10-13
 - `spotifySyncAtomicity.db.test.ts`: the success test hard-codes `removed: 2`, which depends on the seeded fixture; a short comment on where the 2 comes from would help.
 - `sync/route.ts`: inside the transaction `ensureInRepertoire` runs one query per version; a batched insert is possible later if playlists get large (not needed now).
+
+## [RH-141] Build the grouped correction review screen — 2026-10-12
+- `src/lib/moderation.ts`: `export type ApprovedField =readonly [...]` is missing a space after `=`. Run prettier.
+- `lockOptionRows` does not check that `target_table` is `songs`. Passing a `song_links` id is stopped only because the column parse fails. An explicit table check would make the failure clearer.
+- Spec lists new types in `src/types/database.ts`; they live in `src/types/pendingFieldGroup.ts` instead. Fine, but the spec is slightly out of date.
+- `PENDING_LINK_GROUPS_SQL` and the `*_LINK_ROWS_SQL` constants are built with `String.replace` on SQL text, which fails silently if the source text changes. Consider an assertion in the tests (partly present in `catalogSuggestionSql.test.ts`).

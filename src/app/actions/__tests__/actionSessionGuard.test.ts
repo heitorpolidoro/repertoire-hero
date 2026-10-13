@@ -73,7 +73,10 @@ import {
 import {
   submitCatalogSuggestionAction,
   getPendingCatalogSuggestionsAction,
-  reviewCatalogSuggestionGroupAction,
+  reviewLinkChangesAction,
+  getPendingFieldGroupsAction,
+  approveCatalogFieldOptionAction,
+  rejectCatalogFieldAction,
   getUnseenSuggestionOutcomesAction,
   acknowledgeSuggestionOutcomesAction,
 } from '../moderation'
@@ -163,7 +166,10 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- moderation.ts ---
   submitCatalogSuggestionAction: { run: () => submitCatalogSuggestionAction(SONG_ID, { title: 'x' }), mode: 'throws' },
   getPendingCatalogSuggestionsAction: { run: () => getPendingCatalogSuggestionsAction(), mode: 'throws' },
-  reviewCatalogSuggestionGroupAction: { run: () => reviewCatalogSuggestionGroupAction('group-1', 'approve'), mode: 'throws' },
+  reviewLinkChangesAction: { run: () => reviewLinkChangesAction('group-1', 'approve'), mode: 'throws' },
+  getPendingFieldGroupsAction: { run: () => getPendingFieldGroupsAction(), mode: 'throws' },
+  approveCatalogFieldOptionAction: { run: () => approveCatalogFieldOptionAction(['row-1']), mode: 'throws' },
+  rejectCatalogFieldAction: { run: () => rejectCatalogFieldAction(SONG_ID, 'standard_key'), mode: 'throws' },
   getUnseenSuggestionOutcomesAction: { run: () => getUnseenSuggestionOutcomesAction(), mode: 'throws' },
   acknowledgeSuggestionOutcomesAction: { run: () => acknowledgeSuggestionOutcomesAction(['row-1']), mode: 'throws' },
 

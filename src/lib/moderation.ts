@@ -20,7 +20,7 @@
  * approval (`src/lib/songLinkSuggestions.ts`) writes that one row.
  */
 import { randomUUID } from 'crypto'
-import { query, withTransaction } from '@/lib/db'
+import { query, withTransaction, type Queryable } from '@/lib/db'
 import {
   CATALOG_SUGGESTION_PREFIX,
   parseCatalogSuggestionPayload,
@@ -31,11 +31,14 @@ import { logger } from '@/lib/logger'
 import type { SuggestionOutcomeRow } from '@/lib/dbRows'
 import {
   ACKNOWLEDGE_SUGGESTION_OUTCOMES_SQL,
+  APPROVE_LINK_ROWS_SQL,
   APPROVE_SUGGESTION_GROUP_SQL,
   LINK_SUGGESTION_TARGET_TABLE,
+  PENDING_LINK_GROUPS_SQL,
   PENDING_SUGGESTION_GROUPS_SQL,
   UNSEEN_SUGGESTION_OUTCOMES_SQL,
   groupSuggestionOutcomes,
+  REJECT_LINK_ROWS_SQL,
   REJECT_SUGGESTION_GROUP_SQL,
   REJECT_SUGGESTION_ROWS_SQL,
   SUGGESTION_GROUP_SQL,
@@ -70,7 +73,7 @@ const GROUP_NOT_FOUND = 'Catalog suggestion group not found'
 const GROUP_ALREADY_REVIEWED = 'Catalog suggestion group is already reviewed'
 
 /** One approved column and the normalised value approved for it. */
-type ApprovedField = readonly [string, CatalogSuggestionValue]
+export type ApprovedField =readonly [string, CatalogSuggestionValue]
 
 /** What the admin decides besides approve-or-reject (RH-138). */
 export interface ReviewOptions {
@@ -78,6 +81,8 @@ export interface ReviewOptions {
   reason?: string
   /** Link-row suggestion ids to reject while the rest of the group is approved. */
   rejectLinkSuggestionIds?: readonly string[]
+  /** RH-141: decide only the group's `song_links` rows (the columns are decided per field). */
+  linksOnly?: boolean
 }
 
 /**
@@ -147,16 +152,19 @@ export async function checkSystemAdmin(userId: string): Promise<void> {
 }
 
 /**
- * The pending queue, one card per submission. `checkSystemAdmin` is the first
+ * The pending queue, one card per submission (`linksOnly`: just each
+ * submission's `song_links` rows, RH-141). `checkSystemAdmin` is the first
  * statement and the only gate: nothing proposed is visible to anyone else
  * before it is approved.
  */
 export async function getPendingCatalogSuggestions(
   adminUserId: string,
+  linksOnly = false,
 ): Promise<PendingCatalogSuggestionGroup[]> {
   try {
     await checkSystemAdmin(adminUserId)
-    const res = await query<PendingCatalogSuggestionGroup>(PENDING_SUGGESTION_GROUPS_SQL, [])
+    const sql = linksOnly ? PENDING_LINK_GROUPS_SQL : PENDING_SUGGESTION_GROUPS_SQL
+    const res = await query<PendingCatalogSuggestionGroup>(sql, [])
     return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -235,20 +243,33 @@ function narrowApproved(approved: readonly CatalogSuggestion[]): {
 }
 
 /**
+ * The one catalog write of the queue, shared by the per-submission and the
+ * per-field approval (RH-141). `updated_at` is appended **inside the
+ * interpolation** so the join supplies the comma: an empty `fields` (a
+ * link-only group) renders `SET updated_at = now()`, not `SET , updated_at…`
+ * (`42601`). The literal sits between the verb and the `WHERE`, which is what
+ * `catalogTimestampGuard`'s textual scan requires.
+ */
+export async function writeSongColumns(
+  client: Queryable,
+  songId: string,
+  fields: readonly ApprovedField[],
+): Promise<void> {
+  const setClauses = fields.map(([column], i) => `${column} = $${i + 1}`)
+  const values = [...fields.map(([, value]) => value), songId]
+  const updateSongSql = `UPDATE songs SET ${[...setClauses, 'updated_at = now()'].join(', ')} WHERE id = $${values.length}`
+  await client.query<never>(updateSongSql, values)
+}
+
+/**
  * Applies the approved rows of a group, flips its rows, and closes the
  * competitors — one `withTransaction` unit, so an invalid field or a colliding
  * link url aborts the whole group and applies nothing.
  *
- * **One `UPDATE songs` per approved group, never one per row.** Each `songs`
- * row contributes one `${col} = $n` clause; link rows contribute none (they
- * write `song_links`, one row each). The timestamp clause is appended **inside
- * the template's interpolation**, so the join supplies the comma: a group with
- * no `songs` column leaves the clause list empty, and `SET ${clauses.join(', ')},
- * updated_at = now()` would render `SET , updated_at = now()` and raise `42601`.
- * The literal stays between the verb and the `WHERE` in the *source text*,
- * which is what `catalogTimestampGuard`'s textual scan requires. A link-only
- * group finds its song through the links it changed; when every link is gone
- * there is no song to bump and no statement is issued.
+ * **One `UPDATE songs` per approved group, never one per row**
+ * ({@link writeSongColumns}); link rows write `song_links`, one row each. A
+ * link-only group finds its song through the links it changed; when every link
+ * is gone there is no song to bump and no statement is issued.
  *
  * `rejectedIds` are the link rows the admin refused while approving the rest.
  * They are flipped **before** the group approve, which only touches rows still
@@ -258,26 +279,17 @@ async function applyApprovedGroup(
   adminUserId: string,
   groupId: string,
   pending: readonly CatalogSuggestion[],
-  rejected: { ids: readonly string[]; reason: string | null },
+  rejected: { ids: readonly string[]; reason: string | null; linksOnly?: boolean },
 ): Promise<CatalogSuggestion[]> {
   const rejectedSet = new Set(rejected.ids)
   const { fields, songId: columnSongId, linkChanges } = narrowApproved(
     pending.filter((row) => !rejectedSet.has(row.id)),
   )
-  const setClauses: string[] = []
-  const values: unknown[] = []
-  for (const [column, value] of fields) {
-    setClauses.push(`${column} = $${values.length + 1}`)
-    values.push(value)
-  }
-
   return await withTransaction(async (client) => {
     const linkSongIds = await applyApprovedLinkChanges(client, linkChanges)
     const songId = columnSongId ?? linkSongIds[0]
     if (songId !== undefined) {
-      values.push(songId)
-      const updateSongSql = `UPDATE songs SET ${[...setClauses, 'updated_at = now()'].join(', ')} WHERE id = $${values.length}`
-      await client.query<never>(updateSongSql, values)
+      await writeSongColumns(client, songId, fields)
     }
 
     const refused =
@@ -291,7 +303,8 @@ async function applyApprovedGroup(
               [...rejected.ids],
             ])
           ).rows
-    const res = await client.query<CatalogSuggestion>(APPROVE_SUGGESTION_GROUP_SQL, [
+    const approveSql = rejected.linksOnly ? APPROVE_LINK_ROWS_SQL : APPROVE_SUGGESTION_GROUP_SQL
+    const res = await client.query<CatalogSuggestion>(approveSql, [
       adminUserId,
       groupId,
     ])
@@ -344,23 +357,28 @@ export async function reviewCatalogSuggestionGroup(
       throw new Error(GROUP_NOT_FOUND)
     }
 
-    const pending = groupRes.rows.filter((row) => row.status === 'pending')
+    const pending = groupRes.rows.filter(
+      (row) =>
+        row.status === 'pending' &&
+        (!options.linksOnly || row.target_table === LINK_SUGGESTION_TARGET_TABLE),
+    )
     if (pending.length === 0) {
       throw new Error(GROUP_ALREADY_REVIEWED)
     }
 
     const reason = options.reason || null
     if (action === 'reject') {
-      const res = await query<CatalogSuggestion>(REJECT_SUGGESTION_GROUP_SQL, [
-        adminUserId,
-        reason,
-        groupId,
-      ])
+      const rejectSql = options.linksOnly ? REJECT_LINK_ROWS_SQL : REJECT_SUGGESTION_GROUP_SQL
+      const res = await query<CatalogSuggestion>(rejectSql, [adminUserId, reason, groupId])
       return res.rows
     }
 
     const ids = validatedRejectedIds(pending, options.rejectLinkSuggestionIds)
-    return await applyApprovedGroup(adminUserId, groupId, pending, { ids, reason })
+    return await applyApprovedGroup(adminUserId, groupId, pending, {
+      ids,
+      reason,
+      linksOnly: options.linksOnly,
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     if (

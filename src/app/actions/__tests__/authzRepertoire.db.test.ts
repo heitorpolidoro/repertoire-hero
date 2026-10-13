@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 
 vi.mock('@/lib/auth-session', () => ({ getRequiredUserId: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
@@ -36,7 +37,12 @@ import {
   updateLyricsAction,
   updateSongLinksAction,
 } from '../repertoire'
-import { reviewCatalogSuggestionGroupAction } from '../moderation'
+import {
+  approveCatalogFieldOptionAction,
+  getPendingFieldGroupsAction,
+  rejectCatalogFieldAction,
+  reviewLinkChangesAction,
+} from '../moderation'
 import type { Repertoire, SongLink } from '@/types/database'
 
 const ORIGINAL_LINK: SongLink = { label: 'Chords', url: 'https://tabs.example/rh34-original' }
@@ -464,9 +470,26 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       )
       asUser(adminUserId)
 
-      await reviewCatalogSuggestionGroupAction(pending.rows[0].group_id as string, 'approve')
+      await reviewLinkChangesAction(pending.rows[0].group_id as string, 'approve')
 
       expect(JSON.parse(await catalogLinks())).toEqual([ADDED_LINK])
+    })
+  })
+
+  // RH-141 - the grouped review's read and both decisions are admin-only.
+  describe('the grouped correction review refuses a non-admin', () => {
+    it('refuses the read, the option approval and the field rejection', async () => {
+      asUser(userAId)
+
+      await expect(getPendingFieldGroupsAction()).rejects.toThrow('Access denied')
+      await expect(approveCatalogFieldOptionAction([randomUUID()])).rejects.toThrow('Access denied')
+      await expect(rejectCatalogFieldAction(catalogSongId, 'standard_key')).rejects.toThrow('Access denied')
+    })
+
+    it('lets a system admin read the grouped queue', async () => {
+      asUser(adminUserId)
+
+      await expect(getPendingFieldGroupsAction()).resolves.toBeInstanceOf(Array)
     })
   })
 })
