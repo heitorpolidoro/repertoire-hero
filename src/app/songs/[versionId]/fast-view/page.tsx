@@ -43,6 +43,7 @@ import { SongMapSection } from '@/components/fastview/SongMapSection'
 import { useSongLinks } from '@/hooks/useSongLinks'
 import { SongIdentityHeader } from '@/components/fastview/SongIdentityHeader'
 import { SpotifyPlayer } from '@/components/fastview/SpotifyPlayer'
+import { YoutubeEmbed } from '@/components/fastview/YoutubeEmbed'
 import { LinksSection } from '@/components/fastview/LinksSection'
 import { SongTagsSection } from '@/components/fastview/SongTagsSection'
 import { SongLoading, SongNotFound } from '@/components/fastview/SongLoadStates'
@@ -227,6 +228,7 @@ export default function FastViewPage() {
             {/* Song identity */}
             <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} tuning={tuning} />
             <SpotifyPlayer links={entry.song?.links ?? []} offline={isOffline} />
+            <YoutubeEmbed song={entry.song} offline={isOffline} />
             <OfflineSongButton versionId={versionId} bandId={queryBandId} actions={OFFLINE_DOWNLOAD_ACTIONS} offline={isOffline} />
 
             {/* Tabs Section */}

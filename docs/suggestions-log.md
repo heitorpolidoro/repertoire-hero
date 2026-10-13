@@ -10263,3 +10263,14 @@ Non-blocking suggestions from QA round 1:
 - (code review) Spec names the hook `useSongPicker.ts`; implementation is `usePickedSelection.ts` (consistent with `pickedSelection.ts`). Naming deviation only.
 - (code review) `BandSongPicker` swallows read errors into an empty "No songs yet." state, which cannot be told apart from a truly empty band; consider a distinct error line.
 - (code review) `playlistSummary(playlist: unknown)` loses type safety; a narrow structural type would be better (carried over verbatim from the old cast).
+
+## [RH-161] Launch the TWA on Google Play and record device evidence — 2026-10-13
+
+- (spec review) "How the operator-only evidence is verified" calls the wrong-fingerprint symptom the check for ER3; ER3 is now the curl output and the address-bar symptom belongs to ER4.
+- (spec review) Record the confirmed host in the spec once known, so ER3's `<host>` is concrete.
+- (spec review) State in ER4 and ER5 that a reviewer judges the images.
+
+## [RH-163] Embed the linked YouTube video in Fast View — 2026-10-13
+
+- (spec review) The spec's operator gate (decision on the card) stays open. The work skill should not start the build until the operator confirms it.
+- (code review) The `next.config.ts` comment has an awkward line break ("nothing else. Other directives stay unset on / purpose"). Cosmetic.

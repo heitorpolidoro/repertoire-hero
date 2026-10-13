@@ -388,6 +388,13 @@ Step 3 happens even in band context — see *What creates a personal row in band
   viewer, and it is **not** in the offline snapshot: offline, Fast View shows "Audio is
   not available offline" in place of the player. The player is a native
   `<audio controls preload="none">`; nothing starts playing until the musician taps it.
+- Video (RH-163): Fast View embeds the video behind the song's first `provider = 'youtube'`
+  link, under the song header, as a `youtube-nocookie.com/embed/<id>` iframe with no
+  `autoplay`; playback starts only on the musician's tap on YouTube's own button. A
+  youtube link yielding no id (channel, playlist-only) shows nothing. Video is not in the
+  offline snapshot: offline, Fast View shows "Video is not available offline". The app's
+  only Content-Security-Policy is `frame-src https://www.youtube-nocookie.com https://docs.google.com`
+  (`next.config.ts`; the second origin keeps the tab PDF preview loading); a full CSP is a separate task.
 - A file attached to a song whose versions differ sharply — an acoustic reworking — is
   the wrong file, with no way to scope it to one version. Deliberate: scoping to the
   version would break the case that made the decision, tabs written in sections that
