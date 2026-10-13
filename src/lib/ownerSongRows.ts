@@ -24,6 +24,7 @@ import {
 } from '@/lib/songResolution'
 import type { OwnerSongLevelsRow } from '@/lib/dbRows'
 import { songLinksJson } from '@/lib/songLinksSql'
+import type { SongUpdateInput } from '@/lib/songs'
 import type { Repertoire, ResolvedSongEntry, SongMap, SongStatus } from '@/types/database'
 
 /** Which hat the caller is wearing: their own, or a band's. */
@@ -41,6 +42,45 @@ export interface OwnerSongPatch {
   map?: SongMap | null
   tags?: string[]
   last_practiced?: string | null
+}
+
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+const ISO_TIMESTAMP = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/
+
+/** True when `YYYY-MM-DD` names a real calendar day (`2026-02-30` does not). */
+function isRealDay(day: string): boolean {
+  const parsed = new Date(`${day}T00:00:00.000Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(day)
+}
+
+/**
+ * RH-157 — a `last_practiced` the edit panel submitted, as the ISO instant to
+ * store. `YYYY-MM-DD` is that day at 00:00 UTC; a full ISO-8601 timestamp is
+ * normalised to UTC. Anything else, or a day that does not exist, throws —
+ * before any statement runs.
+ */
+export function parseLastPracticed(raw: string): string {
+  const invalid = new Error(`Invalid last practiced date: ${JSON.stringify(raw)}`)
+  const dateOnly = DATE_ONLY.test(raw)
+  const timestamp = ISO_TIMESTAMP.exec(raw)
+  if (!dateOnly && !timestamp) throw invalid
+  if (!isRealDay(timestamp ? timestamp[1] : raw)) throw invalid
+  const parsed = new Date(dateOnly ? `${raw}T00:00:00.000Z` : raw)
+  if (Number.isNaN(parsed.getTime())) throw invalid
+  return parsed.toISOString()
+}
+
+/**
+ * The owner-row patch a song-form save writes: status, tags and key always, and
+ * `last_practiced` only when the key is present (`null` clears, a string is
+ * parsed). Throws on an invalid date, so the caller validates before opening a
+ * transaction.
+ */
+export function ownerPatchFromUpdate(data: SongUpdateInput): OwnerSongPatch {
+  const patch: OwnerSongPatch = { status: data.status, tags: data.tags, key: data.key }
+  if (data.last_practiced === undefined) return patch
+  patch.last_practiced = data.last_practiced === null ? null : parseLastPracticed(data.last_practiced)
+  return patch
 }
 
 export function ownerTable(owner: RepertoireOwner): 'user_songs' | 'band_songs' {

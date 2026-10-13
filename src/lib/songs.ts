@@ -103,6 +103,8 @@ export interface SongUpdateInput {
   links: SongLink[]
   cover_url?: string | null
   duration_seconds?: number | null
+  /** RH-157: omitted leaves the column alone, `null` clears it, a string sets it. */
+  last_practiced?: string | null
 }
 
 /**

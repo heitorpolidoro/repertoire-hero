@@ -21,6 +21,7 @@ import {
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { CatalogRefusalNotice } from "./CatalogRefusalNotice";
 import { CorrectionModal, type CorrectionModalProps } from "./CorrectionModal";
+import { LastPracticedField, lastPracticedDraft, lastPracticedPatch } from "./LastPracticedField";
 import { LockedLinksList } from "./LockedLinksList";
 import { SharedCatalogField } from "./SharedCatalogField";
 import { SongLinksEditor, type EditableLink } from "./SongLinksEditor";
@@ -45,6 +46,7 @@ type SongFormEditInput = {
   links: SongLink[];
   cover_url?: string | null;
   duration_seconds?: number | null;
+  last_practiced?: string | null;
 };
 
 /**
@@ -99,9 +101,7 @@ const extractYoutubeAndOtherLinks = (
 ): { youtubeUrl: string; otherLinks: Array<SongLink & { id: string }> } => {
   const allLinks = links ? [...links] : [];
   const youtubeLink = allLinks.find((l) => l.label.toLowerCase() === "youtube");
-  const filteredLinks = allLinks.filter(
-    (l) => l.label.toLowerCase() !== "youtube",
-  );
+  const filteredLinks = allLinks.filter((l) => l.label.toLowerCase() !== "youtube");
   return {
     youtubeUrl: youtubeLink?.url ?? "",
     otherLinks: filteredLinks.map((l) => ({
@@ -239,6 +239,7 @@ export default function SongForm({
   const { loadSongs } = useRepertoireStore();
 
   const [form, setForm] = useState<FormState>(() => buildInitialState(song));
+  const [practiced, setPracticed] = useState(() => lastPracticedDraft(song));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [correction, setCorrection] = useState<CorrectionRequest | null>(null);
@@ -252,9 +253,8 @@ export default function SongForm({
     dialogRef.current?.showModal();
   }, []);
 
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
-    if (e.target === dialogRef.current) onClose();
-  };
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) =>
+    e.target === dialogRef.current && onClose();
 
   // ---- field helpers ----
 
@@ -289,7 +289,7 @@ export default function SongForm({
       const links = submittedLinks();
 
       if (isEditMode && song) {
-        const result = await actions.updateSong(song, editPayload(form, links));
+        const result = await actions.updateSong(song, { ...editPayload(form, links), ...lastPracticedPatch(practiced, song) });
         await loadSongs();
         // A refused shared column is not a plain success: stay open and say so.
         if (result?.refused?.length) {
@@ -330,9 +330,7 @@ export default function SongForm({
       className="w-full max-w-lg rounded-2xl p-0 shadow-xl backdrop:bg-black/50 open:flex open:flex-col"
     >
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-        <h2 className="text-lg font-semibold text-gray-900">
-          {isEditMode ? "Edit song" : "Add song"}
-        </h2>
+        <h2 className="text-lg font-semibold text-gray-900">{isEditMode ? "Edit song" : "Add song"}</h2>
         <button
           type="button"
           onClick={onClose}
@@ -529,6 +527,8 @@ export default function SongForm({
             />
           </>
         )}
+
+        <LastPracticedField visible={isEditMode} value={practiced} onChange={setPracticed} />
 
         {error && (
           <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">

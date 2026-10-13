@@ -548,4 +548,93 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       await expect(getPendingFieldGroupsAction()).resolves.toBeInstanceOf(Array)
     })
   })
+
+  // RH-157 - the edit panel's last_practiced rides the existing write path.
+  describe('the edit panel writes last_practiced (RH-157)', () => {
+    const formInput = (entry: Repertoire, extra: { last_practiced?: string | null } = {}) => ({
+      title: entry.song!.title,
+      artist: entry.song!.artist,
+      key: null,
+      status: 'learning' as const,
+      tags: [],
+      links: [],
+      ...extra,
+    })
+
+    const stored = async (table: 'user_songs' | 'band_songs', id: string): Promise<string | null> => {
+      const res = await query<{ lp: Date | null }>(`SELECT last_practiced AS lp FROM ${table} WHERE id = $1`, [id])
+      return res.rows[0].lp ? res.rows[0].lp.toISOString() : null
+    }
+
+    const personalEntry = async () =>
+      (await getRepertoireAction()).find((row) => row.id === personalEntryId)!
+
+    it('stores a date earlier than the stored one, leaves it alone when omitted, and clears on null', async () => {
+      asUser(userAId)
+      await query('UPDATE user_songs SET last_practiced = $2 WHERE id = $1', [
+        personalEntryId,
+        '2026-05-01T12:00:00.000Z',
+      ])
+      const entry = await personalEntry()
+
+      await updateSongAction(entry, formInput(entry, { last_practiced: '2026-01-15' }))
+      expect(await stored('user_songs', personalEntryId)).toBe('2026-01-15T00:00:00.000Z')
+
+      await updateSongAction(entry, formInput(entry))
+      expect(await stored('user_songs', personalEntryId)).toBe('2026-01-15T00:00:00.000Z')
+
+      await updateSongAction(entry, formInput(entry, { last_practiced: null }))
+      expect(await stored('user_songs', personalEntryId)).toBeNull()
+    })
+
+    it('refuses an invalid date before any statement runs, leaving every row unchanged', async () => {
+      asUser(userAId)
+      await query('UPDATE user_songs SET last_practiced = $2 WHERE id = $1', [
+        personalEntryId,
+        '2026-05-01T12:00:00.000Z',
+      ])
+      const entry = await personalEntry()
+      const catalogBefore = await query('SELECT * FROM songs WHERE id = $1', [entry.song_id])
+      const ownerBefore = await query('SELECT * FROM user_songs WHERE id = $1', [personalEntryId])
+
+      for (const bad of ['not a date', '2026-02-30']) {
+        await expect(
+          updateSongAction(
+            entry,
+            { ...formInput(entry, { last_practiced: bad }), status: 'mastered', album: 'Filled By A Bad Save' },
+          ),
+        ).rejects.toThrow(/last practiced/i)
+      }
+
+      expect((await query('SELECT * FROM songs WHERE id = $1', [entry.song_id])).rows).toEqual(catalogBefore.rows)
+      expect((await query('SELECT * FROM user_songs WHERE id = $1', [personalEntryId])).rows).toEqual(
+        ownerBefore.rows,
+      )
+    })
+
+    it('refuses a plain band member and leaves the band row unchanged', async () => {
+      const bandSongId = await createSong(`RH-157 Band Song ${suffix}`)
+      const rowId = await seedOwnerSong({ bandId }, bandSongId)
+      asUser(userAId)
+      const entry = (await getRepertoireAction(bandId)).find((row) => row.id === rowId)!
+      asUser(userBId)
+
+      await expect(
+        updateSongAction(entry, formInput(entry, { last_practiced: '2026-02-02' }), bandId),
+      ).rejects.toThrow('Access denied: band admin required')
+
+      expect(await stored('band_songs', rowId)).toBeNull()
+    })
+
+    it('lets a band admin store the date on the band_songs row', async () => {
+      const bandSongId = await createSong(`RH-157 Admin Band Song ${suffix}`)
+      const rowId = await seedOwnerSong({ bandId }, bandSongId)
+      asUser(userAId)
+      const entry = (await getRepertoireAction(bandId)).find((row) => row.id === rowId)!
+
+      await updateSongAction(entry, formInput(entry, { last_practiced: '2026-02-02' }), bandId)
+
+      expect(await stored('band_songs', rowId)).toBe('2026-02-02T00:00:00.000Z')
+    })
+  })
 })

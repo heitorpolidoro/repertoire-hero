@@ -27,7 +27,7 @@
 import { query, withTransaction, type Queryable } from '@/lib/db'
 import { logger } from '@/lib/logger'
 // prettier-ignore
-import { LEVELS, OWNER_SONG_COLUMNS, entryFrom, ownerColumn, ownerId, ownerTable, toEntry, toResolvedEntry, type OwnerSongPatch, type RepertoireOwner } from '@/lib/ownerSongRows'
+import { LEVELS, OWNER_SONG_COLUMNS, entryFrom, ownerColumn, ownerId, ownerPatchFromUpdate, ownerTable, toEntry, toResolvedEntry, type OwnerSongPatch, type RepertoireOwner } from '@/lib/ownerSongRows'
 import { buildUpdateSet } from '@/lib/sqlUpdate'
 import { applyCatalogFill, resolveCatalogSongForAdd, type SongCreateInput, type SongUpdateInput } from '@/lib/songs'
 import {
@@ -357,10 +357,10 @@ export async function getResolvedEntryForVersion(owner: RepertoireOwner, version
  * edit the owner's own row never received is worse than no edit at all.
  */
 export async function updateSong(owner: RepertoireOwner, entry: Repertoire, data: SongUpdateInput): Promise<SongUpdateResult> {
+  const patch = ownerPatchFromUpdate(data) // RH-157: validates before any statement
   try {
     return await withTransaction(async (client) => {
       const refused = await applyCatalogFill(entry.song_id, data, client)
-      const patch = { status: data.status, tags: data.tags, key: data.key }
       await writeOwnerSongRow(owner, entry.id, patch, client)
       return { refused }
     })

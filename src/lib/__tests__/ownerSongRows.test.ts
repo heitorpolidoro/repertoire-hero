@@ -12,7 +12,16 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { entryFrom, ownerColumn, ownerId, ownerTable, toEntry, toResolvedEntry } from '@/lib/ownerSongRows'
+import {
+  entryFrom,
+  ownerColumn,
+  ownerId,
+  ownerPatchFromUpdate,
+  ownerTable,
+  parseLastPracticed,
+  toEntry,
+  toResolvedEntry,
+} from '@/lib/ownerSongRows'
 import type { OwnerSongLevelsRow } from '@/lib/dbRows'
 import type { Song } from '@/types/database'
 
@@ -145,5 +154,53 @@ describe('toResolvedEntry — held or not', () => {
     // The two levels above still resolve exactly as they do for a held row.
     expect(resolved.key).toBe('G')
     expect(resolved.lyrics).toBe('the composition words')
+  })
+})
+
+describe('parseLastPracticed (RH-157)', () => {
+  it('reads a bare date as that day at 00:00 UTC', () => {
+    expect(parseLastPracticed('2026-03-05')).toBe('2026-03-05T00:00:00.000Z')
+  })
+
+  it('normalises a full ISO-8601 timestamp, offset included', () => {
+    expect(parseLastPracticed('2026-03-05T10:30:00Z')).toBe('2026-03-05T10:30:00.000Z')
+    expect(parseLastPracticed('2026-03-05T10:30:00+02:00')).toBe('2026-03-05T08:30:00.000Z')
+  })
+
+  it.each([
+    '',
+    'yesterday',
+    '05/03/2026',
+    '2026-3-5',
+    '2026-13-01',
+    '2026-02-30',
+    '2026-02-30T10:00:00Z',
+    '2026-03-05T25:00:00Z',
+  ])('refuses %j', (raw) => {
+    expect(() => parseLastPracticed(raw)).toThrow(/last practiced/i)
+  })
+})
+
+describe('ownerPatchFromUpdate (RH-157)', () => {
+  const base = { title: 't', artist: 'a', key: 'G', status: 'learning', tags: ['x'], links: [] } as const
+
+  it('leaves last_practiced out of the patch when the key is absent', () => {
+    const patch = ownerPatchFromUpdate({ ...base })
+    expect(patch).toEqual({ status: 'learning', tags: ['x'], key: 'G' })
+    expect('last_practiced' in patch).toBe(false)
+  })
+
+  it('carries null through as a clear', () => {
+    expect(ownerPatchFromUpdate({ ...base, last_practiced: null }).last_practiced).toBeNull()
+  })
+
+  it('carries a parsed date', () => {
+    expect(ownerPatchFromUpdate({ ...base, last_practiced: '2026-01-02' }).last_practiced).toBe(
+      '2026-01-02T00:00:00.000Z',
+    )
+  })
+
+  it('throws for an invalid date', () => {
+    expect(() => ownerPatchFromUpdate({ ...base, last_practiced: 'nope' })).toThrow(/last practiced/i)
   })
 })

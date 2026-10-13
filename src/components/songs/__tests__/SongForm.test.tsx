@@ -378,3 +378,43 @@ describe('SongForm status picker (RH-102 ER11)', () => {
     expect(unknown.checked).toBe(true)
   })
 })
+
+describe('SongForm last practiced (RH-157)', () => {
+  const PRACTISED = { ...ENTRY, last_practiced: '2026-05-01T12:00:00.000Z' } as unknown as Repertoire
+
+  it('shows the loaded day, and sends nothing for it on an unchanged save', async () => {
+    const { actions } = setup(PRACTISED)
+
+    expect((screen.getByLabelText('Last practiced') as HTMLInputElement).value).toBe('2026-05-01')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(actions.updateSong).toHaveBeenCalledTimes(1))
+    expect(actions.updateSong.mock.calls[0][1]).not.toHaveProperty('last_practiced')
+  })
+
+  it('sends the new day when it is edited, earlier than the stored one included', async () => {
+    const { actions } = setup(PRACTISED)
+
+    fireEvent.change(screen.getByLabelText('Last practiced'), { target: { value: '2026-01-15' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(actions.updateSong).toHaveBeenCalledTimes(1))
+    expect(actions.updateSong.mock.calls[0][1]).toMatchObject({ last_practiced: '2026-01-15' })
+  })
+
+  it('sends null after Clear', async () => {
+    const { actions } = setup(PRACTISED)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear last practiced' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(actions.updateSong).toHaveBeenCalledTimes(1))
+    expect(actions.updateSong.mock.calls[0][1]).toMatchObject({ last_practiced: null })
+  })
+
+  it('is an edit-only field', () => {
+    setup()
+
+    expect(screen.queryByLabelText('Last practiced')).toBeNull()
+  })
+})
