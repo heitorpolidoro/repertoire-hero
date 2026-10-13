@@ -6,8 +6,9 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { PracticeReviewList } from '@/components/playlists/PracticeReviewList'
+import { PracticeReviewList } from '@/components/ui/PracticeReviewList'
 import { usePracticeReview } from '@/hooks/usePracticeReview'
+import { practiceReviewRows } from '@/lib/practiceReviewRows'
 import type { PlaylistSong, Repertoire } from '@/types/database'
 
 afterEach(cleanup)
@@ -23,6 +24,7 @@ const SONGS = TITLES.map(
       song: { id: `s${i}`, title, artist: 'Artist' },
     }) as unknown as PlaylistSong,
 )
+const ROWS = practiceReviewRows(SONGS)
 const REPERTOIRE = new Map<string, Repertoire>([['v0', { id: 'r0', status: 'learning' } as unknown as Repertoire]])
 
 function Harness({
@@ -35,7 +37,7 @@ function Harness({
   readOnly?: boolean
 }) {
   const review = usePracticeReview({
-    songs: SONGS,
+    rows: ROWS,
     recordPractice: recordPractice as never,
     bandId: null,
     setError: vi.fn(),
@@ -45,8 +47,8 @@ function Harness({
   return (
     <PracticeReviewList
       review={review}
-      songs={SONGS}
-      repertoireMap={REPERTOIRE}
+      rows={ROWS}
+      levels={REPERTOIRE}
       readOnly={readOnly}
       onClose={onClose}
     />
@@ -106,6 +108,13 @@ describe('PracticeReviewList', () => {
     fireEvent.click(confirmButton())
     await waitFor(() => expect(recordPractice).toHaveBeenCalled())
     expect(recordPractice).toHaveBeenCalledWith([{ versionId: 'v0', status: 'mastered' }, { versionId: 'v1' }], null)
+  })
+
+  it('RH-169: a row missing from the lookup renders as unassessed, a present one at its level', () => {
+    setup()
+    const groups = screen.getAllByRole('group', { name: 'Mastery status' })
+    expect(within(groups[0]).getByText('Learning')).toBeDefined()
+    expect(within(groups[1]).getByText('Unknown')).toBeDefined()
   })
 
   it('on a band playlist the level controls are read-only', () => {

@@ -1,11 +1,20 @@
-import { useState, type Dispatch } from 'react'
-import type { PlaylistPanelAction } from '@/lib/playlistPanels'
+import { useState } from 'react'
 import type { PractiseActions } from '@/hooks/usePractiseSong'
-import type { PlaylistSong, SongStatus } from '@/types/database'
+import type { SongStatus } from '@/types/database'
+
+/** One reviewable song: the plain shape both the playlist page and a Fast View queue can supply. */
+export interface PracticeReviewRow {
+  versionId: string
+  title: string
+  artist: string | null
+}
+
+/** What the list reads a row's current level from; absent means unassessed. */
+export type PracticeReviewLevels = ReadonlyMap<string, { status: SongStatus }>
 
 export interface UsePracticeReviewOptions {
-  /** The playlist's songs — all of them, never the tag/text-filtered subset. */
-  songs: PlaylistSong[]
+  /** Every row of the review — all of them, never a filtered subset. */
+  rows: PracticeReviewRow[]
   recordPractice: PractiseActions['recordPractice']
   bandId: string | null
   /** The page's shared error banner. */
@@ -32,11 +41,12 @@ export interface PracticeReviewController {
 }
 
 /**
- * RH-159 — state of the whole-playlist practice review: which rows are ticked,
- * which levels the user changed, and the single batched write on Confirm.
+ * RH-159, RH-169 — state of a practice review (a playlist or a Fast View
+ * queue): which rows are ticked, which levels the user changed, and the single
+ * batched write on Confirm.
  */
 export function usePracticeReview({
-  songs,
+  rows,
   recordPractice,
   bandId,
   setError,
@@ -47,7 +57,7 @@ export function usePracticeReview({
   const [levels, setLevels] = useState<ReadonlyMap<string, SongStatus>>(new Map())
   const [submitting, setSubmitting] = useState(false)
 
-  const allTicked = songs.length > 0 && songs.every(ps => ticked.has(ps.version_id))
+  const allTicked = rows.length > 0 && rows.every(r => ticked.has(r.versionId))
 
   const toggle = (versionId: string) =>
     setTicked(prev => {
@@ -56,7 +66,7 @@ export function usePracticeReview({
       return next
     })
 
-  const toggleAll = () => setTicked(allTicked ? new Set() : new Set(songs.map(ps => ps.version_id)))
+  const toggleAll = () => setTicked(allTicked ? new Set() : new Set(rows.map(r => r.versionId)))
 
   const setLevel = (versionId: string, status: SongStatus) =>
     setLevels(prev => new Map(prev).set(versionId, status))
@@ -67,11 +77,11 @@ export function usePracticeReview({
   }
 
   const confirm = async () => {
-    const items = songs
-      .filter(ps => ticked.has(ps.version_id))
-      .map(ps => {
-        const status = levels.get(ps.version_id)
-        return status === undefined ? { versionId: ps.version_id } : { versionId: ps.version_id, status }
+    const items = rows
+      .filter(r => ticked.has(r.versionId))
+      .map(r => {
+        const status = levels.get(r.versionId)
+        return status === undefined ? { versionId: r.versionId } : { versionId: r.versionId, status }
       })
     if (items.length === 0 || submitting) return
     setError(null)
@@ -88,22 +98,4 @@ export function usePracticeReview({
   }
 
   return { ticked, levels, allTicked, submitting, toggle, toggleAll, setLevel, reset, confirm }
-}
-
-export interface UsePracticeReviewPanelOptions extends Omit<UsePracticeReviewOptions, 'onClose'> {
-  /** The detail view's panel dispatch: the review is one of its panels. */
-  dispatch: Dispatch<PlaylistPanelAction>
-}
-
-/**
- * The review wired to the detail view's panel state: closing is the panel's
- * `close`, and every open re-empties the ticks and changed levels.
- */
-export function usePracticeReviewPanel({ dispatch, ...options }: UsePracticeReviewPanelOptions) {
-  const practiceReview = usePracticeReview({ ...options, onClose: () => dispatch({ type: 'close' }) })
-  const openPracticeReview = () => {
-    practiceReview.reset()
-    dispatch({ type: 'open-practice-review' })
-  }
-  return { practiceReview, openPracticeReview }
 }

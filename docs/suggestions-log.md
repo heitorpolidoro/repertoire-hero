@@ -10250,3 +10250,10 @@ Non-blocking suggestions from QA round 1:
 - (code review) `getPracticeCandidates` does not check that a playlist source belongs to the same owner as `bandId`. `assertPlaylistAccess` is user-level, so a member can read a playlist of another of their contexts through the wrong owner join. The UI never does this and the effect is only a wrong unassessed status, so it is harmless.
 - (code review) The start catch block shows `err.message` in the UI, which can leak internal "Failed to fetch practice candidates: ..." text. Consider a generic message.
 - (QA) The test DB schema is out of date (missing `songs.links`), so the real-DB suites cannot run locally.
+
+## [RH-169] Finish a practice session through the review list — 2026-10-13
+
+- (code review) `src/app/songs/[versionId]/fast-view/page.tsx`: the diff also condenses several unrelated existing comments (for example the setlist-navigation and file-library comments). That is not in the spec scope and adds diff noise. Consider reverting those unless it was needed to stay under a size limit.
+- (code review) `usePracticeFinish.ts` `setError: message => message && notify(...)` returns a string or null from a void callback. It is harmless, but an explicit `if` would read more clearly.
+- (QA) tsc and eslint could not be run in the QA sandbox. Run `npm run lint` and `tsc --noEmit` before committing.
+- (QA) Re-run the db tests after migrating the local test DB, to confirm ER5 end to end.

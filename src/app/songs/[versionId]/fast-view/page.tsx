@@ -53,6 +53,10 @@ import { OfflineSongButton } from '@/components/fastview/OfflineSongButton'
 import { OfflineBanner } from '@/components/fastview/OfflineBanner'
 import { OfflineUnavailable } from '@/components/fastview/OfflineUnavailable'
 import { FastViewOverlays } from '@/components/fastview/FastViewOverlays'
+import { PRACTICE_FINISH_ACTIONS } from '@/app/fastViewPracticeActions'
+import { usePracticeFinish } from '@/hooks/usePracticeFinish'
+import { PracticeFinishButton } from '@/components/fastview/PracticeFinishButton'
+import { PracticeReviewList } from '@/components/ui/PracticeReviewList'
 
 /**
  * Fast View — the stripped-down reading page a musician props on a music stand.
@@ -102,26 +106,18 @@ export default function FastViewPage() {
   const isOffline = useOfflineStatus()
   useWakeLock() // the screen stays on while a song is open on a music stand
 
-  // The window (RH-134): first, so its fetch is in flight when the readers look;
-  // `afterWrite` is the one invalidation seam every write below goes through.
+  // The window (RH-134), first; `afterWrite` is the one invalidation seam every write goes through.
   const { afterWrite, invalidateCurrent } = useSongWindow({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_WINDOW_ACTIONS })
 
   // The route's entry, member-entry reconciliation and write patches (RH-52).
   const song = useSongEntry({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_ENTRY_ACTIONS })
   const { entry, personalEntry, identity } = song
-  // The two reasons this page is readable but not writable — see the docblock.
-  const readOnly = isOffline || !song.ownerRowId
-
-  // The mastery-status dropdown and its write (RH-52).
+  const readOnly = isOffline || !song.ownerRowId // the two reasons: see the docblock
+  // Status dropdown (RH-52), tuning line (RH-146) and Map section (RH-118), each with its write.
   const status = useSongStatus({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_STATUS_ACTIONS, onStatusSaved: afterWrite(song.applyStatus), notify: showToast })
-
-  // The tuning line and its owner-override write (RH-146).
   const tuning = useSongTuning({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_TUNING_ACTIONS, onSaved: afterWrite(song.applyTuning), notify: showToast })
-  // The Map section and its owner-override write (RH-118).
   const songMap = useSongMap({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_MAP_ACTIONS, onSaved: afterWrite(song.applyMap), notify: showToast })
-  // The links section: the add form with its auto-filled label and the delete
-  // that goes through the shared-catalog moderation queue (RH-52). Declared
-  // before `useTabLibrary`, which closes this confirmation when its own opens.
+  // Links section (RH-52); declared before `useTabLibrary`, which closes its delete confirmation.
   const links = useSongLinks({
     entry,
     actions: OFFLINE_FIRST_SONG_LINKS_ACTIONS,
@@ -129,8 +125,7 @@ export default function FastViewPage() {
     notify: showToast,
   })
 
-  // File library (RH-49): the song's one file fetch (keyed by song id since
-  // RH-123), the active file, the upload and the delete confirmation.
+  // File library (RH-49), keyed by song id since RH-123.
   const tabLibrary = useTabLibrary({
     songId: song.songId,
     actions: OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
@@ -159,10 +154,7 @@ export default function FastViewPage() {
     notify: showToast,
   })
 
-  // Setlist navigation: the tab's song queue, the drawer, the slide-out and
-  // every router push the setlist UI can trigger live in this controller
-  // (RH-48, fed by the queue since RH-133 instead of by a playlist fetch).
-  // The arrow keys stay off while either Stage Mode surface is up.
+  // Setlist navigation over the tab's song queue (RH-48, RH-133); arrows off during Stage Mode.
   const playlist = usePlaylistNav({
     currentVersionId: versionId,
     bandId: queryBandId,
@@ -171,10 +163,14 @@ export default function FastViewPage() {
     keyboardEnabled: !pdfStage.isOpen && !lyrics.isStageOpen,
   })
 
+  // "Finish practice" on the last queue entry (RH-169).
+  const finish = usePracticeFinish({
+    actions: PRACTICE_FINISH_ACTIONS, bandId: queryBandId, currentVersionId: versionId, entries: playlist.entries,
+    nextId: playlist.nav?.nextId, offline: isOffline, notify: showToast, applyStatus: song.applyStatus,
+  })
+
   if (song.loading) return <SongLoading />
-  // Offline, "not found" is almost always "not downloaded": the snapshot reader
-  // answers `null` for a song in no downloaded playlist, and "Song not found"
-  // would send the musician looking for the wrong problem.
+  // Offline, "not found" is almost always "not downloaded" (snapshot reader answers null).
   if (song.notFound || !entry) {
     const goBack = () => router.back()
     return isOffline ? <OfflineUnavailable onBack={goBack} /> : <SongNotFound onBack={goBack} />
@@ -263,6 +259,8 @@ export default function FastViewPage() {
             {/* Tags Section */}
             <SongTagsSection tags={entry.tags} />
 
+            <PracticeFinishButton finish={finish} />
+
             {/* Mobile / Tablet: Swipe hint strip (only when in a playlist) */}
             <SwipeHint nav={playlist.nav} />
           </main>
@@ -276,6 +274,10 @@ export default function FastViewPage() {
           onSelect={playlist.selectEntry}
         />
       </div>
+
+      {finish.isOpen && (
+        <PracticeReviewList review={finish.review} rows={finish.rows} levels={finish.levels} readOnly={false} onClose={finish.close} />
+      )}
 
       {/* Stage Mode surfaces, the two confirmations and the floating Toast */}
       <FastViewOverlays

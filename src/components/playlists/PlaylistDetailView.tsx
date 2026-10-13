@@ -6,7 +6,8 @@ import { PlaylistSongList } from "@/components/playlists/PlaylistSongList";
 import { PlaylistSummary } from "@/components/playlists/PlaylistSummary";
 import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
 import { OfflineDownloadButton } from "@/components/playlists/OfflineDownloadButton";
-import { PracticeReviewList } from "@/components/playlists/PracticeReviewList";
+import { PracticeReviewList } from "@/components/ui/PracticeReviewList";
+import { practiceReviewRows } from "@/lib/practiceReviewRows";
 import { SongPicker } from "@/components/playlists/SongPicker";
 import { TagFilterBar } from "@/components/playlists/TagFilterBar";
 import {
@@ -202,8 +203,8 @@ export function PlaylistDetailView({
       {detail.panel.kind === "practice-review" && (
         <PracticeReviewList
           review={detail.practiceReview}
-          songs={detail.songs}
-          repertoireMap={detail.repertoireMap}
+          rows={practiceReviewRows(detail.songs)}
+          levels={detail.repertoireMap}
           readOnly={Boolean(playlist.band_id)}
           onClose={() => detail.dispatch({ type: "close" })}
         />

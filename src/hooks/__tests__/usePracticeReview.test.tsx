@@ -5,27 +5,22 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { usePracticeReview, usePracticeReviewPanel } from '@/hooks/usePracticeReview'
-import type { PlaylistSong } from '@/types/database'
+import { usePracticeReview, type PracticeReviewRow } from '@/hooks/usePracticeReview'
+import { usePracticeReviewPanel } from '@/hooks/usePracticeReviewPanel'
 
 afterEach(cleanup)
 
-const song = (n: number): PlaylistSong => ({
-  id: `ps-${n}`,
-  playlist_id: 'pl',
-  version_id: `v${n}`,
-  position: n,
-})
+const song = (n: number): PracticeReviewRow => ({ versionId: `v${n}`, title: `Song ${n}`, artist: null })
 const SONGS = [1, 2, 3, 4].map(song)
 
-function setup(overrides: { recordPractice?: ReturnType<typeof vi.fn>; songs?: PlaylistSong[] } = {}) {
+function setup(overrides: { recordPractice?: ReturnType<typeof vi.fn>; rows?: PracticeReviewRow[] } = {}) {
   const recordPractice = overrides.recordPractice ?? vi.fn().mockResolvedValue(undefined)
   const setError = vi.fn()
   const onRefresh = vi.fn()
   const onClose = vi.fn()
   const hook = renderHook(() =>
     usePracticeReview({
-      songs: overrides.songs ?? SONGS,
+      rows: overrides.rows ?? SONGS,
       recordPractice,
       bandId: 'band-1',
       setError,
@@ -41,7 +36,7 @@ describe('usePracticeReviewPanel', () => {
     const dispatch = vi.fn()
     const recordPractice = vi.fn().mockResolvedValue(undefined)
     const { result } = renderHook(() =>
-      usePracticeReviewPanel({ songs: SONGS, recordPractice, bandId: null, setError: vi.fn(), onRefresh: vi.fn(), dispatch }),
+      usePracticeReviewPanel({ rows: SONGS, recordPractice, bandId: null, setError: vi.fn(), onRefresh: vi.fn(), dispatch }),
     )
     act(() => {
       result.current.practiceReview.toggle('v1')
@@ -67,7 +62,7 @@ describe('usePracticeReview', () => {
   })
 
   it('an empty playlist is never all ticked', () => {
-    const { result } = setup({ songs: [] })
+    const { result } = setup({ rows: [] })
     expect(result.current.allTicked).toBe(false)
   })
 

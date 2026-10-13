@@ -1,15 +1,19 @@
 "use client";
 
 import { StatusNotes } from "@/components/ui/StatusNotes";
-import type { PracticeReviewController } from "@/hooks/usePracticeReview";
-import type { PlaylistSong, Repertoire } from "@/types/database";
+import type {
+  PracticeReviewController,
+  PracticeReviewLevels,
+  PracticeReviewRow,
+} from "@/hooks/usePracticeReview";
 
 export interface PracticeReviewListProps {
   review: PracticeReviewController;
-  /** The whole playlist, in order. */
-  songs: PlaylistSong[];
-  repertoireMap: Map<string, Repertoire>;
-  /** The level control follows the row's own read-only rule (band playlists). */
+  /** Every row to review, in order. */
+  rows: PracticeReviewRow[];
+  /** Current level per version id; a missing id renders as unassessed. */
+  levels: PracticeReviewLevels;
+  /** The level control follows the caller's read-only rule (band playlists). */
   readOnly: boolean;
   /** Cancel / close: discards the state and writes nothing. */
   onClose: () => void;
@@ -21,8 +25,8 @@ export interface PracticeReviewListProps {
  */
 export function PracticeReviewList({
   review,
-  songs,
-  repertoireMap,
+  rows,
+  levels,
   readOnly,
   onClose,
 }: PracticeReviewListProps) {
@@ -45,29 +49,29 @@ export function PracticeReviewList({
           </button>
         </div>
         <ul className="flex-1 overflow-y-auto px-4 py-2">
-          {songs.map((ps) => {
-            const title = ps.song?.title ?? "song";
+          {rows.map((row) => {
+            const { title, versionId } = row;
             const status =
-              review.levels.get(ps.version_id) ??
-              repertoireMap.get(ps.version_id)?.status ??
+              review.levels.get(versionId) ??
+              levels.get(versionId)?.status ??
               "unknown";
             return (
-              <li key={ps.version_id} className="flex items-center gap-3 py-1.5">
+              <li key={versionId} className="flex items-center gap-3 py-1.5">
                 <input
                   type="checkbox"
-                  checked={review.ticked.has(ps.version_id)}
-                  onChange={() => review.toggle(ps.version_id)}
+                  checked={review.ticked.has(versionId)}
+                  onChange={() => review.toggle(versionId)}
                   aria-label={`Practised ${title}`}
                   className="h-4 w-4 shrink-0 accent-emerald-600"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-gray-900">{title}</p>
-                  <p className="truncate text-xs text-gray-500">{ps.song?.artist}</p>
+                  <p className="truncate text-xs text-gray-500">{row.artist}</p>
                 </div>
                 <StatusNotes
                   status={status}
                   readOnly={readOnly}
-                  onChange={(next) => review.setLevel(ps.version_id, next)}
+                  onChange={(next) => review.setLevel(versionId, next)}
                 />
               </li>
             );

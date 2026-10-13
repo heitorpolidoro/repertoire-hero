@@ -1,5 +1,7 @@
 import { useMemo, useReducer, useState, type Dispatch } from 'react'
-import { usePracticeReviewPanel, type PracticeReviewController } from '@/hooks/usePracticeReview'
+import type { PracticeReviewController } from '@/hooks/usePracticeReview'
+import { usePracticeReviewPanel } from '@/hooks/usePracticeReviewPanel'
+import { practiceReviewRows } from '@/lib/practiceReviewRows'
 import { usePractiseSong, type PractiseActions, type PractiseController } from '@/hooks/usePractiseSong'
 import { useSongPicker,type SongPickerActions } from '@/hooks/useSongPicker'
 import { useSpotifySync, type SpotifySyncController } from '@/hooks/useSpotifySync'
@@ -290,7 +292,7 @@ export function usePlaylistDetail({
     playlistId: playlist.id, songs, actions, record, setError, pushIfNeeded: sync.pushIfNeeded, onRefresh,
   })
 
-  const reviewPanel = usePracticeReviewPanel({ songs, recordPractice: actions.recordPractice, bandId, setError, onRefresh, dispatch })
+  const reviewPanel = usePracticeReviewPanel({ rows: practiceReviewRows(songs), recordPractice: actions.recordPractice, bandId, setError, onRefresh, dispatch })
 
   const rename = async () => {
     const trimmed = renameDraft(panel).trim()
