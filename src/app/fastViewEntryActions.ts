@@ -4,7 +4,9 @@ import {
   updateSongStatusAction,
   updateSongLinksAction,
   fetchUrlTitleAction,
+  getSongWindowAction,
 } from '@/app/actions/repertoire'
+import type { SongWindowActions } from '@/hooks/useSongWindow'
 import type { SongEntryActions } from '@/hooks/useSongEntry'
 import type { SongLinksActions } from '@/hooks/useSongLinks'
 import type { SongStatusActions } from '@/hooks/useSongStatus'
@@ -29,6 +31,14 @@ export const SONG_ENTRY_ACTIONS: SongEntryActions = {
 
 export const SONG_STATUS_ACTIONS: SongStatusActions = {
   updateStatus: updateSongStatusAction,
+}
+
+/**
+ * The window read (RH-134). Offline-first wrapping leaves it unclassified on
+ * purpose: offline it is refused, never served from a snapshot.
+ */
+export const SONG_WINDOW_ACTIONS: SongWindowActions = {
+  getSongWindow: getSongWindowAction,
 }
 
 export const SONG_LINKS_ACTIONS: SongLinksActions = {

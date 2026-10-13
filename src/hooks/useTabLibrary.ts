@@ -9,6 +9,7 @@ import {
   type TabLibraryController,
 } from '@/lib/tabLibrary'
 import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
+import { awaitSongWindow, cachedSong } from '@/lib/songWindow'
 
 /**
  * The file Server Actions the controller calls. Injected rather than imported,
@@ -41,6 +42,12 @@ export interface UseTabLibraryOptions {
    * (link) confirmation and keep exactly one panel on screen.
    */
   onDeleteRequested?: () => void
+  /** The route's `song_versions.id`; with `bandId` it addresses the window cache (RH-134). */
+  versionId?: string | null
+  /** The page's `?bandId=`. */
+  bandId?: string | null
+  /** Called after an upload or a delete succeeded, so the page can invalidate the window cache. */
+  onFilesChanged?: () => void
 }
 
 /** The file the embedded viewer and PDF Stage Mode are showing. */
@@ -73,6 +80,9 @@ export function useTabLibrary({
   onPersonalEntryCreated,
   notify,
   onDeleteRequested,
+  versionId = null,
+  bandId = null,
+  onFilesChanged,
 }: UseTabLibraryOptions): TabLibraryController {
   const [tabs, setTabs] = useState<SongFile[]>([])
   const [active, setActive] = useState<ActiveTab | null>(null)
@@ -90,8 +100,14 @@ export function useTabLibrary({
   useEffect(() => {
     if (!songId) return
     let cancelled = false
-    actions
-      .getTabs(songId)
+    // Cache first (RH-134): the window may already hold this song's files, or
+    // be fetching them; a miss goes to the network as before.
+    const load = async () => {
+      if (versionId) await awaitSongWindow(bandId, versionId)
+      const cached = versionId ? cachedSong(bandId, versionId) : undefined
+      return cached ? cached.files : actions.getTabs(songId)
+    }
+    load()
       .then((loaded) => {
         if (!cancelled) setTabs(loaded)
       })
@@ -99,7 +115,7 @@ export function useTabLibrary({
     return () => {
       cancelled = true
     }
-  }, [actions, songId])
+  }, [actions, bandId, songId, versionId])
 
   const selectTab = useCallback((tab: SongFile) => {
     setActive((current) =>
@@ -156,6 +172,7 @@ export function useTabLibrary({
           const uploaded = res.data
           setTabs((prev) => [uploaded, ...prev])
         }
+        onFilesChanged?.()
         setUploadTitle('')
         setUploadFile(null)
         if (fileInputRef.current) fileInputRef.current.value = ''
@@ -167,7 +184,7 @@ export function useTabLibrary({
       }
     }
     void run()
-  }, [actions, onPersonalEntryCreated, songId, uploadFile, uploadTitle])
+  }, [actions, onFilesChanged, onPersonalEntryCreated, songId, uploadFile, uploadTitle])
 
   const requestDelete = useCallback(
     (tabId: string) => {
@@ -188,6 +205,7 @@ export function useTabLibrary({
         notify(res.error, 'error')
       } else {
         setTabs((prev) => prev.filter((tab) => tab.id !== tabId))
+        onFilesChanged?.()
         notify('File deleted.', 'info')
       }
     } catch {
@@ -198,7 +216,7 @@ export function useTabLibrary({
       setPendingDelete(null)
       setDeleteBusy(false)
     }
-  }, [actions, notify, pendingDelete])
+  }, [actions, notify, onFilesChanged, pendingDelete])
 
   const cancelDelete = useCallback(() => setPendingDelete(null), [])
 

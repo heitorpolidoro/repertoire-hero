@@ -84,6 +84,8 @@ vi.mock('@/app/fastViewOfflineActions', () => {
       getAnnotations: call('getAnnotations'),
       saveAnnotations: call('saveAnnotations'),
     },
+    // RH-134: the window read is best-effort; an empty answer is a plain miss.
+    OFFLINE_FIRST_SONG_WINDOW_ACTIONS: { getSongWindow: () => Promise.resolve([]) },
   }
 })
 

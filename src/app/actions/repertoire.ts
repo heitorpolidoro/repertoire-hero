@@ -18,6 +18,8 @@ import {
 } from '@/lib/ownerSongs'
 import { applySongLinkUpdate, searchSongs, type SongUpdateInput } from '@/lib/songs'
 import { assertBandAdmin, assertBandMember } from '@/lib/bands'
+import { getSongWindow } from '@/lib/songWindowData'
+import type { SongWindowRecord } from '@/lib/songWindow'
 import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
 
 async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
@@ -113,6 +115,20 @@ export async function getResolvedEntryForVersionAction(
 ): Promise<ResolvedSongEntry> {
   const owner = await resolveOwner(bandId)
   return getResolvedEntryForVersion(owner, versionId)
+}
+
+/**
+ * Fast View's window read (RH-134): the content of up to three queue entries in
+ * one request. Same gate as the single-song read - {@link resolveOwner}, hence
+ * `assertBandMember` - resolved once for all of them.
+ */
+export async function getSongWindowAction(
+  versionIds: string[],
+  bandId?: string | null,
+): Promise<SongWindowRecord[]> {
+  const userId = await getRequiredUserId()
+  const owner = await resolveOwner(bandId)
+  return getSongWindow(owner, userId, versionIds)
 }
 
 export async function updateSongAction(

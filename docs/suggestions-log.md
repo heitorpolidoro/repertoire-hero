@@ -9970,3 +9970,14 @@ Non-blocking suggestions from spec review round 1:
 ## [RH-138] Make a links correction act per link row, not per whole array — 2026-10-12
 - The migration is `0023_link_row_suggestions.sql`, but the spec names `0022_...`. Harmless; the spec text could be updated to match.
 - `findUrlCollision` treats a swap of two urls between sibling rows (both approved) as a collision. Conservative and safe, but worth a one-line note in the docs if it surprises admins.
+
+## [RH-160] Scaffold the Trusted Web Activity repo files with placeholders — 2026-10-12
+- Parity test: Bubblewrap keys differ from web manifest keys (launcherName <-> short_name, themeColor <-> theme_color, etc.); state the mapping explicitly so it is implemented one way.
+- ER4 "GET /privacy returns 200" is covered by a render test, not an HTTP request; say so in the test or accept a render-level assertion.
+- README ER6 test: assert the four feature phrases verbatim to keep it mechanical.
+
+## [RH-134] Fetch Fast View content in a window and invalidate on write — 2026-10-12
+- `page.tsx`: `afterWrite(song.applyStatus)` and similar return a new function on every render; consumers listing the callback in hook deps see a changing identity. Harmless today; memoise in the hook or hold in a ref.
+- `page.tsx` diff: several unrelated explanatory comments were shortened or reworded (file library, PDF stage, lyrics). Scope noise; revert unless needed for a size budget.
+- `songWindow.ts`: the module-level cache is keyed by band or personal only, not by user, and never evicted. Sign-out and sign-in as another user in the same tab without a reload could serve the previous user's personal entries. Add `resetSongWindow()` on sign-out or a user id in the key.
+- `songWindowData.ts` matches `error.message.includes('Song version not found')`; brittle coupling to an error string. Prefer a typed error from `ownerSongs`.

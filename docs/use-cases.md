@@ -813,6 +813,9 @@ seconds. The one case that is yours needs a rule: **writing invalidates that son
 copy.** Edit song 4, go back to 3, return to 4, and the old text must not reappear. One
 rule in one place — the write already knows which song it wrote.
 
+Implemented (RH-134) as `invalidateSongWindow(versionId)`: it drops the cached copy and
+makes a window fetch already in flight for that song discard its answer on arrival.
+
 **Decided**
 - A queue item is a **version**, not a repertoire row. The owner is already in the queue's
   context, and a version with no repertoire row still resolves (see *Resolving a value*),

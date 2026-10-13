@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { logger } from '@/lib/logger'
+import { awaitSongWindow, cachedSong } from '@/lib/songWindow'
 import {
   shouldLoadPersonalEntry,
   songIdentity,
@@ -77,7 +78,12 @@ export function useSongEntry({
 
     async function load() {
       try {
-        const data = await actions.getResolvedEntryForVersion(versionId, bandId)
+        // Cache first (RH-134): let a window fetch already filling this song
+        // finish, then use its copy; a miss goes to the network as before.
+        await awaitSongWindow(bandId, versionId)
+        const data =
+          cachedSong(bandId, versionId)?.entry ??
+          (await actions.getResolvedEntryForVersion(versionId, bandId))
         if (cancelled) return
         if (!data) {
           setNotFound(true)

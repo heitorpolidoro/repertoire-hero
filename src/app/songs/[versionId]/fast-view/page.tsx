@@ -14,6 +14,7 @@ import {
   OFFLINE_FIRST_SONG_ENTRY_ACTIONS,
   OFFLINE_FIRST_SONG_LINKS_ACTIONS,
   OFFLINE_FIRST_SONG_STATUS_ACTIONS,
+  OFFLINE_FIRST_SONG_WINDOW_ACTIONS,
   OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
 } from '@/app/fastViewOfflineActions'
 import { slideOutClassName } from '@/lib/playlistNav'
@@ -30,6 +31,7 @@ import { TabLibrarySection } from '@/components/fastview/TabLibrarySection'
 import { useLyricsEditor } from '@/hooks/useLyricsEditor'
 import { LyricsSection } from '@/components/fastview/LyricsSection'
 import { useSongEntry } from '@/hooks/useSongEntry'
+import { useSongWindow } from '@/hooks/useSongWindow'
 import { useSongStatus } from '@/hooks/useSongStatus'
 import { useSongLinks } from '@/hooks/useSongLinks'
 import { SongIdentityHeader } from '@/components/fastview/SongIdentityHeader'
@@ -88,8 +90,11 @@ export default function FastViewPage() {
   const isOffline = useOfflineStatus()
   useWakeLock() // the screen stays on while a song is open on a music stand
 
-  // The route's entry, the band-context reconciliation of the member's own
-  // entry and the five patches the writes below apply (RH-52).
+  // The window (RH-134): first, so its fetch is in flight when the readers look;
+  // `afterWrite` is the one invalidation seam every write below goes through.
+  const { afterWrite, invalidateCurrent } = useSongWindow({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_WINDOW_ACTIONS })
+
+  // The route's entry, member-entry reconciliation and write patches (RH-52).
   const song = useSongEntry({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_ENTRY_ACTIONS })
   const { entry, personalEntry, identity } = song
   // The two reasons this page is readable but not writable — see the docblock.
@@ -100,7 +105,7 @@ export default function FastViewPage() {
     entry,
     bandId: queryBandId,
     actions: OFFLINE_FIRST_SONG_STATUS_ACTIONS,
-    onStatusSaved: song.applyStatus,
+    onStatusSaved: afterWrite(song.applyStatus),
     notify: showToast,
   })
 
@@ -110,33 +115,27 @@ export default function FastViewPage() {
   const links = useSongLinks({
     entry,
     actions: OFFLINE_FIRST_SONG_LINKS_ACTIONS,
-    onLinksSaved: song.applyLinks,
+    onLinksSaved: afterWrite(song.applyLinks),
     notify: showToast,
   })
 
-  // File library: the song's one file fetch, the active file, the upload and
-  // the delete confirmation live in this controller (RH-49). A file is keyed by
-  // `(user_id, song_id)` since RH-123, so the song id is the whole of what this
-  // hook needs. PDF Stage Mode still reads the active file from it.
+  // File library (RH-49): the song's one file fetch (keyed by song id since
+  // RH-123), the active file, the upload and the delete confirmation.
   const tabLibrary = useTabLibrary({
     songId: song.songId,
     actions: OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
     onPersonalEntryCreated: song.adoptPersonalEntry,
     notify: showToast,
     onDeleteRequested: links.cancelDelete,
+    versionId,
+    bandId: queryBandId,
+    onFilesChanged: invalidateCurrent,
   })
 
-  // PDF Stage Mode: the overlay's open state, its visual-viewport measurement,
-  // the scroll-host lock, the back-button intercept and the annotation
-  // load/save live in this controller (RH-50).
-  const pdfStage = usePdfStage({
-    tabId: tabLibrary.activeTabId,
-    actions: OFFLINE_FIRST_PDF_STAGE_ACTIONS,
-  })
+  // PDF Stage Mode: viewport, scroll lock, back intercept, annotations (RH-50).
+  const pdfStage = usePdfStage({ tabId: tabLibrary.activeTabId, actions: OFFLINE_FIRST_PDF_STAGE_ACTIONS })
 
-  // Lyrics: the edit draft with its save and online auto-import, the band vs
-  // personal version switch and the lyrics Stage Mode (its font size, its dark
-  // mode and its back-button intercept) live in this controller (RH-51).
+  // Lyrics: draft, save, band/personal switch and lyrics Stage Mode (RH-51).
   const lyrics = useLyricsEditor({
     entry,
     bandId: queryBandId,
@@ -144,8 +143,8 @@ export default function FastViewPage() {
     songTitle: identity.title,
     artist: identity.artist,
     actions: OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS,
-    onEntryLyricsSaved: song.applyEntryLyrics,
-    onPersonalLyricsSaved: song.applyPersonalLyrics,
+    onEntryLyricsSaved: afterWrite(song.applyEntryLyrics),
+    onPersonalLyricsSaved: afterWrite(song.applyPersonalLyrics),
     onPersonalEntryCreated: song.adoptPersonalEntry,
     notify: showToast,
   })

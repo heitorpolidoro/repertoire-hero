@@ -226,7 +226,7 @@ const REPERTOIRE_ACTIONS = 'src/app/actions/repertoire.ts'
  *
  *     grep -c '^export async function' src/app/actions/repertoire.ts
  */
-const REPERTOIRE_ACTION_EXPORTS = 14
+const REPERTOIRE_ACTION_EXPORTS = 15
 
 /**
  * The seven mutators ER7 drives: every action that resolves its owner through
