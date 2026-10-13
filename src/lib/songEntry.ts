@@ -16,7 +16,7 @@
  * receive without importing the hook that builds it.
  */
 
-import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongLink, SongMap, SongStatus } from '@/types/database'
 
 /** What the song header renders: the title, the artist line and the key line. */
 export interface SongIdentity {
@@ -138,6 +138,8 @@ export interface SongEntryController {
   applyStatus: (status: SongStatus) => void
   /** Patches the tuning; `null` (a cleared override) re-reads the version's value (RH-146). */
   applyTuning: (tuning: string | null) => void
+  /** Patches the map; `null` (a cleared override) re-reads the inherited map (RH-118). */
+  applyMap: (map: SongMap | null) => void
   applyLinks: (links: SongLink[]) => void
   applyEntryLyrics: (lyrics: string) => void
   applyPersonalLyrics: (lyrics: string) => void

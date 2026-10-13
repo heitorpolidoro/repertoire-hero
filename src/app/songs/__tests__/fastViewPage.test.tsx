@@ -67,6 +67,7 @@ vi.mock('@/app/fastViewOfflineActions', () => {
     },
     OFFLINE_FIRST_SONG_STATUS_ACTIONS: { updateStatus: call('updateStatus') },
     OFFLINE_FIRST_SONG_TUNING_ACTIONS: { updateTuning: () => Promise.resolve() },
+    OFFLINE_FIRST_SONG_MAP_ACTIONS: { updateMap: () => Promise.resolve() },
     OFFLINE_FIRST_SONG_LINKS_ACTIONS: {
       updateLinks: call('updateLinks'),
       fetchUrlTitle: call('fetchUrlTitle'),

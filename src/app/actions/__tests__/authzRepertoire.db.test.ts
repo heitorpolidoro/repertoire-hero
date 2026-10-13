@@ -30,6 +30,7 @@ import {
   addSongAction,
   updateSongStatusAction,
   updateSongTuningAction,
+  updateSongMapAction,
   updateSongTagsAction,
   removeSongAction,
   getResolvedEntryForVersionAction,
@@ -447,6 +448,76 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect(res.rows[0].tuning).toBe('DADGAD')
       expect(await bandTuning()).toBeNull()
       expect(await versionTuning()).toBe('Version Tuning')
+    })
+  })
+
+  // RH-118 - the map write is the owner's override only, gated on band admin.
+  describe('updateSongMapAction', () => {
+    const SONG_LEVEL = { sections: [{ name: 'Song level', bars: null, note: null }] }
+    const VERSION_LEVEL = { sections: [{ name: 'Version level', bars: 4, note: null }] }
+    const DRAFT = { sections: [{ name: ' Intro ', bars: 4, note: '' }, { name: 'Verse', bars: null, note: 'x' }] }
+    const SAVED = { sections: [{ name: 'Intro', bars: 4, note: null }, { name: 'Verse', bars: null, note: 'x' }] }
+
+    let personalVersionId: string
+    const mapOf = async (table: string, id: string) =>
+      (await query<{ map: unknown }>(`SELECT map FROM ${table} WHERE id = $1`, [id])).rows[0].map
+
+    beforeAll(async () => {
+      personalVersionId = (
+        await query<{ version_id: string }>('SELECT version_id FROM user_songs WHERE id = $1', [personalEntryId])
+      ).rows[0].version_id
+      await query('UPDATE song_versions SET map = $2 WHERE id = $1', [personalVersionId, JSON.stringify(VERSION_LEVEL)])
+      await query('UPDATE songs SET map = $2 WHERE id = $1', [catalogSongId, JSON.stringify(SONG_LEVEL)])
+    })
+
+    it('stores the sections on the personal row only and the entry resolves them (ER1)', async () => {
+      asUser(userAId)
+
+      await updateSongMapAction(personalEntryId, DRAFT)
+
+      expect(await mapOf('user_songs', personalEntryId)).toEqual(SAVED)
+      expect(await mapOf('song_versions', personalVersionId)).toEqual(VERSION_LEVEL)
+      expect(await mapOf('songs', catalogSongId)).toEqual(SONG_LEVEL)
+      const entry = await getResolvedEntryForVersionAction(personalVersionId)
+      expect(entry.map).toEqual(SAVED)
+      expect(entry.mapOverridden).toBe(true)
+    })
+
+    it('stores null for null or an empty draft; the entry falls back to the version, then the song (ER3)', async () => {
+      asUser(userAId)
+
+      await updateSongMapAction(personalEntryId, null)
+      expect(await mapOf('user_songs', personalEntryId)).toBeNull()
+      const viaVersion = await getResolvedEntryForVersionAction(personalVersionId)
+      expect(viaVersion.map).toEqual(VERSION_LEVEL)
+      expect(viaVersion.mapOverridden).toBe(false)
+
+      await updateSongMapAction(personalEntryId, DRAFT)
+      await updateSongMapAction(personalEntryId, { sections: [{ name: '  ', bars: 2, note: null }] })
+      expect(await mapOf('user_songs', personalEntryId)).toBeNull()
+
+      await query('UPDATE song_versions SET map = NULL WHERE id = $1', [personalVersionId])
+      expect((await getResolvedEntryForVersionAction(personalVersionId)).map).toEqual(SONG_LEVEL)
+    })
+
+    it('refuses a non-admin band member and writes nothing (ER4)', async () => {
+      const before = await mapOf('band_songs', bandEntryId)
+      asUser(userBId)
+
+      await expect(updateSongMapAction(bandEntryId, DRAFT, bandId)).rejects.toThrow(
+        'Access denied: band admin required',
+      )
+
+      expect(await mapOf('band_songs', bandEntryId)).toEqual(before)
+    })
+
+    it('lets a band admin write band_songs.map (ER4)', async () => {
+      asUser(userAId)
+
+      await updateSongMapAction(bandEntryId, DRAFT, bandId)
+
+      expect(await mapOf('band_songs', bandEntryId)).toEqual(SAVED)
+      expect(await mapOf('song_versions', bandVersionId)).toBeNull()
     })
   })
 

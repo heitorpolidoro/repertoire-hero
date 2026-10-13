@@ -16,6 +16,7 @@ import {
   OFFLINE_FIRST_SONG_LINKS_ACTIONS,
   OFFLINE_FIRST_SONG_STATUS_ACTIONS,
   OFFLINE_FIRST_SONG_TUNING_ACTIONS,
+  OFFLINE_FIRST_SONG_MAP_ACTIONS,
   OFFLINE_FIRST_SONG_WINDOW_ACTIONS,
   OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
 } from '@/app/fastViewOfflineActions'
@@ -37,6 +38,8 @@ import { useSongEntry } from '@/hooks/useSongEntry'
 import { useSongWindow } from '@/hooks/useSongWindow'
 import { useSongStatus } from '@/hooks/useSongStatus'
 import { useSongTuning } from '@/hooks/useSongTuning'
+import { useSongMap } from '@/hooks/useSongMap'
+import { SongMapSection } from '@/components/fastview/SongMapSection'
 import { useSongLinks } from '@/hooks/useSongLinks'
 import { SongIdentityHeader } from '@/components/fastview/SongIdentityHeader'
 import { LinksSection } from '@/components/fastview/LinksSection'
@@ -109,16 +112,12 @@ export default function FastViewPage() {
   const readOnly = isOffline || !song.ownerRowId
 
   // The mastery-status dropdown and its write (RH-52).
-  const status = useSongStatus({
-    entry,
-    bandId: queryBandId,
-    actions: OFFLINE_FIRST_SONG_STATUS_ACTIONS,
-    onStatusSaved: afterWrite(song.applyStatus),
-    notify: showToast,
-  })
+  const status = useSongStatus({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_STATUS_ACTIONS, onStatusSaved: afterWrite(song.applyStatus), notify: showToast })
 
   // The tuning line and its owner-override write (RH-146).
   const tuning = useSongTuning({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_TUNING_ACTIONS, onSaved: afterWrite(song.applyTuning), notify: showToast })
+  // The Map section and its owner-override write (RH-118).
+  const songMap = useSongMap({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_MAP_ACTIONS, onSaved: afterWrite(song.applyMap), notify: showToast })
   // The links section: the add form with its auto-filled label and the delete
   // that goes through the shared-catalog moderation queue (RH-52). Declared
   // before `useTabLibrary`, which closes this confirmation when its own opens.
@@ -255,6 +254,9 @@ export default function FastViewPage() {
 
             {/* Lyrics Section */}
             <LyricsSection controller={lyrics} loadingPersonal={song.loadingPersonal} readOnly={readOnly} />
+
+            {/* Map Section (RH-118) */}
+            <SongMapSection controller={songMap} readOnly={readOnly} />
 
             {/* Tags Section */}
             <SongTagsSection tags={entry.tags} />

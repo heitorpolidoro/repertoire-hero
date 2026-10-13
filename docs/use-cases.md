@@ -249,7 +249,8 @@ has a `user_id` and no `band_id` — so the band holds none to lose.
 - **Direct controls on the Fast View** for status (the notes) and `last_practiced` (the
   button). Both are discrete, self-evidently controls, and cheap to undo, so putting them
   behind an edit step would waste the one-tap design.
-- **A button beside lyrics and beside map**, each opening its own editor. They are long
+- **A button beside lyrics and beside map**, each opening its own editor (the map, RH-118,
+  is `{ sections: [{ name, bars, note }] }`, edited in Fast View's Map section). They are long
   text, and a stray touch on a page read while playing must not overwrite them.
 - **An edit panel** for everything else — key, tuning, tags — which also reaches lyrics
   and map. Those two therefore have two doors onto the same write: the section button for

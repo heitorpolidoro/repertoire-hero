@@ -28,7 +28,8 @@ import {
 } from '@/lib/practiceWrite'
 import { getSongWindow } from '@/lib/songWindowData'
 import type { SongWindowRecord } from '@/lib/songWindow'
-import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
+import { validateSongMapPayload } from '@/lib/songMap'
+import type { Repertoire, ResolvedSongEntry, SongLink, SongMap, SongStatus } from '@/types/database'
 
 async function resolveOwner(bandId?: string | null): Promise<RepertoireOwner> {
   const userId = await getRequiredUserId()
@@ -101,6 +102,20 @@ export async function updateSongStatusAction(repertoireId: string, status: SongS
 export async function updateSongTuningAction(repertoireId: string, tuning: string | null, bandId?: string | null) {
   const owner = await resolveWriteOwner(bandId)
   const result = await updateSongOverrides(owner, repertoireId, { tuning })
+  revalidatePath('/')
+  return result
+}
+
+/**
+ * Fast View's map write (RH-118): the addressed owner's override only, never
+ * `song_versions.map` or `songs.map`. The payload is re-validated here because
+ * a Server Action is a public endpoint; `null` (or an empty list) clears the
+ * override and sends resolution back up. A band owner requires band admin.
+ */
+export async function updateSongMapAction(repertoireId: string, map: SongMap | null, bandId?: string | null) {
+  const validated = validateSongMapPayload(map)
+  const owner = await resolveWriteOwner(bandId)
+  const result = await updateSongOverrides(owner, repertoireId, { map: validated })
   revalidatePath('/')
   return result
 }

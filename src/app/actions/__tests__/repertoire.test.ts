@@ -63,6 +63,7 @@ import {
   updateSongStatusAction,
   updateSongTagsAction,
   updateSongTuningAction,
+  updateSongMapAction,
   removeSongAction,
   searchSongsAction,
   getResolvedEntryForVersionAction,
@@ -102,6 +103,7 @@ const REPERTOIRE_ID = 'repertoire-1'
 const SONG_ID = 'song-1'
 const VERSION_ID = 'version-1'
 
+const SONG_MAP = { sections: [{ name: 'Verse', bars: 8, note: null }] }
 const ENTRY = { id: REPERTOIRE_ID, song_id: SONG_ID } as unknown as Repertoire
 const UPDATE_DATA = { title: 'New Title' }
 const CREATE_DATA = { title: 'Fresh', artist: 'Someone' }
@@ -174,6 +176,14 @@ const DELEGATIONS: Array<{
     lib: () => vi.mocked(updateSongOverrides),
     run: (bandId) => updateSongTuningAction(REPERTOIRE_ID, 'Drop D', bandId),
     tail: [REPERTOIRE_ID, { tuning: 'Drop D' }],
+    revalidates: true,
+    adminGated: true,
+  },
+  {
+    label: 'updateSongMapAction',
+    lib: () => vi.mocked(updateSongOverrides),
+    run: (bandId) => updateSongMapAction(REPERTOIRE_ID, SONG_MAP, bandId),
+    tail: [REPERTOIRE_ID, { map: SONG_MAP }],
     revalidates: true,
     adminGated: true,
   },
@@ -503,5 +513,35 @@ describe('getPersonalEntryForSongAction', () => {
     )
 
     await expect(getPersonalEntryForSongAction(SONG_ID)).resolves.toBeNull()
+  })
+})
+
+/**
+ * RH-118 ER5 - a Server Action is a public endpoint, so the incoming map is
+ * validated with the shared module before any owner is resolved or row touched.
+ */
+describe('updateSongMapAction validation', () => {
+  beforeEach(() => {
+    vi.mocked(getRequiredUserId).mockResolvedValue(USER_ID)
+  })
+
+  it.each([
+    ['a string', 'verse'],
+    ['an array', []],
+    ['sections that are not a list', { sections: 'x' }],
+    ['a nameless section', { sections: [{ bars: 4 }] }],
+  ])('rejects %s without writing', async (_label, payload) => {
+    await expect(updateSongMapAction(REPERTOIRE_ID, payload as never, null)).rejects.toThrow('Invalid song map')
+    expect(updateSongOverrides).not.toHaveBeenCalled()
+  })
+
+  it('writes the normalised value, and null for an empty draft', async () => {
+    await updateSongMapAction(REPERTOIRE_ID, { sections: [{ name: ' Verse ', bars: 0, note: '' }] }, null)
+    expect(updateSongOverrides).toHaveBeenLastCalledWith({ userId: USER_ID }, REPERTOIRE_ID, {
+      map: { sections: [{ name: 'Verse', bars: null, note: null }] },
+    })
+
+    await updateSongMapAction(REPERTOIRE_ID, { sections: [] }, null)
+    expect(updateSongOverrides).toHaveBeenLastCalledWith({ userId: USER_ID }, REPERTOIRE_ID, { map: null })
   })
 })

@@ -10134,3 +10134,11 @@ Non-blocking suggestions from QA round 1:
 - The `downloading` state in `OfflineSongButton` renders "1 / 1 songs", which reads slightly awkwardly for a single song (cosmetic).
 - `useOfflineSong` re-implements `messageOf`; if `useOfflinePlaylist` has a near-identical helper, share it.
 - The e2e test reuses the `downloadPlaylist` helper for a song; a clearer alias would help readability.
+
+## [RH-118] Build the song map editor — 2026-10-13
+
+- `fast-view/page.tsx`: the `useSongStatus` call was collapsed to one line, which is unrelated churn; restore the multi-line form.
+- `songMap.ts` `parseSection`: `bars` accepts negatives and floats; parsing could coerce invalid `bars` to null so hand-edited data cannot show odd values.
+- `useSongEntry.ts` `applyMap`: the refetch on `null` swallows errors silently; the stale-map case after a failed refetch is untested.
+- `authzFixtures.createTestSong` still inserts `songs.links`, which migrations no longer provide, so the DB suite cannot run on a freshly migrated database.
+- `vitest.config.ts` `loadEnv` overrides an explicit `DATABASE_URL`; letting an explicit env var win would simplify throwaway-DB runs.

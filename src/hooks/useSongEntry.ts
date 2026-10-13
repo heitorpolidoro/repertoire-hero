@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { logger } from '@/lib/logger'
 import { awaitSongWindow, cachedSong } from '@/lib/songWindow'
 import { withTuning } from '@/lib/songTuning'
+import { withMap } from '@/lib/songMap'
 import {
   shouldLoadPersonalEntry,
   songIdentity,
@@ -10,7 +11,7 @@ import {
   withStatus,
   type SongEntryController,
 } from '@/lib/songEntry'
-import type { Repertoire, ResolvedSongEntry, SongLink, SongStatus } from '@/types/database'
+import type { Repertoire, ResolvedSongEntry, SongLink, SongMap, SongStatus } from '@/types/database'
 
 /**
  * The entry Server Actions the controller calls. Injected rather than imported,
@@ -147,6 +148,22 @@ export function useSongEntry({
     [actions, bandId, versionId],
   )
 
+  // Same shape as `applyTuning` (RH-118): a cleared map hands resolution back to
+  // the version or song, whose map the client does not hold, so it is re-read.
+  const applyMap = useCallback(
+    (map: SongMap | null) => {
+      setEntry((prev) => withMap(prev, map))
+      if (map !== null) return
+      actions
+        .getResolvedEntryForVersion(versionId, bandId)
+        .then((fresh) => {
+          if (fresh) setEntry((prev) => (prev ? { ...prev, map: fresh.map, mapOverridden: false } : prev))
+        })
+        .catch(() => undefined) // best-effort: the section keeps showing no map
+    },
+    [actions, bandId, versionId],
+  )
+
   const applyLinks = useCallback(
     (links: SongLink[]) => setEntry((prev) => withSongLinks(prev, links)),
     [],
@@ -179,6 +196,7 @@ export function useSongEntry({
     adoptPersonalEntry: setPersonalEntry,
     applyStatus,
     applyTuning,
+    applyMap,
     applyLinks,
     applyEntryLyrics,
     applyPersonalLyrics,

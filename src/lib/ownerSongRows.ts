@@ -189,6 +189,7 @@ export function toResolvedEntry(row: OwnerSongLevelsRow): ResolvedSongEntry {
     version_id: row.version_id,
     song_id: row.song_id,
     ...resolveRow(row),
+    mapOverridden: row.owner_map !== null,
     song: row.song,
   }
 }

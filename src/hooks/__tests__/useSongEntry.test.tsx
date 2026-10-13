@@ -286,6 +286,47 @@ describe('useSongEntry', () => {
     expect(result.current.entry?.tuning).toBeNull()
   })
 
+  it('applyMap patches the entry map and the override marker without a reload (RH-118)', async () => {
+    const { result, actions } = setup()
+    await flush()
+    const map = { sections: [{ name: 'Intro', bars: 4, note: null }] }
+
+    act(() => result.current.applyMap(map))
+
+    expect(result.current.entry?.map).toEqual(map)
+    expect(result.current.entry?.mapOverridden).toBe(true)
+    expect(actions.getResolvedEntryForVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it('applyMap(null) re-reads the inherited map and clears the marker', async () => {
+    const { result, actions } = setup()
+    await flush()
+    const inherited = { sections: [{ name: 'Version', bars: null, note: null }] }
+    actions.getResolvedEntryForVersion.mockResolvedValue({ ...BAND_ENTRY, map: inherited, mapOverridden: false })
+
+    act(() => result.current.applyMap(null))
+    await flush()
+
+    expect(actions.getResolvedEntryForVersion).toHaveBeenLastCalledWith('version-1', 'band-1')
+    expect(result.current.entry?.map).toEqual(inherited)
+    expect(result.current.entry?.mapOverridden).toBe(false)
+  })
+
+  it('applyMap(null) leaves null in place when the re-read fails or answers nothing', async () => {
+    const { result, actions } = setup()
+    await flush()
+    actions.getResolvedEntryForVersion.mockRejectedValue(new Error('offline'))
+
+    act(() => result.current.applyMap(null))
+    await flush()
+    expect(result.current.entry?.map).toBeNull()
+
+    actions.getResolvedEntryForVersion.mockResolvedValue(null)
+    act(() => result.current.applyMap(null))
+    await flush()
+    expect(result.current.entry?.map).toBeNull()
+  })
+
   it('applyLinks patches the song links', async () => {
     const { result } = setup()
     await flush()

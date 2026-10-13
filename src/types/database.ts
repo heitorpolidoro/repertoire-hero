@@ -67,12 +67,11 @@ export interface SongUpdateResult {
   refused: RefusedCatalogField[];
 }
 
-/**
- * The `jsonb` a song map holds. Deliberately unshaped: the map editor (RH-118)
- * is what will give it a structure, and inventing one here would be a guess
- * every reader then has to work around.
- */
-export type SongMap = Record<string, unknown>;
+/** One part of a song's structure (RH-118); `bars` is a positive integer or null. */
+export interface SongSection { name: string; bars: number | null; note: string | null }
+
+/** The map jsonb (RH-118): ordered sections, read and written whole; other blobs parse to null. */
+export interface SongMap { sections: SongSection[] }
 
 /**
  * One owner's hold on one **version** of a song, with every field already
@@ -129,6 +128,7 @@ export interface ResolvedSongEntry {
   tuning: string | null;
   lyrics: string | null;
   map: SongMap | null;
+  mapOverridden?: boolean; // the owner's own row holds a map (RH-118)
   tags: string[];
   last_practiced: string | null;
   song?: Song;

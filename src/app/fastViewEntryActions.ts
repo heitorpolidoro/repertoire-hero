@@ -3,6 +3,7 @@ import {
   getPersonalEntryForSongAction,
   updateSongStatusAction,
   updateSongTuningAction,
+  updateSongMapAction,
   updateSongLinksAction,
   fetchUrlTitleAction,
   getSongWindowAction,
@@ -12,6 +13,7 @@ import type { SongEntryActions } from '@/hooks/useSongEntry'
 import type { SongLinksActions } from '@/hooks/useSongLinks'
 import type { SongStatusActions } from '@/hooks/useSongStatus'
 import type { SongTuningActions } from '@/hooks/useSongTuning'
+import type { SongMapActions } from '@/hooks/useSongMap'
 
 /**
  * The entry, status and link Server Actions injected into the three RH-52
@@ -37,6 +39,10 @@ export const SONG_STATUS_ACTIONS: SongStatusActions = {
 
 export const SONG_TUNING_ACTIONS: SongTuningActions = {
   updateTuning: updateSongTuningAction,
+}
+
+export const SONG_MAP_ACTIONS: SongMapActions = {
+  updateMap: updateSongMapAction,
 }
 
 /**

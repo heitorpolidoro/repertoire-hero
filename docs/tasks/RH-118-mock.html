@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-118 song map editor</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-50 p-4 max-w-md mx-auto text-gray-800">
+<h1 class="font-bold mb-1">Fast View - Map section</h1>
+<div class="flex gap-2 mb-3 text-xs">
+  <button onclick="show('read')" class="border rounded px-2 py-1">Read</button>
+  <button onclick="show('edit')" class="border rounded px-2 py-1">Edit</button>
+  <button onclick="show('empty')" class="border rounded px-2 py-1">Empty</button>
+</div>
+<section class="bg-white rounded-xl border p-4">
+  <div class="flex justify-between items-center mb-2">
+    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Map
+      <span title="Overrides the original" class="ml-1 text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-1.5">edited by you</span></h2>
+    <div class="text-xs font-semibold text-emerald-600 flex gap-3">
+      <button onclick="show('edit')">Edit</button>
+      <button onclick="document.getElementById('confirm').classList.remove('hidden')">Use the original</button>
+    </div>
+  </div>
+  <div id="confirm" class="hidden mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs">
+    Discard your map and go back to the original?
+    <button class="font-bold ml-2" onclick="this.parentElement.classList.add('hidden')">Discard</button>
+    <button class="ml-2" onclick="this.parentElement.classList.add('hidden')">Keep</button>
+  </div>
+  <ol id="read" class="space-y-1 text-sm"></ol>
+  <div id="empty" class="hidden text-sm text-gray-500">No map yet. <button class="text-emerald-600 font-semibold" onclick="show('edit')">Add map</button></div>
+  <div id="edit" class="hidden space-y-2"></div>
+</section>
+<script>
+let data=[{name:'Intro',bars:4,note:'Clean guitar'},{name:'Verse 1',bars:16,note:null},{name:'Chorus',bars:8,note:'Double time'},{name:'Solo',bars:16,note:'Stretch it live'},{name:'Outro',bars:null,note:null}];
+function render(){
+  document.getElementById('read').innerHTML=data.map((s,i)=>`<li class="flex gap-2 border-b py-1"><span class="text-gray-400 w-4">${i+1}</span><b class="flex-1">${s.name}</b><span class="text-gray-500">${s.bars?s.bars+' bars':''}</span><span class="text-xs text-gray-500 w-28 truncate">${s.note||''}</span></li>`).join('');
+  document.getElementById('edit').innerHTML=data.map((s,i)=>`<div class="flex gap-1 items-center"><input class="border rounded px-1 flex-1 text-sm" value="${s.name}"><input class="border rounded px-1 w-14 text-sm" value="${s.bars||''}" placeholder="bars"><input class="border rounded px-1 w-24 text-sm" value="${s.note||''}" placeholder="note"><button>&uarr;</button><button>&darr;</button><button onclick="data.splice(${i},1);render()">&times;</button></div>`).join('')
+   +`<div class="flex gap-2 pt-2 text-sm"><button class="border rounded px-2" onclick="data.push({name:'New',bars:null,note:null});render()">+ Section</button><button class="bg-emerald-600 text-white rounded px-3" onclick="show('read')">Save</button><button onclick="show('read')">Cancel</button></div>`;
+}
+function show(m){['read','edit','empty'].forEach(k=>document.getElementById(k).classList.toggle('hidden',k!==m))}
+render();
+</script></body></html>
