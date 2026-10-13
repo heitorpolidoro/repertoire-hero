@@ -60,14 +60,14 @@ function setup(recordPractice = vi.fn().mockResolvedValue(undefined), readOnly =
 }
 
 const boxes = () => screen.getAllByRole('checkbox') as HTMLInputElement[]
-const confirm = () => screen.getByRole('button', { name: 'Confirm' }) as HTMLButtonElement
+const confirmButton = () => screen.getByRole('button', { name: 'Confirm' }) as HTMLButtonElement
 
 describe('PracticeReviewList', () => {
   it('opens with every row unticked and Confirm disabled', () => {
     setup()
     expect(boxes()).toHaveLength(4)
     expect(boxes().every(b => !b.checked)).toBe(true)
-    expect(confirm().disabled).toBe(true)
+    expect(confirmButton().disabled).toBe(true)
   })
 
   it('the single control ticks all, then unticks all, flipping its label', () => {
@@ -89,7 +89,7 @@ describe('PracticeReviewList', () => {
     const { recordPractice, onClose } = setup()
     fireEvent.click(boxes()[0])
     fireEvent.click(boxes()[2])
-    fireEvent.click(confirm())
+    fireEvent.click(confirmButton())
     await waitFor(() => expect(recordPractice).toHaveBeenCalledTimes(1))
     expect(recordPractice).toHaveBeenCalledWith([{ versionId: 'v0' }, { versionId: 'v2' }], null)
     await waitFor(() => expect(onClose).toHaveBeenCalled())
@@ -103,7 +103,7 @@ describe('PracticeReviewList', () => {
     expect(within(first).getByText('Learning')).toBeDefined()
     fireEvent.click(within(first).getAllByRole('button')[3])
     expect(within(first).getByText('Mastered')).toBeDefined()
-    fireEvent.click(confirm())
+    fireEvent.click(confirmButton())
     await waitFor(() => expect(recordPractice).toHaveBeenCalled())
     expect(recordPractice).toHaveBeenCalledWith([{ versionId: 'v0', status: 'mastered' }, { versionId: 'v1' }], null)
   })
@@ -126,9 +126,9 @@ describe('PracticeReviewList', () => {
   it('a rejected confirm keeps the list open with ticks intact', async () => {
     const { recordPractice, onClose } = setup(vi.fn().mockRejectedValue(new Error('nope')))
     fireEvent.click(boxes()[0])
-    fireEvent.click(confirm())
+    fireEvent.click(confirmButton())
     await waitFor(() => expect(recordPractice).toHaveBeenCalled())
-    await waitFor(() => expect(confirm().disabled).toBe(false))
+    await waitFor(() => expect(confirmButton().disabled).toBe(false))
     expect(onClose).not.toHaveBeenCalled()
     expect(boxes()[0].checked).toBe(true)
   })

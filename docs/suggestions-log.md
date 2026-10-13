@@ -10220,3 +10220,21 @@ Non-blocking suggestions from QA round 1:
 
 - (code review) The spec named `songs.test.ts` and `catalogVersions.db.test.ts` as the test locations; new sibling files are used instead. This is acceptable.
 - (code review) Because the ER2 test sets `enable_seqscan = off`, it proves the index is usable rather than chosen by the planner on real data. This is acceptable per the spec.
+
+## [RH-168] Start a practice session in due order from a playlist or the whole repertoire — 2026-10-13
+
+- (spec review) ER 6 (Back returns to originHref) relies on the existing RH-133 chrome, and the test criteria add no assertion for it. Add a test (or cite an existing one) that Fast View Back uses the stored originHref, so QA can verify it mechanically.
+- (spec review) State explicitly in the spec whether the "Nothing to practise here" message is cleared when the source choice changes.
+- (spec review) Name the test file for the action test (for example src/app/actions/practice.test.ts).
+
+## [RH-170] Start a practice session from a hand-picked selection — 2026-10-13
+
+- (spec review) ER2 names a test that un-toggles and re-picks; state explicitly that the re-pick case is asserted end-to-end through confirm (stored queue order), not only in togglePick.
+- (spec review) The spec says "no server action" is asserted via injected spies; clarify how a server action is injectable (or mocked module) so the test is mechanical.
+- (spec review) Placement beside RH-168's button is left to coordination; note which task lands first to avoid a merge conflict in the header.
+
+## [RH-169] Finish a practice session through the review list — 2026-10-13
+
+- (spec review) ER5 relies on "extend authzRepertoire.db.test.ts only if not already asserted"; name the exact test so QA can find the admin and member assertions.
+- (spec review) "Last entry" is `nav.nextId === null`; for a one-entry queue the control shows immediately. State whether that is intended.
+- (spec review) The component move to `src/components/ui/` touches import paths of existing tests; list them in the PR.
