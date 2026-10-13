@@ -74,6 +74,8 @@ import {
   getCatalogBlastRadiusAction,
   mergeSongVersionsAction,
   deleteSongVersionAction,
+  splitSongVersionsAction,
+  mergeSongsAction,
 } from '../catalogAdmin'
 import {
   submitCatalogSuggestionAction,
@@ -176,6 +178,8 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   getCatalogBlastRadiusAction: { run: () => getCatalogBlastRadiusAction({ versionId: VERSION_ID }), mode: 'throws' },
   mergeSongVersionsAction: { run: () => mergeSongVersionsAction(VERSION_ID, 'version-2'), mode: 'throws' },
   deleteSongVersionAction: { run: () => deleteSongVersionAction(VERSION_ID), mode: 'throws' },
+  splitSongVersionsAction: { run: () => splitSongVersionsAction(SONG_ID, [VERSION_ID], { songId: 'song-2' }), mode: 'throws' },
+  mergeSongsAction: { run: () => mergeSongsAction(SONG_ID, 'song-2'), mode: 'throws' },
 
   // --- moderation.ts ---
   submitCatalogSuggestionAction: { run: () => submitCatalogSuggestionAction(SONG_ID, { title: 'x' }), mode: 'throws' },

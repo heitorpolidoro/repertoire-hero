@@ -10,18 +10,24 @@ vi.mock('@/lib/catalogAdmin', () => ({
   getCatalogBlastRadius: vi.fn(),
   mergeSongVersions: vi.fn(),
   deleteSongVersion: vi.fn(),
+  splitSongVersions: vi.fn(),
+  mergeSongs: vi.fn(),
 }))
 
 import {
   deleteSongVersionAction,
   getCatalogBlastRadiusAction,
   mergeSongVersionsAction,
+  mergeSongsAction,
+  splitSongVersionsAction,
 } from '../catalogAdmin'
 import { getRequiredUserId } from '@/lib/auth-session'
 import {
   deleteSongVersion,
   getCatalogBlastRadius,
   mergeSongVersions,
+  mergeSongs,
+  splitSongVersions,
 } from '@/lib/catalogAdmin'
 
 const DENIED = new Error('Access denied: User is not a system admin')
@@ -49,6 +55,20 @@ describe('catalog admin actions', () => {
   it('delegates the delete with the session user id', async () => {
     await deleteSongVersionAction('v1')
     expect(deleteSongVersion).toHaveBeenCalledWith('admin-1', 'v1')
+  })
+
+  it('delegates the split and the song merge with the session user id', async () => {
+    await splitSongVersionsAction('s1', ['v1'], { songId: 's2' })
+    expect(splitSongVersions).toHaveBeenCalledWith('admin-1', 's1', ['v1'], { songId: 's2' })
+    await mergeSongsAction('s1', 's2')
+    expect(mergeSongs).toHaveBeenCalledWith('admin-1', 's1', 's2')
+  })
+
+  it('surfaces the admin-denied rejection from the song actions', async () => {
+    vi.mocked(splitSongVersions).mockRejectedValue(DENIED)
+    vi.mocked(mergeSongs).mockRejectedValue(DENIED)
+    await expect(splitSongVersionsAction('s1', ['v1'], { songId: 's2' })).rejects.toThrow(DENIED.message)
+    await expect(mergeSongsAction('s1', 's2')).rejects.toThrow(DENIED.message)
   })
 
   it('surfaces the admin-denied rejection from each action', async () => {

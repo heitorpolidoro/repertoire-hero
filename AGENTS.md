@@ -177,7 +177,9 @@ src/
 │   ├── songTitle.ts            The `" - "` title/label split, feeding both catalog keys
 │   ├── songVersions.ts         The `albums` + `song_versions` upsert both write paths share
 │   ├── catalogAdmin.ts         System-admin catalog ops (RH-154): version/song blast radius, merge version A into B
-│   │                           (B wins collisions, one transaction), delete only an unreferenced version
+│   │                           (B wins collisions, one transaction), delete only an unreferenced version;
+│   │                           RH-155: split chosen versions onto a new/existing song, merge song A into B
+│   │                           (duplicate versions go through the version merge, links/files/suggestions follow)
 │   ├── bands.ts / bands.server.ts
 │   │                           Band domain logic; both import @/lib/db, so both are server-only.
 │   │                           The .server suffix marks a second return shape (see Module Layout)

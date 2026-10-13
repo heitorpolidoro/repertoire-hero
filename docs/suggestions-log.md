@@ -10076,3 +10076,13 @@ Non-blocking suggestions from spec review round 1:
 
 - `eslint.config.mjs` comment: the line wrap after "445. The search," is awkward. Cosmetic only.
 - Apply pending migrations to the local test database so the full db suite is green (30 failures: `column "links" of relation "songs" does not exist`).
+
+## [RH-152] Show manual entry beside results with a reduced form — 2026-10-13
+
+- Status handling is left to the developer ("verifies and reuses what SongForm does"). `createAndAddSong` has no status input and `SongForm` applies it afterwards via `actions.updateSongStatus(entry.id, status)` when status != "unknown"; the spec could say so and note the panel needs `updateSongStatus` injected.
+- Expected results 6 and 7 cover tests and gates; the db test and `test:coverage` in the spec are not in the ERs, which is acceptable.
+- The A vs B layout question to the operator is open; the mock exists (`RH-152-mock.html`).
+
+## [RH-155] Add admin catalog data layer: split song and merge songs — 2026-10-13
+
+- Code review: `moveVersions` issues one query per version (N+1); acceptable for admin-scale data.
