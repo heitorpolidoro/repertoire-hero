@@ -236,10 +236,10 @@ export interface SongCreateInput {
 export async function resolveCatalogSongForAdd(
   data: SongCreateInput,
   client: Queryable,
-): Promise<string> {
+): Promise<{ songId: string; versionId: string }> {
   const song = await resolveOrCreateSongIdentity(data, client)
-  await upsertAlbumAndVersion(song, data, client)
-  return song.id
+  const versionId = await upsertAlbumAndVersion(song, data, client)
+  return { songId: song.id, versionId }
 }
 
 /**

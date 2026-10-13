@@ -226,11 +226,8 @@ describe.skipIf(!RUN_DB_TESTS)('the restructured catalog composes end to end (re
       album: `RH-105 Keyspace Album A ${suffix}`,
     })
     const songId = held.song_id
-    // A second version of the same song, written directly. It cannot come from
-    // `createAndAddSongAction`: that path inserts its owner row against the
-    // song's *representative* version (`addRowSql`), not against the version it
-    // just upserted, so a second call for the same song refuses with "Song
-    // already in your repertoire" rather than producing a second hold.
+    // A second version of the same song, written directly (RH-144 made a second
+    // `createAndAddSongAction` hold it too, but this test needs it unheld).
     const secondVersion = await query<{ id: string }>(
       "INSERT INTO song_versions (song_id, label) VALUES ($1, $2) RETURNING id",
       [songId, `RH-105 Keyspace Label B ${suffix}`],

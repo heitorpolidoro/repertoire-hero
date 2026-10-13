@@ -93,16 +93,16 @@ export async function getRepertoire(owner: RepertoireOwner): Promise<Repertoire[
 }
 
 /**
- * The insert both add paths run: one row for `$1`'s hold on the representative
- * version of the song `$2`, read straight back as a resolved entry. Each caller
+ * The insert both add paths run: one row for `$1`'s hold on the song `$2`'s
+ * representative version (or on `versionSql`), read straight back as a resolved entry. Each caller
  * guarantees the song has a version first, so the `NOT NULL` on `version_id`
  * can only fire on a broken invariant.
  */
-function addRowSql(owner: RepertoireOwner, onConflict = ''): string {
+function addRowSql(owner: RepertoireOwner, onConflict = '', versionSql = representativeVersionSubquery('$2')): string {
   return `
     WITH inserted AS (
       INSERT INTO ${ownerTable(owner)} (${ownerColumn(owner)}, version_id)
-      SELECT $1, ${representativeVersionSubquery('$2')}
+      SELECT $1, ${versionSql}
       ${onConflict}
       RETURNING *
     )
@@ -382,11 +382,11 @@ export async function updateSong(owner: RepertoireOwner, entry: Repertoire, data
  * undoes a catalog row this call may just have created.
  */
 export async function createAndAddSong(owner: RepertoireOwner, data: SongCreateInput): Promise<Repertoire> {
-  const insertSql = addRowSql(owner, 'ON CONFLICT DO NOTHING')
+  const insertSql = addRowSql(owner, 'ON CONFLICT DO NOTHING', '$2::uuid') // RH-144: the resolved version
   try {
     return await withTransaction(async (client) => {
-      const songId = await resolveCatalogSongForAdd(data, client)
-      const res = await client.query<OwnerSongLevelsRow>(insertSql, [ownerId(owner), songId])
+      const { versionId } = await resolveCatalogSongForAdd(data, client)
+      const res = await client.query<OwnerSongLevelsRow>(insertSql, [ownerId(owner), versionId])
       if (res.rowCount === 0) throw new Error('Song already in your repertoire')
       return toEntry(res.rows[0], owner)
     })

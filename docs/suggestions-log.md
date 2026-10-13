@@ -311,7 +311,7 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   JSX. Re-indenting, or extracting the drawing-only groups into a small local
   `DrawingControls` fragment, would make the two-mode toolbar easier to follow. Lint and Prettier
   are clean either way, so this is purely readability.
-- `docs/tasks/RH-28-spec.md` §2a table row 2 and the ER list still describe the stage root as
+- `docs/tasks/RH-27-spec.md` §2a table row 2 and the ER list still describe the stage root as
   `flex-1 w-full h-full bg-black`. Now that `h-full` is precisely the thing that had to go, that
   wording reads as an instruction to restore the bug. Worth a one-line spec amendment (or a note
   in Delivery Notes) so the next reader of the spec is not misled — the in-code comment at
@@ -1141,7 +1141,7 @@ Non-blocking suggestions from Meridian spec/code reviews. Trimmed to the most re
   rendering, so this is a follow-up, not an omission here.
 
 - **`docs/suggestions-log.md` is modified but left unstaged** (` M` in
-  `git status`), and `docs/tasks/RH-31-spec.md` is untracked. Neither is covered
+  `git status`), and `docs/tasks/RH-30-spec.md` is untracked. Neither is covered
   by any criterion and neither affects this verdict, but whoever commits should
   decide deliberately whether they belong in the RH-31 commit rather than letting
   them drift into a later unrelated one.
@@ -3281,7 +3281,7 @@ addition with an obvious test. Out of scope here.
 
 - **S1 — ER7's duplication bound has zero margin.** `Found 18 clones.` / 230 lines / 0.82% is exactly today's measurement, and the task adds six components with near-identical Tailwind blocks (the two destination buttons) plus five test files with the usual `// @vitest-environment jsdom` + `afterEach(cleanup)` + render-helper boilerplate. A single new clone that represents no real regression would fail the ER. Consider `N` at most 19 and at most 0.90%.
 - **S2 — ER5 omits `activeTabTitle` from the stage-contract grep.** The "Boundary with RH-50" contract names four bindings and the still-inline overlay header reads `activeTabTitle` (page line 1332), but ER5 only greps `activeTabId\|activeTabRepertoireId\|activeTabUrl`. Add the fourth name so QA verifies the whole contract.
-- **S3 — ER12's whitelist lists `AGENTS.md`, which the Approach never edits.** Nothing in sections 1-6 touches it; drop it to keep the closed set tight. `.meridian/tasks.json`, `docs/tasks/RH-49-spec.md` and `docs/suggestions-log.md` are legitimately in the set (task state, the spec itself, the two preserved warts the Out of Scope section defers there).
+- **S3 — ER12's whitelist lists `AGENTS.md`, which the Approach never edits.** Nothing in sections 1-6 touches it; drop it to keep the closed set tight. `.meridian/tasks.json`, `docs/tasks/RH-48-spec.md` and `docs/suggestions-log.md` are legitimately in the set (task state, the spec itself, the two preserved warts the Out of Scope section defers there).
 - **S4 — `wc -l <file>` prints `N <path>`, not a bare number.** ER6 says the command "prints a number strictly less than 400" / "prints a number strictly less than 1150"; phrase it as the first field of the output so a literal reading cannot fail.
 - **S5 — section 5 could say explicitly that `addSongAction` stays imported.** It is still used by `handleSaveLyrics` (page line 474) after `triggerUpload` is deleted; an implementer following "line 9 becomes …, drop `RepertoireTab` if unused" might prune it too and break the lyrics save.
 - **S6 — the delete-button active-tab clear changes its key.** Today the row clears the active tab when `activeTabUrl === tab.file_url` (page lines 834-841); the hook's `requestDelete` clears it when `activeTabId === tabId`. Equivalent except when two rows share a `file_url`. Worth one sentence in §2 so it reads as deliberate.
@@ -3616,7 +3616,7 @@ addition with an obvious test. Out of scope here.
    whole per-commit progression (`1427/76, 1091/67, 964/54, 658/30`) inline. It
    is all true and it is one line by design, but a future reader may find the
    same data easier to consume as the table that already exists in
-   `docs/tasks/RH-38-spec.md:57-65`. If the review document ever gains a
+   `docs/tasks/RH-37-spec.md:57-65`. If the review document ever gains a
    "delivery log" section, that is where this belongs. Not worth churning the
    `4	0` numstat for now.
 3. Non-blocking observation for the orchestrator, not for this diff: the F6
@@ -4241,7 +4241,7 @@ this one:
    (e.g. "more than one percentage point below any of the four") would make the whole ER set
    judgement-free.
 
-4. **Two specs are in flight against the same baseline.** `docs/tasks/RH-40-spec.md` is untracked in
+4. **Two specs are in flight against the same baseline.** `docs/tasks/RH-39-spec.md` is untracked in
    the working tree alongside RH-60's. ER10 anchors its whitelist on `git diff --name-only 55656fe`,
    so if RH-40 commits before RH-60 reaches QA, a *correct* RH-60 implementation would show RH-40's
    files in that diff and fail ER10. Not a defect in the spec — every spec in this project anchors
@@ -5204,7 +5204,7 @@ None.
   handler; L259 is also the one line in the spec whose wrap is broken
   ("... being closed. They read *and* mutate, ..."). Purely cosmetic, but it is
   the paragraph a future reader will go to first when re-deriving the grouping.
-- The F15 line points at `docs/tasks/RH-41-spec.md` as the durable record of the
+- The F15 line points at `docs/tasks/RH-40-spec.md` as the durable record of the
   five unowned pages. That file is committed by ER9, so the reference resolves;
   if the orchestrator later opens the follow-up task from the Post-merge list,
   updating that pointer to the new task id would keep the review document
@@ -5212,7 +5212,7 @@ None.
 
 ## [RH-41] Carregar dados de pagina em Server Components e enxugar os controllers client (code review r1) — 2026-09-09
 
-1. `docs/tasks/RH-41-spec.md:130` says "`src/proxy.ts` opens with a 22-line
+1. `docs/tasks/RH-40-spec.md:130` says "`src/proxy.ts` opens with a 22-line
    header comment". The file opens with two `import` lines; the 22-line comment
    is at L4-25. The shipped review-doc line does not repeat the imprecision - it
    says "the file's own header comment declares in its second line", which is
@@ -5405,7 +5405,7 @@ timestamp plausible for the commit's local time.
 
 ### 5. Spec internal consistency after the orchestrator's edit
 
-`grep -n -i "nineteen\|seventeen" docs/tasks/RH-41-spec.md`:
+`grep -n -i "nineteen\|seventeen" docs/tasks/RH-40-spec.md`:
 
 - L54 "seventeen dynamic ones" - the 17 dynamic routes. Correct.
 - L95 "seventeen dynamic routes above, out of 28 app paths" - same. Correct.
@@ -5619,7 +5619,7 @@ an omission.
   The UI copy is therefore identical for the taken and the free case, which
   `src/components/profile/__tests__/EmailChangeSection.test.tsx` asserts.
 - **RH-36's `updateEmail leaves the user row untouched ...` atomicity case
-  (recorded as ER3(b) of `docs/tasks/RH-36-spec.md`) was removed, not
+  (recorded as ER3(b) of `docs/tasks/RH-35-spec.md`) was removed, not
   preserved.** The function it exercised no longer exists. The property it
   asserted - that the auth row and the profile row never disagree - is asserted
   more strongly by `src/lib/__tests__/emailChangeVerification.db.test.ts`, which
@@ -6157,7 +6157,7 @@ the hydration retry loop" — duplicated "the".
 ## Housekeeping
 
 Everything I started was stopped: no process holds port 3000, and
-`git status --short` shows only `?? docs/tasks/RH-72-spec.md`. Build/test byproducts
+`git status --short` shows only `?? docs/tasks/RH-71-spec.md`. Build/test byproducts
 landed in gitignored paths (`.next/`, `test-results/`, `playwright-report/`); logs
 were written to the session scratchpad, not the repo.
 
@@ -6375,7 +6375,7 @@ Design questions the dispatch raised:
 - **Scope.** One spec file, one four-line source edit, one config re-pin, one
   doc line. Single-PR sized; the "Out of Scope" section correctly fences RH-67
   through RH-71, the `MAX_OVERRIDES` constant and the F11 row.
-- **Whitelist** is a closed set and matches the house shape (`RH-72-spec.md:125-142`),
+- **Whitelist** is a closed set and matches the house shape (`RH-71-spec.md:125-142`),
   including `docs/suggestions-log.md` as permitted-not-required.
 - **Version.** `0.1.100-202609100006` -> `0.1.101-YYYYMMDDHHmm` satisfies
   AGENTS.md:479-481 ("must only ever go up"), and the spec pre-empts the
@@ -6900,7 +6900,7 @@ None.
 ## Notes on process
 
 `git status --short` at the end of this review shows only
-`?? docs/tasks/RH-71-spec.md`. The one probe I wrote (a copy of the `bd3c8cf`
+`?? docs/tasks/RH-70-spec.md`. The one probe I wrote (a copy of the `bd3c8cf`
 page) lives outside the repo, in the session scratchpad. No build was run; the
 manifest assertions were checked against the pre-existing `.next` build.
 
@@ -6953,7 +6953,7 @@ manifest assertions were checked against the pre-existing `.next` build.
 No probe file was written inside the repository; the three scratch page copies
 and the two scratch modules live in the session scratchpad. No build, no server
 and no Playwright run was started. `git status --short` shows only
-` M docs/suggestions-log.md` and `?? docs/tasks/RH-71-spec.md`.
+` M docs/suggestions-log.md` and `?? docs/tasks/RH-70-spec.md`.
 
 ## [RH-71] PlaylistDetailPage parte 6/6: Server Component, override apagado, F11 (spec review r3) — 2026-09-10
 
@@ -7472,7 +7472,7 @@ full-suite coverage gate passes.
 - **ER15 is the one result a QA agent holding only the list could misread.** It says
   `git diff --stat` for this task touches only four files, but the working tree
   carries unrelated changes from other tasks (`docs/suggestions-log.md` modified,
-  `docs/tasks/RH-73-spec.md` and `RH-74-spec.md` untracked). A QA agent running a bare
+  `docs/tasks/RH-72-spec.md` and `RH-73-spec.md` untracked). A QA agent running a bare
   `git diff --stat` would see `docs/suggestions-log.md` and fail it. Scoping the ER to
   the task's own commit (`git show --stat <commit>`) would remove the hazard. Carried
   forward as a suggestion rather than raised as blocking: the ER does say "for this
@@ -7512,7 +7512,7 @@ full-suite coverage gate passes.
 
 - The dev-server log during the e2e run emits a React hydration mismatch for `src/app/page.tsx:306` (`RepertoireDashboard`: server renders the `min-h-screen flex items-center justify-center bg-gray-50` loading shell, client renders the populated `flex flex-col h-full` header). `page.tsx` is untouched by this change and the suite is green, so this is pre-existing and out of scope, but it is the same class of first-render divergence RH-73 just removed from `AppLayout` and is worth a follow-up task.
 - The content wrapper is a `<div role="main">` rather than a `<main>` element. Semantically equivalent for AT, but a plain `<main>` with a conditional wrapper would avoid the role-vs-element split; the `role={undefined}` branch already reads a little indirect.
-- Staged alongside the RH-73 files are `docs/tasks/RH-74-spec.md` and `src/lib/scrollHost.ts` (comment-only rewording that follows from the `<main>` → `role="main"` change) and `docs/suggestions-log.md` is modified but unstaged. The scrollHost comment update is a legitimate consequence of this change; the RH-74 spec is unrelated to RH-73's expected results and, if it lands in this commit, the commit will carry a file no expected result covers. `docs/tasks/RH-53-spec.md` remains untracked and out of scope as noted.
+- Staged alongside the RH-73 files are `docs/tasks/RH-73-spec.md` and `src/lib/scrollHost.ts` (comment-only rewording that follows from the `<main>` → `role="main"` change) and `docs/suggestions-log.md` is modified but unstaged. The scrollHost comment update is a legitimate consequence of this change; the RH-74 spec is unrelated to RH-73's expected results and, if it lands in this commit, the commit will carry a file no expected result covers. `docs/tasks/RH-52-spec.md` remains untracked and out of scope as noted.
 
 
 ## [RH-52] Decompor PlaylistDetailPage — code review round 1 — 2026-09-15
@@ -7531,7 +7531,7 @@ full-suite coverage gate passes.
 
 ## [RH-52] Decompor PlaylistDetailPage — code review round 2 — 2026-09-15
 
-- The verification block at `docs/tasks/RH-53-spec.md:115-122` would be more
+- The verification block at `docs/tasks/RH-52-spec.md:115-122` would be more
   durable if the client-file line named the population rather than the tool, e.g.
   "files declaring `'use client'`, excluding `__tests__/` and `*.test.ts(x)`, per
   `serverOnlyModules`/`clientFiles` in `src/lib/__tests__/namingConventions.test.ts`
@@ -7921,7 +7921,7 @@ full-suite coverage gate passes.
 - **Correct the key order in ER4b's illustrative literal** to
   `{revision:"…",url:"…"}`, which is what esbuild actually emits.
 - **ER numbering / persistence.** The dispatch describes the current results as
-  "14, renumbered ER1–ER14", but `docs/tasks/RH-79-spec.md` still labels them
+  "14, renumbered ER1–ER14", but `docs/tasks/RH-78-spec.md` still labels them
   ER1–ER12 with `ER4b` and `ER5b` interleaved, and the RH-78 record in
   `.meridian/tasks.jsonl` carries no `expected_results` key at all. The spec is
   internally consistent under its own labels (§5's "which ER5 repeats verbatim"
@@ -7992,7 +7992,7 @@ full-suite coverage gate passes.
 
 ## [RH-79] Offline snapshot store and per-playlist download — 2026-09-20 (RH-79-spec_review-1.md)
 
-- **Mock/spec drift in the idle state.** `docs/tasks/RH-80-mock.html:138-142`
+- **Mock/spec drift in the idle state.** `docs/tasks/RH-79-mock.html:138-142`
   renders the idle control with a trailing `~48 MB` size estimate. §6 specifies
   idle as just "Available offline", and nothing in the data model gives a
   pre-download size (`repertoire_tabs` has no size column; `RepertoireTab` has no
@@ -8022,7 +8022,7 @@ full-suite coverage gate passes.
 ## [RH-79] Offline snapshot store and per-playlist download — 2026-09-20 (RH-79-spec_review-2.md)
 
 - **ER label drift between the spec file and the persisted list.** The
-  checkbox list in `docs/tasks/RH-80-spec.md:374-389` is labelled ER1, ER2,
+  checkbox list in `docs/tasks/RH-79-spec.md:374-389` is labelled ER1, ER2,
   ER2b, ER2c, ER3, ER3b, ER4 … ER13 (16 items), while the dispatch reports the
   persisted `expected_results` as renumbered ER1–ER16. The offsets line up
   exactly (spec ER3b = persisted ER6, spec ER7 = persisted ER10, spec ER10 =
@@ -8176,7 +8176,7 @@ full-suite coverage gate passes.
    !response.redirected` would make the intent explicit.
 
 4. **The spec's §4 still says "Add exactly one `runtimeCaching` entry"**
-   (`docs/tasks/RH-81-spec.md:152`) while the implementation adds two. The spec
+   (`docs/tasks/RH-80-spec.md:152`) while the implementation adds two. The spec
    file is itself part of this staged change, so the inconsistency ships. The
    `sw.ts` header documents the second entry thoroughly and the board's ER set
    does not contradict it, so this is editorial: amend §4 rather than change the
@@ -8559,7 +8559,7 @@ full-suite coverage gate passes.
 - **No ER covers the version bump** that the spec's *Files touched* section asks for ("Bump the app version per the release rule", AGENTS.md:497 — patch bump plus a `YYYYMMDDHHmm` suffix, monotonically increasing). ER10 covers lint/test/coverage only. If the bump is part of the deliverable, it belongs in the ER list; if it is left to commit time, the spec should not list it as a file change.
 - **The spec is silent about `src/lib/imageCompressor.ts`.** A second image pipeline already exists (client-side canvas, JPEG, 1024px, quality 0.8) and is used for band images via `useBandEdit.ts` / `BandsView.tsx`. Nothing in the new server-side path conflicts with it, but a reader of the finished code will ask why there are two. One sentence saying the client path stays as-is because it serves band avatars and runs in the browser, while tab ingest must be authoritative and server-side, would prevent a future "consolidate these" refactor from undoing the baked-rotation guarantee.
 - **ER9's second half is loosely specified.** "No image MIME type or image file extension appears anywhere in `src/components/fastview/TabUploadForm.tsx`" invites a crude substring grep that could trip on an unrelated word, or be written so permissively it asserts nothing. Naming the exact strings the test searches for (`image/`, `.jpg`, `.jpeg`, `.png`, `.webp`) makes the guard reproducible.
-- **Minor, convention-level:** the spec for board task RH-127 lives at `docs/tasks/RH-128-spec.md` (the project's id+1 filename offset), while the spec's own Out of Scope section refers to the sibling part 2 by board id RH-128. Both are internally correct, but a reader opening `RH-128-spec.md` to find RH-128 gets RH-127. Not this spec's fault and not actionable here.
+- **Minor, convention-level:** the spec for board task RH-127 lives at `docs/tasks/RH-127-spec.md` (the project's id+1 filename offset), while the spec's own Out of Scope section refers to the sibling part 2 by board id RH-128. Both are internally correct, but a reader opening `RH-127-spec.md` to find RH-128 gets RH-127. Not this spec's fault and not actionable here.
 
 ## [RH-127] Ingest uploaded images: decode, bake rotation, strip metadata, downscale — 2026-10-01
 
@@ -8845,7 +8845,7 @@ full-suite coverage gate passes.
   no implementation ambiguity.
 - ER9's final clause ("no query under `src/` coalesces `key`, `tuning`, `lyrics`
   or `map` across levels in SQL") duplicates RH-124's own ER8
-  (`docs/tasks/RH-125-spec.md:537`). Since RH-124 is in `blockedBy` the
+  (`docs/tasks/RH-124-spec.md:537`). Since RH-124 is in `blockedBy` the
   invariant already holds when this task starts; re-asserting it here is
   harmless but means a QA failure could point at code this task never touched.
 - ER11's closing clause ("no identifier under those two modules names a song id
@@ -9183,7 +9183,7 @@ None.
   task" and ER8 only asserts the names survive, so this is spec-compliant and I did not
   treat it as a finding — but it is a small discoverability regression worth a follow-up
   if operators ask why the notes are dead.
-- `docs/tasks/RH-103-mock.html` (ER14) is untracked, so the commit as staged will not
+- `docs/tasks/RH-102-mock.html` (ER14) is untracked, so the commit as staged will not
   carry the mock the spec requires to exist. Out of scope for this review per the
   dispatch, but flagging it so the staging step is deliberate.
 
@@ -9577,7 +9577,7 @@ are defects in a shipped diff; they are drift and gate conditions worth recordin
    `max-params: 5` override already permits": RH-123 **deleted** that override, `createTab`
    now sits at exactly 4 parameters — the global ceiling — and the ratchet may only shrink,
    so a fifth positional parameter would have failed `complexityBudget.test.ts` with no
-   legal remedy. `docs/tasks/RH-128-spec.md` now carries a "Drift corrections" section and a
+   legal remedy. `docs/tasks/RH-127-spec.md` now carries a "Drift corrections" section and a
    new ER13 requiring a single `CreateSongFilePayload` object instead. **The general lesson
    stands and is worth a process note:** a spec that names a parameter count, a migration
    number, an override ceiling or a table name is asserting something about a tree it was
@@ -9669,7 +9669,7 @@ are defects in a shipped diff; they are drift and gate conditions worth recordin
    should expect to extract something first.
 10. **The Landing Page Rule was not exercised, and the decision is now recorded as "no".**
     AGENTS.md requires each spec to *decide* whether a shipped user-facing feature is a
-    selling point; `docs/tasks/RH-126-spec.md` makes no such decision, and "your setlist can
+    selling point; `docs/tasks/RH-125-spec.md` makes no such decision, and "your setlist can
     hold the studio take *and* the live take of the same song" is a plausible candidate.
     Decided: **not a selling point yet.** A musician cannot deliberately exploit it until the
     add flow lets them choose a version (RH-112, with RH-109 doing version-aware
@@ -9867,7 +9867,7 @@ Non-blocking suggestions from spec review round 1:
 
 ## [RH-139] Roll back the repertoire rows a failed Spotify sync leaves behind — 2026-10-12
 - ER6 bundles three assertions: fails pre-change, passes post-change, and the suite and lint pass. Consider splitting it if QA wants cleaner pass/fail granularity.
-- The spec file is RH-140-spec.md (board id + 1), and its title says RH-139. That matches the repo convention and is explained in the file.
+- The spec file is RH-139-spec.md (board id + 1), and its title says RH-139. That matches the repo convention and is explained in the file.
 
 ## [RH-138] Make a links correction act per link row, not per whole array — 2026-10-12
 - Add one sentence to the spec saying the operator's answer fixes A or B, and drop the "If B" branch afterwards.
@@ -9895,7 +9895,7 @@ Non-blocking suggestions from spec review round 1:
 - The grounding line references (the Spotify scopes at authorize/route.ts:33-38, etc.) were not re-verified. Re-check them when the chosen reading is specified.
 
 ## [RH-150] Add a grouped card to the playlist picker — 2026-10-12
-- The spec H1 reads "RH-150" while the file is RH-151-spec.md. This follows the board id + 1 filename convention, so it is fine, but the first line already explains it.
+- The spec H1 reads "RH-150" while the file is RH-150-spec.md. This follows the board id + 1 filename convention, so it is fine, but the first line already explains it.
 - ER4 "styled above the others" is only checkable through the test criterion "no version line differs in class or marker". Keep that assertion in the test.
 - ER7 can be verified with a grep for "In catalog" under src/components/. Consider adding it as a test or lint step.
 
@@ -9922,7 +9922,7 @@ Non-blocking suggestions from spec review round 1:
 - ER6 asserts two things in one line (diff changed, and no other path in docs/plans). It is still mechanical, so this is non-blocking. Consider splitting it if the results list needs trimming.
 
 ## [RH-116] Download individual songs for offline, not only playlists — 2026-10-12
-- The mock `docs/tasks/RH-117-mock.html` was not reviewed. Confirm it matches the states the spec describes.
+- The mock `docs/tasks/RH-116-mock.html` was not reviewed. Confirm it matches the states the spec describes.
 - State where the shared capture module lives (for example `src/lib/offlineCapture.ts`, taking ports as parameters). The spec leaves it open, and that is an implementable-two-ways risk, though the import-direction constraint bounds it.
 - ER7 still pairs two states; splitting it would be tidier, but it is not blocking.
 - The "personal vs band-context ids differ" check appears in the Test criteria but in no ER. That is fine as a gate.
@@ -10008,7 +10008,7 @@ Non-blocking suggestions from spec review round 1:
 
 ## [RH-151] Move the dashboard onto the grouped card — 2026-10-12
 - ER 2 and ER 6 each bundle two assertions (absence of identifiers plus file deletion; three ratchet values plus lint); acceptable but could be split.
-- The spec header line says the spec file is RH-152-spec.md while the file is RH-151-dashboard-spec.md; tidy to avoid confusion.
+- The spec header line says the spec file is RH-152-spec.md while the file is RH-151-spec.md; tidy to avoid confusion.
 - SongGroupCard lives under components/playlists; the dashboard importing it across folders is fine but consider noting it.
 
 ## [RH-154] Add admin catalog data layer: blast radius, merge versions, delete — 2026-10-12
@@ -10033,3 +10033,10 @@ Non-blocking suggestions from spec review round 1:
 ## [RH-158] Add batch practice write and per-song Practised button — 2026-10-13
 - Code review: `src/hooks/usePlaylistDetail.ts` line 3: `useSongPicker,type SongPickerActions` is missing a space after the comma (formatting nit).
 - Code review: the `reorderCommands({...})` call in `usePlaylistDetail.ts` was collapsed onto one line in an otherwise unrelated change; consider reverting it to keep the diff focused.
+
+## [RH-143] Drop songs.links and the forward bridge trigger — 2026-10-13
+- Code review: the AGENTS.md paragraph and the seed header say "0024", matching the actual file. The spec still says 0025, so the spec could be reconciled.
+
+## [RH-144] Decide which version an add holds when the song already exists — 2026-10-13
+- Code review: `src/lib/ownerSongs.ts` lines 96-101: the `addRowSql` docblock wrapping is awkward and the signature line is long; the inline `// RH-144` comment near line 385 could be dropped.
+- Code review: `songId` returned by `resolveCatalogSongForAdd` is now unused by its only caller; could be trimmed (YAGNI).
