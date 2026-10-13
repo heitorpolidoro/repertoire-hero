@@ -613,7 +613,7 @@ already exists and already hides the drawing controls — it just does not hide 
 
 **Steps**
 
-1. query the catalog and Spotify in parallel, debounced
+1. query the catalog and Spotify in parallel, debounced (RH-113: the catalog side is a case-insensitive substring match on title or artist served by trigram indexes, `%` and `_` literal, ranked exact title, then title prefix, then similarity, capped at 20 songs)
 2. merge both into one list, grouped by `(lower(split title), lower(artist))`
 3. each group is one card, showing one representative version
 4. expanding a card lists every version it has

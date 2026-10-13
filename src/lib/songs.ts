@@ -71,20 +71,33 @@ const SONG_VERSIONS_AGGREGATE = `COALESCE((
  * and `YYYY-MM` prefixes. And the `LIMIT 20` still counts **songs**: limiting
  * versions first and grouping after would drop whole songs from the results
  * depending on how many versions the earlier ones happened to have.
+ *
+ * RH-113: the substring predicate is served by the GIN trigram indexes of
+ * migration 0026 (a query under three characters has no trigrams and falls
+ * back to a scan, still correct). `%`, `_` and `\` in the user's text are
+ * escaped so they match literally. Results are ordered by relevance: exact
+ * title, then title prefix, then the best trigram similarity of title or
+ * artist, then title and id as a stable tie-break. The cap stays 20 **songs**
+ * with no pagination: with relevance order the 20 returned are the best 20,
+ * which is what a type-ahead box needs.
  */
 export async function searchSongs(queryStr: string): Promise<CatalogSearchResult[]> {
   const trimmed = queryStr.trim()
   if (!trimmed) return []
+  const escaped = trimmed.replace(/[\\%_]/g, '\\$&')
   const sql = `
     SELECT s.*, ${representativeVersionSubquery('s.id')} AS version_id,
            ${SONG_VERSIONS_AGGREGATE} AS versions
     FROM songs s
     WHERE s.title ILIKE $1 OR s.artist ILIKE $1
-    ORDER BY s.title ASC
+    ORDER BY lower(s.title) = lower($2) DESC,
+             s.title ILIKE $3 DESC,
+             GREATEST(similarity(s.title, $2), similarity(s.artist, $2)) DESC,
+             s.title ASC, s.id ASC
     LIMIT 20
   `
   try {
-    const res = await query<CatalogSearchResult>(sql, [`%${trimmed}%`])
+    const res = await query<CatalogSearchResult>(sql, [`%${escaped}%`, trimmed, `${escaped}%`])
     return res.rows
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))

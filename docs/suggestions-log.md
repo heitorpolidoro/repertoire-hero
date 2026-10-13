@@ -10215,3 +10215,8 @@ Non-blocking suggestions from QA round 1:
 - (code review) `firstTrackUri` takes the first link that yields a track uri, not only a link labelled Spotify; the spec says "the song's own Spotify link", so confirm this is intended.
 - (code review) `playback-token/route.ts` calls Spotify `/me` on every mount of a song page with a track link; caching the Premium flag briefly would cut those calls.
 - (code review) `spotifyWebPlayback.ts` keeps a module-level `deviceId` singleton; the 401 path is covered but the SDK `account_error` path is not.
+
+## [RH-113] Make catalog search use an index and rank its results — 2026-10-13
+
+- (code review) The spec named `songs.test.ts` and `catalogVersions.db.test.ts` as the test locations; new sibling files are used instead. This is acceptable.
+- (code review) Because the ER2 test sets `enable_seqscan = off`, it proves the index is usable rather than chosen by the planner on real data. This is acceptable per the spec.
