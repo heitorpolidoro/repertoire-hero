@@ -1,277 +1,216 @@
-# RH-75 (board id RH-74) — Integration close-out for the Supabase removal and the poli-runner compose adoption
+# RH-75 — Purge Supabase from application code, tests and dependencies
 
-Parent task of RH-75 and RH-76 (board ids), both `done`:
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
 
-- board RH-75 (`ef525f5`) purged the vendor from `src/`, the vitest suite, `package.json`,
-  CI and the config/doc files, and renamed the DB-test gate
-  `SUPABASE_SERVICE_ROLE_KEY` → `RUN_DB_TESTS`.
-- board RH-76 (`47f32f2`) replaced the ten-service vendor compose stack with a profiled
-  `postgres` + profile-less `app`, added `poli-runner.yml`, deleted `supabase/`,
-  `docker/kong.yml` and the docker env templates, moved the seed catalogue to
-  `scripts/seed-catalog.sql`, and made `.env.example` a tracked template.
 
-**Numbering note.** This repository's spec filenames run one ahead of the board id:
-board `RH-74` → `docs/tasks/RH-75-spec.md` (this file), board `RH-75` owns
-`docs/tasks/RH-76-spec.md`, board `RH-76` owns `docs/tasks/RH-77-spec.md`. The commit
-scope is the board id: `docs(RH-74): ...`. This is the same divergence
-`docs/tasks/RH-53-spec.md` records for its own split.
+> **Filename mapping.** This repository's spec filenames run one ahead of the
+> board id: this file, `docs/tasks/RH-75-spec.md`, is the spec for board task
+> **RH-75**. (`docs/tasks/RH-75-spec.previous.md` belongs to board RH-74, which was split
+> into RH-75 and RH-76 and therefore has no spec of its own.)
 
 ## Scope
 
-Both children landed the whole removal. What is left is the close-out, in the shape
-RH-53 used: **verify the delivered state mechanically, re-state the two expected
-results that were written wrong, and repair the handful of tracked documents that
-still describe the current architecture incorrectly.**
+Part 1 of the RH-74 split. Removes every trace of Supabase from the application
+source, the vitest suite, the npm dependency tree and the CI/doc wording that
+names it. The app has not talked to Supabase since the Better Auth migration;
+what remains is a fake Supabase client used as a query builder by the DB-backed
+tests, a globally-registered `vi.mock` for a package nothing imports, a set of
+`vi.mock` calls aimed at `@/lib/supabase/*` modules that do not exist, and an
+env var named after a Supabase credential that is really just the
+"a database is present, run the DB suites" switch.
 
-This task changes **nothing** under `src/`, `e2e/`, `migrations/`, `scripts/`,
-`docker/`, `docker-compose.yml`, `poli-runner.yml`, `.env.example` or
-`eslint.config.mjs`. If verification finds a real defect, that is a new task, not a
-fix here. The only files it writes are documentation plus the `package.json` version
-bump.
+**Not covered — RH-76 (part 2) owns the docker stack.** Do not touch
+`docker-compose.yml`, `docker/kong.yml`, `docker/supabase.env.example`,
+`docker/app.env.example`, `docker/init-migrations.sh`, the `supabase/`
+directory, or `poli-runner.yml`. Those still define a working local
+Supabase-flavoured Postgres stack and removing half of it breaks it.
+
+### The `.env.example` boundary (both tasks touch it)
+
+`.env.example` and `.env.local.example` are root developer templates, not docker
+templates, so **this task removes every Supabase key they contain** and RH-76
+leaves both files alone:
+
+| File | Removed by **this** task | Left for RH-76 |
+|---|---|---|
+| `.env.example` | lines 1–7: the `# Supabase — get these from …` header, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, the `# Service role key …` / `# Find it at: Supabase dashboard …` comment pair, and `SUPABASE_SERVICE_ROLE_KEY` (replaced by a **commented-out** `# RUN_DB_TESTS=1` line under a test-setup comment — see Decision 1 for why it must not ship as an assigned-but-empty `RUN_DB_TESTS=`) | nothing |
+| `.env.local.example` | lines 1–2: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | nothing |
+| `docker/app.env.example`, `docker/supabase.env.example` | nothing | everything |
+
+## Decisions the implementer does not get to make
+
+### 1. The DB-test gate is renamed to `RUN_DB_TESTS`
+
+`SUPABASE_SERVICE_ROLE_KEY` never holds a service-role key here — CI sets it to
+the literal `"ci-integration-tests-enabled"`. It is an opt-in switch, so it gets
+a switch's name: `RUN_DB_TESTS`. The name matches the existing `*.db.test.ts`
+file convention, and because it is not credential-shaped it needs no
+`# pragma: allowlist secret` and produces no secret-scanner noise. The local
+constant in each file (`SERVICE_ROLE_KEY`, and the exported
+`SERVICE_ROLE_KEY` in `src/app/actions/__tests__/authzFixtures.ts`) is renamed
+to `RUN_DB_TESTS` with it; the gate stays truthiness-based
+(`describe.skipIf(!RUN_DB_TESTS)`), so `RUN_DB_TESTS=1` enables it.
+
+**What happens to an environment that still exports only the old name.** There
+is no compatibility shim and there cannot be one: ER5 and ER6 forbid the old
+name and the word "supabase" from appearing anywhere under `src/`, `.github/`
+or `vitest.config.ts`, so nothing in the repo may read it or warn about it by
+name. Such an environment therefore behaves exactly like an environment with no
+gate at all — the DB suites skip. To stop that being a *silent* coverage loss,
+`vitest.config.ts` gains a one-line warning printed after it loads `.env.local`,
+whenever `RUN_DB_TESTS` is **falsy** — i.e. unset **or** set to the empty
+string:
+
+> `[vitest] RUN_DB_TESTS is not set — database-backed suites will skip. See AGENTS.md.`
+
+**The banner condition must be `!process.env.RUN_DB_TESTS`, not
+`=== undefined`.** The two are not equivalent here. `vitest.config.ts`'s
+`loadEnv` assigns `process.env[key] = ''` for any `KEY=` line it reads, so a
+developer who runs the ordinary `cp .env.example .env.local` would end up with
+the variable *set and falsy*: `describe.skipIf(!RUN_DB_TESTS)` skips the DB
+suites while an `=== undefined` banner stays silent — exactly the failure mode
+the banner exists to prevent. For the same reason `.env.example` ships the line
+**commented out** (`# RUN_DB_TESTS=1`), so the copy leaves the variable genuinely
+unset; the banner's falsy test is the belt to that suspenders.
+
+The banner names no old variable, fires for the stale developer and the
+never-had-a-database developer alike, and is the only new runtime behaviour this
+task adds. CI cannot regress this way: `.github/workflows/ci.yml` is updated to
+set `RUN_DB_TESTS` in the same commit that renames the reads.
+
+### 2. `migrations/0001_initial_schema.sql` — the comment edit is safe
+
+`scripts/migrate.mjs` records applied migrations in `_migrations` **by filename
+only** (`SELECT 1 FROM _migrations WHERE name = $1` / `INSERT INTO _migrations
+(name)`); there is no checksum, hash or content comparison anywhere in the
+runner. The edit is confined to the `--` header comment on line 4 ("No RLS or
+Supabase-specific dependencies."), which Postgres never executes. A database
+that already applied `0001` skips it by name regardless of content; a fresh
+database runs identical DDL. The change is therefore in scope, and the test
+criterion below pins it to comment lines.
 
 ## Approach
 
-### Behavior
+### Behavior required
 
-**1. Verify the eight already-delivered results, with no source edits.** Each is a
-command, listed under *Test criteria*. Two of the parent's ten are restated below
-because they are not true as written.
-
-**2. ER1's grep is restated over tracked files, as RH-76's ER8 already is.** Measured
-at `47f32f2`: `git ls-files -z | xargs -0 grep -ril supabase`, minus `docs/` and
-`package-lock.json`, yields exactly `src/lib/__tests__/migrationsSingleSource.test.ts`
-— the guardrail asserting `supabase/migrations/` never reappears, which must be kept.
-A literal untracked `grep -ril supabase .` additionally matches `./.env`,
-`./.env.local`, `./.env.development.local`, `./.env.production.local`,
-`./tsconfig.tsbuildinfo` and `./.claude/settings.local.json`. Those are the
-maintainer's real credentials, a TypeScript build cache and the machine owner's local
-Claude Code permission file: **none of them may be read into the repo, edited or
-deleted by this task**, as RH-76's spec review established. `docs/` is excluded
-because historical specs and audits legitimately describe what the codebase *was*
-(see step 4 for the exceptions).
-
-**3. ER10 is wrong as written and is replaced by two separate criteria.**
-
-- *Lint.* `npm run lint` does **not** exit 0 in this repository and did not before any
-  of this work. Baseline measured at `47f32f2`: **8 errors, 12 warnings, 20 messages
-  across 14 distinct (file, rule) pairs**, all `react-hooks/set-state-in-effect`,
-  `@next/next/no-html-link-for-pages` and `@typescript-eslint/no-unused-vars`. The
-  criterion is *introduces no new problem*: identical counts and identical (file,
-  rule) pairs, warnings counted as well as errors. Fixing those 20 is application
-  behaviour work and is out of scope (below), exactly as it was for board RH-75 and
-  RH-76.
-- *Tests.* The suite must be run with the database gate **on**. With `RUN_DB_TESTS`
-  unset it reports 110 files passed / 15 skipped and still exits 0 — a green run that
-  proves nothing. The criterion therefore requires `RUN_DB_TESTS=1` and **zero skipped
-  files**; a skipping run fails it. *Which Postgres:* `vitest.config.ts` sets
-  `DATABASE_URL` to `postgresql://postgres:postgres@127.0.0.1:54322/postgres` when the
-  variable is unset, and 54322 is held by the maintainer's Homebrew Postgres (measured
-  at HEAD), so that is the instance the run hits; it must already carry the migrations
-  (`npm run seed` in the criteria below runs against the same URL). *How the gate is
-  confirmed genuinely on:* `vitest.config.ts` calls `loadEnv('.env.local')` and
-  `loadEnv('.env.development.local')`, both of which **overwrite** `process.env`, so a
-  bare `RUN_DB_TESTS=` line in either file silently defeats a shell-level
-  `RUN_DB_TESTS=1`. The proof is therefore the run's own output, not the shell
-  invocation: the line `[vitest] RUN_DB_TESTS is not set` must be **absent** and the
-  summary must report 0 skipped files. If that warning appears despite
-  `RUN_DB_TESTS=1`, the local env file is overriding it — that is a real defect and a
-  new task, per the Scope rule above. It is **not** licence to edit `.env.local`.
-
-**4. Repair the tracked documents that state the *current* architecture wrongly.**
-These four are the only real remaining work found; each gains an addendum in the
-style the file already uses, and no historical measurement is rewritten:
-
-- `docs/plans/code-quality-review.md`, "Environment preconditions" (~line 20) — names
-  `SUPABASE_SERVICE_ROLE_KEY` as the precondition for re-running the review's
-  commands. The document opens by promising "Every claim below is traceable to a
-  command anyone can re-run", so this is a live instruction, not a measurement.
-  Append one sentence recording that RH-75 renamed the gate to `RUN_DB_TESTS`, so a
-  re-run today uses `RUN_DB_TESTS=1`. The pinned `13da8b2` measurements stay
-  untouched.
-- `docs/test-coverage-plan.md`, superseded banner (~line 19) — points readers at
-  AGENTS.md for "the live-Postgres + `SUPABASE_SERVICE_ROLE_KEY` precondition". That
-  is a forward pointer to the *live* rule and is now wrong; replace the variable name
-  with `RUN_DB_TESTS` in that pointer only. The banner's item 1 (the exclusion table
-  still lists `src/lib/supabase/**`) is a correct statement of the document's own
-  staleness and stays verbatim.
-- `docs/plans/mobile-app-analysis.md` §1.2 (~line 48) — claims `NEXT_PUBLIC_SUPABASE_*`
-  entries are "still sitting in `.env.example`" and `@supabase/*` packages "still in
-  `package.json`". Both are now false. Extend the existing `> **Correction note
-  (RH-43, 2026-09-09).**` block, or add a sibling correction note, recording that
-  RH-75/RH-76 removed them; leave the snapshot prose itself standing.
-- `docs/security-audit.md` — dated 2026-05-13, scoped to "Supabase RLS policies" and
-  reviewing files that no longer exist (`supabase/migrations/…`, `src/middleware.ts`).
-  It is a historical record, but an undated reader could take it as a statement that
-  RLS protects this app today. Add **one** banner block immediately under the title
-  saying the audited architecture was removed by RH-75/RH-76, that the app now runs on
-  plain Postgres + Better Auth with no RLS layer, and that the findings are kept as a
-  record. Do not edit any finding.
-
-**Left untouched, deliberately** (historical records of what the codebase was):
-`docs/superpowers/**`, every `docs/tasks/RH-*-spec.md`, `docs/suggestions-log.md`, and
-the body of the four files above.
-
-**5. README.md — a discretionary addition, not a repair.** It fails step 4's criterion
-for what earns an edit: it is still create-next-app boilerplate, it mentions no vendor
-and it states nothing false. It is added to anyway because it is the only human-facing setup document and it says
-nothing about the convention RH-76 introduced, where `cp .env.example .env` is step one
-for everyone. Add **one** `## Local development` section — `cp .env.example .env`,
-`COMPOSE_PROFILES=standalone POSTGRES_PORT=54323 docker compose up -d --wait` (inline
-override, since 54322 is commonly taken),
-`poli-runner start repertoire_hero` for the shared-Postgres mode, `npm run seed`, and
-`RUN_DB_TESTS=1` for the full suite. Do not rewrite or delete the existing boilerplate
-sections. This is the one judgement call in the task; it is bounded to that section.
-
-**6. AGENTS.md.** Measured at `47f32f2` it is already accurate: it documents the
-two-service compose with both `COMPOSE_PROFILES` modes, `poli-runner.yml`,
-`scripts/seed-catalog.sql`, `scripts/ensure-db.sh`, the `RUN_DB_TESTS` gate and the
-one-tracked-match grep, and contains the vendor's name zero times. Verify, do not
-rewrite. If verification shows it accurate, its expected result is satisfied by the
-greps below with no diff.
-
-**7. Version bump** in `package.json` per the AGENTS.md rule.
+1. `@supabase/supabase-js` is gone from the dependency tree; nothing under
+   `src/` imports it, mocks it, or imitates its client shape.
+2. The DB-backed test suites keep running, against the same Postgres, gated on
+   `RUN_DB_TESTS`, with no test removed and no `it()` deleted.
+3. `src/lib/__tests__/test-helpers.ts` no longer ships a fake Supabase client.
+   `createAdminTestClient` and the private `SupabaseMockChain` /
+   `SupabaseMockClient` classes are deleted; the four user helpers
+   (`createTestUser`, `deleteTestUser`, `createTestUserWithGoTrue`,
+   `deleteTestUserWithGoTrue`) lose their now-meaningless first `admin`
+   parameter — they already ignore it and write through `query()` — and every
+   call site drops the argument and the `const admin = createAdminTestClient()`
+   line. The other exports of that file (`stripComments`, `listSourceFiles`,
+   `findViolations`, `formatViolations`) are untouched.
+4. The 59 fluent `admin.from(table).select()/.insert()/.update()/.delete()`
+   chains that the fake client translated into SQL become direct parameterized
+   `query()` calls, following the repo's no-ORM rule: 43 in
+   `src/lib/__tests__/spotify.test.ts`, 13 in `src/lib/__tests__/playlists.test.ts`,
+   2 in `src/lib/__tests__/songs.test.ts`, 1 in
+   `src/app/actions/__tests__/authzTabs.db.test.ts`. Do **not** introduce a
+   replacement generic table helper — that would rebuild the same mini-ORM under
+   a new name. Assertions of the form `expect(insertErr).toBeNull()` disappear
+   with the `{ data, error }` envelope: `query()` throws on failure, which fails
+   the test more loudly than the assertion did.
+5. `src/lib/__tests__/spotify.test.ts` additionally loses its
+   `createOriginalClient` import, `mockTestClient`, `activeServerClient`, the
+   three dead `vi.mock('@/lib/supabase/{server,admin,client}')` calls, and the
+   `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` reads. Its gate
+   becomes `!RUN_DB_TESTS` alone (the `|| !ANON_KEY` term goes). The
+   `mockTestClient.auth.signInWithPassword(...)` / `signOut()` calls are deleted
+   rather than re-stubbed: the fake returned a canned `{ error: null }` and the
+   code under test resolves identity through the mocked `@/lib/auth-session`,
+   so the calls assert nothing. They sit inside existing `it()` bodies, so the
+   file's **12 tests must still be 12 and still pass**.
+6. Remaining Supabase wording — a production comment, two `describe` titles,
+   file headers, config comments and docs — is reworded to say what the code
+   actually does. Renaming a `describe` title changes no test count.
+7. `AGENTS.md` stops describing `NEXT_PUBLIC_SUPABASE_*` as live leftovers while
+   **keeping** the clause about the `supabase/` directory and the docker stack,
+   which is still true until RH-76 lands.
 
 ### Files touched
 
-- `docs/tasks/RH-75-spec.md` — this spec (new).
-- `docs/plans/code-quality-review.md` — one appended sentence in Environment preconditions.
-- `docs/test-coverage-plan.md` — one variable name in the banner's live-rule pointer.
-- `docs/plans/mobile-app-analysis.md` — one correction-note sentence for §1.2.
-- `docs/security-audit.md` — one historical banner block under the title.
-- `README.md` — one new `## Local development` section.
-- `package.json` — version bump.
+**Dependency**
+- `package.json` — drop `@supabase/supabase-js` from `dependencies`; bump `version` per the AGENTS.md version rule.
+- `package-lock.json` — regenerated by `npm install`; the `node_modules/@supabase/supabase-js` entry and its transitive-only deps disappear.
+
+**Test harness**
+- `src/lib/__tests__/setup.ts` — delete the `vi.mock('@supabase/supabase-js')` block and the `createAdminTestClient` import. If the file ends up empty, keep it as a comment-only module (it is `vitest.config.ts`'s `setupFiles` entry) or delete it and the `setupFiles` line together — either is acceptable; do not leave a dangling reference.
+- `src/lib/__tests__/test-helpers.ts` — delete both mock classes and `createAdminTestClient`; drop the `admin` parameter from the four user helpers.
+
+**Gate rename + call-site cleanup** (all read the env or the fixture const today)
+- `src/app/actions/__tests__/authzFixtures.ts` — export `RUN_DB_TESTS`.
+- `src/app/actions/__tests__/authzBands.db.test.ts`, `authzPlaylists.db.test.ts`, `authzRepertoire.db.test.ts`, `authzTabs.db.test.ts` — import/`skipIf` the new name; drop `admin`.
+- `src/lib/__tests__/bands.test.ts` — rename the gate, drop `admin`, delete `vi.mock("@/lib/supabase/admin")`.
+- `src/lib/__tests__/playlists.test.ts`, `profile.test.ts` — same, plus convert their `.from()` chains (playlists) to `query()`.
+- `src/lib/__tests__/songs.test.ts` — same, plus the "local running Supabase instance" header comment.
+- `src/lib/__tests__/joinBandByInvite.test.ts`, `emailChangeVerification.db.test.ts`, `moderationPayload.db.test.ts`, `transactionAtomicity.db.test.ts`, `spotifySyncAtomicity.db.test.ts`, `spotifyPlaylistRouteAuthz.db.test.ts` — rename the gate; drop `admin` where present.
+- `src/lib/__tests__/spotify.test.ts` — the full rewrite described in behavior 4–5.
+
+**Wording**
+- `src/app/api/auth/spotify/callback/route.ts` — line 19 comment: "upserts the token row in Supabase" → in Postgres.
+- `src/lib/__tests__/errors.test.ts` — `describe("Supabase Error Handling")` → a data-layer title.
+- `src/lib/__tests__/edge_cases.test.ts` — `describe('Supabase Edge Cases')` → a data-layer title.
+- `sonar-project.properties` — drop the non-existent `src/lib/supabase/**` path from `sonar.coverage.exclusions`.
+- `vitest.config.ts` — reword the port-54322 comment (keep the default value unchanged) and add the `RUN_DB_TESTS` banner.
+- `migrations/0001_initial_schema.sql` — line 4 comment only.
+- `.env.example`, `.env.local.example` — per the boundary table above.
+- `plan.md`, `tasks.md` — replace the Supabase-era descriptions with the Postgres/Better Auth reality; these are historical planning docs, so rewording in place (not deleting the entries) is what is wanted.
+- `.github/workflows/ci.yml` — the coverage job's explanatory comment near line 107 and the env at line 129 become `RUN_DB_TESTS: "1"` (drop the `# pragma: allowlist secret`).
+- `AGENTS.md` — line 59 (drop the `NEXT_PUBLIC_SUPABASE_*` clause, keep the `supabase/` directory clause) and line 94 (the gate's new name).
+
+**Not touched:** `src/lib/__tests__/migrationsSingleSource.test.ts`. It names
+`supabase/migrations/` on purpose, as the guardrail that the directory never
+reappears, and it must survive this task verbatim.
 
 ### Test criteria
 
-No new tests; the existing suites and the commands below are the verification. The
-developer records each command's output in the PR body. Ports 54321, 54322, 55432,
-3001, 8001, 4444 and 27017 are occupied on the maintainer's machine, and the compose
-default is `${POSTGRES_PORT:-54322}`, so the standalone check collides with the
-Homebrew Postgres on 54322. The port must be redirected to 54323 (free, measured at
-HEAD; RH-76's spec names the same port) **by inline shell override only**:
-
-    COMPOSE_PROFILES=standalone POSTGRES_PORT=54323 docker compose up -d --wait
-
-This works because shell environment beats `.env` in Compose interpolation. Editing
-`.env` — or any of the six protected files — is forbidden outright (see Out of Scope);
-there is no "for the duration of the check" exemption.
-
-```bash
-git ls-files -z | xargs -0 grep -ril supabase | grep -v '^docs/' | grep -v package-lock.json
-grep -c '@supabase' package.json ; npm ls @supabase/supabase-js
-ls src/lib/supabase supabase docker/kong.yml docker/supabase.env.example 2>&1
-ls src/lib/__tests__/setup.ts 2>&1   # must report No such file or directory (RH-75 deleted it)
-grep -rn "supabase" src/lib/__tests__/bands.test.ts src/lib/__tests__/spotify.test.ts ; echo "exit=$?"
-npm run seed
-COMPOSE_PROFILES=standalone docker compose config --services
-docker compose config --services   # no profile: app only
-COMPOSE_PROFILES=standalone POSTGRES_PORT=54323 docker compose up -d --wait \
-  && curl -o /dev/null -w '%{http_code}\n' http://localhost:3000/
-poli-runner start repertoire_hero && curl -o /dev/null -w '%{http_code}\n' http://localhost:3000/
-RUN_DB_TESTS=1 npx vitest run
-npx eslint -f json > /tmp/lint.json   # count severities and (file, rule) pairs
-git diff --stat
-# ER17 protected-file guard: the six files are gitignored, so `git status --porcelain`
-# can never report them. Hash them before and after the whole task instead:
-shasum -a 256 .env .env.local .env.development.local .env.production.local \
-  tsconfig.tsbuildinfo .claude/settings.local.json
-```
+- `npx vitest run` reports **≥ 125 test files passed and ≥ 1426 tests passed,
+  with 0 skipped** (measured baseline on a clean tree at `583021c`, with a live
+  Postgres on `127.0.0.1:54322` and the gate enabled: `125 passed (125)` /
+  `1426 passed (1426)`, no skipped line).
+  **Counting the parenthesised totals is not enough.** `describe.skipIf` does
+  not remove a suite from vitest's totals — a fully skipped file still counts as
+  a test file and its tests still count, reported as `N skipped (N)`, and the
+  run still exits 0. A rename that lands on a variable name nothing in the
+  environment sets would therefore satisfy any bare "≥ 125 files / ≥ 1426 tests"
+  check while the entire DB coverage is gone. The **passed** and **skipped**
+  numbers are what discriminates, so read those.
+- `npx vitest run src/lib/__tests__/spotify.test.ts` → 12 passed, 0 skipped
+  (baseline: 12 passed).
+- With the gate unset — and, separately, with it set to the empty string — the
+  run still exits 0 and prints the new banner in both cases.
+- `npm run lint` exits 0; `npm run lint:dead` (knip) reports no unused
+  dependency and no unused export left behind by the harness removal.
+- `git diff migrations/0001_initial_schema.sql` shows only lines beginning with
+  `--`.
+- `git diff --stat` lists no file under `docker/`, `supabase/`, nor
+  `docker-compose.yml` or `poli-runner.yml`.
 
 ## Expected Results
 
-- [ ] `git ls-files -z | xargs -0 grep -ril supabase | grep -v '^docs/' | grep -v package-lock.json`
-      prints exactly `src/lib/__tests__/migrationsSingleSource.test.ts`, that file still
-      exists, and `npx vitest run src/lib/__tests__/migrationsSingleSource.test.ts` passes.
-- [ ] `grep -c '@supabase' package.json` prints `0` and `npm ls @supabase/supabase-js`
-      reports the package absent (`(empty)`).
-- [ ] `src/lib/supabase/` and `supabase/` do not exist, and `src/lib/__tests__/setup.ts`
-      no longer exists either (RH-75 deleted it; `vitest.config.ts` declares no
-      `setupFiles`). `grep -rn "supabase" src/lib/__tests__/bands.test.ts src/lib/__tests__/spotify.test.ts`
-      prints nothing **and exits 1** (no match), not 2 (missing file) — no
-      `vi.mock('@supabase/supabase-js')`, no `vi.mock('@/lib/supabase/admin')`, no
-      `NEXT_PUBLIC_SUPABASE_*` read.
-- [ ] `docker/kong.yml` and `docker/supabase.env.example` do not exist,
-      `scripts/seed-catalog.sql` does, and `npm run seed` exits 0 against a live
-      migrated Postgres.
-- [ ] `COMPOSE_PROFILES=standalone docker compose config --services` prints exactly
-      `postgres` and `app` (without the profile it prints `app` only — the parenthetical
-      is part of the result);
-      `postgres` carries `profiles: [standalone]`, `app` carries no profile, and its
-      `depends_on.postgres` carries `required: false`.
-- [ ] `.env.example` is tracked (`git ls-files .env.example` prints it) and sets
-      `COMPOSE_PROFILES`, `POSTGRES_URL`, `POSTGRES_PORT` and `DATABASE_URL`, with no
-      secret slot carrying a value.
-- [ ] `poli-runner.yml` declares `depends_on: [postgres]` and an
-      `integrations.postgres.local` scenario setting `COMPOSE_PROFILES` and
-      `POSTGRES_URL`.
-- [ ] `COMPOSE_PROFILES=standalone POSTGRES_PORT=54323 docker compose up -d --wait`
-      (inline shell override, no `.env` edit) starts the app against the repo's own
-      Postgres and `curl -o /dev/null -w '%{http_code}' http://localhost:3000/` prints
-      `200`;
-      `poli-runner start repertoire_hero` starts it against the shared Postgres and the
-      same curl prints `200`.
-- [ ] `RUN_DB_TESTS=1 npx vitest run` — against the Postgres at the effective
-      `DATABASE_URL`, i.e. `postgresql://postgres:postgres@127.0.0.1:54322/postgres`
-      (`vitest.config.ts`'s fallback; the Homebrew instance), already migrated — exits 0,
-      reports **125 test files, 0 skipped**, and its output does **not** contain
-      `[vitest] RUN_DB_TESTS is not set`. Any skipped file, or that warning appearing
-      (which would mean `.env.local` overwrote the shell variable), fails this result.
-- [ ] `npx eslint -f json` reports exactly **8 errors and 12 warnings** over the same
-      14 (file, rule) pairs as the `47f32f2` baseline — no new problem is introduced,
-      and none of the 20 existing ones is required to be fixed.
-- [ ] `docs/plans/code-quality-review.md`'s Environment preconditions paragraph names
-      `RUN_DB_TESTS` and records that RH-75 renamed the gate, and the pinned `13da8b2`
-      measurements below it are unchanged (`git diff` touches only that paragraph).
-- [ ] `grep -c 'SUPABASE_SERVICE_ROLE_KEY' docs/test-coverage-plan.md` prints `0` and
-      the banner's live-rule pointer names `RUN_DB_TESTS`; the banner's item 1 about
-      `src/lib/supabase/**` is unchanged.
-- [ ] `docs/plans/mobile-app-analysis.md` carries a correction note stating that
-      RH-75/RH-76 removed the `NEXT_PUBLIC_SUPABASE_*` entries from `.env.example` and
-      the `@supabase/*` packages from `package.json`, and the original §1.2 prose is
-      left standing.
-- [ ] `docs/security-audit.md` carries a banner immediately under its title recording
-      that the audited architecture was removed by RH-75/RH-76 and that the app now
-      runs on plain Postgres + Better Auth with no RLS layer; no finding body is edited.
-- [ ] *(discretionary addition, not a correction: README states nothing false today)*
-      `README.md` has a `## Local development` section naming `cp .env.example .env`,
-      `docker compose up`, `poli-runner start repertoire_hero`, `npm run seed` and
-      `RUN_DB_TESTS=1`, and the pre-existing boilerplate sections are unchanged.
-- [ ] `grep -ci supabase AGENTS.md` prints `0`, and AGENTS.md contains `RUN_DB_TESTS`,
-      `COMPOSE_PROFILES`, `poli-runner.yml` and `scripts/seed-catalog.sql`.
-- [ ] `git diff --stat` for this task touches only `README.md`,
-      `docs/plans/code-quality-review.md`, `docs/plans/mobile-app-analysis.md`,
-      `docs/security-audit.md`, `docs/test-coverage-plan.md`,
-      `docs/tasks/RH-75-spec.md` and `package.json`. The six protected files —
-      `.env`, `.env.local`, `.env.development.local`, `.env.production.local`,
-      `tsconfig.tsbuildinfo`, `.claude/settings.local.json` — have **byte-identical
-      sha256 hashes before and after the task**, compared against the hashes recorded
-      before the work started. `git status --porcelain` is explicitly **rejected** as
-      the check here: all six are gitignored, so it can never report a change to them
-      and the guard would be vacuous. `AGENTS.md` is correctly absent from both lists:
-      it is already accurate at HEAD (ER16) and is not edited.
-- [ ] `package.json` `version` is higher than every version in `git log` and carries a
-      `YYYYMMDDHHmm` suffix.
+- [ ] ER1 — `package.json` lists `@supabase/supabase-js` in neither `dependencies` nor `devDependencies`, `package-lock.json` contains no `node_modules/@supabase/supabase-js` entry, and `npm ls @supabase/supabase-js` reports it absent.
+- [ ] ER2 — The `vi.mock("@supabase/supabase-js")` call in `src/lib/__tests__/setup.ts` and the `vi.mock("@/lib/supabase/admin")` call in `src/lib/__tests__/bands.test.ts` are gone, along with every other `vi.mock` under `src/` targeting a Supabase module; `grep -rn "vi.mock(.*supabase" src/` returns no matches.
+- [ ] ER3 — The `SupabaseMock*` harness is gone from `src/lib/__tests__/test-helpers.ts` (`createAdminTestClient` and both mock classes deleted) and `grep -rn "SupabaseMock" src/` returns no matches.
+- [ ] ER4 — `src/lib/__tests__/spotify.test.ts` imports no `@supabase/supabase-js` and reads neither `NEXT_PUBLIC_SUPABASE_URL` nor `NEXT_PUBLIC_SUPABASE_ANON_KEY`; `grep -n "SUPABASE" src/lib/__tests__/spotify.test.ts` returns no matches, and the file still reports 12 passing tests when the gate is on.
+- [ ] ER5 — The DB-test gate is named `RUN_DB_TESTS` in every `src/` file that reads it, in `.github/workflows/ci.yml` (which sets `RUN_DB_TESTS: "1"` in the coverage job) and in `AGENTS.md`; `grep -rn "SUPABASE_SERVICE_ROLE_KEY" src/ .github/ AGENTS.md` returns no matches, and with `RUN_DB_TESTS=1` exported `npx vitest run src/app/actions/__tests__/authzTabs.db.test.ts src/lib/__tests__/moderationPayload.db.test.ts` reports `2 passed (2)` test files and `0 skipped` tests.
+- [ ] ER6 — `grep -ril supabase src/` matches exactly one file, `src/lib/__tests__/migrationsSingleSource.test.ts`, which is unchanged by this task.
+- [ ] ER7 — `grep -il supabase sonar-project.properties vitest.config.ts migrations/0001_initial_schema.sql .env.example .env.local.example plan.md tasks.md` returns no matches, and the only changed lines in `migrations/0001_initial_schema.sql` begin with `--`.
+- [ ] ER8 — With `RUN_DB_TESTS=1` exported and Postgres up, `npx vitest run` exits 0 reporting at least 125 test files **passed** and at least 1426 tests **passed**, with **0 test files skipped and 0 tests skipped** (baseline at `583021c`: `Test Files 125 passed (125)`, `Tests 1426 passed (1426)`, no skipped line). A run whose summary contains any `skipped` count fails this result, even if the parenthesised totals still read 125/1426.
+- [ ] ER9 — `npm run lint` exits 0.
+- [ ] ER10 — `vitest.config.ts` prints a warning whose text contains `RUN_DB_TESTS` whenever that variable is **unset or empty** (the check is falsiness-based, not `=== undefined`): both `env -u RUN_DB_TESTS npx vitest run src/lib/__tests__/errors.test.ts` and `RUN_DB_TESTS= npx vitest run src/lib/__tests__/errors.test.ts` print it, while `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/errors.test.ts` does not.
+- [ ] ER11 — `package.json`'s `version` is bumped per the AGENTS.md version rule (patch increment plus a `-YYYYMMDDHHmm` suffix, strictly higher than any version in `git log`).
+- [ ] ER12 — `.env.example` carries the gate as a commented-out `# RUN_DB_TESTS=1` line, so that `cp .env.example .env.local` leaves the variable unset rather than set-and-empty: `grep -n "RUN_DB_TESTS" .env.example` matches only a line beginning with `#`.
 
 ## Out of Scope
 
-- Any change under `src/`, `e2e/`, `migrations/`, `scripts/`, `docker/`, or to
-  `docker-compose.yml`, `poli-runner.yml`, `.env.example`, `eslint.config.mjs` or the
-  CI workflows. The children own those and they are `done`.
-- Fixing the 8 lint errors / 12 warnings. They predate this chain, are
-  application-behaviour changes (`react-hooks/set-state-in-effect` in five components,
-  `@next/next/no-html-link-for-pages` in `src/app/settings/page.tsx`, unused bindings in
-  tests and scripts), and deserve their own task.
-- **Hard constraint.** Editing, deleting or reading into the repo any of these six
-  untracked files: `.env`, `.env.local`, `.env.development.local`,
-  `.env.production.local`, `tsconfig.tsbuildinfo`, `.claude/settings.local.json`. This
-  admits no temporary exception for a verification command: where a command needs a
-  different value, it is passed as an inline shell override. All six are gitignored, so
-  the diff cannot police them — their sha256 hashes are compared instead (ER17).
-- Rewriting historical documents: `docs/superpowers/**`, `docs/tasks/RH-*-spec.md`,
-  `docs/suggestions-log.md`, and the finding bodies of `docs/security-audit.md`,
-  `docs/test-coverage-plan.md`, `docs/plans/mobile-app-analysis.md` and
-  `docs/plans/code-quality-review.md`.
-- Removing `src/lib/__tests__/migrationsSingleSource.test.ts` or its vendor-named
-  constants: it is the guardrail and is the single intended match.
-- Rewriting README's create-next-app boilerplate beyond adding the one section.
-- Renaming the board-id / spec-filename divergence anywhere in the repo.
+- Every file RH-76 owns: `docker-compose.yml`, `docker/` (including `app.env.example`, `kong.yml`, `supabase.env.example`, `init-migrations.sh`), `supabase/`, `poli-runner.yml`.
+- `docs/**` historical records (`docs/suggestions-log.md`, earlier `docs/tasks/*-spec.md`, `docs/plans/mobile-app-analysis.md`, `docs/superpowers/**`). They describe the state of the tree at the time they were written and are not corrected retroactively.
+- Any behavioural change to the application. No production code path changes; the single production-file edit is a comment.
+- `src/lib/__tests__/migrationsSingleSource.test.ts`.
+- Landing-page copy: this is internal cleanup, not a selling point (AGENTS.md Landing Page Rule).

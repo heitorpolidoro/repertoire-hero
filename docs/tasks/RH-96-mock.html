@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-96 — Drop the band status trigger and author band status directly</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-100 text-gray-900">
+<div class="max-w-5xl mx-auto px-4 py-8 space-y-10">
+
+  <header>
+    <h1 class="text-2xl font-bold">RH-96 — Band status is authored, not computed</h1>
+    <p class="text-sm text-gray-600 mt-1">
+      Nothing here is a new design. The band badge becomes the control the personal badge
+      already is, gated on band admin. The four-note control is RH-102.
+    </p>
+  </header>
+
+  <!-- ============================================================ -->
+  <section class="space-y-4">
+    <h2 class="text-lg font-semibold">1 · The dashboard row, three states</h2>
+    <p class="text-sm text-gray-600">
+      Switch the hat and the role below. Tapping a live badge advances the stage, exactly as
+      the personal badge does today.
+    </p>
+
+    <div class="flex flex-wrap gap-2 text-sm">
+      <button data-state="personal" class="state-btn px-3 py-1.5 rounded-md border bg-white font-medium">Personal hat</button>
+      <button data-state="admin" class="state-btn px-3 py-1.5 rounded-md border bg-white font-medium">Band hat · admin</button>
+      <button data-state="member" class="state-btn px-3 py-1.5 rounded-md border bg-white font-medium">Band hat · member</button>
+    </div>
+
+    <!-- Band mode banner -->
+    <div id="banner" class="hidden sticky top-0 z-10 items-center gap-2 px-4 py-2.5 rounded-t-lg border-b text-sm shadow-sm bg-blue-700 text-white">
+      <span aria-hidden="true">🎸</span>
+      <span class="font-bold">Band Mode</span>
+      <span class="opacity-50" aria-hidden="true">·</span>
+      <span class="font-semibold truncate">Os Amplificados</span>
+      <span class="ml-auto flex items-center gap-1 text-xs bg-white/20 border border-white/30 px-2.5 py-1 rounded-md font-semibold">
+        <span aria-hidden="true">✕</span><span>Exit</span>
+      </span>
+    </div>
+
+    <ul id="rows" class="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100"></ul>
+
+    <p id="caption-note" class="text-xs text-gray-500"></p>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="space-y-3">
+    <h2 class="text-lg font-semibold">2 · The band-mode banner clause</h2>
+    <div class="grid md:grid-cols-2 gap-3">
+      <div class="rounded-lg border border-red-200 bg-white p-3">
+        <p class="text-xs font-semibold text-red-700 mb-2">Today — a claim that will be false for admins</p>
+        <div class="flex items-center gap-2 px-3 py-2 rounded bg-blue-700 text-white text-sm">
+          <span>🎸</span><span class="font-bold">Band Mode</span>
+          <span class="opacity-50">·</span><span class="font-semibold">Os Amplificados</span>
+          <span class="text-xs opacity-75 ml-1">— Status is read-only, computed from all members</span>
+        </div>
+      </div>
+      <div class="rounded-lg border border-emerald-200 bg-white p-3">
+        <p class="text-xs font-semibold text-emerald-700 mb-2">After — the clause is dropped; the banner cannot know the role</p>
+        <div class="flex items-center gap-2 px-3 py-2 rounded bg-blue-700 text-white text-sm">
+          <span>🎸</span><span class="font-bold">Band Mode</span>
+          <span class="opacity-50">·</span><span class="font-semibold">Os Amplificados</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="space-y-3">
+    <h2 class="text-lg font-semibold">3 · Landing page, the f3 card</h2>
+    <p class="text-sm text-gray-600">
+      The copy being deleted sells the rule this task removes. Both dictionaries change together.
+    </p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">pt-BR</p>
+        <div class="rounded-xl bg-white border border-red-200 p-4 shadow-sm">
+          <p class="text-[10px] font-semibold text-red-700 mb-2">HOJE</p>
+          <h3 class="font-bold">Repertórios Compartilhados de Banda</h3>
+          <p class="text-sm text-gray-600 mt-1">Crie bandas, convide membros por link e veja a prontidão da banda <span class="bg-red-100">calculada automaticamente pela regra do menor nível</span>.</p>
+        </div>
+        <div class="rounded-xl bg-white border border-emerald-300 p-4 shadow-sm">
+          <p class="text-[10px] font-semibold text-emerald-700 mb-2">DEPOIS</p>
+          <h3 class="font-bold">Repertórios Compartilhados de Banda</h3>
+          <p class="text-sm text-gray-600 mt-1">Crie bandas, convide membros por link e dê à banda um repertório próprio — com tom, letra e prontidão definidos pela banda, e não deduzidos dos membros.</p>
+        </div>
+      </div>
+      <div class="space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">en</p>
+        <div class="rounded-xl bg-white border border-red-200 p-4 shadow-sm">
+          <p class="text-[10px] font-semibold text-red-700 mb-2">TODAY</p>
+          <h3 class="font-bold">Band Shared Repertoires</h3>
+          <p class="text-sm text-gray-600 mt-1">Create bands, invite members with a link, and view aggregate readiness <span class="bg-red-100">calculated automatically via the 'weakest link' rule</span>.</p>
+        </div>
+        <div class="rounded-xl bg-white border border-emerald-300 p-4 shadow-sm">
+          <p class="text-[10px] font-semibold text-emerald-700 mb-2">AFTER</p>
+          <h3 class="font-bold">Band Shared Repertoires</h3>
+          <p class="text-sm text-gray-600 mt-1">Create bands, invite members with a link, and give the band a repertoire of its own — its own key, lyrics and readiness, authored by the band rather than guessed from its members.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="space-y-2">
+    <h2 class="text-lg font-semibold">4 · What a non-admin loses</h2>
+    <ul class="text-sm text-gray-700 list-disc pl-5 space-y-1 bg-white rounded-lg border border-gray-200 p-4">
+      <li>Cannot set a <strong>band</strong> row's status, from any screen. The server refuses it.</li>
+      <li>Cannot edit a <strong>band</strong> row through the song edit modal, because that modal writes status, tags and key in one statement. The inline tag editor still works.</li>
+      <li>Everything personal is untouched; so is reading, adding, removing and writing lyrics on a band row.</li>
+      <li>On Fast View the dropdown still looks live for a member and reports <em>"Failed to update status"</em> on tap. Deliberate: RH-102 replaces that control.</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+const SONGS = [
+  { title: 'Tempo Perdido', artist: 'Legião Urbana', status: 'polishing' },
+  { title: 'Bohemian Rhapsody', artist: 'Queen', status: 'learning' },
+  { title: 'Smells Like Teen Spirit', artist: 'Nirvana', status: 'mastered' },
+];
+const ORDER = ['unknown', 'learning', 'practicing', 'polishing', 'mastered'];
+const CFG = {
+  unknown:    { label: 'Unknown',    cls: 'bg-gray-100 text-gray-600' },
+  learning:   { label: 'Learning',   cls: 'bg-amber-100 text-amber-700' },
+  practicing: { label: 'Practicing', cls: 'bg-sky-100 text-sky-700' },
+  polishing:  { label: 'Polishing',  cls: 'bg-indigo-100 text-indigo-700' },
+  mastered:   { label: 'Mastered',   cls: 'bg-emerald-100 text-emerald-700' },
+};
+const NEW_CAPTION = 'Band status is set by a band admin';
+let state = 'admin';
+
+function badge(song, i) {
+  const cfg = CFG[song.status];
+  const editable = state === 'personal' || state === 'admin';
+  if (editable) {
+    return `<button data-i="${i}" aria-label="Status: ${cfg.label}. Click to advance."
+      class="adv shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current ${cfg.cls}">${cfg.label}</button>`;
+  }
+  return `<span title="${NEW_CAPTION}"
+    class="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border border-current opacity-75 cursor-default ${cfg.cls}">${cfg.label}</span>`;
+}
+
+function render() {
+  document.getElementById('rows').innerHTML = SONGS.map((s, i) => `
+    <li class="flex items-center gap-3 px-3 py-2">
+      <div class="w-10 h-10 rounded bg-slate-200 shrink-0"></div>
+      <div class="flex-1 min-w-0">
+        <span class="block text-sm font-semibold truncate">${s.title}</span>
+        <p class="text-xs text-gray-500 truncate">${s.artist}</p>
+      </div>
+      ${badge(s, i)}
+      <span class="shrink-0 text-gray-300 text-xs">✎</span>
+    </li>`).join('');
+
+  const banner = document.getElementById('banner');
+  banner.classList.toggle('hidden', state === 'personal');
+  banner.classList.toggle('flex', state !== 'personal');
+
+  const note = {
+    personal: 'Personal hat — unchanged by this task. The badge advances one stage per tap.',
+    admin: 'Band hat, band admin — the badge is now the same button, and it writes the band’s own row.',
+    member: 'Band hat, non-admin member — read-only, captioned "' + NEW_CAPTION + '" (today it says "Band status is computed from all members").',
+  }[state];
+  document.getElementById('caption-note').textContent = note;
+
+  document.querySelectorAll('.state-btn').forEach((b) => {
+    const on = b.dataset.state === state;
+    b.className = 'state-btn px-3 py-1.5 rounded-md border font-medium ' +
+      (on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300');
+  });
+
+  document.querySelectorAll('.adv').forEach((b) => b.addEventListener('click', () => {
+    const s = SONGS[b.dataset.i];
+    s.status = ORDER[(ORDER.indexOf(s.status) + 1) % ORDER.length];
+    render();
+  }));
+}
+
+document.querySelectorAll('.state-btn').forEach((b) =>
+  b.addEventListener('click', () => { state = b.dataset.state; render(); }));
+render();
+if (window.lucide) window.lucide.createIcons();
+</script>
+</body>
+</html>

@@ -1,142 +1,234 @@
-# RH-134 — Fetch Fast View content in a window and invalidate on write
+# RH-135 — Fix the Spotify push finding no track links
 
-> Filename note: the repo convention is spec file = board id + 1, so RH-134's
-> spec is `RH-135-spec.md`. `docs/tasks/RH-134-spec.md` is RH-133's spec.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
 
-Part 3 of 3 from the RH-109 split. It consumes the queue RH-133 introduced
-(`src/lib/songQueue.ts`, read by `usePlaylistNav`). RH-115 (the practice
-session) does not need this part: the window is a latency optimisation, and
-every screen must work with the window fetch absent or failed.
 
-Design source: `docs/use-cases.md` § *Walk a queue of songs* ("One request
-fetches a window" and the write-invalidates rule) and § on offline navigation.
+> Filename note: the repo convention is spec filename = board id + 1, so
+> `RH-135-spec.md` is the spec for board task **RH-135**. Deliberate.
 
 ## Scope
 
-**In scope.**
-1. One read that returns the content of a window of up to three songs - the
-   previous, the current and the next queue entry - in a single request.
-2. A client-side, in-memory, per-tab cache of those windows, consulted by the
-   two per-song readers before they go to the network.
-3. One invalidation rule: a successful Fast View write to a song drops that
-   song's cached copy, and a window fetch that was already in flight when the
-   write happened cannot put the old copy back.
+A live bug fix, measured at `4932826`. The push branch of
+`POST /api/spotify/playlists/[id]/sync` selects a song's Spotify link by the
+literal label `'spotify'` (`src/app/api/spotify/playlists/[id]/sync/route.ts:135`,
+`links?.find((l) => l.label === 'spotify')`). No writer in `src/` produces that
+spelling — `grep -rn "label: 'spotify'" src/ | grep -v __tests__` returns **0**
+today. The three real writers produce:
 
-**Out of scope.** Any change to `songQueue.ts`'s stored shape or to the
-queue's owner precedence; persisting the cache (it dies with a reload, which is
-correct); prefetching beyond one neighbour either side; the offline snapshot's
-shape; cache invalidation for *someone else's* edits (stale for seconds, by
-decision); annotations (`getTabAnnotationsAction` is read per file on opening
-a chart, not part of the window); any change to who may read or write.
+| Writer | Label written |
+|---|---|
+| `src/hooks/useSongPicker.ts:197` | `'Spotify'` |
+| `src/components/songs/RepertoireDashboard.tsx:246` | `"Spotify"` |
+| `src/lib/spotifyPlaylistSync.ts:122` | `track.title.trim()` — the song's own title |
 
-## Decided (do not reopen)
+and `src/hooks/useSongLinks.ts:88` writes whatever the musician typed, else the
+fetched page title, else the URL (`resolveLinkLabel`, `src/lib/songLinks.ts:23`).
+So `uris` is built empty for every song, the `uris.length > 0` guard at
+`route.ts:144` is never entered, and the route answers success having pushed
+nothing.
 
-- **Window size is three**, "a swipe finds its content in hand". Nothing
-  measures it. At the ends of the queue the window is two; a queue of one is a
-  window of one.
-- **What a neighbour's file is** is decided by `isImageTab`
-  (`src/lib/tabRenderer.ts`) and nowhere else. The window returns each song's
-  file rows **including `content_type`**; an absent or unrecognised value reads
-  as `application/pdf` by that module's documented design. The window code must
-  not compare content types itself and must not default them itself.
-- **A neighbour with no file at all** is navigated to and renders the song with
-  an empty file library: the window answers `files: []` for it. It is never a
-  blocked swipe and never an error.
+This task replaces the label comparison with a **URL-host** check, adds the
+tests that would have caught it, and de-traps the three fixtures that hid it.
+
+Not in scope: the provider-column refactor (RH-110 Parts 1–3, which later
+replace this host check with a derived column), the pull branch, batching,
+auth, any UI, any schema change.
 
 ## Approach
 
-**Behaviour.**
+### Behavior
 
-- *The read.* A new Server Action takes the version ids of the window (at most
-  three; more is refused) and the page's `?bandId=`, resolves the owner **once**
-  through the same `resolveOwner` the single-song read uses (so
-  `assertBandMember` is still the gate), and returns one record per id:
-  `{ versionId, entry: ResolvedSongEntry | null, files: SongFile[] }`.
-  `entry` is built by the same `getResolvedEntryForVersion` the route read uses
-  and `files` by the same `listTabs(userId, song_id)` (the caller's own files -
-  a file belongs to the person, RH-123). A version that does not exist yields
-  `entry: null, files: []` for that id only; it must not fail the other two. It
-  is a thin action (A2): no SQL in `src/app/actions`, the assembly lives in a
-  new `src/lib` data module.
-- *Injection.* The action reaches the hook through a typed `<Subject>Actions`
-  object wired in `src/app/fastViewEntryActions.ts` (F21: no hook imports an
-  action). If the bundle is wrapped by `offlineFirst`, the new method must be
-  classified so that offline it is **not** attempted and never served from a
-  snapshot (an unclassified method is refused offline, which is the right
-  outcome here).
-- *The cache.* A new client-safe, import-free-of-`pg` module `src/lib/songWindow.ts`
-  holds the pure decisions - which ids make up the window around the current
-  version in the queue, which of them are not cached yet, and the cache itself
-  keyed by `(bandId or personal, versionId)` - plus the invalidation. Exports are
-  function declarations.
-- *The consumer.* A controller hook (`src/hooks/useSongWindow.ts`, returning a
-  `SongWindowController`) fetches the window when the current version or the
-  queue changes, issuing one request for the ids not yet cached, and is
-  **best-effort**: a failure is logged through `logger` and swallowed. The
-  existing `useSongEntry` and `useTabLibrary` loads read the cache first and, on
-  a hit, apply it without a request; on a miss they behave exactly as today.
-  The window fetch for the current song and the per-song load must not both go
-  to the network for the same song.
-- *Navigation without a queue.* A song opened alone has a window of one: the
-  current song, one request, same code path.
-- *The rule.* Every successful Fast View write calls one function,
-  `invalidateSongWindow(versionId)`, from one seam in the page's composition
-  (the writes are: lyrics save, status change, link add/delete, file upload,
-  file delete). It drops the cached copy and bumps a per-version generation so
-  a fetch started before the write is discarded on arrival. The page wires it;
-  the five write sites do not each grow their own cache logic.
+1. A new pure module `src/lib/spotifyTrackUri.ts` decides, from a URL alone,
+   whether a link is a Spotify **track** link and what its URI is. It exports
+   two functions: one from a single URL string to `spotify:track:<id> | null`,
+   and one from `SongLink[] | null` (the shape of `PlaylistVersionLinksRow.links`,
+   `src/lib/dbRows.ts:73-77`) to the first match or `null`. It imports only the
+   `SongLink` type from `@/types/database` — no DB, no `fetch`, no React, no
+   `'use server'`.
 
-**Files touched.**
+   **Why a new module and not the route file:** `route.ts` is an App Router
+   route handler; Next.js constrains its export surface to HTTP method handlers
+   plus route-segment config (today it exports only `POST`, at line 27), so a
+   helper exported from there is not unit-testable. **Why not
+   `src/lib/spotifyPlaylistSync.ts`:** see *Sequencing hazard* below. Why not
+   `src/lib/songLinks.ts`: that module is scoped to Fast View's links section
+   and carries the `SongLinksController` contract; Spotify provider knowledge
+   does not belong there, and a standalone module keeps RH-110 Part 2's
+   replacement to one file. The new module sits inside the coverage include
+   `src/lib/**/*.ts` (`vitest.config.ts`), so it is covered by the gate.
 
-- `src/app/actions/repertoire.ts` - the window Server Action (thin).
-- `src/lib/songWindowData.ts` - new, server-side assembly of one window (imports
-  `@/lib/db` transitively, so never imported by a client file).
-- `src/lib/songWindow.ts` - new, pure window ids + cache + `invalidateSongWindow`.
-- `src/hooks/useSongWindow.ts` - new controller hook.
-- `src/hooks/useSongEntry.ts`, `src/hooks/useTabLibrary.ts` - cache-first reads.
-- `src/app/fastViewEntryActions.ts` - wire the new action into a typed bundle.
-- `src/app/songs/[versionId]/fast-view/page.tsx` - wire the hook and the single
-  invalidation seam; no state, effect or data access in the page (RH-38).
-- `src/lib/offlineFirst.ts` - classify the method, if the bundle is wrapped.
-- `AGENTS.md` / `docs/use-cases.md` - record the window and its rule in the
-  Fast View paragraph (one line each).
-- Do not add an `eslint.config.mjs` complexity override; the budget list is a
-  shrink-only ratchet.
+2. The host rule: parse with `new URL(url)`; a malformed URL yields `null`
+   rather than throwing. Accept only when the protocol is `http:`/`https:`
+   **and** the lowercased hostname is exactly `spotify.com` or ends with
+   `.spotify.com`. Then apply the existing `track/([A-Za-z0-9]+)` match — the
+   same regex now at `route.ts:137` — against the **pathname**, so a
+   `?si=...` query or `#fragment` is irrelevant. Hostname equality/suffix, not
+   substring: `notspotify.com` and `spotify.com.evil.io` must not match.
 
-**Test criteria (named tests).**
+3. `route.ts:133-142` becomes a call to the list helper per playlist row,
+   pushing the returned URI when non-null. The loop no longer reads
+   `link.label` at all, and a song whose Spotify link sits behind an unrelated
+   link (lyrics, tab) is now found, because the search is over every link
+   rather than the first label match.
 
-- `src/lib/__tests__/songWindow.test.ts` - window ids at index n (middle, first,
-  last, single); one fetcher call for the uncached ids; cache hit issues no
-  call; invalidate-then-refetch; in-flight fetch discarded after an invalidate.
-- `src/lib/__tests__/songWindowData.db.test.ts` (live Postgres, `RUN_DB_TESTS`)
-  - the real action path, one named test per line: `returns three songs in one
-  call`; `returns the image/png content_type of a neighbour file row`;
-  `returns files: [] for a song with no file row`; `a nonexistent version
-  yields entry null without failing the others`; `refuses more than three ids`;
-  `refuses a band the caller is not a member of`.
-- `src/lib/__tests__/songWindow.test.ts` also holds `window code contains no
-  content-type literal and no isImageTab bypass` (source-level guard that the
-  module neither compares nor defaults content types).
-- `src/hooks/__tests__/useSongWindow.test.tsx` (jsdom) - `one request carrying
-  n-1, n, n+1` with a counting stub action (two ids at the ends);
-  `a failing window request surfaces no error and per-song loads still render`;
-  `a neighbour with files: [] renders an empty file library without error`.
-- `src/hooks/__tests__/useSongWindowInvalidation.test.tsx` - `edit song 4
-  lyrics, go to 3 and back shows the new text` (song 4 prefetched from 3 before
-  the write) and, in `songWindow.test.ts`, `in-flight fetch discarded after an
-  invalidate`.
+4. **URL-shape decision (decided, not deferred):**
+
+   | Form | Verdict | Reason |
+   |---|---|---|
+   | `https://open.spotify.com/track/<id>` | **in** | the only form any writer produces — `external_urls.spotify` at `src/app/api/spotify/search/route.ts:132` and `src/lib/spotifyPlaylistSync.ts:73` |
+   | `https://play.spotify.com/track/<id>` | **in** | legacy web-player host; free under the `.spotify.com` suffix rule |
+   | `https://spotify.com/track/<id>`, `https://www.spotify.com/track/<id>` | **in** | hand-pasted; already present as a fixture at `src/lib/__tests__/songs.test.ts:298` |
+   | same with `?si=...` or `#x` | **in** | match is on the pathname |
+   | `spotify:track:<id>` (URI scheme) | **out** | **not** because it cannot be stored — it can. `isSongLink` (`src/lib/songEditPayload.ts:95`) validates a url against `HTTP_URL = /^https?:\/\/\S+$/i` (`:30`) only inside `parseLinks`, reached through `submitSongEdit` on the **moderation** branch (`src/lib/songs.ts:222`). The **additive** branch at `:228` runs a bare `UPDATE songs SET links = $1` with no url validation, and adding a brand-new link IS the additive case. So the column can hold a `spotify:` url. It stays out of scope because such a song is skipped today and nothing regresses by continuing to skip it — a deliberate scope line, not an impossibility. RH-110 Part 2 must not inherit the impossibility belief. |
+   | `https://spotify.link/<code>`, `https://spoti.fi/<code>` | **out**, and it is the one real-world gap | a different eTLD+1, and resolving the redirect would mean a network round trip per song inside the push loop. Worth naming rather than tabling: `spotify.link` is what the Spotify **mobile** share sheet produces, so a musician who pastes a share link from their phone still gets a silently skipped song after this fix. No worse than today, but a known follow-up. |
+   | `https://open.spotify.com/album/<id>`, `/playlist/<id>`, `/artist/<id>` | **out** | not a track; no `track/` segment, so no URI, and the song is skipped as before |
+   | any other host containing the string `spotify` | **out** | rejected by construction (suffix rule, not substring) |
+
+   An out-of-scope link makes its song contribute nothing to `uris` — the
+   per-song skip that already exists. The push is not failed for it.
+
+5. The three fixtures that hand-write the lowercase label
+   (`src/lib/__tests__/spotify.test.ts:507`, `:520`, `:612`) are rewritten to a
+   label a real writer produces (the song's own title, as
+   `findOrCreateSong` writes). They must no longer assert, or depend on, any
+   label convention. Their URLs stay `https://open.spotify.com/track/...` and
+   their assertions stay unchanged — which is itself evidence that the fix is
+   behaviour-preserving for already-passing cases.
+
+### Files touched
+
+- `src/lib/spotifyTrackUri.ts` — **new**; the two pure helpers described above.
+- `src/app/api/spotify/playlists/[id]/sync/route.ts` — the push loop
+  (currently lines 133-142) calls the helper instead of matching on
+  `l.label === 'spotify'`; add the import.
+- `src/lib/__tests__/spotifyTrackUri.test.ts` — **new**; ungated unit test of
+  every row of the table in (4).
+- `src/lib/__tests__/spotifyPushUris.db.test.ts` — **new**; the real-write-path
+  push test (ER1). A **new file**, not an addition to `spotify.test.ts`:
+  `eslint.config.mjs:134` pins that file to `max-lines: 678`, its exact current
+  length, and the override list is a ratchet that may only shrink — so any line
+  added there is a new lint error that cannot be legally silenced.
+- `src/lib/__tests__/spotify.test.ts` — the three fixture labels from (5).
+- `package.json` — version bump (`AGENTS.md:523`).
+
+**Not touched:** `src/lib/spotifyPlaylistSync.ts`, `migrations/`,
+`eslint.config.mjs`.
+
+### Sequencing hazard
+
+`src/lib/spotifyPlaylistSync.ts` is being modified concurrently by **RH-126**
+(removing the dual write in `ensureInRepertoire`). This fix is designed to not
+modify it: the helper lives in its own module, and the push loop is in
+`route.ts`. The new DB test *imports* `findOrCreateSong` from it, which is a
+read-only dependency on a function RH-126 does not change. If implementation
+finds it must edit that file, stop and flag it rather than merging across
+RH-126.
+
+### No migration
+
+No schema change: the fix reads the existing `songs.links` JSONB. `migrations/`
+stays at `0018_add_song_file_content_type.sql`, so the unique-and-contiguous
+four-digit prefix check in `src/lib/__tests__/migrationsSingleSource.test.ts`
+is unaffected.
+
+### Test criteria
+
+The decisive test must **not** supply the link in the spelling the reader
+wants — that is precisely how this bug survived three fixtures and a full
+suite. It drives the real write paths and asserts the outbound body:
+
+- Create song A through `findOrCreateSong` (`src/lib/spotifyPlaylistSync.ts`)
+  from a `SpotifyRawTrack` whose `spotifyUrl` is
+  `https://open.spotify.com/track/<idA>`. The stored label is therefore the
+  song's title.
+- Create song B through `createAndAddSong` (`src/lib/ownerSongs.ts:384`) with
+  the picker's payload shape (`links: [{ label: 'Spotify', url:
+  'https://open.spotify.com/track/<idB>' }]`, as `src/hooks/useSongPicker.ts:197`
+  builds it), resolving its version with `representativeVersionId` from
+  `src/lib/__tests__/test-helpers`.
+- Insert both versions into a `playlist_songs` row set in a known order, stub
+  `global.fetch`, invoke `syncPOST` with `{ direction: 'push' }`, and assert the
+  `PUT .../playlists/<id>/tracks` body is exactly
+  `{ uris: ['spotify:track:<idA>', 'spotify:track:<idB>'] }` — non-empty, in
+  playlist position order.
+- A third song carrying only a non-Spotify link contributes nothing and does
+  not fail the push.
+
+The ungated unit test covers the URL table directly, including the rejections,
+and asserts a malformed URL returns `null` without throwing.
 
 ## Expected Results
 
-- [ ] ER1 - `one request carrying n-1, n, n+1` passes: arriving at queue index n issues exactly one window request with those ids (two ids at the ends).
-- [ ] ER2 - `returns the image/png content_type of a neighbour file row` passes: the window returns the row's `content_type` unchanged.
-- [ ] ER3 - `returns files: [] for a song with no file row` passes: a neighbour without files answers an empty list, not an error.
-- [ ] ER4 - `edit song 4 lyrics, go to 3 and back shows the new text` passes: the new text shows, not the prefetched copy.
-- [ ] ER5 - `in-flight fetch discarded after an invalidate` passes: a fetch started before a write cannot restore the old copy.
-- [ ] ER6 - `a failing window request surfaces no error and per-song loads still render` passes.
-- [ ] ER7 - `refuses more than three ids` passes: the action rejects a window of four or more ids.
-- [ ] ER8 - `refuses a band the caller is not a member of` passes: the action rejects a non-member band id.
+- [ ] **ER1** `src/lib/__tests__/spotifyPushUris.db.test.ts` exists, is
+  `describe.skipIf(!process.env.RUN_DB_TESTS)`-gated, and contains **no literal
+  `label: 'spotify'`/`label: 'Spotify'` written directly into a `songs.links`
+  SQL fixture**: every song it pushes is created through `findOrCreateSong`
+  (`src/lib/spotifyPlaylistSync.ts`) or through `createAndAddSong`
+  (`src/lib/ownerSongs.ts:384`) with the picker payload of
+  `src/hooks/useSongPicker.ts:197`. It stubs `global.fetch` and asserts the
+  `PUT https://api.spotify.com/v1/playlists/<spotifyPlaylistId>/tracks` request
+  body parses to a **non-empty** `uris` array equal to
+  `['spotify:track:<idA>', 'spotify:track:<idB>']` in playlist `position`
+  order. `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/spotifyPushUris.db.test.ts`
+  exits **0** with **0 failed and 0 skipped** tests.
+- [ ] **ER2** The same suite contains a case where a playlist song's only link
+  is a non-Spotify URL (e.g. `https://genius.com/x`): it contributes no entry
+  to `uris`, the other songs' URIs are still pushed, and the route still
+  answers HTTP 200.
+- [ ] **ER3** `src/lib/spotifyTrackUri.ts` exists and exports the URL→URI and
+  `SongLink[]`→URI helpers. `npx vitest run src/lib/__tests__/spotifyTrackUri.test.ts`
+  exits **0** with **0 failed and 0 skipped**, and asserts, as named cases:
+  `https://open.spotify.com/track/abc123` → `spotify:track:abc123`;
+  `https://play.spotify.com/track/abc123` → `spotify:track:abc123`;
+  `https://spotify.com/track/abc123` → `spotify:track:abc123`;
+  `https://www.spotify.com/track/abc123?si=xyz` → `spotify:track:abc123`;
+  and `null` for each of `spotify:track:abc123`, `https://spotify.link/abc123`,
+  `https://open.spotify.com/album/abc123`, `https://notspotify.com/track/abc123`,
+  `https://spotify.com.evil.io/track/abc123`, `''` and `'not a url'` — the last
+  two returning `null` rather than throwing.
+- [ ] **ER4** `grep -rn "label === 'spotify'" src/` returns **0 lines**
+  (today: **1** — `src/app/api/spotify/playlists/[id]/sync/route.ts:135`). The
+  path is scoped to `src/`, so it cannot match this spec or any landed spec
+  under `docs/tasks/`.
+- [ ] **ER5** `grep -rn "label: 'spotify'" src/` returns **0 lines** (today:
+  **3** — `src/lib/__tests__/spotify.test.ts:507`, `:520`, `:612`). Same `src/`
+  scoping.
+- [ ] **ER6** `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/spotify.test.ts`
+  exits **0** with **0 failed and 0 skipped**, proving the three rewritten
+  fixtures and the existing push/batching assertions (including the >100-song
+  batching case at `:601`) still hold.
+- [ ] **ER7** `git diff --name-only` for the change does **not** list
+  `src/lib/spotifyPlaylistSync.ts` (RH-126 owns it concurrently), does not list
+  any file under `migrations/`, and does not list `eslint.config.mjs`.
+- [ ] **ER8** `npx tsc --noEmit` exits **0** (it does today).
+- [ ] **ER9** `npm run lint` reports **no finding on any file this task
+  touches or adds**, and its project totals are no worse than today's tracked
+  baseline of **8 errors / 9 warnings across 11 files**
+  (`e2e/global-setup.ts`, `scripts/migrate.mjs`, `src/app/profile/page.tsx`,
+  `src/app/reset-password/page.tsx`, `src/app/settings/page.tsx`,
+  `src/components/landing/LandingPage.tsx`, `src/components/layout/AppLayout.tsx`,
+  `src/components/layout/LanguageSelector.tsx`, `src/lib/__tests__/edge_cases.test.ts`,
+  `src/lib/__tests__/errors.test.ts`, `src/lib/__tests__/i18n.test.ts`). The
+  gate is "adds no new finding", not "exits 0". `eslint.config.mjs` still has
+  exactly **14** `complexity-budget/override` entries, or fewer.
+- [ ] **ER10** `npm run test:coverage` exits **0**, with the four thresholds in
+  `vitest.config.ts` (statements 80, branches 65, functions 78, lines 80) met —
+  `src/lib/spotifyTrackUri.ts` is inside the `src/lib/**/*.ts` include and is
+  covered by its ungated unit test, since `test:coverage` sets no
+  `RUN_DB_TESTS`.
+- [ ] **ER11** `package.json` `version` is a patch bump above
+  `0.1.149-202610071119` with a fresh `YYYYMMDDHHmm` suffix, higher than every
+  version in `git log` (`AGENTS.md:523`).
 
 ## Out of Scope
 
-See Scope. Nothing in this task is visual; no mock was written.
+- RH-110 Parts 1–3 (the derived provider column that replaces this host check).
+- The pull branch of the sync route, batching, and `ensureInRepertoire`.
+- Normalizing existing stored labels, or any backfill of `songs.links`.
+- Resolving shortened Spotify links, `spotify:` URIs, and album/playlist/artist
+  links — decided out in Approach (4).
+- Any UI change. The route's response shape is unchanged.
+- Landing-page copy (`AGENTS.md:526`, Landing Page Rule): **decided no**. This
+  restores an already-advertised capability that was silently broken; it is not
+  a new selling point, so `src/i18n/dictionaries/en.json` and `pt-BR.json`
+  `landing.*` are untouched.

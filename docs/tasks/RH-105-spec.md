@@ -1,5 +1,8 @@
 # RH-105 — Restructure the catalog into songs, albums and song_versions (integration close-out)
 
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+
 ## Scope
 
 RH-105 was split into RH-121…RH-126. **All six are done and in production**

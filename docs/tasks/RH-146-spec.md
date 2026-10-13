@@ -11,7 +11,7 @@ Decisions (the justification's four open questions):
 
 Not covered: the key, `map` (RH-118), `SongForm`, filtering/grouping by tuning, queueing offline writes.
 
-Mock: `docs/tasks/RH-146-mock.html` (both open questions, side by side).
+Mock: `docs/tasks/RH-145-mock.html` (both open questions, side by side).
 
 ## Approach
 **Behavior.** The header shows `Tuning: <resolved value>` when one resolves, plus an Edit control when the page is writable; when nothing resolves and the page is writable, only the Edit control shows. Editing offers the presets and a custom box; Save trims the value and writes it; an empty result is written as `null`. On success the header updates at once and the page Toast reports it; on failure the Toast reports it and the shown value is unchanged. The control is disabled exactly where the status control is: offline, or when the owner holds no row at this version (`readOnly`). In band context the write requires band admin; a non-admin member gets the same read-only/Toast behaviour as the status write.

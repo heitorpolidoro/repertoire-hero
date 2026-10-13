@@ -51,7 +51,7 @@
  * offline — the `+ Add Link` trigger, every per-link delete and the add form's
  * submit — alongside the tab upload, the tab deletes, the Stage Mode drawing
  * toggle, the lyrics editor's writes and the per-playlist download
- * (docs/tasks/RH-100-spec.md, the RH-99 spec). `useSongLinks.submit` also reads
+ * (docs/tasks/RH-99-spec.md, the RH-99 spec). `useSongLinks.submit` also reads
  * the envelope now, so an offline refusal can no longer be reported as success
  * there. `confirmDelete` still branches on `result.pending` alone, so a
  * `{ success: false }` envelope from a server-side refusal is still announced as

@@ -1,490 +1,627 @@
-# RH-123 — Replace `repertoire_tabs` with `song_files` keyed by `(user_id, song_id)`
+# RH-124 — Split `repertoire` into `user_songs` and `band_songs` keyed by `version_id`
 
-Part 3 of 6 from the RH-105 split. Spec file is `docs/tasks/RH-124-spec.md` (board id + 1).
-Depends on **RH-121** (`docs/tasks/RH-122-spec.md`), which renames `global_songs` to
-`songs` — the new table's `song_id` foreign key points at `songs`, so that rename must
-already be applied.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+
+Part 4 of 6 from the RH-105 split, and the one the other five point at. Spec file is
+`docs/tasks/RH-124-spec.md` (board id + 1; verified against `docs/tasks/RH-123-spec.md`,
+whose first line is `# RH-123 — Replace repertoire_tabs with song_files …`).
+
+`blockedBy: ["RH-122", "RH-123", "RH-96"]`. All three have landed when this task runs and
+this spec is written against the tree they leave behind:
+
+- **RH-122** (`docs/tasks/RH-122-spec.md`) added `albums` and `song_versions`, added
+  `songs.lyrics` / `songs.map`, and backfilled **one album and one version per catalog
+  row** through an idempotent plpgsql function it keeps. `songs` still carries
+  `album`, `standard_key`, `cover_url` and `duration_seconds`, and every screen still
+  reads them — moving reads onto the version was out of its scope and is out of this one.
+- **RH-123** (`docs/tasks/RH-123-spec.md`) replaced `repertoire_tabs` with
+  `song_files (user_id, song_id, …)`, so **no table references `repertoire` any more**,
+  and `assertRepertoireAccess` has exactly one caller left (`updateSongLinksAction`).
+- **RH-96** (`docs/tasks/RH-96-spec.md`) dropped `sync_band_repertoire_on_member_update`
+  and its trigger, exported `assertBandAdmin`, and gated two of the write actions on it.
+
+Every symbol, index and function name those three leave behind must be **read from the
+tree at implementation time**, never copied out of a spec.
+
+Sources: `docs/plans/repertoire-rework.md` (`## The model`, `### Inheritance`, `### Rules`),
+`docs/use-cases.md` (*Resolving a value*, *Writing a band's rows*, *What creates a personal
+row in band context*, *Add a song to the repertoire*, *Remove a song from the repertoire*,
+*Edit or clear an override*, *Set a song's status*).
 
 ## Scope
 
-A file stops hanging off a repertoire row and starts belonging to a musician and a
-composition: `repertoire_tabs (repertoire_id, …)` becomes
-`song_files (user_id, song_id, …)`. That re-key is not cosmetic — it changes who owns a
-file, how many lists the Fast View shows, whether a band holds files at all, and what the
-offline snapshot captures.
+One table becomes two, keyed by a version instead of a song, and the walk-up that every
+screen runs before it can show a song becomes one function.
 
 Covered:
 
-- the migration that creates `song_files`, carries the user-owned rows across, drops the
-  band-owned rows and drops `repertoire_tabs`;
-- `src/lib/tabs.ts` and `src/app/actions/tabs.ts` re-keyed onto `(user_id, song_id)`, with
-  `assertRepertoireAccess` replaced by the row's own `user_id` as the whole authorization
-  predicate;
-- the collapse of the band/personal duality in `src/lib/tabLibrary.ts`,
-  `src/hooks/useTabLibrary.ts` and the Fast View components it feeds — one list, no origin
-  badge, no destination modal;
-- the offline snapshot's file capture, re-keyed by song id and corrected to capture the
-  **reader's own** files (`docs/plans/repertoire-rework.md`, *Download individual songs for
-  offline*), with `OFFLINE_SCHEMA_VERSION` bumped;
-- defect 2 of the three the plan records: `deleteTabAction` deletes the blob before the
-  row, and the use case decides the opposite order (`docs/use-cases.md`, *Delete a file*);
-- `scripts/deduplicate-songs.mjs`, which repoints `repertoire_tabs` rows while merging
-  duplicate songs and would otherwise reference a dropped table.
+- the migration that creates `user_songs` and `band_songs`, carries every `repertoire` row
+  into the right one against a version, archives anything it cannot carry, and drops
+  `repertoire`;
+- one pure resolution helper implementing both cascade depths, and the rule that no SQL
+  under `src/` implements either;
+- every owner-scoped read and write repointed: the owner-row data access that lives in
+  `src/lib/songs.ts` today, the playlist-side owner-row ensure in `src/lib/playlists.ts`
+  and `src/lib/spotifyPlaylistSync.ts`, the dashboard, the Fast View entry point, the
+  offline snapshot, and the two scripts that touch the table;
+- **band admin on every band write** — adding, removing, status, key, tuning, lyrics, map,
+  tags — finishing what RH-96 started on two actions, **including `createAndAddSongAction`,
+  which creates the catalog row and the owner's hold on it in one call**, and **the three
+  paths that create a band repertoire row sideways**: adding a song to a band playlist,
+  importing a Spotify playlist as a band's, and syncing one.
 
-Not covered — each with its destination named in **Out of Scope**: authenticating the
-stored file (defect 3), deleting files when the last version of a song leaves the
-repertoire (defect 1's permanent fix), sweeping blobs already orphaned, renaming the
-"tab" vocabulary to "file", image upload processing, and `user_songs` / `band_songs`.
+**This changes who may add a song to a band playlist.** Today `addSongToPlaylist` gates on
+playlist access only (membership), and its band branch inserts a band repertoire row; after
+this task that branch requires band admin, and a non-admin member adding to a band playlist
+is refused with `Access denied: band admin required`. The same tightening reaches the
+Spotify import and sync routes, whose band branch writes band rows through
+`ensureInRepertoire` today under a membership check. Read it as a real behaviour change,
+not a refactor. Three reasons it belongs here rather than in a later task:
+
+- this is the task that creates `band_songs`, so it is the task that defines who may write
+  to it; leaving a non-admin path open and hoping a later task closes it is how the rule
+  gets quietly lost;
+- `docs/use-cases.md`, *Writing a band's rows*, is unqualified — "Every write to a band's
+  repertoire requires band admin. Adding, removing, status, key, tuning, lyrics, map, tags
+  — all of them." Adding through a playlist is adding;
+- RH-103 (*Make reordering a playlist possible*, approved) already makes reordering a band
+  playlist admin-only on the same reasoning, with the same message and the same call-site
+  shape. A band playlist a member may add to but not reorder would be incoherent.
+
+Deliberately **not** covered, each with its destination named in **Out of Scope**:
+`playlist_songs.version_id` (RH-125), enforcing one-write-one-owner (RH-126), the
+TypeScript/route vocabulary rename, any new UI field, version-aware addressing and the
+version picker.
+
+### Two scope decisions that will look like omissions
+
+**The TypeScript vocabulary keeps the word `Repertoire`.** The `Repertoire` interface, the
+`repertoireId` parameters, the `/songs/[id]/fast-view` route param and the function names
+(`getRepertoire`, `addSongToRepertoire`, `getSongEntry`) stay. Only what the SQL names
+changes, plus the columns the schema forces (`personal_key` → `key`, new `version_id`,
+`tuning`, `map`). Three reasons: "repertoire" is still the right *domain* word — the use
+cases say *Remove a song from the repertoire* about the new model too; this repository
+ships vocabulary renames as their own PR (RH-121 exists for exactly that); and a rename
+across the ~40 files that mention the type would double this diff without changing one
+behaviour. A follow-up rename task in RH-121's shape is the home for it, and
+`docs/suggestions-log.md` records it.
+
+**No new field appears on a screen.** `tuning` and `map` are resolved, carried in the
+resolved row and writable through the gated owner-row write, but nothing renders them:
+the only two files that could host a key/tuning display (`RepertoireDashboard.tsx`,
+`SongForm.tsx`) sit **at** their complexity-ratchet ceilings, and the ratchet may only
+shrink (AGENTS.md F20). Adding a field there forces an extraction that RH-102 and RH-118
+are already going to do. So resolution is proved by unit and DB tests plus the two fields
+a screen already renders — `status` on the dashboard and `lyrics` on the Fast View.
+
+**Not a selling point** (AGENTS.md Landing Page Rule): a schema restructure with no
+user-visible change. No landing copy changes.
 
 ## Approach
 
-### 1. The migration
+### Behavior
 
-One new file under `migrations/`. Its four-digit prefix is **the next number after the
-highest present in `migrations/` at implementation time** — resolve it by reading the
-directory, never by assuming: eleven approved specs are queued ahead of this one and each
-claims "the next number". `src/lib/__tests__/migrationsSingleSource.test.ts` enforces
-unique prefixes contiguous from `0001`, so a gap or a collision fails the suite. Earlier
-migrations are never edited; the ledger is append-only and a fresh database must reach the
-same shape by replaying it in order.
+#### 1. The two tables
 
-The migration does five things, in this order:
+`user_songs (id, user_id, version_id, status, key, tuning, lyrics, map, tags,
+last_practiced, created_at)` and `band_songs (id, band_id, version_id, …same columns)`.
 
-1. Creates `song_files`: `id` uuid primary key defaulting to `gen_random_uuid()`,
-   `user_id` not null referencing `profiles(id)` on delete cascade, `song_id` not null
-   referencing `songs(id)` on delete cascade, `title` text not null, `file_url` text not
-   null, `annotations` jsonb not null defaulting to `'{}'::jsonb`, `created_at` timestamptz
-   not null defaulting to `now()`. One index on `(user_id, song_id)` — every read is by
-   that pair. **No `band_id` column, and no unique constraint on `(user_id, song_id)`**:
-   a musician may attach several charts to one song.
+- `id` uuid PK default `gen_random_uuid()`; `user_id` → `profiles(id)` / `band_id` →
+  `bands(id)`, both `NOT NULL ON DELETE CASCADE`; `version_id` `NOT NULL` →
+  `song_versions(id) ON DELETE CASCADE`.
+- `status song_status NOT NULL DEFAULT 'unknown'` — the existing enum, reused. A row
+  exists ⇒ it has a status; *absence* of a row is what "not in my repertoire" means, and
+  that is expressed by there being no row, never by a null column.
+- `key text`, `tuning text`, `lyrics text`, `map jsonb` all nullable with no default:
+  null is what sends resolution up the chain (*Edit or clear an override* — clearing is
+  writing null, there is no separate unset).
+- `tags text[] NOT NULL DEFAULT '{}'`, `last_practiced timestamptz` nullable.
+- `created_at timestamptz NOT NULL DEFAULT now()`, kept deliberately though the plan's DDL
+  line omits it: the dashboard orders newest-first and today does it with `ORDER BY r.id
+  DESC`, which is meaningless for a uuid. The new reads order `created_at DESC, id DESC`,
+  which for migrated rows (all stamped at migration time) degrades to exactly today's
+  order.
+- `UNIQUE (user_id, version_id)` and `UNIQUE (band_id, version_id)` — plain uniques, not
+  the partial indexes today's single table needs, because both columns are `NOT NULL`
+  here. These are what refuse a version already held. Plus one index on `version_id` for
+  the FK.
+- Two tables rather than one with a CHECK: decided in the task's justification and in
+  `## The model`. The `owners` supertype is **not** to be reopened.
 
-   `created_at` is not in the plan's DDL line and is kept deliberately: `mergeTabs`'s
-   successor sorts on it and the offline snapshot stores it verbatim, so dropping it would
-   silently reorder a musician's file list. Carry the `annotations` column comment from
-   `migrations/0005_add_tab_annotations.sql` onto the new column, and add a column comment
-   on `user_id` recording that a file is personal by design and a band holds none.
+#### 2. The resolution helper — the heart of the task
 
-2. Copies every `repertoire_tabs` row whose `repertoire` row is **user-owned**
-   (`repertoire.user_id IS NOT NULL`) into `song_files`, joining through
-   `repertoire_id` to take `repertoire.user_id` and `repertoire.song_id`, and carrying
-   `title`, `file_url`, `annotations` and `created_at` across unchanged. `annotations` is
-   copied as the jsonb value, not re-serialised through text, so a migrated row's
-   annotations compare equal to the pre-migration value. `uq_repertoire_user_song`
-   guarantees one repertoire row per `(user_id, song_id)`, so no two source rows can
-   collide on anything the new table constrains.
+A new module `src/lib/songResolution.ts`, with **no `@/lib/db` import** (so it is pure,
+client-safe and unit-testable), exports one function that takes the three levels and
+returns the resolved row:
 
-3. Creates `abandoned_blobs (file_url text primary key, reason text not null,
-   abandoned_at timestamptz not null default now())`. Nothing reads this table in this
-   task. It exists because the alternative is destroying the only record of objects that
-   stay in Vercel Blob forever and, because uploads are `access: 'public'`, stay readable
-   by URL — a silent, unrecoverable leak. The table is given a `COMMENT ON TABLE` saying
-   exactly that and naming the sweeper as the future reader. The delete path in §3 writes
-   to it as well, so it has a live writer and not only a historical one.
+```
+resolveSongFields({ owner: OwnerOverrides | null, version: VersionLevel, song: SongLevel })
+```
 
-4. Inserts one row into `abandoned_blobs` per **band-owned** `repertoire_tabs` row
-   (`repertoire.band_id IS NOT NULL`, i.e. every row step 2 did not carry across), taking
-   its `file_url` and `reason = 'band-owned repertoire_tabs row dropped by the song_files
-   migration'`, with `ON CONFLICT (file_url) DO NOTHING` so two band rows sharing a URL do
-   not abort the migration. This **must** run before step 5: it is the last read of
-   `repertoire_tabs`.
+Its rules, each of which is a silent correctness bug if got wrong:
 
-5. `DROP TABLE repertoire_tabs`, which is also what destroys the band-owned rows. This is
-   the one place in the repository that may name the old identifier after this task.
+- **`lyrics` and `map` walk three levels**: owner row → `song_versions` → `songs`. Words
+  and structure belong to the composition, and a live take overrides them.
+- **`key` and `tuning` walk two**: owner row → `song_versions`, and **no** fallback to
+  `songs`. They are properties of a recording. Null at both levels resolves to null even
+  when `songs` carries something.
+- **`status` has no fallback at all.** It is the owner's or it is `null`.
+- **`tags` and `last_practiced` are owner-only too**: `[]` and `null` when there is no row.
+- **A missing owner row is not an error.** It resolves exactly like a row whose overrides
+  are all null. The implementation makes that structural rather than coincidental: the
+  first statement substitutes an all-null override literal for a null `owner`, so both
+  inputs traverse the same code.
+- "First non-null wins" means `null`, not falsy. An empty string and an empty jsonb
+  object are authored values and stop the walk.
 
-The order above is load-bearing and the steps must appear in the file in exactly that
-sequence — `migrate.mjs` runs each migration file inside one transaction, so a `SELECT`
-placed after the `DROP` fails the whole file.
+**This helper is the only place either cascade is written.** The SQL selects the three
+levels' raw columns — the owner row's, the version's and the song's — and the TypeScript
+folds them. Consequently no query under `src/` may `COALESCE` these six columns across
+levels; a second implementation in SQL is the defect this rule exists to prevent.
 
-### 1b. How the migration is actually tested
+#### 3. One deterministic version per song, for the paths that only know a song
 
-`scripts/migrate.mjs` applies each file once against one shared database and records it in
-`_migrations`; every existing `*.db.test.ts` runs against the *already migrated* shape.
-Nothing in this repository replays a migration file, so "applies the migration" is not a
-step an implementer can write without being told how. The mechanism is the one
-`docs/tasks/RH-96-spec.md` (approved, board task RH-95) specifies for the same problem, and
-this task adopts it verbatim in shape.
+Both the migration and several surviving code paths hold a song id and need a version
+(the manual add, the song picker, the playlist-side ensure, the playlist read whose
+`playlist_songs` row is still song-keyed until RH-125). The pick is the plan's
+representative-version sort, spelled **once** as a shared ordering and reused by every
+caller and by the migration: `album_type = 'album'` first, then earliest
+`albums.release_date`, then earliest `song_versions.created_at`, then `id` — the last two
+making it total, so two runs cannot disagree. Nulls sort last. It is a sort, never a
+stored column (`### Rules`).
 
-**The test's path is `src/lib/__tests__/songFilesMigration.db.test.ts`**, and §1b, ER2,
-ER3, ER4 and ER8 all mean that one file when they say "the same test". It sits beside its
-nine siblings on purpose: `eslint.config.mjs` scopes its test-file overrides to
-`src/**/*.test.ts`, so a suite placed outside `src/` would silently fall out of them. The
-consequence is that this one file legitimately contains the string `repertoire_tabs` (it
-rebuilds the legacy shape), so ER5 and its grep exclude it **by name** — see ER5, whose
-command implements the exclusion rather than describing it.
+**It reads `albums`, and the join is a `LEFT JOIN`, everywhere it appears — the migration
+included.** RH-122 made `song_versions.album_id` nullable on purpose (today's catalog holds
+rows with no album), `album_type` and `release_date` live on `albums`, and an inner join
+would silently drop every version whose album row is missing. In the migration that is not
+a cosmetic bug: the row's song would be classed `no_version` at best and lost at worst,
+after `repertoire` is dropped. So the ordering reads `LEFT JOIN albums a ON a.id =
+v.album_id`, a null `album_type` sorts after `'album'`, a null `release_date` sorts last,
+and the two version-level tiebreakers still make the pick total for a song whose every
+version has no album. The migration's conservation assertion (§Test criteria, ER2) is what
+proves no version was dropped this way.
 
-- **Resolve the file at runtime by its name suffix, never by prefix.** Read `migrations/`,
-  take the single entry whose name ends with `_song_files.sql`, and fail the test if there
-  is not exactly one. This keeps the test green through the renumber §1 anticipates.
-- **Rebuild the pre-migration shape inside a transaction, then roll back.** Postgres makes
-  DDL transactional, so the test opens a transaction and, within it: drops `song_files` and
-  `abandoned_blobs`, recreates `repertoire_tabs` with the legacy DDL frozen in
-  `migrations/0002_add_tabs_and_lyrics.sql` and `migrations/0005_add_tab_annotations.sql`
-  (the `CREATE TABLE`, its `repertoire_id` index, and the `annotations` jsonb column —
-  those files are history and never change, so the DDL may be written inline in the test
-  with a comment citing them), seeds its rows, executes the migration file read from disk,
-  asserts, and **always** rolls back. Nothing is left behind for the next suite, and the
-  shared database never leaves its migrated shape.
-- **Seed both cases in one transaction:** one user-owned `repertoire` row with a
-  `repertoire_tabs` row carrying non-empty `annotations`, and one band-owned `repertoire`
-  row with its own `repertoire_tabs` row.
+For a *read* that must find the owner's row for a song, the same ordering is applied to
+the owner's **own** rows for that song through a `LEFT JOIN LATERAL … LIMIT 1`, which
+preserves today's one-row-per-song behaviour and prefers a version the owner actually
+holds. RH-125 deletes those laterals when `playlist_songs` carries a `version_id`.
 
-If **RH-95 lands first**, its `songIdentity.db.test.ts` already contains this
-resolve-by-suffix / execute / roll back shape and should be read and followed, not
-re-derived. If it has not landed, this task owes the whole harness itself: there is no
-shared helper to import and none is introduced here — the ~15 lines live in this task's own
-`songFilesMigration.db.test.ts`. Either way the implementation does not block on RH-95.
+#### 4. The migration
 
-**The gate is explicit.** Like all nine existing `*.db.test.ts` suites, this one is
-`describe.skipIf(!RUN_DB_TESTS)`, so a plain `npm run test:coverage` **skips** it. That is
-why ER2/ER3/ER4/ER8/ER13 below each state the gate: they are satisfied only by a run with
-`RUN_DB_TESTS=1` against a migrated database, and a report showing them as skipped is a
-failing report, not a passing one. ER8 in particular is the only guard on the single
-irreversible act in this task — annotations crossing the move — and must be observed
-passing, not merely not-failing.
+One new file under `migrations/`, prefix **one above the highest present in the directory
+at implementation time — re-read the directory; do not trust a number quoted in any spec**
+(fourteen approved specs are queued ahead of this one, and
+`src/lib/__tests__/migrationsSingleSource.test.ts` requires prefixes unique and contiguous
+from `0001`). Earlier migrations are never edited.
 
-### 2. What is lost, and why that is acceptable
+Steps, in this order:
 
-Today a tab uploaded onto a **band** repertoire entry is visible, annotatable and
-deletable by every member of that band, and the row records nobody as its uploader —
-`repertoire_tabs` has a `repertoire_id` and nothing else. Under the new model `song_files`
-has a `user_id` and no `band_id` (`docs/use-cases.md`, *Attach a file to a song*, and
-*What creates a personal row in band context*), so there is no owner such a row could be
-given: assigning it to one member would be a guess, and fanning it out to every current
-member would manufacture rows for people who never uploaded anything and duplicate the
-file across a membership that changes.
+1. Create `user_songs` and `band_songs` as above.
+2. **Call RH-122's idempotent catalog backfill function** (name read from the tree) so
+   every `songs` row is guaranteed at least one `song_versions` row, including rows
+   written between the two migrations. This is how "there is a target for each" stops
+   being an assumption.
+3. Create `orphaned_repertoire_rows (id, row_json jsonb NOT NULL, reason text NOT NULL,
+   archived_at timestamptz NOT NULL DEFAULT now())` with a `COMMENT ON TABLE` saying what
+   it is and that nothing reads it: the alternative to archiving is a row vanishing with
+   a musician's status, tags and practice date in it, and `repertoire` is dropped three
+   steps later, so there is no second chance. Same reasoning as RH-123's `abandoned_blobs`.
+4. Archive, as whole-row jsonb with a reason, every `repertoire` row that cannot be
+   carried: `two_owners` / `no_owner` (both or neither of `user_id`/`band_id` — the CHECK
+   forbids it, so this is defensive, and defensive is the point: if the constraint was
+   ever dropped by hand the row is recorded instead of lost) and `no_version` (its song
+   still has no version after step 2 — unreachable while step 2 runs, kept as the same
+   kind of guard).
+5. Insert into `user_songs` every row with `user_id IS NOT NULL AND band_id IS NULL`, and
+   into `band_songs` every row with `band_id IS NOT NULL AND user_id IS NULL`, each
+   against the representative version of `repertoire.song_id`. Carry `status`, `tags`,
+   `last_practiced`, `lyrics` verbatim and `personal_key` into `key`; `tuning` and `map`
+   are null, having never existed. `uq_repertoire_user_song` / `uq_repertoire_band_song`
+   guarantee at most one source row per `(owner, song)`, and one version per song is
+   chosen, so neither new unique can be violated by the backfill.
+6. `DROP TABLE repertoire` — which takes any trigger still defined on it with it. The
+   migration names neither `sync_band_repertoire_on_member_update` nor its trigger: RH-96
+   already dropped both, and re-naming them here would reintroduce the identifiers.
 
-So those rows are dropped, and with them their annotations. The file objects survive in
-Blob storage and their URLs are recorded in `abandoned_blobs`, which makes the loss
-recoverable by hand rather than absolute. The cost is bounded: a band chart is
-re-uploadable by whoever scanned it, and from this task on it lands where it belongs. The
-PR description must state the loss in these terms, and must report the row count the
-migration dropped on the target database.
+The migration is **not** idempotent and is not required to be: it drops its own source,
+and the `_migrations` ledger is what stops a second run.
 
-> **An open question for the operator covers this** — see the task's `questions`. The spec
-> as written drops the rows; if the operator prefers fanning each band-owned file out to
-> every current member of that band, only steps 2 and 4 of §1 change.
+#### 5. Reads and writes repointed
 
-### 3. Data access and the Server Actions
+- **`src/lib/ownerSongs.ts` is new** and receives the owner-row data access that lives in
+  `src/lib/songs.ts` today (`getRepertoire`, `addSongToRepertoire`, `updateSongStatus`,
+  `updateSongTags`, `updatePersonalKey` → `updateSongKey`, `removeSongFromRepertoire`,
+  `getSongEntry`, `updateLyrics`, `getPersonalEntryForSong`, `assertRepertoireAccess`,
+  `updateSong`'s owner-row half, and **`createAndAddSong`'s owner-row half**). The move is
+  forced, not cosmetic: `src/lib/songs.ts`
+  is pinned at `max-lines: 505`, which is its current length, and the ratchet may only
+  shrink — the repointed SQL is longer than what it replaces. `songs.ts` keeps the catalog
+  work and its override entry is **re-pinned to its new worst number** (its `max-lines`
+  clause removed outright if the file lands at or below the global 400). No new override
+  entry may be added: both new modules stay inside the plain budgets.
+- Every function keeps its name and its signature shape, and **every function that throws
+  today keeps the message it throws** — `Access denied: not allowed on this repertoire
+  entry` (`assertRepertoireAccess`), `Repertoire entry not found or access denied` (the
+  four owner-row writes `updateSongStatus`, `updateSongTags`, `updatePersonalKey` →
+  `updateSongKey`, `removeSongFromRepertoire`, and *only* those: it is their `rowCount === 0`
+  branch, not a read's), `Song already in your repertoire` (`createAndAddSong`),
+  `Lyrics entry not found or not editable` (`updateLyrics`). The UI shows several verbatim
+  and e2e specs assert them. **The two reads throw none of these**: `getSongEntry` and
+  `getPersonalEntryForSong` each return `null` on no row and keep doing so (see the two
+  bullets below) — no function gains or loses a throw in this task.
+- **`createAndAddSong` splits along the same line as `updateSong`.** Its catalog half (the
+  `global_songs` lookup by `LOWER(title)` ± album, and the insert when there is no match)
+  stays in `src/lib/songs.ts`; its owner-row half moves to `src/lib/ownerSongs.ts` and
+  re-keys: the "already held?" check reads the owner table by `(owner, version_id)` for the
+  song's representative version instead of `SELECT id FROM repertoire … song_id = $1`, and
+  the insert writes `user_songs` or `band_songs`. It keeps its name, its signature
+  (`(owner: RepertoireOwner, data) => Promise<Repertoire>`) and
+  `Song already in your repertoire`, including the `err.message.includes('already in')`
+  passthrough its wrapper depends on.
+- Each read branches on the owner (`{ userId }` or `{ bandId }`) to the matching table,
+  joins `song_versions` and `songs`, projects the three levels plus the existing display
+  json, and folds through `resolveSongFields`.
+- **One new read is the shared core of that, and it is the read a missing owner row must
+  not break**:
 
-`src/lib/tabs.ts` keeps its path and its `runTabQuery` wrapper. Every exported function
-loses its `repertoireId` parameter; the create takes `(userId, songId, title, fileUrl)`
-and the four per-file operations take `(fileId, userId, …)`, with `listTabs` taking
-`(userId, songId)`. `assertRepertoireAccess` is no longer imported here: authorization
-becomes `AND user_id = $n` in the `WHERE` clause of every statement, which is both the
-whole story and a stronger one — there is no band membership to grant a third party
-access. A non-matching pair still answers `null` (reads) or `false` (the annotation
-write), so the existing `{ error: 'Tab not found' }` envelopes are unchanged. The module
-docblock must be rewritten to say this; the current one asserts the opposite.
+  ```
+  getResolvedEntryForVersion(owner: { userId: string } | { bandId: string }, versionId: string): Promise<ResolvedSongEntry>
+  ```
 
-`src/app/actions/tabs.ts` keeps its five exported actions and their envelope shapes. The
-changes:
+  `ResolvedSongEntry` (declared in `src/types/database.ts` beside `Repertoire`) carries
+  `ownerRowId: string | null`, the version id, the resolved `status`, `key`, `tuning`,
+  `lyrics`, `map`, `tags`, `last_practiced`, and the song display json. It reads the version
+  and song levels unconditionally and **`LEFT JOIN`s** the owner table on
+  `(owner, version_id)`, so it resolves rather than throws when the owner holds no row:
+  `ownerRowId: null`, `status: null`, `tags: []`, `last_practiced: null`, and `key` /
+  `tuning` / `lyrics` / `map` inherited exactly as §2 says. It never returns `null` and
+  never throws for an absent owner row — only for a `versionId` that does not exist, and
+  for a DB failure. **This is the function ER12 names.**
 
-- `uploadTabAction` reads `songId` from the form instead of `repertoireId`, drops both
-  `assertRepertoireAccess` calls, and stores the object under a path keyed by the owner
-  and the song rather than by a repertoire row. Existing objects are **not** moved: the
-  row carries an absolute `file_url`, so old and new paths coexist with no migration of
-  bytes.
-- `uploadTabAction` also **ensures the uploader's own repertoire row exists**, status
-  `unknown`, in band context as much as outside it (`docs/use-cases.md`, *Attach a file
-  to a song*, step 3). This task does it on the current `repertoire` table, which is the
-  exact equivalent of the `user_songs` row RH-124 will create; it is **not** deferred to
-  RH-124, because the destination modal that used to make this the user's explicit choice
-  is deleted here, and deferring would mean shipping a round in which a band-context
-  upload creates no personal row at all. RH-124 repoints the same call at `user_songs`.
-  Reuse the existing add-song path rather than writing SQL in the action.
-- `deleteTabAction` takes `(fileId)` only — the row's `user_id` is the session's — and
-  **deletes the row first, then the stored object** (`docs/use-cases.md`, *Delete a file*:
-  orphaned storage can be swept, a row pointing at nothing cannot be repaired). A failure
-  of the object delete is logged and swallowed, not propagated; the action still answers
-  `{ success: true }`, because the row the musician was looking at is gone. **The
-  `abandoned_blobs` write happens in that failure branch and nowhere else**: exactly when
-  `del` rejects, one row is inserted with the file's URL and a `reason` naming the failed
-  delete, with `ON CONFLICT (file_url) DO NOTHING`. When `del` resolves, **no** row is
-  written — the object is gone, and handing the future sweeper a URL that no longer
-  resolves would make the ledger a list of false leaks. That insert is itself wrapped so a
-  ledger failure cannot turn a successful row delete into an error.
-- `getTabAnnotationsAction`, `saveTabAnnotationsAction` and `getTabsAction` lose their
-  `repertoireId` argument; the last takes a song id.
+  It is not dead code: both surviving entry reads delegate to it after locating the row, so
+  the three-level projection and the fold exist once. Each keeps its own contract, and
+  neither is what ER12's first assertion is about:
 
-### 4. The band/personal duality collapses
+  - `getSongEntry(owner: RepertoireOwner, repertoireId: string): Promise<Repertoire | null>`
+    — the signature read from `src/lib/songs.ts:207`, not restated from memory — still
+    locates the owner row **by id and owner** and still answers **`null`** when that pair
+    matches no row. It throws nothing for an unknown id; the only throw is the wrapped
+    `Failed to fetch song entry: …`. Keeping the `null` is not incidental: two live callers
+    consume it — `src/hooks/useSongEntry.ts:63` (`if (!data) setNotFound(true)`) drives the
+    not-found screen from it, and `src/hooks/useOfflinePlaylist.ts:104`
+    (`if (!repertoire) continue`) skips an unavailable entry so an offline download of a
+    playlist completes. Turning it into a throw would break offline download, and this task
+    has no reason to make that change.
+  - `getPersonalEntryForSong(songId: string, userId: string): Promise<Repertoire | null>`
+    keeps that signature and still answers `null` when the user holds no version of the
+    song. It is keyed by `(song_id, user_id)`, not by a version, which is why ER12's first assertion is not
+    about it: `null` there means "you hold nothing of this song", a different question from
+    "this version has no row of yours".
+- Writes go through **one** owner-row write function whose patch covers the six override
+  columns plus `status`, built with `src/lib/sqlUpdate.ts`; the per-field entry points
+  delegate to it. That is what makes "every override is writable and every band write is
+  gated" one fact instead of seven.
+- `assertRepertoireAccess` re-keys onto the two tables as a `UNION ALL` of the user branch
+  (`user_id = $2`) and the band branch (band membership, as today — reading and link
+  editing are member-level), returning the row's id, `version_id`, `song_id` and owner.
+  Its `RepertoireAccessRow` in `src/lib/dbRows.ts` gains `version_id`.
+- `addSongToRepertoire` resolves the representative version for the song it is given and
+  inserts one row, born `unknown` by the column default.
+- `src/lib/playlists.ts` (`addSongToPlaylist`, and the playlist-entry read that joins the
+  owner row) and `src/lib/spotifyPlaylistSync.ts` repoint onto the new tables. **One
+  behaviour changes and one does not**, and the two are independent:
+  - **Changed — the band branch is gated.** `addSongToPlaylist` keeps
+    `assertPlaylistAccess` and, when the returned row carries a `band_id`, calls
+    `assertBandAdmin` (exported by RH-96) **before** the transaction and outside the
+    wrapping `try`, so its text reaches the UI verbatim (convention L1a) — the same
+    call-site shape and the same `Access denied: band admin required` message RH-103 uses
+    for reorder. The Spotify entry points are gated at their own guard rather than inside
+    `ensureInRepertoire`, which takes a resolved owner and no caller:
+    `resolveBandOwnership` (`src/lib/spotifyRouteAuth.ts`, the import route's body-`band_id`
+    guard) swaps `assertBandMember` for `assertBandAdmin`, and the sync route adds the same
+    admin check for a playlist that carries a `band_id`. Both keep answering 404 through
+    the existing `guardResource`, so no existence leak is introduced. `assertPlaylistAccess`
+    itself is **not** made role-aware — it is also the Spotify read guard, exactly the
+    reason RH-103 gave for gating at the call site.
+  - **Unchanged — the dual write stays.** The band-playlist path still also writes the
+    caller's own `user_songs` row, and the sync path still writes every member's. That is
+    wrong under *Add a song to a playlist*, and deleting it is **RH-126's whole
+    deliverable**; doing it here would leave RH-126 with half a task. With the gate in
+    place the caller of the band branch is now always an admin, so the second write lands
+    on an admin's own row — still wrong, still RH-126's. Named here so it is a decision and
+    not an oversight.
 
-`src/lib/tabLibrary.ts` loses `TabOrigin`, `MergedTab`, `entryTabOrigin`, `mergeTabs`,
-`needsDestinationChoice`, `UploadTarget`, `resolveUploadTarget` and `resolveDeleteTarget`
-— every one of them exists to answer "band or personal?", a question the model no longer
-asks. `defaultTitleFromFileName`, `tabUploadTitle`, `validateTabFile`,
-`MAX_TAB_FILE_BYTES`, `PendingTabDelete` (reduced to the file id) and
-`TabLibraryController` stay; the controller loses `uploadDestination`,
-`isDestinationModalOpen`, `chooseDestination`, `cancelDestination` and
-`activeTabRepertoireId`, and `tabs` becomes a plain file array. Their tests in
-`src/lib/__tests__/tabLibrary.test.ts` go with them.
+#### 6. Band admin on every band write
 
-`src/hooks/useTabLibrary.ts` consequently makes **one** fetch instead of two: the
-entry-tabs fetch and the personal-tabs fetch become a single `getTabs(songId)`, and the
-merge disappears. Its options lose `repertoireId`, `entryBandId` and
-`personalRepertoireId` and keep `songId`; `onPersonalEntryCreated` stays, because §3's
-ensure-row still produces an entry the page adopts.
+`src/app/actions/repertoire.ts` grows a second owner resolver beside `resolveOwner`: the
+read path keeps `assertBandMember`, and a write path uses `assertBandAdmin` (exported by
+RH-96). Every mutating action uses it — the **seven** of them: `addSongAction`,
+`createAndAddSongAction`, `removeSongAction`, `updateSongStatusAction`,
+`updateSongTagsAction`, `updateSongAction`, `updateLyricsAction`
+— so adding, removing, status, key, tuning, lyrics, map and tags all require band admin,
+which is *Writing a band's rows* in full. Together with the three playlist-side paths
+gated in §5, **no path left under `src/` writes a `band_songs` row without an admin
+check** — that is the property ER18 and ER19 assert together, and after this task it has no counterexample.
 
-`src/components/fastview/TabDestinationModal.tsx` is **deleted** along with its wiring in
-`FastViewOverlays.tsx`; `TabList.tsx` loses the band/personal badge and the origin
-argument to its delete request; `TabLibrarySection.tsx` loses the destination props. The
-Fast View page's `useTabLibrary` call site loses the three dropped options, and
-`usePdfStage` is wired with the file id alone — its `repertoireId` option and the
-`getAnnotations` / `saveAnnotations` signatures in `PdfStageActions` drop that argument.
-No new UI is introduced; the visible change is strictly removal, and
-`docs/tasks/RH-124-mock.html` shows the section before and after.
+**`createAndAddSongAction` is the seventh, and it is gated for the same reason as the other
+six.** Today (`src/app/actions/repertoire.ts:98`) it resolves its owner through
+`resolveOwner` → `assertBandMember` and then calls `createAndAddSong`, whose owner-row half
+inserts the band's hold (`src/lib/songs.ts:362,376`), so a non-admin member currently
+creates a band repertoire row. Creating a song in band context **is** a band write: it
+produces a `band_songs` row, and *Writing a band's rows* is unqualified. There is no reason
+to carve out an exception for the one path that creates both the catalog row and the band's
+hold on it — so it moves onto the write resolver with the rest, which is also what makes
+ER5 and ER14 satisfiable (its two `repertoire` statements are among those §5 moves and
+re-keys).
 
-### 5. Types
+Four consequences are accepted and named: a
+non-admin member can no longer edit a band row's tags inline, can no longer add
+a song to a band playlist or import a Spotify playlist as the band's, can no longer create a
+new song onto the band (`createAndAddSongAction` with a `bandId` now refuses), and saving
+lyrics onto the
+band's row in band context now fails for them with the existing Toast. The third costs no
+UI today: all three client call sites pass a single argument and therefore no `bandId`
+(`RepertoireDashboard.tsx:228`, `useSongPicker.ts:157` — whose `resolveTrackId` only wants
+the song id — and `SongForm.tsx:256`, each typed `(data) => Promise<Repertoire>`), so the
+band branch is reachable only by calling the Server Action directly, which is exactly the
+caller an authz gate exists for. Their own row is
+untouched by the gate, which is the point — *What creates a personal row in band context*
+is unchanged and out of scope here.
 
-`RepertoireTab` becomes `SongFile` in `src/types/database.ts`, with `repertoire_id`
-replaced by `song_id` — the old name asserts an ownership that is now wrong, and ER9
-forbids a repertoire row id in a captured file entry. `TabAnnotations` and `Stroke` keep
-their names and shapes; the comment above `TabAnnotations` must name `song_files`.
+#### 7. Offline
 
-The broader rename of the "tab" vocabulary to "file" (`tabs.ts` → `files.ts`,
-`uploadTabAction` → `uploadFileAction`, `useTabLibrary` → `useFileLibrary`, the
-`src/components/fastview` names) is **deliberately not done here**: it touches every
-consumer without changing behaviour and would bury the re-key it is riding on. Record that
-decision in the `src/lib/tabs.ts` docblock so the mismatch between `SongFile` and
-`tabs.ts` reads as a choice.
-
-### 6. Offline
-
-**One key, chosen here, not left to the implementer.** `OfflineTabSnapshot.repertoireId`
-becomes `songId`. `OfflineSongSnapshot` gains **no new field**: the file-lookup key is the
-already-present `repertoire.song_id`, which is what `findSongBySongId`
-(`src/lib/offlineFirst.ts:158-167`) keys on. `OfflineSongSnapshot.repertoireId`
-**stays** — `findSong` (and so the `getSongEntry` reader at line 193) keys on it, and
-`isSongSnapshot` keeps requiring it. Record that choice, and the reason the two keys
-coexist, in the module docblock; the current docblock's line "`OfflineSongSnapshot.repertoireId`
-is the id `getTabs` is called with" becomes false and must be rewritten.
-
-Three more places in the same file move with the rename, and ER9 cannot hold without
-them: `isTabSnapshot` checks `value.songId` in place of `value.repertoireId`;
-`isSongSnapshot` is unchanged; and `offlineTabToRepertoireTab` becomes
-`offlineTabToSongFile`, returning the §5 `SongFile` with `song_id: tab.songId` in place of
-`repertoire_id`, with its call sites updated.
-
-`OFFLINE_SCHEMA_VERSION` goes **2 → 3**, and the v2 → v3 note in the existing comment
-block must state the real failure, not a convenient one: a v2 snapshot's *song* is still
-found — `findSongBySongId` matches on `repertoire.song_id`, which v2 already carries — and
-its whole tab array is returned; what breaks is each mapped file arriving with
-`song_id: undefined`, because a v2 tab entry carries `repertoireId` and nothing else. The
-list is not empty, it is wrong. (A v2 snapshot would also now fail `isTabSnapshot`; the
-version bump is what turns that into a purge of a superseded version by
-`listOfflinePlaylists`, so the download reads as not-downloaded rather than as a shape
-error.) Do not write "would be found by no song id" into that comment — it is untrue.
-
-`src/lib/offlineFirst.ts`: the `getTabs` reader (line 200) resolves through the existing
-`findSongBySongId` instead of `findSong`, keeping the `file_url` → `cacheKey` override.
-The second, personal-list `getTabs` call documented in its comment no longer exists, and
-the comment must go with it.
-
-**The capture lives in `src/hooks/useOfflinePlaylist.ts`, not in `offlineStore.ts`** —
-neither `src/lib/offlineStore.ts` nor `src/app/offlineActions.ts` calls `getTabs`;
-`offlineActions.ts` only wires `getTabsAction` into the injected actions object, and that
-wiring is unchanged in shape. The call is `gatherSongs`'s
-`await actions.getTabs(entry.repertoireId)` at line 106, behind
-`OfflineDownloadActions.getTabs: (repertoireId: string) => Promise<RepertoireTab[]>` at
-line 31. Both change: the type becomes `(songId: string) => Promise<SongFile[]>`, and the
-call passes `repertoire.song_id` (already resolved two lines above). The file does not
-compile otherwise. This is exactly where the plan's recorded defect lives — in band
-context `entry.repertoireId` is the *band* row, so the snapshot took the band's tabs and
-skipped the member's own; passing the song id to an action that resolves by the session's
-`user_id` captures the **downloader's own** files instead. Say so in the comment at that
-call site, which today reads "Personal **tabs** are still not captured". `offlineTabCacheKey`
-and the `rh-offline-tabs-v1` cache name are unchanged, so no cached bytes are orphaned.
-
-`e2e/offline-mode.spec.ts` hand-builds a snapshot object and must be updated to v3 and the
-new key, or the offline spec fails.
-
-### 7. Guardrails
-
-- `src/lib/tabs.ts` carries a `max-params: 5` override in the
-  `complexity-budget-overrides` block, and `src/hooks/useTabLibrary.ts` carries one too.
-  Every function in both loses a parameter, so re-measure each file: an override whose
-  ceiling is no longer the file's exact worst number fails
-  `src/lib/__tests__/complexityBudget.test.ts`, and an override for a file that no longer
-  violates must be **removed**. The list is a ratchet and may only shrink.
-- Deleting eight exported helpers and a component is exactly what `npm run lint:dead`
-  checks: nothing may be left exported and unimported.
-- `scripts/deduplicate-songs.mjs` repoints files by song id — one `UPDATE song_files SET
-  song_id = <primary> WHERE song_id = <secondary>` replacing the per-repertoire-row
-  repointing — and no longer needs to move anything when a duplicate repertoire row is
-  collapsed.
-- Bump `package.json`'s `version`: patch increment plus the `-YYYYMMDDHHmm` local-time
-  suffix (AGENTS.md, Version Bumping Rule).
+`src/lib/offlineSnapshot.ts`: `OfflineSongSnapshot.repertoireId` becomes the owner-row id,
+`repertoire` / `personalRepertoire` carry the **resolved** row (offline is read-only and
+cannot walk tables), the validator is updated to match, and `OFFLINE_SCHEMA_VERSION` is
+raised by one above whatever RH-123 left in the tree — a snapshot of the previous shape is
+read back as absent, not migrated.
 
 ### Files touched
 
-- `migrations/<next>_song_files.sql` — new: `song_files`, the data move, the
-  `abandoned_blobs` ledger, `DROP TABLE repertoire_tabs`.
-- `src/lib/tabs.ts` — re-keyed onto `(user_id, song_id)`; `assertRepertoireAccess` gone,
-  `user_id` in every `WHERE`; docblock rewritten.
-- `src/app/actions/tabs.ts` — song-id arguments, new blob path, ensure-own-repertoire-row
-  on upload, row-before-object delete with the ledger write.
-- `src/lib/tabLibrary.ts` — origin/merge/destination helpers and controller fields deleted.
-- `src/hooks/useTabLibrary.ts` — one fetch, no merge, options reduced to the song.
-- `src/hooks/usePdfStage.ts` — `repertoireId` dropped from the options and the injected
-  annotation actions.
-- `src/app/fastViewTabActions.ts`, `src/app/offlineActions.ts` — injected action shapes.
-- `src/app/songs/[id]/fast-view/page.tsx` — call sites for the two hooks and the section.
-- `src/components/fastview/TabDestinationModal.tsx` — deleted.
-- `src/components/fastview/FastViewOverlays.tsx`, `TabList.tsx`, `TabLibrarySection.tsx` —
-  modal wiring, origin badge and destination props removed.
-- `src/types/database.ts` — `RepertoireTab` → `SongFile` with `song_id`.
-- `src/lib/offlineSnapshot.ts` — `OfflineTabSnapshot.songId`, `isTabSnapshot`,
-  `offlineTabToRepertoireTab` → `offlineTabToSongFile`, `OFFLINE_SCHEMA_VERSION` 3,
-  docblock rewritten (§6).
-- `src/lib/offlineFirst.ts` — the `getTabs` reader resolves through `findSongBySongId`.
-- `src/hooks/useOfflinePlaylist.ts` — `OfflineDownloadActions.getTabs` takes a song id
-  (line 31) and `gatherSongs` passes `repertoire.song_id` (line 106); the stale
-  "personal tabs are not captured" comment replaced.
-- `src/lib/offlineStore.ts` — only the `OfflineTabSnapshot`/`SongFile` type flow-through;
-  it makes no `getTabs` call.
-- `scripts/deduplicate-songs.mjs` — repoint by song id.
-- `eslint.config.mjs` — the two overrides re-measured or removed.
+- `migrations/<next>_split_repertoire_owner_songs.sql` — new; §4.
+- `src/lib/songResolution.ts` — new; the cascade helper and its three level types.
+- `src/lib/ownerSongs.ts` — new; owner-row data access repointed onto both tables.
+- `src/lib/songs.ts` — owner-row functions removed; catalog work stays.
+- `src/lib/dbRows.ts` — `RepertoireAccessRow` gains `version_id`.
+- `src/types/database.ts` — `Repertoire` loses `personal_key`, gains `version_id`, `key`,
+  `tuning`, `map`; `status` becomes `SongStatus | null` on the resolved shape; `SongMap`
+  added.
+- `src/lib/playlists.ts`, `src/lib/spotifyPlaylistSync.ts` — owner-row ensure and the
+  playlist-entry join repointed; `addSongToPlaylist`'s band branch gated on
+  `assertBandAdmin` (§5).
+- `src/lib/spotifyRouteAuth.ts` — `resolveBandOwnership` gates on `assertBandAdmin`; the
+  sync route's band playlists get the same check (§5).
+- `src/app/actions/repertoire.ts` — imports move to `@/lib/ownerSongs`; the write-owner
+  resolver and the gate (§6).
+- `src/app/api/spotify/playlists/[id]/import/route.ts`, `…/sync/route.ts` — the owner-row
+  ensure they call through.
+- `src/components/songs/RepertoireDashboard.tsx`, `src/components/songs/SongForm.tsx`,
+  `src/lib/filterSongs.ts`, `src/lib/playlistDetail.ts`, `src/lib/songEntry.ts`,
+  `src/lib/playlistOverlay.ts`, `src/store/repertoireStore.ts`,
+  `src/components/playlists/*` — `personal_key` → `key` on the resolved row; no new field.
+- `src/lib/offlineSnapshot.ts`, `src/lib/offlineFirst.ts`, `src/lib/offlineStore.ts`,
+  `src/hooks/useOfflinePlaylist.ts` — §7.
+- `scripts/dev-seed`, `scripts/deduplicate-songs.mjs` — seed and repoint the new tables.
+- `eslint.config.mjs` — the `src/lib/songs.ts` override re-pinned downward.
+- `AGENTS.md` — the Repertoire / Band-ownership / Tags entries describe the two tables and
+  the two cascade depths; `docs/suggestions-log.md` — the deferred vocabulary rename.
 - `package.json` — version bump.
-- Tests: `src/lib/__tests__/tabs.test.ts`, `src/lib/__tests__/tabLibrary.test.ts`,
-  `src/app/actions/__tests__/tabs.test.ts`,
-  `src/app/actions/__tests__/authzTabs.db.test.ts`,
-  `src/hooks/__tests__/useTabLibrary.test.tsx`, `src/hooks/__tests__/usePdfStage.test.tsx`,
-  `src/lib/__tests__/offline{Snapshot,First,Store}.test.ts`,
-  `src/hooks/__tests__/useOfflinePlaylist.test.tsx` (its `getTabs` mock is keyed by
-  repertoire id today, line 61),
-  `src/components/playlists/__tests__/{OfflineDownloadButton,PlaylistDetailView}.test.tsx`
-  (same mock shape), `src/app/actions/__tests__/actionSessionGuard.test.ts` (its
-  `getTabsAction` invocation), `src/components/fastview/__tests__/{TabList,TabOverlays}.test.tsx`,
-  `e2e/offline-mode.spec.ts`, plus the new
-  `src/lib/__tests__/songFilesMigration.db.test.ts` for the migration assertions (§1b) —
-  the one file ER5's grep excludes by name.
-- `docs/tasks/RH-124-mock.html` — the Fast View file section before and after.
+- Tests: new `src/lib/__tests__/songResolution.test.ts`,
+  `src/lib/__tests__/ownerSongsMigration.db.test.ts`,
+  `src/lib/__tests__/ownerSongs.db.test.ts`; updated
+  `src/app/actions/__tests__/authzRepertoire.db.test.ts`, `repertoire.test.ts`,
+  `src/lib/__tests__/songs.test.ts`, `transactionAtomicity.db.test.ts`,
+  `spotifySyncAtomicity.db.test.ts`, `spotifyPlaylistRouteAuthz.db.test.ts`,
+  `spotify.test.ts`, `playlists.test.ts`, `offlineSnapshot.test.ts`, `offlineFirst.test.ts`,
+  `offlineStore.test.ts`, `songEntry.test.ts`, `filtering.test.ts`, `playlistDetail.test.ts`,
+  `playlistOverlay.test.ts`, the hook tests that build `Repertoire` fixtures, the
+  `repertoireDashboard` jsdom test, and `e2e/offline-mode.spec.ts`.
 
 ### Test criteria
 
-- `src/lib/__tests__/songFilesMigration.db.test.ts`, built exactly as §1b prescribes (file resolved by the
-  `_song_files.sql` suffix, pre-migration shape rebuilt and rolled back inside one
-  transaction, `describe.skipIf(!RUN_DB_TESTS)`), seeds one user-owned tab with non-empty
-  annotations and one band-owned tab, executes the migration file, and asserts: the
-  user-owned row is present in `song_files` under the right `(user_id, song_id)` with
-  annotations equal to what was seeded; the band-owned row is absent; its `file_url` is in
-  `abandoned_blobs`; `song_files` has no `band_id` column per `information_schema.columns`;
-  `repertoire_tabs` no longer exists. Run with `RUN_DB_TESTS=1` and report the result —
-  "skipped" does not discharge these assertions.
-- `src/app/actions/__tests__/authzTabs.db.test.ts` is rewritten around the new predicate:
-  for each of the five actions, a second user holding their own file cannot read, annotate
-  or delete the first user's file, and a refusal writes nothing. The band fixture becomes
-  a two-user fixture; band membership grants nothing.
-- An action test asserts the delete order by asserting the row is gone when the mocked
-  `del` rejects, that the action still answers `{ success: true }`, and that the URL
-  reaches `abandoned_blobs`; a companion case asserts that when `del` **resolves**, no
-  `abandoned_blobs` row is written.
-- An `offlineSnapshot` test asserts a v2-shaped snapshot (tab entries carrying
-  `repertoireId`) is rejected by `readValidSnapshot`, and a `useOfflinePlaylist` test
-  asserts the capture calls `getTabs` with the song id, never with a repertoire id.
-- An action test asserts that an upload in band context creates the uploader's own
-  repertoire row with status `unknown`.
-- A jsdom test renders the Fast View file section for a song the user has **no** repertoire
-  row for and still lists that user's files — the behaviour the old
-  repertoire-row-keyed fetch made impossible.
-- An `offlineSnapshot` test asserts no captured file entry carries a repertoire row id and
-  that `OFFLINE_SCHEMA_VERSION` is 3; an `offlineFirst` test asserts `getTabs` resolves by
-  song id.
-- `rg -n 'repertoire_tabs' src/ e2e/ -g '!songFilesMigration.db.test.ts'` prints nothing
-  and exits 1. That single file and `migrations/` are the only places the old identifier
-  may survive.
-- `npm run test:coverage`, `npm run lint:dead` and `npm run build` all exit 0.
+**Unit (`songResolution.test.ts`), one case per rule in §2**: three-level `lyrics` and
+`map` taking the first non-null at each level; two-level `key` and `tuning` resolving null
+even when `songs` carries a value; `status` null when the owner row is absent and never
+inherited; a null `owner` producing output identical to an all-null `owner`; an empty
+string stopping the walk.
+
+**DB (`ownerSongs.db.test.ts`, `RUN_DB_TESTS=1`)**: both uniques refuse a second hold of
+the same `(owner, version_id)`; a user's and a band's holds on one version are independent
+in both directions (setting one's `key` leaves the other's resolution unchanged); the
+representative-version ordering is deterministic for a song with two versions on two
+album types; `getResolvedEntryForVersion({ userId }, versionId)` for a `(user_id,
+version_id)` with **no** `user_songs` row resolves — `ownerRowId: null`, `status: null`,
+`tags: []`, `last_practiced: null`, inherited `key`/`tuning`/`lyrics`/`map` — instead of
+throwing or answering `null`, while the two reads keep their real contracts — `getSongEntry`
+with an unknown `repertoireId` answers **`null`** (not a throw) and `getPersonalEntryForSong`
+for a song the user holds nothing of answers `null`; `createAndAddSong` for an
+`(owner, song)` already held still throws `Song already in your repertoire` and writes no
+second row; the representative-version ordering still
+returns a version whose `album_id` is null.
+
+**Migration (`ownerSongsMigration.db.test.ts`, `RUN_DB_TESTS=1`)**, on the recipe RH-95
+established and RH-123 adopted: resolve the migration file from `migrations/` by its
+`_split_repertoire_owner_songs.sql` suffix (fail if there is not exactly one), and inside
+one transaction that is always rolled back — rebuild the legacy shape (drop the two new
+tables, recreate `repertoire` with the DDL of `0001` plus the later `lyrics` column and
+both partial uniques), seed the rows below, **capture `SELECT count(*) FROM repertoire`
+before executing the file**, execute it, and assert:
+
+- the seeded user-owned and band-owned rows landed in the right table against the right
+  version with `status`, `key` (from `personal_key`), `tuning`, `lyrics`, `map`, `tags` and
+  `last_practiced` as expected;
+- the ownership anomaly (seeded with the CHECK dropped) is in `orphaned_repertoire_rows`
+  with its reason;
+- **conservation**: the captured pre-count equals
+  `count(user_songs) + count(band_songs) + count(orphaned_repertoire_rows)`, each counted
+  for the seeded fixture. This is the only assertion that can fail for a row that silently
+  disappeared, and it is checked before `repertoire` is gone — after the drop there is no
+  evidence left. It is what catches the ordering written as an inner join through `albums`;
+- **the album-less case lands**: one further seeded `repertoire` row whose song's only
+  `song_versions` row has a null `album_id` (and a sibling case whose album carries a null
+  `release_date`) arrives in `user_songs` against that version, rather than vanishing or
+  being archived as `no_version`. Deliberately a case RH-122's backfill cannot produce —
+  the seed creates the album-less version by hand, because a fixture where every song has
+  an album is exactly the fixture an inner join passes;
+- `repertoire` is absent from `information_schema.tables`.
+
+**Actions (`authzRepertoire.db.test.ts`, `RUN_DB_TESTS=1`)**: for each of the seven mutating
+actions — `createAndAddSongAction` included, asserting additionally that the refused call
+leaves **no** `band_songs` row for the song it would have created — a band admin succeeds
+and a non-admin member is refused with no row written;
+personal writes are unaffected. The file already parametrizes `createAndAddSongAction`
+(`authzRepertoire.db.test.ts:131`), so this is a change of expectation on an existing case,
+not a new one.
+
+**Playlist-side gate (`playlists.ts` DB test and `spotifyPlaylistRouteAuthz.db.test.ts`,
+`RUN_DB_TESTS=1`)**: `addSongToPlaylist` on a band playlist throws `Access denied: band
+admin required` for a `member` and writes neither a `band_songs` nor a `playlist_songs`
+row; the same call as an `admin` succeeds and produces both the `band_songs` row and the
+caller's `user_songs` row (the dual write RH-126 removes); a personal playlist's owner is
+unaffected. The import route answers 404 for a `band_id` the caller is a member but not an
+admin of, and the sync route refuses a band playlist for a non-admin.
+
+**Component / snapshot**: a jsdom test renders the dashboard in personal and in band
+context off the new tables with the resolved `status`; a Fast View test opens a version
+whose lyrics exist only on `songs` and renders those lyrics; an `offlineSnapshot` test
+asserts the captured rows carry resolved values, that no entry carries a `repertoire` row
+id, and that the previous schema version is rejected.
+
+**Suite**: `npm run test:coverage`, `npm run lint:dead` and `npm run build` exit 0;
+`migrationsSingleSource`, `complexityBudget`, `transactionGuard`, `errorHandlingStyle` and
+`namingConventions` stay green.
 
 ## Expected Results
 
-- [ ] ER1 — A new migration under `migrations/`, named with the suffix `_song_files.sql`
-      and numbered one above the highest prefix present in the directory at implementation
-      time, creates `song_files (id, user_id, song_id, title, file_url, annotations jsonb,
-      created_at)`, migrates every `repertoire_tabs` row whose `repertoire` row is
-      user-owned into it, creates `abandoned_blobs` and records the band-owned rows'
-      `file_url`s in it **before** dropping `repertoire_tabs`, and drops
-      `repertoire_tabs` last; `npm run db:migrate` exits 0 on a fresh database and
+- [ ] ER1 — A new migration under `migrations/`, named with the suffix
+      `_split_repertoire_owner_songs.sql` and numbered one above the highest prefix present
+      in the directory at implementation time, creates `user_songs (id, user_id, version_id,
+      status, key, tuning, lyrics, map, tags, last_practiced, created_at)` unique on
+      `(user_id, version_id)` and `band_songs (id, band_id, version_id, …same columns)`
+      unique on `(band_id, version_id)`, both with `version_id NOT NULL` referencing
+      `song_versions`; `npm run db:migrate` exits 0 on a fresh database and
       `src/lib/__tests__/migrationsSingleSource.test.ts` passes.
-- [ ] ER2 — `src/lib/__tests__/songFilesMigration.db.test.ts` resolves that migration file at runtime by its
-      `_song_files.sql` suffix (not a hardcoded prefix), and inside a single transaction
-      that it always rolls back: rebuilds the pre-migration shape (drops `song_files` and
-      `abandoned_blobs`, recreates `repertoire_tabs` with the legacy DDL of
-      `migrations/0002`/`0005`), seeds one user-owned and one band-owned tab, executes the
-      file, and asserts the user-owned row survives in `song_files` under the correct
-      `(user_id, song_id)` while the band-owned row is gone and `repertoire_tabs` no longer
-      exists. The suite is gated `describe.skipIf(!RUN_DB_TESTS)`; this result is met only
-      by a run with `RUN_DB_TESTS=1` in which the test **passes** — a skipped run does not
-      satisfy it.
-- [ ] ER3 — `song_files` carries no `band_id` column, asserted against
-      `information_schema.columns` in the same `RUN_DB_TESTS=1`-gated test, observed
-      passing rather than skipped.
-- [ ] ER4 — The migration records each dropped band-owned row's `file_url` in
-      `abandoned_blobs`, asserted in the same `RUN_DB_TESTS=1`-gated test, observed passing
-      rather than skipped.
-- [ ] ER5 — `rg -n 'repertoire_tabs' src/ e2e/ -g '!songFilesMigration.db.test.ts'`
-      prints nothing and exits 1. (The excluded file is the migration db-test, which
-      rebuilds the legacy shape; `migrations/` is not searched, since the drop migration
-      must name the table.)
-- [ ] ER6 — `src/lib/tabs.ts` and `src/app/actions/tabs.ts` take a song id or a file id
-      rather than a repertoire row id in every exported signature, and no exported function
-      in either file accepts a repertoire row id.
-- [ ] ER7 — `useTabLibrary` resolves a song's files by song id in a single fetch, asserted
-      by a jsdom test that renders the Fast View file library for a song the user has no
-      repertoire row for and still lists that user's files.
-- [ ] ER8 — Annotations survive the move: the `RUN_DB_TESTS=1`-gated migration test asserts
-      a migrated row's `annotations` jsonb equals its pre-migration value. This is the only
-      guard on the task's one irreversible act, so it must be reported as **passed** under
-      `RUN_DB_TESTS=1`; reported as skipped, the task is not done.
-- [ ] ER9 — `OfflineTabSnapshot` is keyed by `songId` and no captured file entry carries a
-      repertoire row id; `isTabSnapshot` validates `songId`; `offlineTabToSongFile` returns
-      a `SongFile` carrying `song_id`; `OFFLINE_SCHEMA_VERSION` is 3 and `readValidSnapshot`
-      rejects a v2-shaped snapshot — all asserted by tests in
-      `src/lib/__tests__/offlineSnapshot.test.ts`, with an `offlineFirst` test asserting its
-      `getTabs` reader resolves through `findSongBySongId`.
-- [ ] ER10 — The offline capture passes a **song id**: `OfflineDownloadActions.getTabs` is
-      typed `(songId: string) => Promise<SongFile[]>` and `src/hooks/useOfflinePlaylist.ts`
-      calls it with `repertoire.song_id`, asserted by a test in
-      `src/hooks/__tests__/useOfflinePlaylist.test.tsx` that a band-context download calls
-      `getTabs` with the song id and never with a repertoire id.
-- [ ] ER11 — `deleteTabAction` deletes the `song_files` row before the stored object: an
-      action test asserts the row is gone and the envelope reports `{ success: true }` when
-      the mocked `del` rejects and that the file's URL is then recorded in
-      `abandoned_blobs`, and a second case asserts that when `del` resolves **no**
-      `abandoned_blobs` row is written.
-- [ ] ER12 — An upload in band context creates the uploader's own repertoire row with
-      status `unknown`, asserted by an action test.
-- [ ] ER13 — Authorization is preserved: a user cannot read or write another user's
-      `song_files` row, asserted by `src/app/actions/__tests__/authzTabs.db.test.ts`
-      rewritten around the `user_id` predicate and covering every exported action in
-      `src/app/actions/tabs.ts`. Gated `RUN_DB_TESTS=1`; must be observed passing, not
-      skipped.
-- [ ] ER14 — `src/components/fastview/TabDestinationModal.tsx` no longer exists and no
-      source file imports it.
-- [ ] ER15 — `npm run test:coverage` exits 0 with all four thresholds met,
-      `npm run lint:dead` exits 0, and `npm run build` exits 0. Because this command skips
-      every `*.db.test.ts`, it does **not** on its own discharge ER2, ER3, ER4, ER8 or
-      ER13; a separate `RUN_DB_TESTS=1` run covering those suites must also exit 0 with
-      them reported as run.
-- [ ] ER16 — `package.json`'s `version` is bumped following the `x.y.z-YYYYMMDDHHmm` rule.
+- [ ] ER2 — The same migration carries every user-owned `repertoire` row into `user_songs`
+      and every band-owned row into `band_songs`, against the deterministically chosen
+      version of that row's song, with `status`, `personal_key` → `key`, `lyrics`, `tags`
+      and `last_practiced` preserved, and then drops `repertoire`. Asserted by a
+      `*.db.test.ts` that resolves the migration file by its name suffix and executes it
+      against seeded legacy-shaped rows inside a transaction it rolls back. Gated
+      `describe.skipIf(!RUN_DB_TESTS)`: only a `RUN_DB_TESTS=1` run in which the test
+      **passes** satisfies this — a skipped run does not.
+- [ ] ER3 — The migration loses no row, asserted before `repertoire` is dropped: the same
+      `RUN_DB_TESTS=1`-gated test captures `count(*)` of the seeded `repertoire` rows before
+      executing the file and asserts it equals `count(user_songs) + count(band_songs) +
+      count(orphaned_repertoire_rows)` afterwards; observed passing, not skipped.
+- [ ] ER4 — A `repertoire` row whose song's only `song_versions` row has **no album row**
+      (null `album_id`), and one whose album carries a null `release_date`, both land in
+      `user_songs` against that version rather than vanishing or being archived as
+      `no_version`: seeded by hand in the same `RUN_DB_TESTS=1`-gated test (observed
+      passing, not skipped), and every join onto `albums` in the representative-version
+      ordering — in the migration and under `src/` — is a `LEFT JOIN`.
+- [ ] ER5 — `repertoire` is gone: the same `RUN_DB_TESTS=1`-gated test asserts it is absent
+      from `information_schema.tables` (observed passing, not skipped), and no SQL statement
+      under `src/` or `e2e/` names `repertoire` as a table (in `FROM`, `JOIN`, `INSERT INTO`,
+      `UPDATE` or `DELETE FROM`) outside the migration test file, which rebuilds the legacy
+      shape. `migrations/` is excluded by construction. Neither
+      `sync_band_repertoire_on_member_update` nor its trigger name appears under `src/` or
+      `e2e/`.
+- [ ] ER6 — A `repertoire` row the migration cannot carry is archived rather than lost: the
+      `RUN_DB_TESTS=1`-gated test seeds a row that is neither user- nor band-owned (with the
+      CHECK dropped), executes the migration, and finds the whole row as jsonb in
+      `orphaned_repertoire_rows` with a reason; observed passing, not skipped.
+- [ ] ER7 — Each unique refuses a duplicate hold: a `RUN_DB_TESTS=1`-gated test asserts a
+      second insert of the same `(user_id, version_id)` and of the same
+      `(band_id, version_id)` each raise a unique violation; observed passing, not skipped.
+- [ ] ER8 — One exported helper in `src/lib/songResolution.ts` implements the walk-up and is
+      the only place either cascade is written: a unit test proves `lyrics` and `map` resolve
+      owner row → `song_versions` → `songs`, taking the first non-null at each level; and no
+      query under `src/` coalesces `lyrics`, `map`, `key` or `tuning` across levels in SQL.
+- [ ] ER9 — The same helper resolves `key` and `tuning` owner row → `song_versions` **only**:
+      a unit test asserts that null at both of those levels resolves to null even when
+      `songs` carries a value for the field.
+- [ ] ER10 — `status` has no fallback: a unit test asserts the resolved `status` is the owner
+      row's value, and `null` when there is no owner row — never inherited from the version
+      or the song.
+- [ ] ER11 — A missing owner row is not an error: a unit test asserts that resolving with
+      `owner: null` returns exactly the same object as resolving a row whose overrides are
+      all null (same `lyrics`, `map`, `key`, `tuning`, `status: null`, `tags: []`,
+      `last_practiced: null`).
+- [ ] ER12 — `getResolvedEntryForVersion(owner: { userId } | { bandId }, versionId):
+      Promise<ResolvedSongEntry>` in `src/lib/ownerSongs.ts` is the read that proves it at
+      the database: a `RUN_DB_TESTS=1`-gated test calls it with a `(user_id, version_id)`
+      that has **no** `user_songs` row and asserts it returns `ownerRowId: null`,
+      `status: null`, `tags: []`, `last_practiced: null` and the inherited
+      `key`/`tuning`/`lyrics`/`map` — neither throwing nor answering `null`. The same test
+      asserts the two reads keep the contracts they have today: `getSongEntry(owner,
+      repertoireId)` returns **`null`** for an unknown `repertoireId` — it throws nothing,
+      because `src/hooks/useSongEntry.ts` and `src/hooks/useOfflinePlaylist.ts` both branch
+      on that `null` — and `getPersonalEntryForSong(songId, userId)` returns `null` for a
+      song the user holds no version of. Observed passing, not skipped.
+- [ ] ER13 — A user's and a band's holds on the same version are independent cascades: a
+      `RUN_DB_TESTS=1`-gated test sets a `band_songs` `key` and asserts the same user's
+      `user_songs` resolution is unchanged, and the reverse; observed passing, not skipped.
+- [ ] ER14 — Every owner-scoped read and write targets `user_songs` or `band_songs`, lives
+      in `src/lib/ownerSongs.ts`, and resolves through the §2 helper; `src/lib/songs.ts`
+      holds no owner-row query — including the two inside `createAndAddSong`, whose
+      owner-row half moves while its `global_songs` lookup and insert stay — its
+      `eslint.config.mjs` override is re-pinned to the file's
+      new worst number, and no new override entry is added for any file.
+- [ ] ER15 — The dashboard lists a repertoire in both personal and band context off the new
+      tables, asserted by a jsdom test that renders one owner row per context with its
+      resolved `status` and the song's title and artist.
+- [ ] ER16 — The Fast View entry point resolves its song through the helper, asserted by a
+      test that opens a version whose `lyrics` exist only on `songs` and renders those
+      lyrics.
+- [ ] ER17 — The offline snapshot captures the owner's rows from the new tables with
+      resolved values: a snapshot payload test asserts no entry carries a `repertoire` row
+      id, that `OFFLINE_SCHEMA_VERSION` is one above the value RH-123 left, and that
+      `readValidSnapshot` rejects a snapshot written under the previous version.
+- [ ] ER18 — Every band write requires band admin — all seven mutating actions in
+      `src/app/actions/repertoire.ts`: `addSongAction`, `createAndAddSongAction`,
+      `removeSongAction`, `updateSongStatusAction`, `updateSongTagsAction`,
+      `updateSongAction` and
+      `updateLyricsAction` — asserted by a `RUN_DB_TESTS=1`-gated test covering each in both
+      directions (admin succeeds; non-admin member refused with nothing written), with
+      personal writes unaffected; observed passing, not skipped. For
+      `createAndAddSongAction` the refused call additionally leaves no `band_songs` row for
+      the song it would have created. `assertBandAdmin` from
+      `src/lib/bands.ts` is the only admin check used.
+- [ ] ER19 — The three playlist-side paths that create a band repertoire row sideways
+      require band admin too, so ER18 has no counterexample: a `RUN_DB_TESTS=1`-gated test
+      asserts `addSongToPlaylist` on a band playlist throws `Access denied: band admin
+      required` for a `member` and writes neither a `band_songs` nor a `playlist_songs` row,
+      and succeeds for an `admin`; a route authz test asserts the Spotify import route
+      answers 404 for a `band_id` the caller is a member but not an admin of, and that the
+      sync route refuses a band playlist for a non-admin. `assertPlaylistAccess` itself is
+      unchanged. Observed passing, not skipped.
+- [ ] ER20 — `src/lib/playlists.ts` and `src/lib/spotifyPlaylistSync.ts` read and write the
+      new tables with their behaviour otherwise unchanged, including the dual write: a test
+      asserts that an **admin** adding a song to a band playlist still produces both a
+      `band_songs` row and the caller's `user_songs` row, and the spec records that deleting
+      the second write is RH-126's deliverable.
+- [ ] ER21 — `npm run test:coverage` exits 0 with all four thresholds met,
+      `npm run lint:dead` exits 0, and `npm run build` exits 0.
+- [ ] ER22 — `package.json`'s version is bumped following the `x.y.z-YYYYMMDDHHmm` rule, and
+      `AGENTS.md`'s Repertoire, Band-ownership and Tags entries describe `user_songs` /
+      `band_songs`, the `version_id` key and the two cascade depths.
 
 ## Out of Scope
 
-- **Defect 3 — uploads are `access: 'public'`.** Authenticating the file itself needs a
-  signed-URL or proxying route handler, a decision about the offline cache (which fetches
-  `file_url` directly), and a re-upload of existing objects. Its own task; nothing here
-  changes the access mode.
-- **Defect 1's permanent fix — deleting files when the last version of a song leaves the
-  repertoire**, with the confirmation that lists them by name
-  (`docs/use-cases.md`, *Remove a song from the repertoire*). After this task
-  `song_files` no longer cascades from `repertoire` at all, so the silent cascade-and-leak
-  is structurally gone; the intended *deliberate* delete belongs with the owner tables and
-  the remove flow, i.e. **RH-124**.
-- **Sweeping blobs already orphaned**, including the ones this migration records. Needs a
-  script with Blob credentials and a reader for `abandoned_blobs`; a separate task, named
-  in the report.
-- **Renaming the "tab" vocabulary to "file"** across modules, actions, hooks and
-  components (§5).
-- **Image uploads, EXIF rotation, metadata stripping and downscaling**
-  (`docs/plans/repertoire-rework.md`, *Process uploaded images on the way in*). Files stay
-  PDF-only here.
-- **`user_songs` / `band_songs`**, `song_versions` keying, and the per-version question —
-  `song_files` is keyed by song on purpose and stays so.
+- **`playlist_songs.version_id` — RH-125.** Playlist entries stay song-keyed here, which is
+  why the owner-row join needs a lateral; RH-125 deletes it.
+- **One write reaching exactly one owner — RH-126.** The dual writes in
+  `src/lib/playlists.ts` and `src/lib/spotifyPlaylistSync.ts` are repointed and gated, not
+  removed. RH-126 keeps exactly its own deliverable: deleting the **second**, personal
+  write. Who may perform the **band** write is settled here, not there (§Scope, §5, §6).
+- **The TypeScript/route vocabulary rename** (`Repertoire` → `OwnerSong`, `repertoireId` →
+  `ownerSongId`) — its own task, in RH-121's shape; logged in `docs/suggestions-log.md`.
+- **Any new UI field**, including a tuning or map display or editor — RH-102 (status
+  control), RH-112 (add flow), RH-118 (map editor).
+- **Version-aware addressing and navigation** — RH-109.
+- **Reads moving from `songs.album` / `standard_key` / `duration_seconds` onto the version**
+  — not in RH-122's scope and not in this one.
+- **The `owners` supertype** — rejected in the plan; not to be reopened.
+- **Deleting a song's files when its last version leaves the repertoire**, and the
+  confirmation that lists overrides, playlists and files — RH-123's named follow-up.

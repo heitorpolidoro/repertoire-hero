@@ -1,314 +1,271 @@
-# RH-126 — Enforce that one write reaches exactly one owner
+# RH-127 — Ingest uploaded images: decode, bake rotation, strip metadata, downscale
 
-Part 6 of 6 of the RH-105 split. `blockedBy: RH-125`, done; RH-121…RH-125 are in production.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+
+Part 1 of 2 from the RH-104 split. Part 2 (RH-128) opens the picker to images and
+renders them in the stage; this part is deliberately invisible to the user.
+
+## Drift corrections (re-read against the tree at `03e60f0`)
+
+This spec was approved **before RH-123 landed**, and five of its statements no longer
+describe the tree. They are corrected in place below; this list exists so a reviewer can
+see what moved and why, rather than diffing two specs.
+
+1. **`repertoire_tabs` is gone — the table is `song_files`.** RH-123
+   (`migrations/0015_song_files.sql`) re-keyed it from a repertoire row to
+   `(user_id, song_id)`. Confirmed columns today: `id, user_id, song_id, title, file_url,
+   annotations, created_at`. Every mention of the old name below now reads `song_files`.
+2. **The type is `SongFile`, not `RepertoireTab`** (`src/types/database.ts:229`).
+3. **The authorization call is `ensureOwnEntry(userId, songId)`**, a local helper at
+   `src/app/actions/tabs.ts:49` — not `assertRepertoireAccess`. The *ordering* claim is
+   unchanged and still binding: it precedes any byte work or blob call.
+4. **The migration prefix is not `0009`.** The highest present is `0016`, and RH-125 is
+   taking `0017`, so **re-read the directory at implementation time** and take the next free
+   number. Never skip one: `migrationsSingleSource.test.ts` requires prefixes unique and
+   contiguous from `0001`.
+5. **`createTab` may NOT take a fifth positional parameter — this was a hard blocker.** The
+   earlier draft said "`createTab` reaches five parameters, which the file's existing pinned
+   `max-params: 5` override already permits". RH-123 **deleted** that override
+   (`eslint.config.mjs:69-73`: "`src/lib/tabs.ts` and `src/hooks/useTabLibrary.ts` each
+   carried `max-params: 5`; every function in both lost a parameter … so both now sit inside
+   the base budget of 4 and the overrides had to go"). `createTab` today takes exactly four
+   (`userId, songId, title, fileUrl`) — at the global ceiling — and the ratchet may **only
+   shrink**, so the override cannot come back. See §"The `createTab` signature" for the
+   resolution.
+
+`sharp` was re-verified and ER1's premise still holds: `package-lock.json:13019` carries
+`node_modules/sharp` at **0.35.4** as an optional dependency of `next`, it is installed, and
+it encodes and reads metadata correctly in this environment.
 
 ## Scope
 
-Two call sites write two owners for one act. This task deletes both, leaves the three
-deliberate per-musician exceptions intact, and inverts the five existing tests that
-currently assert the fan-out as correct behaviour.
+`uploadTabAction` stops being validate-and-forward and becomes decode-and-re-encode on
+the Node runtime. It identifies an uploaded file by its leading magic bytes (PDF as
+today, plus JPEG/PNG/WebP), and for an image it decodes the pixels, **bakes the EXIF
+rotation into them**, strips all metadata, downscales to a bounded longest edge and a
+bounded byte length, and re-encodes. The blob upload's `contentType` becomes the content
+type of what was actually produced, and that content type is stored on the row via a new
+column on `song_files`.
 
-**In scope** — the two violating writes, verified against the tree at `4932826`
-(every path, line number, line count and symbol name below re-verified there at
-implementation time; `c27c611`, which this spec was written against, has since been
-followed by `4751366`, `2d240c7`, `0f7c247` and `4932826`, none of which touched the
-files this task owns):
+Why the rotation is baked rather than left to the EXIF flag — this is the decision the
+implementation must not get wrong. `normalizePoint` cancels the native dimensions out, so
+a stored stroke is a plain fraction of the rendered box and records no evidence of what it
+was drawn over. Every renderer must therefore agree about the orientation flag forever: a
+future canvas path, a server-side thumbnail or the offline view that reads EXIF
+differently silently and unrepairably invalidates every annotation already saved. Baking
+leaves no flag to disagree about. Stripping metadata additionally removes the GPS a phone
+photo carries, which would otherwise be published at a public blob URL; that reason
+stands on its own (`docs/use-cases.md`, *Attach a file to a song*).
 
-1. `src/lib/spotifyPlaylistSync.ts:195-200` — the band branch of `ensureInRepertoire`
-   writes the `band_songs` row (lines 190-194) **and then a `user_songs` row for every
-   row of `band_members` for that band** (`INSERT INTO user_songs (user_id, version_id,
-   status) SELECT bm.user_id, $1, 'unknown' FROM band_members bm WHERE bm.band_id = $2`).
-   Reached from `src/app/api/spotify/playlists/[id]/import/route.ts:90` and
-   `src/app/api/spotify/playlists/[id]/sync/route.ts:80`, once per track. The file's own
-   comment at lines 178-179 already names this statement as RH-126's deliverable.
-2. `src/lib/playlists.ts:190` — the band branch of `addSongToPlaylist` writes
-   `seedOwnerSongSql('band_songs', 'band_id')` for the playlist's band (line 189) **and
-   `seedOwnerSongSql('user_songs', 'user_id')` for the acting user** (line 190). Reached
-   from `addSongToPlaylistAction` (`src/app/actions/playlists.ts:50`). Comment at lines
-   173-175 names it.
-
-Only the second statement of each pair goes. The band row, the `playlist_songs` insert,
-the enclosing `withTransaction`, the `ON CONFLICT DO NOTHING` arbiters and every
-authorization check stay exactly as they are.
-
-**Also in scope** — documentation, the stale comments at `src/lib/playlists.ts:173-175`
-and `:187` and `src/lib/spotifyPlaylistSync.ts:178-179` (all of which currently describe
-the dual write as deliberate and current), and the **five** stale test assertions that
-encode the fan-out as correct behaviour (see *Approach*).
-
-## Out of scope
-
-- **No migration, and no backfill.** The violating rows already in production are
-  `user_songs` rows indistinguishable from rows a member added for themselves; there is
-  no column recording provenance in `migrations/0016`, so a cleanup would destroy
-  legitimate holds. The task is code-only.
-
-  **The consequence is permanent and worth stating plainly rather than leaving as an
-  Out-of-scope line:** every member row that past Spotify imports and past band-playlist
-  adds already fanned out stays in production forever, holding a version the member never
-  chose, and **no expected result in this task detects one**. The one-owner rule therefore
-  becomes true of every *future* write and remains false of the existing data. The
-  musician-visible symptom is a personal repertoire carrying songs only their band plays.
-  Follow-up task to raise: *"Offer each member a review of the band-imported rows in their
-  personal repertoire"* — an opt-in list the member prunes themselves, which is the only
-  form of cleanup that cannot delete a hold they actually wanted. Deciding whether that is
-  worth building is the operator's call, not this task's.
-
-  If implementation finds a migration unavoidable after all, the prefix is
-  the next free one read from `migrations/` at implementation time —
-  `src/lib/__tests__/migrationsSingleSource.test.ts` requires prefixes unique and
-  contiguous from `0001`, so no number may be quoted in advance.
-- The `owners` supertype (named out of scope by the task's justification).
-- Building a "practised it" control. **No practice write path exists in the tree**:
-  `grep -rniE 'practis|recordPractice|markPractic' src` returns **nothing at all** (the
-  parenthetical "outside the `last_practiced` column name itself" was wrong: `practiced`
-  is spelt with a `c`, so the column name does not match `practis` either). `last_practiced` is a readable column, a member of
-  `OWNER_SONG_COLUMNS` (`src/lib/ownerSongRows.ts:32`) and reachable through
-  `updateSongOverrides`, and that is all. This task asserts the *mechanism* is
-  single-owner; the button is someone else's task.
-- Renaming the `repertoire` TypeScript vocabulary (logged in `docs/suggestions-log.md`).
-- Any change to `assertBandAdmin`, `assertPlaylistAccess` or `resolveOwner`.
+Not covered: the upload picker, which **stays PDF-only** — see Out of Scope.
 
 ## Approach
 
-### Behavior
+### Behaviour
 
-- A band-context write reaching either call site creates **exactly one** `band_songs` row
-  for that `(band_id, version_id)` and **zero** `user_songs` rows for that `version_id` —
-  for the acting admin and for every other member alike.
-- A personal-context write creates exactly one `user_songs` row and zero `band_songs`
-  rows for that version.
-- The playlist entry still lands: removing the second seed must not disturb step 3 of
-  `addSongToPlaylist` or the routes' `playlist_songs` inserts.
-- The three exceptions keep writing the musician's own row in band context, unchanged:
-  - **Upload a file** — `ensureOwnEntry` (`src/app/actions/tabs.ts:55`) reads
-    `getPersonalEntryForSong` and, when absent, calls `addSongToRepertoire({ userId },
-    songId)`. Always the uploader, never the band, because `song_files` has no `band_id`.
-  - **Lyrics against your own version** — `resolveLyricsSaveTarget`
-    (`src/lib/lyricsEditor.ts:107`) answers `{ bandId: null, toPersonalEntry: true }` for
-    a band entry with `version === 'personal'`, and `useLyricsEditor.save` creates the
-    personal row through `addSong(songId, null)`
-    (`src/app/fastViewLyricsActions.ts:19`) when `repertoireId` is null.
-  - **Practised it** — a `last_practiced` patch through `updateSongOverrides` writes
-    `ownerTable(owner)` and nothing else; the non-admin member's patch resolves to their
-    own `user_songs` row and leaves `band_songs.last_practiced` untouched.
-- Binding constraints unchanged: every band repertoire write still requires band admin
-  (`assertBandAdmin`); catalog removal stays admin-master only; nothing shared is visible
-  before moderation approval. None of those paths is touched.
+- **Sniffing replaces trust in the client MIME type.** The current
+  `file.type === 'application/pdf' || <%PDF- sniff>` disjunction is replaced by sniffing
+  alone, over four signatures: `%PDF-` at offset 0, `FF D8 FF` (JPEG),
+  `89 50 4E 47 0D 0A 1A 0A` (PNG), and `RIFF` at 0 with `WEBP` at 8 (WebP). A file
+  matching none is rejected with a validation error (message widened from
+  `Only PDF files are allowed` to name the four accepted kinds) and nothing is uploaded or
+  inserted. A file whose client MIME claims `application/pdf` but whose bytes are not
+  `%PDF-` is now rejected — a deliberate tightening, and the Android Storage Access
+  Framework case the old comment protects (a genuine PDF reported as
+  `application/octet-stream`) is still accepted, because the sniff is what decides.
+- **PDFs pass through byte-identical.** No re-encode, no metadata work;
+  `contentType: 'application/pdf'` as today.
+- **The two bounds are `2048` px on the longest edge and `2 * 1024 * 1024` bytes**, exported
+  from `src/lib/fileIngest.ts` as `MAX_IMAGE_EDGE_PX` and `MAX_IMAGE_BYTES`. These are
+  literals of this task, not inherited from anywhere: `src/lib/imageCompressor.ts`'s 1024px
+  is the **band-logo/avatar** path (`useBandEdit`, `BandsView`) and is the wrong reference
+  for this file, which is a *photograph of a handwritten chart read off a music stand while
+  playing*. 2048px across an A4 sheet's long edge is ≈175 dpi, comfortably above the ~150 dpi
+  where ballpoint strokes start to smear, and it matches the long edge of the largest tablet
+  viewport a player is plausibly using (12.9" iPad, 2732×2048), so the chart never renders
+  below 1:1 pixel density on the stage; 1024px would be ≈87 dpi, which softens handwriting
+  exactly when the player leans back. The 2MB cap is set so the chart loads over venue wifi
+  or a phone hotspot before the song starts (≈3 s at 5 Mbps) while still being 5× below the
+  10MB input ceiling, so the ingest demonstrably shrinks real phone photos rather than
+  waving them through. An illegible chart is a worse failure than a large file: when the two
+  bounds conflict, legibility is why the dimension bound is tried first and only lowered as
+  a last resort (see the terminal case below).
+- **Images are re-encoded through `sharp`.** One pass: auto-rotate from the EXIF
+  Orientation tag so the pixels come out upright and the tag is gone; no metadata is
+  carried over (no `exif`, `icc`, `iptc`, `xmp` in the output); resize so the longest edge
+  is at most `MAX_IMAGE_EDGE_PX`, never upscaling a smaller image; encode in the input's
+  own family (JPEG→JPEG, PNG→PNG, WebP→WebP), walking a descending quality/effort ladder
+  (quality `82 → 70 → 60 → 50 → 40` for the lossy families) until the output is at most
+  `MAX_IMAGE_BYTES`, and falling back to the JPEG ladder if PNG's lossless rungs still
+  cannot reach it. Both bounds hold unconditionally for every stored image. sharp's default
+  `limitInputPixels` stays in force as the decompression-bomb guard; a decode failure
+  surfaces as a validation error through the action's existing envelope.
+- **Terminal case of the ladder, stated so nothing is left to the implementer's taste.**
+  If the JPEG fallback's last rung (quality 40) is still over `MAX_IMAGE_BYTES`, the ingest
+  **halves the longest edge and re-walks the JPEG ladder**, repeating down to a floor of
+  `MIN_IMAGE_EDGE_PX = 512`. `MAX_IMAGE_EDGE_PX` is therefore a **ceiling, not a target** —
+  a smaller output is always acceptable, so the two bounds cannot deadlock. If even 512px at
+  quality 40 exceeds the byte bound, the upload is **rejected with a validation error** and
+  nothing is uploaded or inserted. Storing an over-bound output is never permitted: the
+  invariant above is absolute.
+- **The output content type is derived, never assumed.** It is whatever the chosen encoder
+  produced, and it is what is passed to `put()` as `contentType`, what the stored blob path's
+  final extension reflects (`.pdf`/`.jpg`/`.png`/`.webp`, replacing the picked file's
+  extension on the sanitized name), and what is written to the new row column.
+- **The 10MB input ceiling and its message are unchanged**, and so is the authorization
+  order: `ensureOwnEntry(userId, songId)` (`src/app/actions/tabs.ts:49`) still precedes any
+  byte work or blob call. A failure there refuses the upload with nothing written, where a
+  failure after it would leave an orphaned blob object behind — which is the whole reason
+  `abandoned_blobs` exists.
+
+### The `createTab` signature
+
+`createTab` must carry the content type, but it is already at the global `max-params: 4`
+ceiling and its override is gone for good (Drift correction 5). A fifth positional parameter
+would fail `src/lib/__tests__/complexityBudget.test.ts`, and adding an override back is
+forbidden — the ratchet may only shrink, and it is currently at 14 entries against
+`MAX_OVERRIDES = 17`.
+
+**So `createTab` takes a single payload object**, which is the convention AGENTS.md already
+names for a parsed-and-narrowed input shape (`<Subject>Payload`, as in `SongEditPayload` at
+`src/lib/songEditPayload.ts:19` and `BandUpdatePayload` at `src/lib/bandAdminState.ts:33`):
+
+```ts
+export interface CreateSongFilePayload {
+  userId: string
+  songId: string
+  title: string
+  fileUrl: string
+  contentType: string
+}
+
+export async function createTab(payload: CreateSongFilePayload): Promise<SongFile>
+```
+
+The interface lives beside `createTab` in `src/lib/tabs.ts` — it is an argument shape for one
+function, not app vocabulary (so not `src/types/database.ts`) and not a SQL projection (so
+not `dbRows.ts`). This drops the function to **one** parameter, leaving headroom for RH-128
+rather than consuming the last slot. The single call site
+(`src/app/actions/tabs.ts:102`) and the two test call sites
+(`src/lib/__tests__/tabs.test.ts:66,154`) are updated to the object form; this is a
+mechanical change at three places, not a refactor.
 
 ### Files touched
 
-| File | Change |
-|---|---|
-| `src/lib/spotifyPlaylistSync.ts` | delete the member fan-out `INSERT` in `ensureInRepertoire`'s band branch; rewrite the lines 178-179 comment ("…is the dual / write RH-126 removes. It is repointed here, not deleted.") to state the rule as settled |
-| `src/lib/playlists.ts` | delete the caller's `user_songs` seed from `addSongToPlaylist`'s band branch; rewrite the lines 173-175 comment ("**The dual write stays**, as a decision and not an oversight") and the inline comment at line 187 ("— until RH-126 —") |
-| `src/lib/__tests__/spotifyPlaylistSync.test.ts` | **stale 1** — invert the test at line 250, one statement for a band owner, not two |
-| `src/lib/__tests__/spotifySyncAtomicity.db.test.ts` | **stale 2** — invert the test at line 206, band row only, members untouched |
-| `src/lib/__tests__/playlists.test.ts` | **stale 3** — rename the test at line 208 (currently promises propagation) and invert assertion B at lines 255-262; **stale 4** — the test at line 292, `refuses a non-admin member adding to a band playlist, writing neither row (RH-124 ER19)`, re-runs the add as the band admin at line 333 and asserts the admin's `user_songs` row `toHaveLength(1)` at lines 342-349: that becomes `0`. Its refusal half (lines 325-331) asserts `band_songs` 0 and `playlist_songs` 0 but **never** `user_songs` 0 — add it. Also drop the "dual write is unchanged" preamble at lines 199-202 |
-| `src/lib/__tests__/spotify.test.ts` | **stale 5** — invert the loop at lines 479-485 asserting both members hold a row after a band import; rewrite the comment at line 473 |
-| `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` | **new** — the conservation identity against real Postgres, gated on `RUN_DB_TESTS` |
-| `AGENTS.md` | line 52: the three playlist-side paths create the band's row **only**; no member row is created sideways |
-| `package.json` | version bump |
-
-`src/lib/playlists.ts` is **383 lines against the base `max-lines: 400`**
-(`eslint.config.mjs:49`) — 17 lines of headroom, and this change is net-deleting, so no
-new override is needed and none may be added: the override block holds **14 entries
-against `MAX_OVERRIDES = 17`** (`src/lib/__tests__/complexityBudget.test.ts:54`) and is a
-ratchet that may only shrink. `src/lib/spotifyPlaylistSync.ts` is 266 lines and also
-shrinks. Test files are capped at 800; the four edited ones are 382 / 232 / 503 / and
-`spotify.test.ts` carries a `max-lines: 678` override pinned to its **exact** current
-line count by `complexityBudget.test.ts`'s "pins every override ceiling to the current
-worst number in its file" test, so editing that file must either leave it at exactly 678
-lines or lower the ceiling to its new count — "must not grow" alone is not the whole
-constraint.
+- `package.json` — promote `sharp` to a direct dependency. Verified: the lockfile already
+  carries `node_modules/sharp` at **0.35.4** as an optional dependency of `next`, and it is
+  installed, so no resolution change is needed. Bump the app version per the release rule.
+- `next.config.ts` — add `"sharp"` to `serverExternalPackages` (native, Node-only, no
+  `./react` subpath, so the RH-32 guard is satisfied); extend the comment with why.
+- `src/lib/fileIngest.ts` *(new)* — the whole decision: the signature table and
+  `sniffUploadContentType(buffer)`, the exported bounds (`MAX_IMAGE_EDGE_PX = 2048`,
+  `MIN_IMAGE_EDGE_PX = 512`, `MAX_IMAGE_BYTES = 2 * 1024 * 1024`) and quality ladder, the re-encode
+  (`prepareUploadBytes`), and the stored-file-name/extension mapping. It lives in `src/lib`
+  so it is inside the coverage universe and keeps the action under its complexity budget;
+  it imports nothing from `@/app` (F21).
+- `src/app/actions/tabs.ts` — `uploadTabAction` sniffs, prepares, uploads with the derived
+  `contentType` and path, and passes the content type to `createTab`.
+- `src/lib/tabs.ts` — `createTab` takes a `CreateSongFilePayload` object (§"The `createTab`
+  signature") carrying the content type, and inserts it; every `SELECT` list on `song_files`
+  (`createTab` RETURNING, `listTabs`) returns `content_type`. Add no override and raise none.
+- `src/types/database.ts` — `SongFile` gains `content_type?: string`, optional for the
+  same reason `annotations` is: it is present on every row read through `src/lib/tabs.ts`,
+  and absent only from offline snapshots and fixtures written before this task, where
+  `application/pdf` is the correct reading of an absent value.
+- `migrations/NNNN_add_song_file_content_type.sql` *(new)* — `ALTER TABLE song_files ADD
+  COLUMN IF NOT EXISTS content_type text NOT NULL DEFAULT 'application/pdf'`, plus a
+  `COMMENT ON COLUMN` recording that the default is honest history (every pre-existing row
+  is a PDF), not a guess. **Numbering:** one above the highest prefix present in
+  `migrations/` at implementation time — `0016` is the highest landed and RH-125 is taking
+  `0017`, so resolve it by looking rather than trusting any number quoted here, and never
+  skip a number (`migrationsSingleSource.test.ts` requires prefixes unique and contiguous
+  from `0001`).
+- `src/lib/__tests__/fileIngest.test.ts` *(new)*, `src/app/actions/__tests__/tabs.test.ts`,
+  `src/lib/__tests__/tabs.test.ts`, `src/components/fastview/__tests__/TabUploadForm.test.tsx`
+  — tests below.
 
 ### Test criteria
 
-A new `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` on the precedent of
-`src/lib/__tests__/ownerSongsMigration.db.test.ts` and `ownerSongs.db.test.ts`:
-`const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''` and
-`describe.skipIf(!RUN_DB_TESTS)`. Every band fixture it builds carries **at least two
-members** — the acting admin plus one plain member — because a one-member band makes the
-fan-out invisible, and the counts it takes are over the whole `version_id` rather than
-over the actor, because a per-actor count leaves the other members' rows unmeasured.
-Unit-level statement counting against a mocked `query` stays in
-`spotifyPlaylistSync.test.ts`, which is where the shape of the SQL is pinned.
-
-**Every DB-backed assertion names its own `RUN_DB_TESTS=1` run.** `npm run test:coverage`
-is plain `vitest run --coverage` with no `RUN_DB_TESTS` in the environment, and all four
-DB suites this task touches are gated — `spotifySyncAtomicity.db.test.ts:52`,
-`playlists.test.ts:39` and `spotify.test.ts:49` are each `describe.skipIf(...)` over the
-whole file. "Contains a passing test named X" is satisfied by a file skipped in its
-entirety, so each ER demands `0 failed and 0 skipped` from an explicit gated invocation.
-
-**`ensureOwnEntry` stays unexported, and no expected result may require otherwise.**
-`src/app/actions/tabs.ts` line 1 is `'use server'`, so every exported function in that
-module is a Server Action reachable by any authenticated client. `ensureOwnEntry(userId,
-songId)` takes the user id as a *parameter* instead of reading `getRequiredUserId()`;
-exporting it to make it directly testable would publish an endpoint that seeds a
-`user_songs` row for an arbitrary caller-supplied `userId`. The upload exception is
-therefore tested through `uploadTabAction(formData)` with the blob client mocked, which
-is the only reading of ER10 that does not trade a test affordance for a privilege
-escalation.
+Node-environment vitest, with `sharp` used for real (it is installed; `@vercel/blob` stays
+mocked as today). Fixtures are generated in-test with `sharp`, not committed as binaries:
+a non-square image with EXIF Orientation 6 for the rotation case, and an image above both
+bounds (e.g. 4000×3000 noise, which no quality rung compresses under 2MB at full size) for
+the downscale case, which also exercises the ladder-exhaustion re-resize. The unreachable
+terminal case (over the byte bound even at 512px) cannot be produced by a real image, so it
+is covered by stubbing the encoder to return an over-bound buffer on every rung. The sniffer
+is tested on all four accepted signatures plus
+a rejected buffer and the `application/pdf`-claiming impostor. The metadata assertion reads
+the stored bytes back with `sharp` and inspects the parsed metadata. The action test asserts
+the `contentType` and path handed to `put` and the content type handed to `createTab`, and
+that a PDF's stored bytes are byte-identical to the input.
 
 ## Expected Results
 
-- [ ] ER1 — `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` exists, reads
-  `process.env.RUN_DB_TESTS` and guards its suites with `describe.skipIf(!RUN_DB_TESTS)`;
-  `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/oneOwnerPerWrite.db.test.ts` exits 0
-  with 0 failed and 0 skipped tests.
-- [ ] ER2 — That file contains a passing test named
-  `adding to a band playlist writes the band row and no member row` which seeds a band
-  with two members (the actor as `role = 'admin'`, a second user as `role = 'member'`),
-  a band-owned playlist and a catalog song with one version, calls
-  `addSongToPlaylist(playlistId, adminUserId, versionId)`, and then asserts all three of:
-  `SELECT count(*)::int FROM band_songs WHERE band_id = <band> AND version_id = <version>`
-  is `1`; `SELECT count(*)::int FROM user_songs WHERE version_id = <version>` is `0` (the
-  count is over every user, not just the actor); and
-  `SELECT count(*)::int FROM playlist_songs WHERE playlist_id = <playlist> AND version_id = <version>`
-  is `1`.
-- [ ] ER3 — The same file contains a passing test named
-  `adding to a personal playlist writes the user row and no band row` which calls
-  `addSongToPlaylist` on a user-owned playlist and asserts
-  `SELECT count(*)::int FROM user_songs WHERE user_id = <actor> AND version_id = <version>`
-  is `1`, `SELECT count(*)::int FROM band_songs WHERE version_id = <version>` is `0`, and
-  the `playlist_songs` row exists.
-- [ ] ER4 — `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/spotifySyncAtomicity.db.test.ts`
-  exits 0 with 0 failed and **0 skipped** tests (the file is `describe.skipIf`-gated, so a
-  run without `RUN_DB_TESTS` proves nothing). That file no longer contains a test
-  named `seeds the band row and every member repertoire row on a pull`; in its place a
-  passing test named `seeds the band row and no member row on a pull` pulls a one-track
-  Spotify playlist into a band playlist whose band has **three** members, asserts the
-  JSON response body equals `{"added":1,"removed":0}`, asserts
-  `SELECT count(*)::int FROM band_songs WHERE band_id = <band> AND version_id = <version>`
-  is `1`, and asserts `SELECT count(*)::int FROM user_songs WHERE version_id = <version>`
-  is `0`.
+- [ ] ER1 — `package.json` lists `sharp` as a direct dependency at the lockfile's existing
+      `0.35.4`, and `next.config.ts`'s `serverExternalPackages` contains `"sharp"`;
+      `src/lib/__tests__/serverExternalPackages.test.ts` passes.
+- [ ] ER2 — `uploadTabAction` identifies an uploaded file by its leading magic bytes and
+      never by the client-supplied MIME type: JPEG, PNG and WebP signatures are accepted as
+      images, the `%PDF-` sniff still accepts PDFs, and a buffer matching no signature is
+      rejected with a validation error — including one whose `file.type` is
+      `application/pdf` — with no blob upload and no row insert. Unit tests cover all six
+      cases.
+- [ ] ER3 — a unit test feeds the ingest a JPEG whose EXIF Orientation is 6 and asserts the
+      stored bytes decode with the rotation already applied: output width and height are
+      swapped relative to the input, so the orientation is baked into the pixels.
+- [ ] ER4 — a unit test reads the stored image bytes back with `sharp` and asserts the
+      metadata carries no `exif`, no GPS, no `icc`, no `iptc` and no `xmp` block.
+- [ ] ER5 — `src/lib/fileIngest.ts` exports `MAX_IMAGE_EDGE_PX === 2048`,
+      `MIN_IMAGE_EDGE_PX === 512` and `MAX_IMAGE_BYTES === 2 * 1024 * 1024`, and a unit test
+      asserts those three literal values.
+- [ ] ER6 — a unit test feeds the ingest a 4000×3000 image too noisy to compress at full
+      size and asserts the stored result has a longest edge **of at most 2048 pixels** and a
+      byte length **of at most 2 097 152 bytes**, both written as literals in the test, and
+      that the input itself exceeded both (so the assertion proves a real downscale).
+- [ ] ER7 — a unit test proves the byte bound is never violated when the quality ladder is
+      exhausted: for an image that cannot reach 2 097 152 bytes at 2048px, the stored output
+      is smaller than 2048px on its longest edge and at most 2 097 152 bytes; and, with the
+      encoder stubbed to return an over-bound buffer on every rung down to 512px, the upload
+      is rejected with a validation error, with no blob upload and no row insert. No code
+      path stores an image above either bound.
+- [ ] ER8 — a unit test asserts the `contentType` passed to the blob `put` call equals the
+      content type of the re-encoded output (`image/jpeg`, `image/png` or `image/webp` for
+      images, `application/pdf` for PDFs) rather than a hardcoded or client-supplied value,
+      and that the stored blob path's final extension matches that content type.
+- [ ] ER9 — a unit test asserts a PDF upload stores bytes byte-identical to the input (no
+      re-encode path touches PDFs).
+- [ ] ER10 — the SQL migration whose prefix is the highest in `migrations/` adds a
+      content-type column to `song_files` with `NOT NULL DEFAULT 'application/pdf'`,
+      `uploadTabAction` writes the stored file's content type into it through
+      `createTab`, and `listTabs`/`createTab` return it; the file name is never asserted
+      literally. `src/lib/__tests__/migrationsSingleSource.test.ts` passes, confirming
+      prefixes stay unique and contiguous from `0001`.
+- [ ] ER11 — the upload picker's `accept` attribute still admits PDFs only: a test asserts
+      `accept === 'application/pdf'` on the file input and that no image MIME type or image
+      file extension appears anywhere in `src/components/fastview/TabUploadForm.tsx`.
+- [ ] ER12 — `npm test` passes and `npm run test:coverage` stays above the configured
+      thresholds (statements 80, branches 65, functions 78, lines 80), with no new entry in
+      the `complexity-budget-overrides` block and no existing ceiling raised. `npm run lint`
+      adds **nothing** to its pre-existing baseline of 8 errors and 12 warnings across 12
+      untouched files (tracked as RH-129) — that baseline makes `npm run lint` exit 1 today,
+      so the gate is "no new finding attributable to this change", not "exit 0".
+- [ ] ER13 — `createTab` takes a single `CreateSongFilePayload` object rather than a fifth
+      positional parameter: `src/lib/__tests__/complexityBudget.test.ts` passes with **no**
+      `max-params` override for `src/lib/tabs.ts` and no new entry in the
+      `complexity-budget-overrides` block, and the three existing call sites
+      (`src/app/actions/tabs.ts`, `src/lib/__tests__/tabs.test.ts` ×2) use the object form.
 
-  **Correction found at implementation time.** As written this is unsatisfiable while the
-  two tests in that file share one Spotify track. The file's first test
-  (`a failing playlist_songs insert leaves the original playlist rows intact`) syncs the
-  **personal** playlist, and the sync route's `ensureInRepertoire` call sits *outside* the
-  `withTransaction` that the injected `playlist_songs` failure rolls back — so it
-  legitimately commits the owner's own `user_songs` row for that track's version and
-  commits it for good. A count over *every* user for the same version then reads that
-  legitimate personal row as a fan-out, and the band test fails whole-file while passing
-  under `-t`. The fix is in the test, not the count: the band pull now pulls its own
-  track (`RH-36 Band Track`), so the assertion is order-independent and means exactly what
-  it says. The count stays over every user, which is the only count that can see a
-  fan-out to the other two members.
-- [ ] ER5 — `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` contains a passing test named
-  `a personal Spotify import writes only the importer's rows` which runs the import
-  route's `POST` in personal context over a two-track playlist and asserts
-  `SELECT count(*)::int FROM user_songs WHERE user_id = <actor>` increased by exactly `2`
-  and `SELECT count(*)::int FROM band_songs` is unchanged by the call.
-- [ ] ER6 — `src/lib/__tests__/spotifyPlaylistSync.test.ts` no longer contains a test
-  named `issues exactly two statements for a band owner regardless of member count`; in
-  its place a passing test named `issues exactly one statement for a band owner` asserts
-  `mockedQuery` is called **exactly once** for
-  `ensureInRepertoire('version-1', { bandId: 'band-1' })`, that the one SQL string
-  contains `INSERT INTO band_songs (band_id, version_id, status)` and ends with
-  `ON CONFLICT DO NOTHING`, that its values equal `['band-1', 'version-1']`, and that it
-  does **not** contain `band_members`. The existing tests
-  `issues exactly one statement for a personal owner`,
-  `runs on the client it is handed so it can join a caller transaction` and
-  `does nothing when the owner carries neither a band nor a user` still pass unchanged.
-- [ ] ER7 — Neither violating statement survives in either file that carries one today:
-  `grep -rn "FROM band_members" src/lib/spotifyPlaylistSync.ts` returns no lines, and
-  `grep -c "seedOwnerSongSql('user_songs', 'user_id')" src/lib/playlists.ts` returns `1`
-  (the personal branch at today's line 192 only — the band branch's copy at line 190 is
-  gone), with that single remaining occurrence inside the `else if (playlist.user_id)`
-  branch.
-- [ ] ER8 — `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/playlists.test.ts` exits 0
-  with 0 failed and **0 skipped** tests (the file is `describe.skipIf`-gated). That file
-  contains no test whose name includes the words `propagate to members`; the UC3.2
-  band-playlist test is renamed to
-  `should write only the band row when adding a song to a band playlist (UC3.2)`, keeps
-  its two-member band (User A admin, User B member) and now asserts `band_songs` has
-  exactly 1 row for the band and song while `user_songs` has **0** rows for User A and 0
-  for User B.
-- [ ] ER9 — `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/spotify.test.ts` exits 0 with
-  0 failed and **0 skipped** tests (the file is `describe.skipIf`-gated), and its
-  band-import assertion no longer expects a `user_songs` row for either member: the loop
-  over `[userAId, userBId]` asserts `toHaveLength(0)` for both, with the `band_songs`
-  assertion of `toHaveLength(1)` retained in the same test.
-- [ ] ER10 — Exception 1 still works, **without exporting anything new from a
-  `'use server'` module**: `src/app/actions/tabs.ts` line 1 is `'use server'`, so
-  `grep -nE "export[^\n]*ensureOwnEntry" src/app/actions/tabs.ts` returns no lines and
-  `grep -c "^async function ensureOwnEntry" src/app/actions/tabs.ts` returns `1` — it
-  stays a module-private `async function`, because exporting a
-  function that takes a caller-supplied `userId` instead of calling `getRequiredUserId()`
-  would publish a Server Action letting any authenticated user seed a `user_songs` row for
-  any other user. The exception is instead proven through the action:
-  `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` contains a passing test named
-  `uploading a file in band context creates the uploader's own row` which seeds a band
-  with **two members** (the uploader and one other member), a `band_songs` row for the
-  song's representative version, and no `user_songs` row for anyone; calls
-  `uploadTabAction(formData)` with a `FormData` carrying `songId`, `title` and a small
-  valid PDF `File`, with the blob-storage client mocked; and then asserts
-  `SELECT count(*)::int FROM user_songs WHERE user_id = <uploader> AND version_id = <representative version>`
-  is `1` with `status = 'unknown'`, that
-  `SELECT count(*)::int FROM user_songs WHERE version_id = <version>` is also `1` (so the
-  second member received nothing), and that
-  `SELECT count(*)::int FROM band_songs WHERE band_id = <band> AND version_id = <version>`
-  is still `1`.
-- [ ] ER11 — Exception 2 still works: `npx vitest run src/lib/__tests__/lyricsEditor.test.ts`
-  exits 0 with 0 failed and passes a test asserting
-  `resolveLyricsSaveTarget({ entryId: 'e1', entryBandId: 'b1', personalRepertoireId: null, version: 'personal' })`
-  returns exactly `{ repertoireId: null, bandId: null, toPersonalEntry: true }`, and that
-  the same call with `version: 'band'` returns `bandId: 'b1'` and
-  `toPersonalEntry: false` — i.e. a personal lyrics save in band context is still routed
-  to the member's own row and a band lyrics save still is not.
+## Out of Scope
 
-  **Correction found at implementation time.** The ids `'e1'` / `'b1'` appear nowhere in
-  that file; the two existing tests that cover both branches use `'band-rep'` / `'band-1'`
-  (`resolveLyricsSaveTarget asks for a personal entry to be created when the member has
-  none`, and `… targets the band entry on the band version`). `resolveLyricsSaveTarget` is
-  pure and its answer for the personal branch does not read `entryId`, so the existing
-  coverage is equivalent — but rather than restate the ER, implementation added one test
-  using the exact arguments the ER names, as a named RH-126 regression guard, and left the
-  existing tests alone.
-- [ ] ER12 — Exception 3's mechanism is single-owner:
-  `src/lib/__tests__/oneOwnerPerWrite.db.test.ts` contains a passing test named
-  `a last_practiced write in band context touches one owner row only` which, with both a
-  `band_songs` row and the member's own `user_songs` row present for one version, calls
-  `updateSongOverrides({ userId: <member> }, <their user_songs row id>, { last_practiced: <date> })`
-  and asserts the member's `user_songs.last_practiced` equals that date while
-  `SELECT last_practiced FROM band_songs WHERE band_id = <band> AND version_id = <version>`
-  is still `NULL`.
-- [ ] ER13 — Band admin is still required after the change, proven by the **only** test in
-  the repository that exercises a non-admin refusal on this path:
-  `RUN_DB_TESTS=1 npx vitest run src/lib/__tests__/playlists.test.ts` exits 0 with 0
-  failed and 0 skipped, and the test named
-  `refuses a non-admin member adding to a band playlist, writing neither row (RH-124 ER19)`
-  passes with its refusal half asserting **all three** counts at zero after the rejected
-  call — `band_songs` 0 for the band and song, `playlist_songs` 0 for the playlist, and
-  `user_songs` **0** for both the refused member and the band's admin (this third
-  assertion is absent today and must be added) — and with its admin half, which re-runs
-  the same add as the band admin, asserting the admin's `user_songs` row count for that
-  song is **0** where it asserts `1` today, while the `band_songs` count stays `1`.
-- [ ] ER14 — `AGENTS.md` line describing band vs. personal ownership no longer says the
-  playlist-side paths "create a band row sideways" for members: it states that
-  `addSongToPlaylist`, the Spotify import and the Spotify sync create **only** the band's
-  `band_songs` row, and names the three exceptions
-  (`docs/use-cases.md` § *What creates a personal row in band context*) as the only
-  writes that land a personal row in band context. No stale description of the dual write
-  survives in anything this task owns:
-  `grep -rniE "dual.?write|RH-126 removes|until RH-126|RH-126's whole deliverable|band row sideways" src AGENTS.md docs/use-cases.md docs/plans`
-  returns no lines (8 lines today, across `src/lib/playlists.ts`,
-  `src/lib/spotifyPlaylistSync.ts`, `src/lib/__tests__/playlists.test.ts`,
-  `src/lib/__tests__/spotify.test.ts` and `AGENTS.md`). The scope deliberately excludes
-  `docs/tasks/`: landed specs for shipped tasks (`docs/tasks/RH-125-spec.md:478`) are a
-  record and must not be rewritten, and this spec file itself quotes the phrases.
-- [ ] ER15 — `npm run test:coverage` exits 0 with all four thresholds met
-  (statements 80, branches 65, functions 78, lines 80 — `vitest.config.ts:84-89`).
-- [ ] ER16 — `npx vitest run src/lib/__tests__/complexityBudget.test.ts` exits 0, with the
-  override list still at **14 entries or fewer** against `MAX_OVERRIDES = 17`, and
-  `wc -l src/lib/playlists.ts` reports **383 or fewer** and
-  `wc -l src/lib/spotifyPlaylistSync.ts` **266 or fewer** (both files are net-deleting).
-- [ ] ER17 — `npm run lint` adds **no new finding** on top of the tracked baseline of
-  8 errors / 9 warnings across 11 files (RH-129): the error count, warning count and file
-  count are each less than or equal to the baseline. `npm run lint:dead` exits 0 and
-  `npm run build` exits 0.
-- [ ] ER18 — `package.json`'s `version` is bumped from `0.1.149-202610071119` by at least
-  one patch with a fresh `YYYYMMDDHHmm` local-time suffix (AGENTS.md § *Version Bumping
-  Rule*).
+- **Opening the picker to images and rendering them** — RH-128. Until it lands, no image
+  can be chosen through the UI, so this task can never put an unrenderable file in front of
+  a user. That is the point of doing it first; hold the line.
+- **Re-keying the table to `(user_id, song_id)`** — that was **RH-123, which has landed**
+  (`migrations/0015_song_files.sql`). This task therefore runs on `song_files` as it now
+  stands and changes no ownership path: it adds one column and touches no key. The earlier
+  draft's "This runs on the current `repertoire_tabs`" is withdrawn — that table no longer
+  exists (Drift correction 1).
+- A manual rotate control, HEIC/AVIF input, server-side thumbnails, and migrating or
+  re-processing files already stored.
+- Offline-snapshot or service-worker handling of the new content type.

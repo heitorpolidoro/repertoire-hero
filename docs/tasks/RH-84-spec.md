@@ -3,7 +3,7 @@
 > **Filename mapping.** This is the spec for Meridian board task **RH-83**. Spec
 > filenames in this repository run one ahead of the board id, so board `RH-83`
 > is documented at `docs/tasks/RH-84-spec.md` and its mockup at
-> `docs/tasks/RH-84-mock.html`. Measured at HEAD `376b3a2`.
+> `docs/tasks/RH-83-mock.html`. Measured at HEAD `376b3a2`.
 
 ## Scope
 
@@ -315,7 +315,7 @@ existing guard suites (`complexityBudget`, `namingConventions`,
 `errorHandlingStyle`, `actionDataAccessGuard`, `transactionGuard`) stay green;
 `npm run test:coverage` meets its thresholds.
 
-![Mockup](RH-84-mock.html)
+![Mockup](RH-83-mock.html)
 
 ## Expected Results
 

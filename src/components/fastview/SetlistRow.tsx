@@ -62,7 +62,7 @@ export function SetlistRow({ index, entry, isCurrent, variant, onSelect }: Setli
           {entry.artist && <p className="text-[11px] text-gray-400 truncate">{entry.artist}</p>}
         </div>
       </div>
-      {/* The mockup's option B (`docs/tasks/RH-126-mock.html`): a muted chip
+      {/* The mockup's option B (`docs/tasks/RH-125-mock.html`): a muted chip
           saying *why* there is no progress, rather than an `Unknown` chip that
           looks exactly like a song the musician owns and has not started. */}
       {entry.repertoireId === null && (

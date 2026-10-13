@@ -1,158 +1,193 @@
-# RH-98 — Fall back to personal context when the selected band is gone
+# RH-99 — Disable every write control while offline
 
-> Board id RH-98; spec filename follows the project's board-id-plus-one convention.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+
+> Spec file name carries the project's `+1` offset; the Meridian task is **RH-99**.
 
 ## Scope
 
-A persisted band context that no longer matches any band the server returns must revert
-to personal instead of staying and poisoning every band-scoped call.
+Offline is read-only **by intent, not by limitation** (`docs/use-cases.md`, *Read offline*):
+"every control that writes is **disabled**, with no exceptions". Most of the Fast View
+honours that already — the page makes one `useOfflineStatus()` call and passes `readOnly`
+to the status dropdown and the lyrics Edit/Add trigger (RH-80 ER4). This task closes the
+gap for every remaining write control that a musician can reach with no network, and keeps
+the asymmetry intact: a **disabled** control and a **refused** write are different things,
+and "writes fail with a message" is explicitly not what is wanted.
 
-`src/app/AppShell.tsx` already fetches the band list once per signed-in session and
-reconciles the persisted context against it — but only on the branch where the band **is**
-found, where it refreshes the stored name and colour (`AppShell.tsx:35-43`). There is no
-`else`. A context pointing at a band the user has left, was removed from, or that was
-deleted survives in `localStorage`, and every band-scoped read and write then goes through
-`resolveOwner` (`src/app/actions/repertoire.ts:25`) into `assertBandMember`
-(`src/lib/bands.ts:36`), which throws `Access denied: not a member of this band`. Reloading
-returns to the same state; the only exit is knowing to use the context switcher.
+The audit below is the deliverable's backbone. Two documents are reachable with no
+network: `/songs/[id]/fast-view` (the only navigation the service worker answers from
+cache, `src/app/sw.ts`) and whatever client page was already mounted when the connection
+dropped. The surfaces are therefore the Fast View's sections, PDF Stage Mode, and the
+per-playlist offline control — the one control whose whole job is a network round trip.
 
-This task adds the missing branch, moves the whole decision into a pure, unit-tested
-function, and reloads the repertoire once the context has changed so the dashboard is not
-left showing (or failing to show) the gone band's songs.
+### Audit — every write surface reachable offline
 
-**It does not** change `src/lib/bands.ts`, `resolveOwner`, or any authorization check — the
-server-side `Access denied` is correct and stays. It does not touch `signOutAndPurge`
-(`src/components/layout/SignOutButton.tsx:23`), which already clears the context before
-`authClient.signOut()`. It needs no migration and changes no SQL.
+| # | Surface | Control | Today, offline | Must become |
+|---|---|---|---|---|
+| 1 | `StatusDropdown` (via `SongIdentityHeader`) | status trigger | disabled (RH-80) | unchanged |
+| 2 | `LyricsSection` | `Edit` / `Add` | disabled (RH-80) | unchanged |
+| 3 | `LinksSection` | `+ Add Link` | **enabled** | disabled |
+| 4 | `LinksSection` | per-link `Delete link` | **enabled** — `confirmDelete` reads the envelope, so it reports a failure | disabled |
+| 5 | `AddLinkForm` | `Add` submit (form may be open when the connection drops) | **enabled**, and `submit` discards `updateLinks`'s envelope: the link is pushed into the on-screen list and the toast says "Link added successfully!" while nothing was saved | disabled |
+| 6 | `TabUploadForm` | title input, file input, `Upload PDF` | **enabled** — `uploadTab` resolves `success: false`, surfaced as an inline error | disabled |
+| 7 | `TabList` | per-tab delete | **enabled** — `deleteTab` resolves `success: false`, surfaced as a Toast | disabled |
+| 8 | `TabDrawingStage` (PDF Stage Mode) | `Toggle drawing`, and with it pen/erase/colour/undo/clear | **enabled** — strokes are drawn, then `saveAnnotations` resolves `success: false` and the badge reads "Save failed" | the toggle disabled, drawing never enterable |
+| 9 | `LyricsEditorPanel` | `Save`, `Discard my version`, web import (reachable only if the connection drops with the panel open) | **enabled** | disabled |
+| 10 | `OfflineDownloadButton` | `Available offline`, `Refresh offline copy` | **enabled** — a download with no network cannot complete | disabled |
+| 11 | `OfflineDownloadButton` | `Remove offline copy` | enabled | **unchanged, deliberately** |
+| 12 | `useOfflineLibrary` / `OfflineStorageSection` | per-playlist remove, clear all | enabled | **unchanged, deliberately** |
 
-## The `?bandId=` question — decided, and deliberately out of scope
+Rows 11–12 draw the rule's boundary: it applies to a write that **crosses the network and
+therefore cannot complete**. A purely local write (IndexedDB, Cache Storage,
+`sessionStorage`, zustand) completes offline and means exactly what it says, so it stays
+offered. Reads stay offered too — lyrics Stage Mode, the version switcher, tab selection,
+the `Stage` button, page navigation and zoom are reads, and reading is what offline is for.
 
-Fast View takes its context from the URL (`?bandId=`, read at
-`src/app/songs/[id]/fast-view/page.tsx:65` and passed into `useSongEntry` and
-`usePlaylistNav`), independent of the store. The decided rules, which the implementation
-must preserve rather than change:
-
-1. **The URL wins for Fast View's own reads.** It is an explicit navigation target, the
-   server authorizes it independently through `resolveOwner`, and the page's seven
-   controllers already share it. The store is not consulted there and must not start
-   being consulted.
-2. **A stale link writes nothing.** Fast View never calls `setBandContext`/`setUserContext`
-   (verified: the only writers are `AppShell`, `ContextSwitcher`, `AppLayout`'s exit-band
-   button, `useBandEdit` and `SignOutButton`). So a shared or bookmarked link carrying a
-   band the viewer cannot read cannot corrupt the persisted context, and the fallback this
-   task adds cannot be defeated by one.
-3. **A stale link cannot be rescued into personal context, and the existing "Song not
-   found" screen is the right outcome.** `?bandId=` accompanies a *band* repertoire row
-   id; `getSongEntry` (`src/lib/songs.ts:207`) matches `r.id = $1 AND r.band_id = $2`, and
-   that row has no personal equivalent to fall back to — the user's own row for the same
-   song is a different `repertoire.id`. Retrying the read without the `bandId` therefore
-   resolves nothing. `useSongEntry` already lands such a link on `SongNotFound` (or
-   `OfflineUnavailable` offline) via its `catch`, which is a dead end but an honest one.
-
-Making that screen *say* why ("you are no longer in that band") is a separate deliverable:
-it requires distinguishing an authorization refusal from a missing row across the Server
-Action boundary, where thrown messages are redacted in production builds, i.e. a result
-envelope change in `getSongEntryAction` and its callers. It is not part of this task.
+Not in scope: the pages the worker never serves offline — the dashboard, `/bands/**`,
+`/profile`, `/settings`, the song form, the song picker, Spotify sync. Reaching them with
+no network requires a drop inside a live session, and making them read-only needs an
+app-wide read-only mechanism (a signal reaching ~15 islands); that is its own task. Also
+out of scope: changing any `offlineFirst` classification, queueing writes, any migration
+(none is needed) and any landing-copy change — offline reading is already selling point
+`landing.f7*` and this task adds no capability to it.
 
 ## Approach
 
-**Behavior**
+**The mechanism is the existing one: one offline signal per route, threaded down as a
+prop.** Exactly one component per route — that route's composition root — imports
+`useOfflineStatus`; every other component receives the signal as a prop and never reads
+`navigator.onLine`. There are two such roots after this task: the Fast View page
+(`src/app/songs/[id]/fast-view/page.tsx`, already a client component) and
+`src/components/playlists/PlaylistDetailView.tsx`, which lives under `src/components`
+because `/playlists/[id]/page.tsx` is a Server Component and cannot call a hook. Prose in
+doc comments naming the hook is how the convention is documented and is expected to stay.
 
-- A new pure module decides the reconciliation from the persisted context plus the fetched
-  band list, with exactly four outcomes: personal context → no change; band found with
-  matching name and colour → no change; band found with a different name or colour →
-  refresh (today's behaviour, colour defaulted through `DEFAULT_BAND_COLOR`); band **absent
-  from the list** → reset to personal.
-- `AppShell` applies that decision inside the existing `getBandsAction().then(...)`
-  success path, after `setBands`. On `reset` it calls the store's `setUserContext()` and
-  then `useRepertoireStore.getState().loadSongs()` once, so the dashboard replaces the
-  band's rows (or the failed band read) with the personal repertoire. It does **not**
-  navigate — the user stays on the page they are on.
-- The reset fires only when the band list is authoritative, i.e. only in the resolved path.
-  A rejected `getBandsAction()` must leave the persisted context exactly as it was; the
-  current promise has no rejection handler at all, so one is added that logs through
-  `logger` (`L1`/`P1` conventions) and changes no state.
-- An empty resolved list is authoritative: a band context with `bands === []` resets.
-- The reset is silent — the feedback is the context switcher relabelling itself from the
-  band name to the user's own, and the chrome dropping out of band mode (`AppLayout`
-  already derives both from the store). See Out of Scope.
+- `src/app/songs/[id]/fast-view/page.tsx` — already holds `isOffline`. Pass it as
+  `readOnly` to `LinksSection` and `FastViewOverlays`, and as `readOnly` (alongside the
+  existing `offline`) to `TabLibrarySection`.
+- `src/components/fastview/LinksSection.tsx` — `readOnly?: boolean` (default `false`),
+  disabling the `+ Add Link` trigger and every per-link delete button.
+- `src/components/fastview/AddLinkForm.tsx` — `readOnly` disabling the `Add` submit.
+- `src/components/fastview/TabLibrarySection.tsx` — forward `readOnly` to `TabList` and
+  `TabUploadForm`.
+- `src/components/fastview/TabList.tsx` — `readOnly` disabling each delete button; the
+  select button stays enabled.
+- `src/components/fastview/TabUploadForm.tsx` — `readOnly` ORed into the three existing
+  `disabled` expressions.
+- `src/components/fastview/LyricsSection.tsx` / `LyricsEditorPanel.tsx` — forward
+  `readOnly` into the panel, disabling `Save`, `Discard my version` and the web import.
+- `src/components/fastview/FastViewOverlays.tsx` → `PdfStageOverlay.tsx` →
+  `src/components/tabs/TabDrawingStage.tsx` — `readOnly` reaching the drawing stage, where
+  it disables the `Toggle drawing` button and makes `drawingEnabled` unreachable, so the
+  canvas keeps rendering stored strokes read-only (`pointerEvents` already keys off
+  `drawingEnabled`) and no `saveAnnotations` call can be scheduled. No other stage
+  behaviour changes.
+  **Budget, and how the room is bought.** `eslint.config.mjs` pins this file at exactly
+  `max-lines: 819` / `max-lines-per-function: 757` — the file's current counts, i.e. zero
+  headroom — the ratchet may only shrink, and `src/lib/__tests__/complexityBudget.test.ts`
+  fails on an override that is not the file's current worst number. The `readOnly` prop
+  grows both counts, so lines must be freed first. **This spec makes that choice: extract
+  `drawPath` (currently declared inside the component, lines ~220–237) into a new pure
+  module `src/lib/strokeRenderer.ts`, exporting `drawPath(ctx, points, widthPx, color)`
+  unchanged, and import it in the stage.** It is the right cut because `drawPath` already
+  takes every input as a parameter and closes over nothing — the move is mechanical, has no
+  behavioural risk, and frees ~19 lines from both the function and the file, more than the
+  prop costs. It also follows the precedent `src/lib/annotationMath.ts` and
+  `src/lib/stageInteraction.ts` set: the stage's pure pieces live in `src/lib` and are unit
+  tested without a DOM, here with a fake `CanvasRenderingContext2D` recording its calls, in
+  a new `src/lib/__tests__/strokeRenderer.test.ts`. No toolbar or gesture-handler extraction
+  is in scope — those would be a redesign of the stage, not this task. Both override numbers
+  must end strictly below today's and be updated to the file's new exact counts.
+- `src/components/playlists/PlaylistDetailView.tsx` — this island is the client
+  composition root of `/playlists/[id]` (the page itself is a Server Component and cannot
+  call a hook). It makes that route's single `useOfflineStatus()` call and passes `offline`
+  to `OfflineDownloadButton`, which disables the idle `Available offline` button and the
+  `Refresh offline copy` button and leaves `Remove offline copy` alone.
+- `src/hooks/useSongLinks.ts` — `submit` stops reporting success for a `{ success: false }`
+  envelope: no `onLinksSaved`, no success toast, the envelope's `error` surfaced through
+  `notify`, mirroring `confirmDelete` twenty lines below. This is a **safety net, not the
+  fix**: the fix is the disabled control (row 3/5). It exists because `submit` fabricating
+  success from a refusal is wrong on every path, offline or not, and it is two lines.
+- `src/lib/offlineFirst.ts` — replace the now-false "Known gap, deliberately out of scope"
+  doc block with a statement that the link controls are disabled, pointing at this spec.
+  `updateLinks` stays in `ENVELOPE_WRITES`.
+- `docs/use-cases.md` (*Read offline*, the **Open** paragraph) and
+  `docs/plans/repertoire-rework.md` (the "Disable every write control while offline" work
+  item) — record that the defect is closed and which surfaces the audit covered.
 
-**Files touched**
+**Test criteria.** Component/DOM assertions extend
+`src/components/fastview/__tests__/offlineReadOnlyControls.test.tsx` (the RH-80 file that
+already owns this subject) and
+`src/components/playlists/__tests__/OfflineDownloadButton.test.tsx`: each control asserted
+`disabled` when `readOnly`/`offline` is true **and** enabled when it is false, so no
+default-state regression hides. The `submit` envelope behaviour is a unit test in
+`src/hooks/__tests__/useSongLinks.test.tsx`. End to end,
+`e2e/offline-mode.spec.ts` extends its existing cold-reload-with-no-network test with the
+newly disabled controls, beside the ER4 assertions already there.
 
-- `src/lib/bandContext.ts` — new. The pure decision function and its result type. Imports
-  `BandContext` from `@/store/bandContextStore` and `BandOption` from `@/types/database`
-  as types only (no value import, so no zustand or `pg` is pulled in), plus
-  `DEFAULT_BAND_COLOR` from `@/lib/bandColors`. Exported as a `function` declaration, per
-  the naming guard.
-- `src/app/AppShell.tsx` — calls the new function and applies its outcome; adds the reset
-  branch, the `loadSongs()` after a reset, and the rejection handler. The name/colour
-  refresh logic moves out of the component and into the new module.
-- `src/lib/__tests__/bandContext.test.ts` — new. Unit tests for the decision function.
-- `src/app/__tests__/AppShell.test.tsx` — new DOM test (`// @vitest-environment jsdom`
-  first line, `afterEach(cleanup)`), mocking `@/lib/auth-client` and
-  `@/app/actions/bands`, following `src/components/layout/__tests__/AppLayout.test.tsx`.
-
-**Test criteria**
-
-- The decision function is covered for all four outcomes, including: a band whose colour is
-  `null` in the list against a stored `DEFAULT_BAND_COLOR` context (no change, not a
-  refresh loop), an empty list with a band context (reset), and a personal context with an
-  empty list (no change).
-- The `AppShell` test drives the real `bandContextStore`: with a persisted band context and
-  a fetched list that omits it, the store ends at `{ type: 'user' }` and `loadSongs` was
-  called once; with the band present but renamed, the store keeps `type: 'band'` with the
-  fetched name/colour and `loadSongs` is **not** called; with `getBandsAction` rejecting,
-  the store still holds the original band context and `loadSongs` is not called.
-- `npm run test:coverage` stays above its thresholds (the new module is inside
-  `coverage.include`), and `npm run lint:dead` reports no unused export.
+![Mockup](RH-99-mock.html)
 
 ## Expected Results
 
-- [ ] ER1 — A new pure module `src/lib/bandContext.ts` exports one `function` declaration
-      that maps a persisted `BandContext` plus a `BandOption[]` to one of exactly three
-      outcomes — keep, refresh (name/colour), reset to personal — and imports
-      `BandContext`/`BandOption` with `import type` only.
-- [ ] ER2 — Given a persisted band context whose id is absent from the list
-      `getBandsAction()` resolves with, `AppShell` leaves `bandContextStore` holding
-      `{ type: 'user' }`.
-- [ ] ER3 — The same case is also true for an empty resolved list: a band context with
-      `bands === []` resets to personal.
-- [ ] ER4 — Given a persisted band context whose id **is** in the list but whose name or
-      colour differs, `AppShell` keeps `type: 'band'` and updates the stored name and
-      colour to the fetched values (colour defaulted to `DEFAULT_BAND_COLOR` when the
-      fetched row's colour is `null`); a context already matching the fetched row triggers
-      no store write.
-- [ ] ER5 — When `getBandsAction()` rejects, the persisted context is left untouched (no
-      reset, no refresh) and the failure is reported through `logger`, not `console`, and
-      not as an unhandled rejection.
-- [ ] ER6 — After a reset, `useRepertoireStore.getState().loadSongs()` is called exactly
-      once so the personal repertoire replaces the band's, and no navigation is triggered
-      (`router.push` is not called by `AppShell`).
-- [ ] ER7 — `src/lib/__tests__/bandContext.test.ts` exists and passes, covering keep,
-      refresh, reset, the `null`-colour equivalence case and the personal-context case.
-- [ ] ER8 — `src/app/__tests__/AppShell.test.tsx` exists and passes, asserting ER2, ER4,
-      ER5 and ER6 against the real `bandContextStore` with `@/app/actions/bands` and
-      `@/lib/auth-client` mocked.
-- [ ] ER9 — No authorization behaviour changed: `src/lib/bands.ts`,
-      `src/app/actions/repertoire.ts` and `src/components/layout/SignOutButton.tsx` are
-      unmodified by this task, and no file under `src/` reads `?bandId=` from the store or
-      writes the store from a URL parameter.
-- [ ] ER10 — `npm run test:coverage` passes with its configured thresholds, `npm run
-      lint:dead` and `npm run lint:dup` pass, and
-      `src/lib/__tests__/complexityBudget.test.ts` passes with no new entry in the
-      complexity-budget override list.
-- [ ] ER11 — `package.json`'s version is bumped per the AGENTS.md versioning rule.
+- [ ] ER1 — Fast View, offline: the `+ Add Link` trigger, every per-link `Delete link`
+      button and the add-link form's `Add` submit render `disabled`; a named test in
+      `src/components/fastview/__tests__/offlineReadOnlyControls.test.tsx` asserts each one
+      disabled when read-only and enabled when not.
+- [ ] ER2 — Fast View, offline: the tab upload form's title input, file input and
+      `Upload PDF` submit, and every per-tab delete button, render `disabled`, while the
+      tab-select button and the `Stage` button stay enabled; asserted in the same test file.
+- [ ] ER3 — PDF Stage Mode, offline: the `Toggle drawing` button renders `disabled` and
+      clicking it does not enable drawing, so the canvas takes no pointer input and no
+      annotation save is attempted; page navigation, zoom and PDF rendering stay enabled.
+      A named DOM test asserts the disabled toggle and that the injected
+      `onSaveAnnotations` is never called after a pointer sequence over the canvas.
+- [ ] ER4 — the lyrics editor panel, offline: `Save`, `Discard my version` and the web
+      import button render `disabled`, while lyrics Stage Mode and the band/personal
+      version switch stay enabled; asserted in the same test file.
+- [ ] ER5 — `/playlists/[id]`, offline: `Available offline` and `Refresh offline copy`
+      render `disabled` and `Remove offline copy` stays enabled; `PlaylistDetailView`
+      supplies the signal and `OfflineDownloadButton` receives it as a prop. Asserted in
+      `src/components/playlists/__tests__/OfflineDownloadButton.test.tsx`, both states.
+- [ ] ER6 — `useSongLinks.submit` no longer reports success for a `{ success: false }`
+      envelope: a named test in `src/hooks/__tests__/useSongLinks.test.tsx` asserts
+      `onLinksSaved` is not called, no success toast is raised and the envelope's error
+      message is surfaced instead.
+- [ ] ER7 — `e2e/offline-mode.spec.ts`, after a cold reload with no network on a
+      downloaded song, asserts the add-link trigger, a link delete button, the tab upload
+      submit, a tab delete button and the Stage-Mode drawing toggle are all disabled; the
+      suite passes.
+- [ ] ER8 — the offline signal is read only by the two named composition roots:
+      `grep -rln "from '@/hooks/useOfflineStatus'" src | grep -v __tests__` lists exactly
+      two files, `src/app/songs/[id]/fast-view/page.tsx` and
+      `src/components/playlists/PlaylistDetailView.tsx`, and
+      `grep -rn "navigator\.onLine" src/components` matches no executable line (comment and
+      doc-block mentions are expected and allowed). Every other component takes the signal
+      as a prop.
+- [ ] ER9 — the stale "Known gap, deliberately out of scope" block in
+      `src/lib/offlineFirst.ts` no longer claims the link controls are undisabled, and the
+      *Read offline* **Open** paragraph in `docs/use-cases.md` plus the matching work item
+      in `docs/plans/repertoire-rework.md` record the defect as closed.
+- [ ] ER10 — `drawPath` no longer lives inside `TabDrawingStage`: `src/lib/strokeRenderer.ts`
+      exports it, the stage imports it from there, and `src/lib/__tests__/strokeRenderer.test.ts`
+      covers the empty-, single- and multi-point paths against a fake 2D context. Stage
+      drawing behaviour is unchanged — `src/components/tabs/__tests__/TabDrawingStage.test.tsx`
+      still passes without edits to its assertions.
+- [ ] ER11 — the complexity ratchet shrank: the `src/components/tabs/TabDrawingStage.tsx`
+      override in `eslint.config.mjs` reads `max-lines` ≤ 815 and `max-lines-per-function`
+      ≤ 750 (down from 819 / 757), both equal to the file's actual worst numbers so
+      `src/lib/__tests__/complexityBudget.test.ts` is green;
+      `npm run lint:dead` and `npm run test:coverage` pass with thresholds met,
+      and `npm run lint` adds no new finding on top of its pre-existing baseline
+      (8 errors / 12 warnings across 12 unrelated files, now owned by RH-129 —
+      measure the baseline at `HEAD` yourself and compare).
 
 ## Out of Scope
 
-- **No migration and no SQL change.** Nothing here is persisted server-side.
-- **No user-visible notification of the reset.** `AppShell` owns no toast surface and the
-  switcher label plus the chrome leaving band mode are the feedback; adding a banner would
-  mean introducing a cross-route notification surface, which is its own task.
-- **No change to the `?bandId=` Fast View path**, including the wording of `SongNotFound`
-  for a stale link — see the decision section above.
-- **Not a selling point** (AGENTS.md Landing Page Rule): this is a defect fix in session
-  state handling, so the landing copy and both dictionaries stay untouched.
-- **No interactive mockup.** The task introduces no new UI and asks no visual question; the
-  only visible change is existing chrome (the switcher and band-mode theme) reverting to
-  its existing personal state.
+- Every page the service worker never serves offline (dashboard, `/bands/**`, `/profile`,
+  `/settings`, song form, song picker, Spotify sync): an app-wide read-only mechanism is a
+  separate task.
+- Local-only writes: removing a downloaded playlist, clearing offline storage. They
+  complete offline and stay enabled.
+- Any `offlineFirst` reclassification, any write queue (`docs/use-cases.md` rejects one
+  outright), any migration, and any landing-copy change.

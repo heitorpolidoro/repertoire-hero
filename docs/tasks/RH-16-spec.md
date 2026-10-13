@@ -15,7 +15,7 @@ so the scope is stated explicitly here:
 | File | Handlers using native `confirm()` | In scope |
 |---|---|---|
 | `src/app/bands/[id]/page.tsx` | `handleDelete` (L192), `handleLeave` (L203), `handleRemoveMember` (L213) | **Yes** — the task's stated subject |
-| `src/app/songs/[id]/fast-view/page.tsx` | `handleDeleteTab` (L443), `handleDeleteLink` (L585) | **Yes** — `docs/tasks/RH-28-spec.md` (lines 427–430, 613–615) explicitly deferred these two to RH-16 |
+| `src/app/songs/[id]/fast-view/page.tsx` | `handleDeleteTab` (L443), `handleDeleteLink` (L585) | **Yes** — `docs/tasks/RH-28-spec.previous.md` (lines 427–430, 613–615) explicitly deferred these two to RH-16 |
 | `src/app/profile/page.tsx` | `handleDelete` (L169), `handleLeave` (L180), `handleRemoveMember` (L190), inside the `BandProfileView` component | **Yes** — see below |
 
 **Why `src/app/profile/page.tsx` is included (decision).** It was not mentioned in

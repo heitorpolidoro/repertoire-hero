@@ -2,7 +2,7 @@
 
 > **Filename mapping.** This file is the spec for **board task RH-76** (`parent: RH-74`,
 > sibling `RH-75` done at `ef525f5`). Spec filenames in this repository run one ahead of
-> the board id: `docs/tasks/RH-76-spec.md` is board RH-75's, so board RH-76's spec is
+> the board id: `docs/tasks/RH-75-spec.md` is board RH-75's, so board RH-76's spec is
 > `docs/tasks/RH-77-spec.md`.
 
 ## Scope

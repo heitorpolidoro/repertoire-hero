@@ -1,268 +1,279 @@
-# RH-127 — Ingest uploaded images: decode, bake rotation, strip metadata, downscale
+# RH-128 — Render an image file as a single page in the viewer and the stage
 
-Part 1 of 2 from the RH-104 split. Part 2 (RH-128) opens the picker to images and
-renders them in the stage; this part is deliberately invisible to the user.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
 
-## Drift corrections (re-read against the tree at `03e60f0`)
 
-This spec was approved **before RH-123 landed**, and five of its statements no longer
-describe the tree. They are corrected in place below; this list exists so a reviewer can
-see what moved and why, rather than diffing two specs.
+Part 2 of 2 from the RH-104 split. Part 1 (RH-127, spec `docs/tasks/RH-127-spec.md`)
+made the server ingest images — sniffed, rotated upright, stripped, downscaled, with the
+produced content type stored on `song_files.content_type` — and deliberately left the
+upload picker PDF-only so nothing unrenderable could reach a user. This task opens that
+gate and makes an image readable and annotatable.
 
-1. **`repertoire_tabs` is gone — the table is `song_files`.** RH-123
-   (`migrations/0015_song_files.sql`) re-keyed it from a repertoire row to
-   `(user_id, song_id)`. Confirmed columns today: `id, user_id, song_id, title, file_url,
-   annotations, created_at`. Every mention of the old name below now reads `song_files`.
-2. **The type is `SongFile`, not `RepertoireTab`** (`src/types/database.ts:229`).
-3. **The authorization call is `ensureOwnEntry(userId, songId)`**, a local helper at
-   `src/app/actions/tabs.ts:49` — not `assertRepertoireAccess`. The *ordering* claim is
-   unchanged and still binding: it precedes any byte work or blob call.
-4. **The migration prefix is not `0009`.** The highest present is `0016`, and RH-125 is
-   taking `0017`, so **re-read the directory at implementation time** and take the next free
-   number. Never skip one: `migrationsSingleSource.test.ts` requires prefixes unique and
-   contiguous from `0001`.
-5. **`createTab` may NOT take a fifth positional parameter — this was a hard blocker.** The
-   earlier draft said "`createTab` reaches five parameters, which the file's existing pinned
-   `max-params: 5` override already permits". RH-123 **deleted** that override
-   (`eslint.config.mjs:69-73`: "`src/lib/tabs.ts` and `src/hooks/useTabLibrary.ts` each
-   carried `max-params: 5`; every function in both lost a parameter … so both now sit inside
-   the base budget of 4 and the overrides had to go"). `createTab` today takes exactly four
-   (`userId, songId, title, fileUrl`) — at the global ceiling — and the ratchet may **only
-   shrink**, so the override cannot come back. See §"The `createTab` signature" for the
-   resolution.
+## Drift corrections (re-read against the tree at `afbe242`)
 
-`sharp` was re-verified and ER1's premise still holds: `package-lock.json:13019` carries
-`node_modules/sharp` at **0.35.4** as an optional dependency of `next`, it is installed, and
-it encodes and reads metadata correctly in this environment.
+This spec was approved before RH-123 and RH-127 landed. Six of its statements no longer
+describe the tree; they are corrected in place below. This list exists so a reviewer can
+see what moved rather than diff two specs.
+
+1. **`repertoire_tabs` is gone — the table is `song_files`**, re-keyed from a repertoire
+   row to `(user_id, song_id)` by RH-123 (`migrations/0015_song_files.sql`). The type is
+   `SongFile` (`src/types/database.ts`). Every mention below now reads `song_files`.
+2. **The offline conversion function is `offlineTabToSongFile`**, not
+   `offlineTabToRepertoireTab` — renamed by RH-123. It is exported from
+   `src/lib/offlineSnapshot.ts:229` and returns a `SongFile`.
+3. **`OFFLINE_SCHEMA_VERSION` is 5, not 2.** The *reasoning* is unchanged and still
+   binding: snapshots already on disk predate image upload and are PDFs, so an absent
+   `contentType` reading as `application/pdf` is a fact rather than a guess, and the
+   version must **not** be bumped — discarding those snapshots would cost a musician a
+   downloaded setlist for nothing.
+4. **The content-type column was added by RH-127 on `song_files`**
+   (`migrations/0018_add_song_file_content_type.sql`, `NOT NULL DEFAULT
+   'application/pdf'`). "No migration" still holds: this task reads that column.
+5. **`TabDrawingStage.tsx`'s override is `max-lines-per-function: 743`, not 750**, and
+   `src/lib/strokeRenderer.ts` already exists — RH-99's extraction landed.
+6. **`TabDrawingStage.tsx` sits at exactly 815 lines against a `max-lines: 815` ceiling.**
+   This is a hard blocker, not a note: the next line added to that file fails
+   `src/lib/__tests__/complexityBudget.test.ts`, and the override list is a ratchet that
+   may only shrink, so the ceiling cannot be raised. ER5's extraction of the page surface
+   is therefore not optional cleanup — it is what buys the headroom this task needs, and
+   it must land before anything is added to that file.
 
 ## Scope
 
-`uploadTabAction` stops being validate-and-forward and becomes decode-and-re-encode on
-the Node runtime. It identifies an uploaded file by its leading magic bytes (PDF as
-today, plus JPEG/PNG/WebP), and for an image it decodes the pixels, **bakes the EXIF
-rotation into them**, strips all metadata, downscales to a bounded longest edge and a
-bounded byte length, and re-encodes. The blob upload's `contentType` becomes the content
-type of what was actually produced, and that content type is stored on the row via a new
-column on `song_files`.
+Three things, and the plumbing that joins them.
 
-Why the rotation is baked rather than left to the EXIF flag — this is the decision the
-implementation must not get wrong. `normalizePoint` cancels the native dimensions out, so
-a stored stroke is a plain fraction of the rendered box and records no evidence of what it
-was drawn over. Every renderer must therefore agree about the orientation flag forever: a
-future canvas path, a server-side thumbnail or the offline view that reads EXIF
-differently silently and unrepairably invalidates every annotation already saved. Baking
-leaves no flag to disagree about. Stripping metadata additionally removes the GPS a phone
-photo carries, which would otherwise be published at a public blob URL; that reason
-stands on its own (`docs/use-cases.md`, *Attach a file to a song*).
+1. **The picker admits images.** `accept` on the tab upload input lists PDF plus the three
+   ingested image types. RH-127's guard test, which asserts the picker is PDF-only, is
+   replaced here by its inverse — that is the hand-off, and it is the only place this task
+   edits an expected result RH-127 established.
+2. **The viewer branches away from `gview`.** For an image tab, `TabViewer` renders the
+   file itself instead of the `docs.google.com/gview` iframe. PDFs keep the iframe
+   untouched.
+3. **The stage renders an image as page 1.** The `react-pdf` `Document`/`Page` pair is
+   extracted out of `TabDrawingStage` behind a page-surface interface, and a second
+   implementation renders an `<img>`. The annotation layer, the stroke math and the
+   persistence path are not touched: `normalizePoint` cancels the native dimensions out, so
+   a stored stroke is already a plain fraction of the rendered box, and an `<img>`'s
+   `naturalWidth`/`naturalHeight` are exactly the `originalWidth`/`originalHeight` the
+   existing `PageGeometry` wants. Naming the interface is the work; rewriting the maths is
+   not.
 
-Not covered: the upload picker, which **stays PDF-only** — see Out of Scope.
+Also in scope: carrying the content type through the offline snapshot so the branch is
+made the same way offline, and the landing copy, which today sells PDFs only.
+
+**Not in scope, and this is a deliberate call** — the two-state chrome from
+`docs/use-cases.md`, *Annotate a file* ("drawing off shows the page and one small button,
+bottom centre; drawing on shows the toolbar"). See *Out of Scope* for why, and the mock's
+"Stage chrome" section for the operator question that goes with it.
 
 ## Approach
 
 ### Behaviour
 
-- **Sniffing replaces trust in the client MIME type.** The current
-  `file.type === 'application/pdf' || <%PDF- sniff>` disjunction is replaced by sniffing
-  alone, over four signatures: `%PDF-` at offset 0, `FF D8 FF` (JPEG),
-  `89 50 4E 47 0D 0A 1A 0A` (PNG), and `RIFF` at 0 with `WEBP` at 8 (WebP). A file
-  matching none is rejected with a validation error (message widened from
-  `Only PDF files are allowed` to name the four accepted kinds) and nothing is uploaded or
-  inserted. A file whose client MIME claims `application/pdf` but whose bytes are not
-  `%PDF-` is now rejected — a deliberate tightening, and the Android Storage Access
-  Framework case the old comment protects (a genuine PDF reported as
-  `application/octet-stream`) is still accepted, because the sniff is what decides.
-- **PDFs pass through byte-identical.** No re-encode, no metadata work;
-  `contentType: 'application/pdf'` as today.
-- **The two bounds are `2048` px on the longest edge and `2 * 1024 * 1024` bytes**, exported
-  from `src/lib/fileIngest.ts` as `MAX_IMAGE_EDGE_PX` and `MAX_IMAGE_BYTES`. These are
-  literals of this task, not inherited from anywhere: `src/lib/imageCompressor.ts`'s 1024px
-  is the **band-logo/avatar** path (`useBandEdit`, `BandsView`) and is the wrong reference
-  for this file, which is a *photograph of a handwritten chart read off a music stand while
-  playing*. 2048px across an A4 sheet's long edge is ≈175 dpi, comfortably above the ~150 dpi
-  where ballpoint strokes start to smear, and it matches the long edge of the largest tablet
-  viewport a player is plausibly using (12.9" iPad, 2732×2048), so the chart never renders
-  below 1:1 pixel density on the stage; 1024px would be ≈87 dpi, which softens handwriting
-  exactly when the player leans back. The 2MB cap is set so the chart loads over venue wifi
-  or a phone hotspot before the song starts (≈3 s at 5 Mbps) while still being 5× below the
-  10MB input ceiling, so the ingest demonstrably shrinks real phone photos rather than
-  waving them through. An illegible chart is a worse failure than a large file: when the two
-  bounds conflict, legibility is why the dimension bound is tried first and only lowered as
-  a last resort (see the terminal case below).
-- **Images are re-encoded through `sharp`.** One pass: auto-rotate from the EXIF
-  Orientation tag so the pixels come out upright and the tag is gone; no metadata is
-  carried over (no `exif`, `icc`, `iptc`, `xmp` in the output); resize so the longest edge
-  is at most `MAX_IMAGE_EDGE_PX`, never upscaling a smaller image; encode in the input's
-  own family (JPEG→JPEG, PNG→PNG, WebP→WebP), walking a descending quality/effort ladder
-  (quality `82 → 70 → 60 → 50 → 40` for the lossy families) until the output is at most
-  `MAX_IMAGE_BYTES`, and falling back to the JPEG ladder if PNG's lossless rungs still
-  cannot reach it. Both bounds hold unconditionally for every stored image. sharp's default
-  `limitInputPixels` stays in force as the decompression-bomb guard; a decode failure
-  surfaces as a validation error through the action's existing envelope.
-- **Terminal case of the ladder, stated so nothing is left to the implementer's taste.**
-  If the JPEG fallback's last rung (quality 40) is still over `MAX_IMAGE_BYTES`, the ingest
-  **halves the longest edge and re-walks the JPEG ladder**, repeating down to a floor of
-  `MIN_IMAGE_EDGE_PX = 512`. `MAX_IMAGE_EDGE_PX` is therefore a **ceiling, not a target** —
-  a smaller output is always acceptable, so the two bounds cannot deadlock. If even 512px at
-  quality 40 exceeds the byte bound, the upload is **rejected with a validation error** and
-  nothing is uploaded or inserted. Storing an over-bound output is never permitted: the
-  invariant above is absolute.
-- **The output content type is derived, never assumed.** It is whatever the chosen encoder
-  produced, and it is what is passed to `put()` as `contentType`, what the stored blob path's
-  final extension reflects (`.pdf`/`.jpg`/`.png`/`.webp`, replacing the picked file's
-  extension on the sanitized name), and what is written to the new row column.
-- **The 10MB input ceiling and its message are unchanged**, and so is the authorization
-  order: `ensureOwnEntry(userId, songId)` (`src/app/actions/tabs.ts:49`) still precedes any
-  byte work or blob call. A failure there refuses the upload with nothing written, where a
-  failure after it would leave an orphaned blob object behind — which is the whole reason
-  `abandoned_blobs` exists.
-
-### The `createTab` signature
-
-`createTab` must carry the content type, but it is already at the global `max-params: 4`
-ceiling and its override is gone for good (Drift correction 5). A fifth positional parameter
-would fail `src/lib/__tests__/complexityBudget.test.ts`, and adding an override back is
-forbidden — the ratchet may only shrink, and it is currently at 14 entries against
-`MAX_OVERRIDES = 17`.
-
-**So `createTab` takes a single payload object**, which is the convention AGENTS.md already
-names for a parsed-and-narrowed input shape (`<Subject>Payload`, as in `SongEditPayload` at
-`src/lib/songEditPayload.ts:19` and `BandUpdatePayload` at `src/lib/bandAdminState.ts:33`):
-
-```ts
-export interface CreateSongFilePayload {
-  userId: string
-  songId: string
-  title: string
-  fileUrl: string
-  contentType: string
-}
-
-export async function createTab(payload: CreateSongFilePayload): Promise<SongFile>
-```
-
-The interface lives beside `createTab` in `src/lib/tabs.ts` — it is an argument shape for one
-function, not app vocabulary (so not `src/types/database.ts`) and not a SQL projection (so
-not `dbRows.ts`). This drops the function to **one** parameter, leaving headroom for RH-128
-rather than consuming the last slot. The single call site
-(`src/app/actions/tabs.ts:102`) and the two test call sites
-(`src/lib/__tests__/tabs.test.ts:66,154`) are updated to the object form; this is a
-mechanical change at three places, not a refactor.
+- **One pure decision, one module.** `src/lib/tabRenderer.ts` *(new)* exports the set of
+  image content types the ingest can produce (`image/jpeg`, `image/png`, `image/webp`) and
+  `isImageTab(contentType: string | null | undefined): boolean`. An absent or unknown
+  content type reads as PDF — the same honest-history reading RH-127's column default
+  takes, so every row and every snapshot written before this task behaves exactly as it
+  does today. The module is client-safe: it imports nothing, and in particular not
+  `src/lib/fileIngest.ts`, which pulls in `sharp`.
+- **The picker.** `accept` becomes PDF plus the three image types. The 10 MB client-side
+  size mirror (`MAX_TAB_FILE_BYTES`) and the submit flow are unchanged; no client-side MIME
+  check is added, because the bytes are still what decides, on the server (RH-127). The
+  form's button and the section's copy stop saying "PDF" where they now mean "file" —
+  `Upload PDF`, `Tabs (PDF)`, `No PDFs uploaded yet.` — written inline in English (F25).
+- **The viewer.** `TabViewer` takes the active tab's content type. For an image it renders
+  the file in an `<img>` inside the same 550px card box, object-contained and scrollable,
+  with the same spinner-until-loaded treatment the iframe gets, and **no `gview` iframe is
+  mounted at all**. The `offline` panel is a `gview` workaround, so it must not apply to an
+  image: today `TabViewer.tsx:57` evaluates `offline ? panel : GviewFrame` before anything
+  else, which would paint "Preview needs a connection" over a photograph that renders
+  perfectly well — the offline `file_url` is the synthetic same-origin cache key the service
+  worker answers `CacheOnly`. **The image branch therefore comes first and the offline
+  branch is gated behind it**: for an image tab the `<img>` is rendered whether the browser
+  is online or offline, and `data-testid="tab-viewer-offline"` is never mounted. Only for a
+  PDF does the `offline` branch keep today's behaviour — same iframe online, same panel
+  offline.
+- **The stage.** `TabDrawingStage` stops knowing how a page is produced. It passes
+  `fileUrl`, `pageNumber` and the computed `renderWidth` to a page surface and receives
+  back two things it already consumes: the page count and a `PageGeometry`. The PDF
+  implementation is today's `Document`/`Page` block moved verbatim, including the
+  `'@/lib/pdfWorker'` side-effect import and its static `react-pdf` import (the eager chain
+  AGENTS.md's Turbopack note depends on must not become dynamic). The image implementation
+  renders one `<img>` at the given width, reports `1` page, and on load reports
+  `{ width: renderWidth, height: renderWidth * naturalHeight / naturalWidth,
+  originalWidth: naturalWidth, originalHeight: naturalHeight }`. Nothing else about the
+  stage changes — not the canvas, not the gestures, not the save path, and not RH-99's
+  offline-disabled drawing toggle.
+- **Page controls follow the page count, not the file type.** The prev/next buttons and
+  the `Page n / m` indicator render only when the surface reports more than one page. An
+  image reports 1, so they are absent; a multi-page PDF is unchanged. A single-page PDF
+  loses them too, which is the honest reading of the rule and not a special case. The save
+  indicator lives in that row today and must survive the row's absence — it moves into the
+  control row, or the row renders with only the indicator in it; either is acceptable, an
+  image tab that can be annotated with no visible save state is not.
+- **Offline.** `OfflineTabSnapshot` gains `contentType`, filled from the row at download
+  time and read back by `offlineTabToSongFile` as `content_type`. An absent value
+  reads as `application/pdf`, so **`OFFLINE_SCHEMA_VERSION` is not bumped** — every v2
+  snapshot already on disk predates image upload and is a PDF, so the fallback is a fact
+  rather than a guess, and discarding those snapshots would cost a musician a downloaded
+  setlist for nothing. The bytes themselves need no work: the download fetches the blob URL
+  and caches the whole `Response`, whose `Content-Type` the blob already serves correctly
+  since RH-127, and the service worker's `/__offline-tab/` route is content-type blind.
+- **Landing copy.** Handwritten annotation is already the selling point in `landing.f5*`;
+  it currently promises it on "PDF chord charts and tablatures" only, which this task makes
+  untrue in the user's favour. `f5Title` and `f5Desc` are rewritten in **both**
+  dictionaries to cover a photograph of a handwritten chart alongside the PDF. Same keys,
+  no new keys, no new consumer — the parity test and the single-consumer test both stay
+  green.
 
 ### Files touched
 
-- `package.json` — promote `sharp` to a direct dependency. Verified: the lockfile already
-  carries `node_modules/sharp` at **0.35.4** as an optional dependency of `next`, and it is
-  installed, so no resolution change is needed. Bump the app version per the release rule.
-- `next.config.ts` — add `"sharp"` to `serverExternalPackages` (native, Node-only, no
-  `./react` subpath, so the RH-32 guard is satisfied); extend the comment with why.
-- `src/lib/fileIngest.ts` *(new)* — the whole decision: the signature table and
-  `sniffUploadContentType(buffer)`, the exported bounds (`MAX_IMAGE_EDGE_PX = 2048`,
-  `MIN_IMAGE_EDGE_PX = 512`, `MAX_IMAGE_BYTES = 2 * 1024 * 1024`) and quality ladder, the re-encode
-  (`prepareUploadBytes`), and the stored-file-name/extension mapping. It lives in `src/lib`
-  so it is inside the coverage universe and keeps the action under its complexity budget;
-  it imports nothing from `@/app` (F21).
-- `src/app/actions/tabs.ts` — `uploadTabAction` sniffs, prepares, uploads with the derived
-  `contentType` and path, and passes the content type to `createTab`.
-- `src/lib/tabs.ts` — `createTab` takes a `CreateSongFilePayload` object (§"The `createTab`
-  signature") carrying the content type, and inserts it; every `SELECT` list on `song_files`
-  (`createTab` RETURNING, `listTabs`) returns `content_type`. Add no override and raise none.
-- `src/types/database.ts` — `SongFile` gains `content_type?: string`, optional for the
-  same reason `annotations` is: it is present on every row read through `src/lib/tabs.ts`,
-  and absent only from offline snapshots and fixtures written before this task, where
-  `application/pdf` is the correct reading of an absent value.
-- `migrations/NNNN_add_song_file_content_type.sql` *(new)* — `ALTER TABLE song_files ADD
-  COLUMN IF NOT EXISTS content_type text NOT NULL DEFAULT 'application/pdf'`, plus a
-  `COMMENT ON COLUMN` recording that the default is honest history (every pre-existing row
-  is a PDF), not a guess. **Numbering:** one above the highest prefix present in
-  `migrations/` at implementation time — `0016` is the highest landed and RH-125 is taking
-  `0017`, so resolve it by looking rather than trusting any number quoted here, and never
-  skip a number (`migrationsSingleSource.test.ts` requires prefixes unique and contiguous
-  from `0001`).
-- `src/lib/__tests__/fileIngest.test.ts` *(new)*, `src/app/actions/__tests__/tabs.test.ts`,
-  `src/lib/__tests__/tabs.test.ts`, `src/components/fastview/__tests__/TabUploadForm.test.tsx`
-  — tests below.
+- `src/lib/tabRenderer.ts` *(new)* — the image content-type set and `isImageTab`.
+- `src/components/tabs/PdfPageSurface.tsx` *(new)* — today's `Document`/`Page` block,
+  moved; owns `react-pdf` and `@/lib/pdfWorker`.
+- `src/components/tabs/ImagePageSurface.tsx` *(new)* — the `<img>` implementation.
+- `src/components/tabs/StagePageSurface.tsx` *(new)* — the shared props type and the
+  one-line branch on `isImageTab`; the only thing `TabDrawingStage` renders.
+- `src/components/tabs/TabDrawingStage.tsx` — accepts `contentType`, renders
+  `StagePageSurface` instead of `Document`/`Page`, gates the page-nav row on the reported
+  count. **Shrinks**; see the budget note below.
+- `src/components/fastview/TabViewer.tsx` — `contentType` prop, the image branch.
+- `src/components/fastview/TabUploadForm.tsx` — `accept`, button copy.
+- `src/components/fastview/TabLibrarySection.tsx` — passes the content type down, section
+  and empty-state copy.
+- `src/components/fastview/FastViewOverlays.tsx`,
+  `src/components/fastview/PdfStageOverlay.tsx` — one more prop, passed through.
+- `src/lib/tabLibrary.ts`, `src/hooks/useTabLibrary.ts` — the active tab carries its content
+  type; `TabLibraryController` gains `activeTabContentType`.
+- `src/lib/offlineSnapshot.ts` — `OfflineTabSnapshot.contentType`, written by
+  `toTabSnapshot`, validated as an optional string by `isTabSnapshot`, read back by
+  `offlineTabToSongFile`.
+- `src/i18n/dictionaries/en.json`, `src/i18n/dictionaries/pt-BR.json` — `landing.f5Title`,
+  `landing.f5Desc`.
+- `eslint.config.mjs` — the `TabDrawingStage.tsx` override lowered to the file's new actual
+  numbers.
+- `package.json` — version bump per the release rule.
+- Tests: `src/lib/__tests__/tabRenderer.test.ts` *(new)*,
+  `src/components/tabs/__tests__/` surface and stage tests,
+  `src/components/fastview/__tests__/TabViewer.test.tsx`,
+  `.../TabUploadForm.test.tsx` (RH-127's PDF-only assertion inverted here),
+  `src/lib/__tests__/offlineSnapshot.test.ts`, `src/lib/__tests__/landingCopy.test.ts`.
+
+**No migration.** RH-127 added `song_files.content_type`
+(`migrations/0018_add_song_file_content_type.sql`); this task reads it.
+
+**The budget, measured.** `src/components/tabs/TabDrawingStage.tsx` is pinned at
+`complexity: 21`, `max-lines-per-function: 743`, `max-lines: 815` (RH-99 already extracted `drawPath`
+into `src/lib/strokeRenderer.ts`), and the file is at **exactly 815 lines**. The ratchet may only
+shrink, so this task cannot add a renderer branch to that file — it extracts, and the
+override is then set to the file's **actual** new worst numbers. Do not trust any literal
+in this spec or in RH-99's: run the lint and read them off the failure.
+`complexityBudget.test.ts` fails on a ceiling that is not exactly the current worst number,
+and it declares `MAX_OVERRIDES = 17` while the list already holds 17 entries — so the list
+**may not grow at all**. The three new components must each stay inside the default budget,
+because there is no room to give any of them an entry.
 
 ### Test criteria
 
-Node-environment vitest, with `sharp` used for real (it is installed; `@vercel/blob` stays
-mocked as today). Fixtures are generated in-test with `sharp`, not committed as binaries:
-a non-square image with EXIF Orientation 6 for the rotation case, and an image above both
-bounds (e.g. 4000×3000 noise, which no quality rung compresses under 2MB at full size) for
-the downscale case, which also exercises the ladder-exhaustion re-resize. The unreachable
-terminal case (over the byte bound even at 512px) cannot be produced by a real image, so it
-is covered by stubbing the encoder to return an over-bound buffer on every rung. The sniffer
-is tested on all four accepted signatures plus
-a rejected buffer and the `application/pdf`-claiming impostor. The metadata assertion reads
-the stored bytes back with `sharp` and inspects the parsed metadata. The action test asserts
-the `contentType` and path handed to `put` and the content type handed to `createTab`, and
-that a PDF's stored bytes are byte-identical to the input.
+DOM tests (`// @vitest-environment jsdom` first line, explicit `afterEach(cleanup)`), plus
+one node test for `tabRenderer` and the offline snapshot round trip.
+
+- `isImageTab` over the three image types, `application/pdf`, `undefined`, `null` and an
+  unknown string.
+- `TabViewer` with an image content type: an `<img>` whose `src` is the file URL, and no
+  `iframe` anywhere in the output. The same with `offline` set: still the `<img>`, still no
+  iframe, and no `tab-viewer-offline` element. With `application/pdf`: the `gview` iframe is
+  still there, `src` unchanged, and offline the panel is still there — the regression
+  assertions.
+- The stage, mounted over an image: the page surface reports one page, the prev/next
+  buttons and the page indicator are absent, the save indicator is present; over a
+  multi-page PDF (the `react-pdf` pair mocked, as the existing stage tests do) they are all
+  present.
+- The coordinate round trip, which is the claim this task rests on: feed
+  `normalizePoint`/`denormalizePoint` the `PageGeometry` an `<img>` of a known
+  `naturalWidth`/`naturalHeight` produces at a known render width, and assert a point maps
+  back to itself within rounding tolerance, and that the normalized value is independent of
+  the render width (two widths, same normalized stroke).
+- The offline snapshot: an image tab round-trips its content type through
+  `buildOfflineSnapshot` → `readValidSnapshot` → `offlineTabToSongFile`, and a
+  snapshot written without the field still validates and reads back as
+  `application/pdf`.
+- `accept` on the file input contains `application/pdf` and the three image types.
+- `landingCopy.test.ts`'s existing key-parity test, unchanged, plus an assertion that both
+  dictionaries' `landing.f5Desc` mention images/photos.
 
 ## Expected Results
 
-- [ ] ER1 — `package.json` lists `sharp` as a direct dependency at the lockfile's existing
-      `0.35.4`, and `next.config.ts`'s `serverExternalPackages` contains `"sharp"`;
-      `src/lib/__tests__/serverExternalPackages.test.ts` passes.
-- [ ] ER2 — `uploadTabAction` identifies an uploaded file by its leading magic bytes and
-      never by the client-supplied MIME type: JPEG, PNG and WebP signatures are accepted as
-      images, the `%PDF-` sniff still accepts PDFs, and a buffer matching no signature is
-      rejected with a validation error — including one whose `file.type` is
-      `application/pdf` — with no blob upload and no row insert. Unit tests cover all six
-      cases.
-- [ ] ER3 — a unit test feeds the ingest a JPEG whose EXIF Orientation is 6 and asserts the
-      stored bytes decode with the rotation already applied: output width and height are
-      swapped relative to the input, so the orientation is baked into the pixels.
-- [ ] ER4 — a unit test reads the stored image bytes back with `sharp` and asserts the
-      metadata carries no `exif`, no GPS, no `icc`, no `iptc` and no `xmp` block.
-- [ ] ER5 — `src/lib/fileIngest.ts` exports `MAX_IMAGE_EDGE_PX === 2048`,
-      `MIN_IMAGE_EDGE_PX === 512` and `MAX_IMAGE_BYTES === 2 * 1024 * 1024`, and a unit test
-      asserts those three literal values.
-- [ ] ER6 — a unit test feeds the ingest a 4000×3000 image too noisy to compress at full
-      size and asserts the stored result has a longest edge **of at most 2048 pixels** and a
-      byte length **of at most 2 097 152 bytes**, both written as literals in the test, and
-      that the input itself exceeded both (so the assertion proves a real downscale).
-- [ ] ER7 — a unit test proves the byte bound is never violated when the quality ladder is
-      exhausted: for an image that cannot reach 2 097 152 bytes at 2048px, the stored output
-      is smaller than 2048px on its longest edge and at most 2 097 152 bytes; and, with the
-      encoder stubbed to return an over-bound buffer on every rung down to 512px, the upload
-      is rejected with a validation error, with no blob upload and no row insert. No code
-      path stores an image above either bound.
-- [ ] ER8 — a unit test asserts the `contentType` passed to the blob `put` call equals the
-      content type of the re-encoded output (`image/jpeg`, `image/png` or `image/webp` for
-      images, `application/pdf` for PDFs) rather than a hardcoded or client-supplied value,
-      and that the stored blob path's final extension matches that content type.
-- [ ] ER9 — a unit test asserts a PDF upload stores bytes byte-identical to the input (no
-      re-encode path touches PDFs).
-- [ ] ER10 — the SQL migration whose prefix is the highest in `migrations/` adds a
-      content-type column to `song_files` with `NOT NULL DEFAULT 'application/pdf'`,
-      `uploadTabAction` writes the stored file's content type into it through
-      `createTab`, and `listTabs`/`createTab` return it; the file name is never asserted
-      literally. `src/lib/__tests__/migrationsSingleSource.test.ts` passes, confirming
-      prefixes stay unique and contiguous from `0001`.
-- [ ] ER11 — the upload picker's `accept` attribute still admits PDFs only: a test asserts
-      `accept === 'application/pdf'` on the file input and that no image MIME type or image
-      file extension appears anywhere in `src/components/fastview/TabUploadForm.tsx`.
-- [ ] ER12 — `npm test` passes and `npm run test:coverage` stays above the configured
-      thresholds (statements 80, branches 65, functions 78, lines 80), with no new entry in
-      the `complexity-budget-overrides` block and no existing ceiling raised. `npm run lint`
-      adds **nothing** to its pre-existing baseline of 8 errors and 12 warnings across 12
-      untouched files (tracked as RH-129) — that baseline makes `npm run lint` exit 1 today,
-      so the gate is "no new finding attributable to this change", not "exit 0".
-- [ ] ER13 — `createTab` takes a single `CreateSongFilePayload` object rather than a fifth
-      positional parameter: `src/lib/__tests__/complexityBudget.test.ts` passes with **no**
-      `max-params` override for `src/lib/tabs.ts` and no new entry in the
-      `complexity-budget-overrides` block, and the three existing call sites
-      (`src/app/actions/tabs.ts`, `src/lib/__tests__/tabs.test.ts` ×2) use the object form.
+- [ ] ER1 — the tab upload input's `accept` attribute admits JPEG, PNG and WebP alongside
+      PDF; a test asserts all four values are present on the input. Both halves of RH-127's
+      ER11 are retired here and replaced by this one: the suite no longer asserts
+      `accept === 'application/pdf'`, and it no longer greps
+      `src/components/fastview/TabUploadForm.tsx` for the absence of image MIME types or
+      image file extensions.
+- [ ] ER2 — for a tab whose stored content type is an image type, `TabViewer` renders an
+      image element whose source is the tab's file URL, and the rendered output contains no
+      `iframe` pointing at `docs.google.com/gview`; a test asserts both.
+- [ ] ER3 — for a tab whose stored content type is `application/pdf`, `TabViewer` still
+      renders the `docs.google.com/gview` iframe with the same `src` it builds today; a
+      regression test asserts it.
+- [ ] ER4 — for an image file the stage reports exactly one page and renders no previous-
+      page button, no next-page button and no page indicator, while the save-state
+      indicator is still rendered; a test asserts the controls are absent for an image and
+      present for a multi-page PDF.
+- [ ] ER5 — the page surface is extracted out of `src/components/tabs/TabDrawingStage.tsx`
+      into its own module(s) under `src/components/tabs/`, that file's line count is
+      strictly lower than before this task, its `complexity-budget` override is set to its
+      new actual `max-lines` / `max-lines-per-function` / `complexity` values (lowered,
+      never raised), no override entry is added for the new files, and `npm run lint` and
+      `src/lib/__tests__/complexityBudget.test.ts` both pass.
+- [ ] ER6 — a test asserts a stroke normalized against the `PageGeometry` an image surface
+      produces (`originalWidth`/`originalHeight` from `naturalWidth`/`naturalHeight`)
+      denormalizes back to the same rendered coordinates within rounding tolerance, and
+      that the normalized value is identical at two different render widths.
+- [ ] ER7 — an image tab's content type survives the offline round trip: a test puts an
+      image tab through `buildOfflineSnapshot`, `readValidSnapshot` and
+      `offlineTabToSongFile` and gets the image content type back, and a snapshot
+      whose tabs carry no content type still validates and reads back as
+      `application/pdf`, with `OFFLINE_SCHEMA_VERSION` unchanged.
+- [ ] ER8 — an image tab renders from the cache while the browser is offline: a test mounts
+      `TabViewer` for an image tab with `offline` true and the offline cache-key file URL,
+      and asserts an image element whose `src` is that cache-key URL **is** rendered, that
+      the element with `data-testid="tab-viewer-offline"` is **not** rendered, and that no
+      `iframe` is present — so the existing `/__offline-tab/` CacheOnly route serves the
+      bytes with no new service-worker rule. The same test, repeated with
+      `application/pdf`, still gets the `tab-viewer-offline` panel.
+- [ ] ER9 — `src/lib/tabRenderer.ts` exists and exports `isImageTab`, which answers true
+      for `image/jpeg`, `image/png` and `image/webp` and false for `application/pdf`,
+      `undefined`, `null` and an unknown string; a unit test covers all seven cases, and
+      the module imports nothing from `src/lib/fileIngest.ts`.
+- [ ] ER10 — `landing.f5Title` and `landing.f5Desc` in **both** `en.json` and
+      `pt-BR.json` say the feature covers photographs of charts and not PDFs alone; the key
+      sets of the two dictionaries are still identical and
+      `src/lib/__tests__/landingCopy.test.ts` passes.
+- [ ] ER11 — no user-facing copy in the tab section calls the feature PDF-only any more:
+      the section heading, the empty state and the upload button name files generally; a
+      test or review-visible diff shows `Tabs (PDF)`, `No PDFs uploaded yet.` and
+      `Upload PDF` are gone.
+- [ ] ER12 — an interactive mock covering the image viewer, the image stage and the
+      deferred-chrome question exists at `docs/tasks/RH-128-mock.html` and is recorded as
+      the task's `mock_path`.
+- [ ] ER13 — `npm run lint` and `npm test` both pass, `npm run test:coverage` stays above
+      the configured thresholds, and `npm run lint:dead` reports no unused new export.
+- [ ] ER14 — `package.json`'s `version` is bumped above the value it carries on `master`
+      before this task, as AGENTS.md's release rule requires for any change landing on
+      `master`.
 
 ## Out of Scope
 
-- **Opening the picker to images and rendering them** — RH-128. Until it lands, no image
-  can be chosen through the UI, so this task can never put an unrenderable file in front of
-  a user. That is the point of doing it first; hold the line.
-- **Re-keying the table to `(user_id, song_id)`** — that was **RH-123, which has landed**
-  (`migrations/0015_song_files.sql`). This task therefore runs on `song_files` as it now
-  stands and changes no ownership path: it adds one column and touches no key. The earlier
-  draft's "This runs on the current `repertoire_tabs`" is withdrawn — that table no longer
-  exists (Drift correction 1).
-- A manual rotate control, HEIC/AVIF input, server-side thumbnails, and migrating or
-  re-processing files already stored.
-- Offline-snapshot or service-worker handling of the new content type.
+- **The two-state stage chrome** (`docs/use-cases.md`, *Annotate a file*): hiding the
+  toolbar while drawing is off, the single bottom-centre toggle, and edge-tap page turns.
+  It is a separate deliverable — it changes the PDF stage identically, it is not required
+  by image rendering, it carries its own open question (edge tap versus setlist swipe,
+  recorded as *Open* in the use case), and it rewrites most of the toolbar JSX in a file
+  this task is already shrinking under a ratchet. Doing both at once would make one review
+  of two unrelated regressions. It should be its own task, after this one.
+- A manual rotate control, HEIC/AVIF input, thumbnails, multi-image "pages" for one tab.
+- Re-keying the table to `(user_id, song_id)` — that was **RH-123, which has landed**.
+  This task runs on `song_files` as it now stands and changes no ownership path.
+- Re-processing or re-typing files uploaded before RH-127.

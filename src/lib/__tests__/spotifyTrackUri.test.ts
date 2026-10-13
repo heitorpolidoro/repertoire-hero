@@ -5,7 +5,7 @@
  * exercised the push wrote the link's label in exactly the lowercase spelling
  * the reader wanted — a spelling no writer in `src/` produces. So this file
  * asserts on URLs alone: the label is never consulted, and these cases name
- * every row of the URL-shape table in `docs/tasks/RH-136-spec.md` (4).
+ * every row of the URL-shape table in `docs/tasks/RH-135-spec.md` (4).
  */
 
 import { describe, expect, it } from 'vitest'

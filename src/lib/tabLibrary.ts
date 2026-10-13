@@ -21,7 +21,7 @@
  * components under `src/components/fastview` can type the controller they
  * receive without importing the hook that builds it.
  *
- * See docs/tasks/RH-49-spec.md §1 and docs/tasks/RH-124-spec.md §4.
+ * See docs/tasks/RH-49-spec.md §1 and docs/tasks/RH-123-spec.md §4.
  */
 
 import type { RefObject } from 'react'

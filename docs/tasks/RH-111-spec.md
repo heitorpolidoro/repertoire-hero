@@ -1,5 +1,8 @@
 # RH-111 — Tell the requester what happened to a correction
 
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+
 > Filename follows the repo convention `docs/tasks/<board id + 1>-spec.md`: this is the spec for board task **RH-111**. Mock: `docs/tasks/RH-111-mock.html`.
 
 ## Scope

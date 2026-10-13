@@ -1,264 +1,251 @@
-# RH-95 — Unify the two song deduplication rules
+# RH-96 — Drop the band status trigger and author band status directly
+
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
 
 Spec file name follows the repository convention (board id + 1):
-`docs/tasks/RH-96-spec.md` for board task **RH-95**.
+`docs/tasks/RH-96-spec.md` for board task **RH-96**. Verified against
+`docs/tasks/RH-95-spec.md`, whose first line is `# RH-95 — Unify the two song
+deduplication rules`.
 
-Sources: `docs/plans/repertoire-rework.md` (§The model → Rules, §Work items →
-*Unify the two song deduplication rules*), `docs/use-cases.md` (*Add a song to the
-repertoire*, *Search for a song*), `docs/reviews/feature-review.md` (F1.1 and the
-Queen empirical check).
+Sources: `docs/plans/repertoire-rework.md` (§Work items → *Drop the band status
+trigger*), `docs/use-cases.md` (*Set a song's status*, *Writing a band's rows*),
+`docs/reviews/feature-review.md` (§2, F2.1 and F2.2).
+
+Mockup: `docs/tasks/RH-96-mock.html` (the dashboard row's three badge states,
+the band-mode banner before and after, and the landing f3 card in both
+languages). It pairs with this spec file, matching `RH-94-spec.md` /
+`RH-94-mock.html`.
 
 ## Scope
 
-One shared song-identity rule for the catalog, on the **current** `global_songs`
-schema, and an atomic create path.
+Status becomes per-owner with nothing aggregating. One deliverable, five parts
+that cannot ship apart without leaving the app in a worse state than today
+(trigger gone but band status frozen, or band status editable while the trigger
+overwrites it):
 
-In scope:
+1. **The trigger and its function are deleted** by a new migration. Existing
+   band rows keep whatever the trigger last wrote — a starting value, not a
+   migration problem.
+2. **The RH-83 seed is removed.** `addSongToRepertoire`'s
+   `seedStatusFromBandId` parameter, the `COALESCE((SELECT b.status ...))` it
+   drives, the `seedStatusFromBandId` argument on `addSongAction` and the
+   `assertBandMember` check guarding it, and the parameter on the two hook
+   action contracts that pass it. Personal rows are born `unknown` again, by
+   the column default.
+3. **A band's status is authored by a band admin.** `assertBandAdmin` becomes
+   exported from `src/lib/bands.ts`, and the two Server Actions that write a
+   `repertoire` row's `status` authorize through it when the owner is a band.
+4. **The dashboard's band badge becomes the control the personal one is**, for
+   a band admin. For a non-admin member it stays read-only, with a caption that
+   states the real reason. Resolving the caller's role in the active band needs
+   a new read action, because the dashboard is a client island whose band comes
+   from `localStorage` and the server page cannot know it.
+5. **Every surface that advertises or explains the deleted rule is rewritten**
+   — the landing copy in both dictionaries, two in-app captions, and the four
+   prose claims in `AGENTS.md` / `spec.md`.
 
-- A single identity rule — `(lower(trim(primary artist)), lower(trim(sanitized title)))`,
-  album **not** in the key — used by every code path that resolves or creates a
-  `global_songs` row: `createAndAddSong` (`src/lib/songs.ts`) and
-  `findOrCreateGlobalSong` (`src/lib/spotifyPlaylistSync.ts`).
-- The database constraint that makes the rule hold under concurrency: the old
-  artist-less unique index goes, a new one on the identity pair arrives, and the
-  pre-existing duplicate groups are merged in the same migration so it can be
-  created.
-- `createAndAddSong` becomes one transaction (`withTransaction`), the way
-  `updateSong` and `reviewGlobalSongEdit` already are.
-- Primary-artist extraction at the two Spotify ingestion points, per the plan's
-  *Song identity* rule (`artists[0]`, not the joined list).
+### Explicitly not covered
 
-Not in scope — see **Out of Scope** for why each is excluded: the
-`songs`/`albums`/`song_versions` restructure (RH-105), title **splitting**, ISRC,
-a catalog delete or split path, F1.2/F1.3 (`updateSong` discarding edits), F1.5
-(search index/ranking), `global_songs.updated_at`.
+- **The four-note status control (RH-102).** This task makes the band badge
+  editable and admin-gated; it reuses the existing cycling button verbatim.
+  What the control looks like, that it stops wrapping past `mastered`, and that
+  it replaces Fast View's dropdown, all belong there.
+- **A visual admin gate on Fast View's `StatusDropdown`.** The server gate
+  refuses a non-admin's band write and `useSongStatus`'s existing Toast reports
+  it ("Failed to update status"). Wiring an `isBandAdmin` prop through a
+  dropdown RH-102 deletes would be built to be thrown away. Accepted and named,
+  not overlooked.
+- **A visual admin gate on `PlaylistSongRow`.** That row already renders a band
+  playlist's badge read-only for everyone and never calls the write, so there
+  is nothing to gate — only its caption is wrong. Making it editable is RH-71's
+  named follow-up.
+- **Backfilling or clearing the band statuses the trigger wrote.** Decided
+  against in the plan.
+- **Band tags, lyrics, key and membership.** `updateSongTagsAction`,
+  `updateLyricsAction`, `addSongAction` and `removeSongAction` stay at member
+  level.
 
 ## Approach
 
 ### Behavior
 
-1. **One identity rule, one implementation.** Resolving a catalog row means:
-   sanitize the title (`sanitizeSongTitle`), sanitize the album
-   (`sanitizeAlbumName`), reduce the artist to its primary name, trim; then look
-   up `global_songs` by the identity pair; create the row when absent. Both UI
-   paths call the same function, so they can no longer disagree. The lookup no
-   longer mentions `album` at all, and no longer matches a row whose artist
-   differs.
-2. **Album stops deciding identity.** Two rows that share artist and title but
-   differ in album become one row; two rows that share a title but have different
-   artists stay two rows, with or without an album. This is the plan's rule and
-   reverses the current index.
-3. **Atomic create.** `createAndAddSong` runs catalog resolution, the
-   already-in-repertoire check and both inserts inside one `withTransaction`
-   callback. Expected duplicates are absorbed with `ON CONFLICT DO NOTHING`
-   (bare form) plus a follow-up `SELECT`, never by catching `23505` — per
-   AGENTS.md §Transactions. Two musicians creating the same new song
-   concurrently end with one catalog row; a second attempt by the *same* owner
-   still fails with the unchanged user-facing message
-   `Song already in your repertoire`. A failure anywhere in the callback leaves
-   no catalog row behind.
-4. **Catalog data is still never clobbered.** Resolving to an existing row keeps
-   that row's artist, album, key, cover and duration as they are; the Spotify
-   path keeps its existing behaviour of appending a Spotify link that is not
-   already present (deduplicated by exact URL). No new write to an already-set
-   field.
-5. **Existing duplicates are merged, not left to block the index.** The migration
-   merges each duplicate identity group into its oldest row: links unioned by
-   URL, null/empty keeper columns (`album`, `standard_key`, `cover_url`,
-   `duration_seconds`) filled from the duplicates, `repertoire`,
-   `playlist_songs`, `global_song_edits` repointed at the keeper, then the
-   duplicate catalog rows are deleted. Set-based SQL, idempotent, re-runnable.
-   Because a merge collapses several `song_id` values into one, every table with
-   a unique constraint on `song_id` needs a stated collision rule — a plain
-   `UPDATE` would abort the migration:
-   - `repertoire` (`uq_repertoire_user_song` / `uq_repertoire_band_song`): rows
-     that would collide with an existing one are dropped after their
-     `repertoire_tabs` are repointed at the surviving repertoire row.
-   - `playlist_songs` (`uq_playlist_song UNIQUE (playlist_id, song_id)`, the
-     ordinary case, since a playlist usually holds both duplicates): the group
-     collapses to **one** row per `(playlist_id, keeper)`, which takes the
-     **lowest `position`** among the collapsing rows — so the song keeps the
-     earliest place it occupied in that playlist — and the other rows are
-     deleted. The migration then renumbers every affected playlist to a
-     contiguous `1..n` ordered by `(position, id)`, exactly as `0007` did, so no
-     `position` gap is left behind and `uq_playlist_song_position` holds.
-   - `global_song_edits` has no unique constraint on `song_id`; its rows are
-     repointed unconditionally.
-6. **Error-handling and guards unchanged.** L1 log-then-wrap stays; the
-   `already in` passthrough in `createAndAddSong`'s catch stays.
+**The database no longer aggregates.** After the new migration, no trigger
+fires on a `repertoire` status update and no
+`sync_band_repertoire_on_member_update` function exists. A member changing
+their personal status for a song leaves every band row for that song untouched.
+`migrations/0001_initial_schema.sql` is **not** edited — it is applied history;
+a fresh database applies 0001 and then the drop, and ends in the same state as
+a migrated one.
+
+**Where the two identifiers are still allowed to appear.** `migrations/` is
+excluded from the removal rule by construction: 0001 creates both objects and
+the new migration must name both to drop them (`DROP TRIGGER IF EXISTS
+trg_sync_band_repertoire ...`, `DROP FUNCTION IF EXISTS
+sync_band_repertoire_on_member_update`). `docs/` is likewise excluded — the
+plan, the use cases and this spec describe the rule being deleted. The removal
+rule therefore applies to **runtime code and prose only**: `src/` and `e2e/`
+must not mention either identifier (today only the RH-83 doc comment in
+`src/lib/songs.ts:73` does), and `AGENTS.md` / `spec.md` must not describe the
+aggregate behaviour. ER3 is scoped to exactly that, so a correct
+implementation's own drop migration cannot fail it.
+
+**Migration numbering.** The new file takes **the next number after the highest
+prefix present in `migrations/` at implementation time** — `0009` is the highest
+on disk today, so the expected name is
+`migrations/0010_drop_band_status_trigger.sql`. A number is never skipped:
+`src/lib/__tests__/migrationsSingleSource.test.ts` (the RH-17 guardrail) requires
+the four-digit prefixes to be unique **and contiguous** from `0001`, and
+`findNumberingViolations` fails the suite on any gap. Several approved specs were
+each written expecting `0009`; whichever lands second takes the next free number
+at that point and renumbers its own file. That hazard is prose only, deliberately: it
+depends on the state of other unmerged branches, which no QA agent can judge.
+
+**A new personal row is born `unknown`.** Writing a lyrics note or uploading a
+tab for a song the user does not have creates their row at the column default,
+in band context exactly as in personal context. The seed existed only to avoid
+being the new floor of a `MIN` that no longer runs.
+
+**Writing a band row's status requires band admin.** `updateSongStatusAction`
+and `updateSongAction`, when the owner resolves to a band, throw
+`Access denied: band admin required` for a member and succeed for an admin.
+Both are gated because both write `repertoire.status`: `updateSong`'s second
+statement sets `status`, `tags` and `personal_key` unconditionally, so gating
+only the first action would leave band status writable by any member through
+the song edit modal. The accepted consequence: a non-admin member can no longer
+edit a *band* row through that modal at all, including its tags and key — the
+inline tag editor (`updateSongTagsAction`) is unchanged and remains their path.
+Personal rows are unaffected in both actions.
+
+**The dashboard badge.** In band context the badge is the same cycling button
+the personal context renders when the caller is an admin of that band, and the
+existing read-only `<span>` otherwise. The role is resolved once per band
+context by a new `getBandRoleAction(bandId)` — `getRequiredUserId` plus the
+`assertBandMember` that already returns the role — injected into
+`RepertoireDashboardActions` by `src/app/page.tsx` like the other seven
+actions (F21). Until it resolves, and in the pre-hydration personal render, the
+badge is read-only: the gate fails closed on the client exactly as it does on
+the server.
+
+**Copy.** `landing.f3Desc` in both dictionaries sells a band repertoire with
+its own key, lyrics and readiness, authored rather than derived, and mentions
+no weakest-link / "menor nível" rule. The dashboard's and `PlaylistSongRow`'s
+`title="Band status is computed from all members"` becomes a statement about
+authorship by a band admin. `AppLayout`'s band-mode banner drops its
+`— Status is read-only, computed from all members` clause outright: the banner
+cannot know the role, so any claim it makes is wrong for half its readers.
 
 ### Files touched
 
-- `migrations/<NNNN>_unify_song_identity.sql` — new. `<NNNN>` is **the next
-  number after the highest prefix present in `migrations/` at implementation
-  time** (expected `0009`, since `0008_sync_profile_email.sql` is the highest on
-  disk today). Do not treat `0009` as fixed: RH-95, RH-96 and RH-121 were all
-  specced against the same `0008` high-water mark, so whichever of them lands
-  second or third must renumber its own file to keep the prefixes unique and
-  contiguous from `0001` — the invariant
-  `src/lib/__tests__/migrationsSingleSource.test.ts` enforces. The `_unify_song_identity`
-  suffix is the stable part of the name and is what other artifacts should match
-  on. Contents: merge duplicate identity groups,
-  `DROP INDEX IF EXISTS uq_global_songs_title_album`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS uq_global_songs_artist_title ON global_songs (lower(btrim(artist)), lower(btrim(title)))`.
-  Written to be safely re-runnable.
-- `src/lib/songIdentity.ts` — new server-only module (imports `@/lib/db`): the
-  identity normalisation (`sanitizeSongTitle` + primary artist + trim), the
-  exported primary-artist helper used by the two ingestion points, and the single
-  transaction-aware resolve-or-create function taking a `Queryable` client.
-- `src/lib/songs.ts` — `createAndAddSong` rewritten onto `withTransaction` and
-  the new module; its own lookup/insert SQL deleted. **The file is pinned at
-  `max-lines: 505` — its exact current length — by the complexity-budget ratchet;
-  if the rewrite shortens it, lower that override to the new count in
-  `eslint.config.mjs` (the ratchet may only shrink, and the list may not grow).**
-- `src/lib/spotifyPlaylistSync.ts` — `findOrCreateGlobalSong` delegates lookup
-  and insert to the new module, keeping its link-append behaviour and its plain
-  (non-L1) thrown messages; `fetchAllSpotifyTracks` takes the primary artist.
-- `src/app/api/spotify/search/route.ts` — takes the primary artist through the
-  same helper.
-- `src/lib/dbRows.ts` — only if a new distinct projection is needed.
-- `package.json` — version bump per AGENTS.md.
-- Tests: `src/lib/__tests__/songIdentity.test.ts`,
-  `src/lib/__tests__/songIdentity.db.test.ts`, plus updates to
-  `src/lib/__tests__/songs.test.ts` (the `reuses existing global song if matching
-  title and album` case now asserts the artist rule),
-  `src/lib/__tests__/spotifyPlaylistSync.test.ts`,
-  `src/lib/__tests__/errors.test.ts` and `src/lib/__tests__/edge_cases.test.ts`
-  (their `query` mock counts change once the path is transactional).
+- `migrations/0010_drop_band_status_trigger.sql` — new (the next number after the
+  highest in `migrations/`; see §Approach → *Migration numbering*).
+  `DROP TRIGGER IF EXISTS` on `repertoire`,
+  then `DROP FUNCTION IF EXISTS` for the function, with a comment naming this
+  task and the decision.
+- `src/lib/songs.ts` — `addSongToRepertoire` loses its third parameter, the
+  `COALESCE` subselect and the RH-83 doc comment; the `VALUES` list drops the
+  status column so the default applies.
+- `src/lib/bands.ts` — `assertBandAdmin` gains `export`.
+- `src/app/actions/repertoire.ts` — `addSongAction` loses
+  `seedStatusFromBandId` and its `assertBandMember` guard; a band-admin owner
+  resolution is added beside `resolveOwner` and used by `updateSongStatusAction`
+  and `updateSongAction`.
+- `src/app/actions/bands.ts` — new `getBandRoleAction`.
+- `src/app/page.tsx` — adds `getBandRole` to the injected dashboard bundle.
+- `src/components/songs/RepertoireDashboard.tsx` — the band branch of the status
+  badge; the role read and its state; the new caption.
+- `src/app/fastViewLyricsActions.ts`, `src/app/fastViewTabActions.ts`,
+  `src/app/songPickerActions.ts` — the `seedFromBandId` argument disappears from
+  the three `addSong` adapters.
+- `src/hooks/useLyricsEditor.ts`, `src/hooks/useTabLibrary.ts` — the `addSong`
+  contract loses its second parameter, and the call sites lose the band id they
+  passed.
+- `src/components/playlists/PlaylistSongRow.tsx` — caption only.
+- `src/components/layout/AppLayout.tsx` — the banner clause is removed.
+- `src/i18n/dictionaries/en.json`, `src/i18n/dictionaries/pt-BR.json` —
+  `landing.f3Desc`.
+- `AGENTS.md` (the band-ownership bullet, the Bands capability line, the "Band
+  aggregate status" domain concept) and `spec.md` (the Aggregate Progress line)
+  — the claims become the per-owner rule.
+- `package.json` — version bump per the repository rule.
+- Tests: `src/lib/__tests__/songs.test.ts` (the RH-83 seed test is deleted; the
+  born-`unknown` assertion stays), `src/app/actions/__tests__/repertoire.test.ts`
+  (the `addSongAction status seeding (RH-83 ER16)` describe block is deleted; the
+  admin gate is asserted), `src/app/actions/__tests__/authzRepertoire.db.test.ts`
+  (a non-admin member case for the two gated actions; the existing non-member
+  matrix still passes), `src/lib/__tests__/landingCopy.test.ts` (f3 copy),
+  `src/components/songs/__tests__/repertoireDashboard.test.tsx` (the three badge
+  states), `src/components/playlists/__tests__/PlaylistDetailView.test.tsx`
+  (the caption string in the RH-71 ER9 test).
 
 ### Test criteria
 
-Unit (mocked `pg`): normalisation — sanitized title, primary artist from
-`"Michael Jackson, Akon"`, trimming, case folding; the SQL issued carries no
-`album` predicate and does carry the artist predicate.
-
-DB-backed (`*.db.test.ts`, `RUN_DB_TESTS=1`): same title + different artists +
-no album → two rows; same artist + title + different albums → one row with the
-first row's fields intact; cross-path convergence in both orders (manual then
-Spotify, Spotify then manual); two concurrent `createAndAddSong` calls → one
-catalog row (same owner: one repertoire row and the loser rejecting with the
-unchanged message; different owners: two repertoire rows); a forced failure after
-the catalog insert leaves no catalog row; the new index exists and the old one
-does not; no duplicate identity group exists in the database.
-
-Migration: a DB test seeds duplicate rows with the unique index dropped inside a
-transaction, then executes the migration file read from disk. **The test must
-resolve that filename at runtime, never hardcode it**: read `migrations/`, take
-the single entry whose name ends with `_unify_song_identity.sql`, and fail the
-test if there is not exactly one such entry. (This is the simpler of the two
-options — matching the suffix rather than recomputing the highest prefix — and it
-keeps the test green through a renumber.) It asserts one surviving row with the unioned links and the repointed repertoire /
-playlist / pending-edit rows, re-executes the file to prove idempotence, and rolls
-back. The seed must include a playlist holding **both** duplicates and a
-repertoire owner holding both, so the two collision rules are exercised: the
-playlist ends with one row at the lower of the two positions and contiguous
-`1..n` positions, and the surviving repertoire row carries the dropped row's
-`repertoire_tabs`.
-
-Suite-level: `npm run test:coverage` meets its thresholds,
-`src/lib/__tests__/transactionGuard.test.ts`,
-`errorHandlingStyle.test.ts`, `namingConventions.test.ts` and
-`complexityBudget.test.ts` stay green, `npm run lint:dead` and
-`npm run lint:dup` stay green.
+- A DB-backed test proves the trigger is gone **behaviourally**, not by reading
+  `pg_trigger`: a band row at `mastered`, a member's personal row moved to
+  `learning`, and the band row still `mastered` afterwards.
+- A DB-backed test proves a new personal row created in band context is
+  `unknown` even when the band row is `polishing`.
+- Action-level tests prove the gate in both directions for both gated actions,
+  and prove a refused call wrote nothing.
+- A jsdom test on `RepertoireDashboard` proves the three badge states by their
+  accessible names and titles: admin in band context renders
+  `Status: <label>. Click to advance.`; member in band context renders the
+  read-only caption and no such button; personal context is unchanged.
+- `landingCopy.test.ts` proves both dictionaries' `f3Desc` describe an authored
+  band repertoire and that neither mentions the deleted rule.
+- `npm run test:coverage` stays above its four thresholds, and
+  `npm run lint:dead` stays green — `knip` fails on the now-unused
+  `seedStatusFromBandId` plumbing if any of it is left behind.
 
 ## Expected Results
 
-- [ ] ER1 — Exactly one file in `migrations/` has a name ending
-      `_unify_song_identity.sql`, and its four-digit prefix is the next number
-      after the highest prefix otherwise present in `migrations/` (expected
-      `0009`, but a higher number is correct if another migration landed first);
-      `src/lib/__tests__/migrationsSingleSource.test.ts` passes, so the prefixes
-      stay unique and contiguous from `0001`. After `npm run db:migrate`,
-      `uq_global_songs_artist_title` exists as a UNIQUE index on
-      `(lower(btrim(artist)), lower(btrim(title)))` and
-      `uq_global_songs_title_album` no longer exists.
-- [ ] ER2 — A DB test resolves that migration file by its
-      `_unify_song_identity.sql` suffix (not a hardcoded prefix), executes it
-      against seeded duplicate rows
-      (index dropped, transaction rolled back) and asserts: the oldest row
-      survives, links are unioned by URL, empty keeper columns are filled, and
-      `repertoire`, `playlist_songs`, `global_song_edits` and `repertoire_tabs`
-      point at surviving rows; re-executing the file changes nothing.
-- [ ] ER3 — The migration survives a playlist that holds **both** rows of a
-      duplicate group: that playlist ends with exactly one `playlist_songs` row
-      for the keeper, whose `position` is the lowest of the two collapsed rows,
-      and the playlist's positions are a contiguous `1..n` with no gap (DB test;
-      a plain `UPDATE` violating `uq_playlist_song` would fail this).
-- [ ] ER4 — `src/lib/songIdentity.ts` exists and is the only place under `src`
-      that resolves or inserts a `global_songs` identity row by title/artist;
-      both `createAndAddSong` and `findOrCreateGlobalSong` call it, and no query
-      in either file selects or inserts `global_songs` by title/artist. The
-      by-id and search queries in `src/lib/songs.ts`
-      (`SELECT * FROM global_songs WHERE title ILIKE ... OR artist ILIKE ...` in
-      `searchGlobalSongs`, and `SELECT links FROM global_songs WHERE id = $1`)
-      are out of scope and must remain.
-- [ ] ER5 — Adding two different songs that share a title, have different artists
-      and no album produces **two** `global_songs` rows (DB test).
-- [ ] ER6 — Adding the same artist+title with a different album produces **one**
-      `global_songs` row, and the second caller's album, key, cover, duration and
-      links do not overwrite the first row's values (DB test).
-- [ ] ER7 — Cross-path convergence in both orders: a song created through
-      `createAndAddSong` is found by `findOrCreateGlobalSong` for the same
-      artist+title, and vice versa, with no second catalog row in either
-      direction (DB test).
-- [ ] ER8 — `createAndAddSong` performs all of its statements inside one
-      `withTransaction` callback; a forced failure at the repertoire insert leaves
-      no `global_songs` row behind (DB test), and `transactionGuard.test.ts`
-      stays green.
-- [ ] ER9 — Two concurrent `createAndAddSong` calls for the same new song yield
-      exactly one `global_songs` row; for the same owner exactly one `repertoire`
-      row with the losing call rejecting with the unchanged message
-      `Song already in your repertoire`; for two different owners two
-      `repertoire` rows (DB test).
-- [ ] ER10 — No new `catch` inspects Postgres code `23505`: expected duplicates
-      are absorbed by `ON CONFLICT DO NOTHING`, and
-      `errorHandlingStyle.test.ts` stays green.
-- [ ] ER11 — A Spotify track whose `artists` are `["Michael Jackson", "Akon"]` is
-      ingested with artist `Michael Jackson` through the shared primary-artist
-      helper, by both `src/lib/spotifyPlaylistSync.ts` and
-      `src/app/api/spotify/search/route.ts`, and matches an existing
-      `Michael Jackson` catalog row (unit test asserting both call sites).
-- [ ] ER12 — Both paths store the sanitized title: creating
-      `"Song X - 2011 Remaster"` through the manual form resolves to an existing
-      `"Song X"` row by the same artist and creates no new row (DB test).
-- [ ] ER13 — `npm run test:coverage` passes with its configured thresholds,
-      `npm run lint:dead` and `npm run lint:dup` pass, and
-      `complexityBudget.test.ts` passes with the `src/lib/songs.ts` `max-lines`
-      override equal to that file's actual line count and the override list no
-      longer than 17 entries. The ratchet in `complexityBudget.test.ts` is
-      `MAX_OVERRIDES = 17` and `eslint.config.mjs` already carries exactly 17
-      overrides, so the list may only shrink: adding an eighteenth fails the
-      test this same ER requires to pass.
-- [ ] ER14 — `package.json` version is bumped per AGENTS.md (patch + local
-      `YYYYMMDDHHmm` suffix, strictly above every version in `git log`).
-- [ ] ER15 — No landing-page copy changes: this is a correctness fix, not a
-      selling point (AGENTS.md Landing Page Rule decision recorded here).
+- [ ] ER1 — A new migration `migrations/<nnnn>_drop_band_status_trigger.sql`
+      exists, numbered one above the highest prefix otherwise present in
+      `migrations/` with no gap in the sequence (expected
+      `0010_drop_band_status_trigger.sql`), and drops both the trigger and the
+      function; `migrations/0001_initial_schema.sql` is unchanged, and
+      `src/lib/__tests__/migrationsSingleSource.test.ts` passes.
+- [ ] ER2 — After `npm run db:migrate`, a member's personal status change leaves
+      every band row for that song untouched, asserted by a `*.db.test.ts`.
+- [ ] ER3 — Neither `sync_band_repertoire_on_member_update` nor
+      `trg_sync_band_repertoire` appears anywhere under `src/` or `e2e/`
+      (the RH-83 doc comment in `src/lib/songs.ts` is gone). `migrations/` and
+      `docs/` are excluded by design: 0001 creates both objects and the new drop
+      migration must name both to drop them.
+- [ ] ER4 — `seedStatusFromBandId` appears nowhere under `src/`, and a personal
+      row created in band context is born `unknown`.
+- [ ] ER5 — A band member who is not an admin is refused on
+      `updateSongStatusAction` and `updateSongAction` for a band row, with
+      `Access denied: band admin required` and no row written; an admin
+      succeeds; personal writes are unaffected.
+- [ ] ER6 — `assertBandAdmin` is exported from `src/lib/bands.ts` and is the
+      only admin check the two actions use.
+- [ ] ER7 — `getBandRoleAction` exists in `src/app/actions/bands.ts`, resolves
+      the session itself, and is reached by the dashboard only through the
+      injected actions bundle (no `@/app/*` import under `src/components`).
+- [ ] ER8 — On the dashboard in band context, a band admin sees a status button
+      named `Status: <label>. Click to advance.` that advances the band row; a
+      non-admin member sees a read-only badge and no such button; personal
+      context is unchanged. Asserted by a jsdom test.
+- [ ] ER9 — `Band status is computed from all members` appears nowhere under
+      `src/` or `e2e/`, and the replacement caption attributes the value to a
+      band admin.
+- [ ] ER10 — `AppLayout`'s band-mode banner no longer claims status is read-only
+      or computed from all members.
+- [ ] ER11 — `landing.f3Desc` in both `en.json` and `pt-BR.json` describes a
+      band repertoire with its own key, lyrics and readiness, authored rather
+      than derived; neither mentions a weakest-link or "menor nível" rule, and
+      `landingCopy.test.ts` pins both halves.
+- [ ] ER12 — `AGENTS.md` and `spec.md` no longer describe a band aggregate or a
+      "weakest member wins" calculation; they state that status is per-owner and
+      that a band's is authored by a band admin.
+- [ ] ER13 — `npm run test:coverage` exits 0 with all four thresholds met, and
+      `npm run lint:dead` exits 0.
+- [ ] ER14 — `package.json`'s version is bumped above `0.1.131-202610050735`
+      following the `x.y.z-YYYYMMDDHHmm` rule.
 
 ## Out of Scope
 
-- **Title splitting.** `docs/plans/repertoire-rework.md` §Rules replaces
-  `sanitizeSongTitle` with a `" - "` split whose right half becomes
-  `song_versions.label`. On the current schema there is no column to hold that
-  half, so splitting would merge the live, acoustic and remix takes into one row —
-  an unrecoverable over-merge, the exact failure mode the plan ranks worst. This
-  task therefore keeps `sanitizeSongTitle` (Rule B, which `docs/use-cases.md`
-  *Add a song to the repertoire* step 1 also states as "sanitized title"), and the
-  split lands with `song_versions` in RH-105.
-- **ISRC.** `docs/reviews/feature-review.md` concludes ISRC is the more reliable
-  signal; `docs/plans/repertoire-rework.md` §The model, reconciled later, rejects
-  an `isrc` column outright. The plan is the later decision and governs: no ISRC
-  here. Flagged as the one place where the two documents disagree.
-- **The restructure** (`songs`/`albums`/`song_versions`/`catalog_suggestions`),
-  RH-105. A consequence accepted meanwhile: because album leaves the key but
-  versions do not yet exist, the first-entered album, cover and duration represent
-  the song for everyone.
-- **Catalog delete / split path**, and repairing false merges that already
-  happened — there is still no way to undo one.
-- **F1.2, F1.3** (`updateSong` silently discarding edits, `links` all-or-nothing),
-  **F1.5** (trigram index and search ranking), **F1.6** (`/songs/search` stub),
-  **F1.7** (`global_songs.updated_at`), and the band status trigger.
-- **`scripts/deduplicate-songs.mjs`** stays as-is: the migration merges by stored
-  values only, while that script also sanitizes titles and re-fetches link labels
-  through the network — not something a migration should do.
-- **No UI mockup**: this task changes no screen, and no open question here is a
-  visual one.
+RH-102's four-note control; a visual admin gate on Fast View's `StatusDropdown`
+or on `PlaylistSongRow`; backfilling the statuses the trigger wrote; band tags,
+lyrics, key and membership authorization.

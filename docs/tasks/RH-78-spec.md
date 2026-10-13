@@ -1,262 +1,364 @@
-# RH-78 — Convert `/` to a Server Component to fix the HomePage hydration mismatch
+# RH-78 — Build the PWA shell: service worker, manifest and the offline signal
 
-> **Filename mapping.** This repository's spec filenames run one ahead of the
-> Meridian board id: the board task is **RH-77**, its spec is
-> `docs/tasks/RH-78-spec.md`. Commit scope stays `RH-77`.
+> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
+
+
+> **Filename mapping.** This file is `docs/tasks/RH-78-spec.md` and it specifies
+> board task **RH-78**. Spec filenames in this repository run one ahead of the
+> board id; `RH-78-spec.previous.md` is already taken by an earlier task. Read every
+> "RH-78" below as the board id, and the filename as an offset artefact.
+
+Parent: **RH-28** (offline mode). Design of record:
+`docs/superpowers/specs/2026-09-20-offline-mode-design.md` at `c418719`.
 
 ## Scope
 
-`src/app/page.tsx` is a 640-line `"use client"` file holding two things: the
-`HomePage` session gate (lines 624-640) and the `RepertoireDashboard` it renders
-when signed in (lines 112-622), plus the `SongResultItem` row (lines 38-89).
-The gate returns `Loading...` while `authClient.useSession()` is pending, and on
-the server `isPending` is *always* true, which produces two distinct defects:
+Part 1 of the RH-28 three-way split: **the shell only**. It delivers the
+service-worker build pipeline, the emitted worker, the web app manifest, the
+installability icons, the client registration, and the online/offline signal
+hook that RH-79 and RH-80 consume.
 
-1. **A hydration mismatch.** Measured at `25be664`: 5 `Hydration failed` browser
-   errors in the dev-server log across the full Playwright suite, 4 with the
-   stack at `RepertoireDashboard (page.tsx:306)` and 1 at
-   `LandingPage (LandingPage.tsx:41)`, both under `HomePage (page.tsx:624)`.
-2. **A landing page with no HTML.** `/` is a prerendered static route whose
-   document is the placeholder. Verified live at `cc31134`:
-   `curl -s http://127.0.0.1:3000/` returns 27,659 bytes containing
-   `<div class="min-h-screen flex items-center justify-center bg-gray-50"><p …>Loading...</p></div>`
-   and **zero** occurrences of `href="/signup"`. The marketing page a crawler
-   sees contains none of the marketing page. This is a first-class goal of this
-   task, not a side effect of (1).
+It does **not** deliver: the snapshot store, the per-playlist download, the Fast
+View read path, the read-only banner, the settings storage view or the sign-out
+purge. Those are RH-79 and RH-80 and are listed under Out of Scope.
 
-This task converts `/` to the async Server Component pattern already used four
-times (`/bands`, `/playlists`, `/admin/moderation`, `/playlists/[id]`), moves
-the dashboard into a client island under `src/components/songs/`, and proves
-both defects gone by measurement.
+## The mechanism — verified, not assumed
 
-**Not one PR? It is.** The 639 lines are one component being *relocated*, not
-rewritten: the JSX, handlers and state of `RepertoireDashboard` move verbatim.
-Splitting the move from the conversion would leave an intermediate commit where
-the page is a Server Component importing a `"use client"` file that still
-imports Server Actions directly (an F21 violation), so the two halves cannot
-ship separately.
+`withSerwist` is forbidden: `@serwist/next@9.5.12` pulls
+`@serwist/webpack-plugin` and does not support Turbopack, and this repository
+runs Turbopack everywhere (`AGENTS.md:51`, guarded by
+`src/lib/__tests__/devBundler.test.ts`) because `pdfjs-dist` dies under the
+webpack dev runtime and takes the whole Fast View client graph with it.
+
+**Configurator mode works and is the mechanism.** Verified against the published
+9.5.12 tarballs:
+
+- `@serwist/next` exports a `./config` subpath (`dist/index.config.mjs`) whose
+  `serwist(options)` returns a `BuildOptions` object for `@serwist/cli`. Its
+  import list is `node:fs`, `node:path`, `@serwist/build`, `@serwist/utils`,
+  `browserslist` and `next/constants.js` — **no `@serwist/webpack-plugin`**.
+  Only `dist/index.mjs` (the `withSerwist` entry) touches the webpack plugin, and
+  nothing here imports it.
+- `@serwist/cli` ships a `serwist` binary with a `build <config.js>` command that
+  bundles a TypeScript service-worker source with **esbuild** and injects the
+  precache manifest. Its config loader is
+  `(await import(configFile)).default`, awaited — so a config file that
+  `export default`s the promise returned by `serwist(...)` is the supported
+  shape.
+- Smoke-tested end to end in an isolated directory at `@serwist/cli@9.5.12` +
+  `serwist@9.5.12`: `serwist build serwist.config.js` consumed a `sw.ts`,
+  reported *"The service worker will precache 3 URLs"* and emitted a 31 KB
+  classic (non-module, no `import`/`export`) `sw.js` whose first bytes are the
+  injected manifest array with per-file `revision` hashes. Zero webpack
+  involvement.
+- **`esbuild` must be declared explicitly.** Without it the CLI aborts with
+  `Cannot find package 'esbuild' ... This command needs esbuild.` It is not a
+  dependency of `@serwist/cli`. Re-verified: a clean
+  `npm i serwist@9.5.12 @serwist/next@9.5.12 @serwist/cli@9.5.12` leaves
+  `node_modules/esbuild` absent.
+
+`next.config.ts` is therefore not modified at all, and Turbopack is untouched.
+
+### The navigation fallback — verified, not assumed
+
+`fallbacks` alone does nothing. In the installed `serwist@9.5.12`
+(`dist/index.mjs`, the `Serwist` constructor), `fallbacks` is read **only inside
+`if (runtimeCaching !== undefined) { … }`**: it builds a
+`PrecacheFallbackPlugin` and pushes it onto the `plugins` array of every
+runtime-caching entry whose `handler instanceof Strategy` and that has no
+`handlerDidError` plugin yet. With no `runtimeCaching`, `fallbacks` is silently
+discarded — no error, no warning. The only other recovery path, `_catchHandler`,
+fires exclusively when an **already-registered route** throws, and the sole route
+this task would otherwise register is the `PrecacheRoute`, which does not match
+`/songs/<id>/fast-view`. An offline navigation would therefore match no route,
+the worker would not respond, and the browser would paint its own network-error
+page.
+
+**Decision: one `runtimeCaching` entry, `NetworkOnly`, restricted to documents.**
+`src/app/sw.ts` passes
+`runtimeCaching: [{ matcher: isDocument, handler: new NetworkOnly() }]` together
+with `fallbacks: { entries: [{ url: '/offline', matcher: isDocument }] }`, where
+`isDocument` is `({ request }) => request.destination === 'document'`.
+`NetworkOnly` extends `Strategy`, so it receives the `PrecacheFallbackPlugin`;
+online it always goes to the network and **stores nothing**, so it cannot
+introduce a stale shell; offline it rejects, `handlerDidError` runs, the entry's
+`matcher` passes and `matchPrecache('/offline')` returns the precached document.
+`navigationPreload: true` remains coherent: `StrategyHandler.fetch` consumes
+`event.preloadResponse` for `request.mode === 'navigate'` regardless of strategy.
+
+**`precacheOptions.navigateFallback` is explicitly rejected.** It registers a
+precache-first `NavigationRoute` that answers *every* navigation — online
+included — with `/offline`, which is exactly the stale-shell failure §3 promises
+cannot happen.
+
+### The precache manifest must be an allow-list — verified, not assumed
+
+`@serwist/next/config` defaults `precachePrerendered: true`, which appends the
+glob `<distDir>/server/{app,pages}/**/*.html`. In this repository that sweeps
+**every prerendered document** into the precache: `.next/server/app` emits
+`index.html`, `forgot-password.html`, `login.html`, `profile.html`,
+`reset-password.html`, `settings.html`, `signup.html` and `songs/search.html`,
+and the built-in `manifestTransforms` rewrites each to a bare URL (`/login`,
+`/profile`, …). **Seven of those are in the `src/proxy.ts` matcher.**
+
+That is fatal, because the `Serwist` constructor registers
+`new PrecacheRoute(...)` *before* it walks `runtimeCaching`, and
+`Serwist.findMatchingRoute` returns the **first** route that matches in
+registration order. `PrecacheRoute`'s matcher matches any precached URL,
+navigations included. So with the default manifest the document-scoped
+`NetworkOnly` entry below would never be reached for those seven URLs: they
+would be answered from the precache while online, the proxy's 307 would never
+be issued, and a signed-out visitor to `/profile` or `/settings` would land on
+exactly the spinner `src/proxy.ts` exists to prevent.
+
+**Decision: turn the manifest into an allow-list.** `serwist.config.js` sets
+`precachePrerendered: false` and supplies `globPatterns` explicitly, re-using the
+exported `generateGlobPatterns(distDir)` (hashed `_next/static` assets plus
+`public/**/*`) and adding exactly one HTML file:
+`<distDir>server/app/offline.html`. `distDir` is read from the loaded Next
+config rather than hardcoded, via the supported
+`serwist.withNextConfig(async (nextConfig) => ({ … }))` entry point. The
+built-in `manifestTransforms` is unconditional — it does not depend on
+`precachePrerendered` — so that one file is still rewritten to the URL
+`/offline`, which is what ER4 and the `fallbacks` entry need. Nothing else
+replaces it and no prerendered document other than `/offline` is precached, so
+a future private route added to the proxy matcher cannot silently rejoin the
+precache.
+
+A deny-list (`globIgnores` naming the seven files) was rejected: it is
+maintenance-coupled to `src/proxy.ts` and fails open when a new route is added.
+
+**Measured, not argued.** Against the installed `@serwist/next@9.5.12` +
+`@serwist/build`, with a fixture tree containing all eight prerendered
+documents, `getManifest` on the produced options yields:
+
+- default (`precachePrerendered: true`) —
+  `["/","/_next/static/chunks/a.js","/forgot-password","/icons/icon-192.png","/login","/offline","/profile","/reset-password","/settings","/signup","/songs/search"]`
+- allow-list (the decision above) —
+  `["/_next/static/chunks/a.js","/icons/icon-192.png","/offline"]`
+
+`/offline` is only prerendered while it uses no dynamic API, which is why §9
+forbids one in that route.
+
+**Smoke-tested at these exact versions.** With `serwist@9.5.12` +
+`@serwist/cli@9.5.12` + `esbuild`, a `sw.ts` of exactly the shape above built
+clean (`The service worker will precache 1 URLs`); the emitted `sw.js` is a
+classic script containing both `registerCapture` and `handlerDidError`, and the
+same source typechecks with zero errors under `lib: ["esnext","webworker"]`.
 
 ## Approach
 
 ### Behavior
 
-**B1 — the page.** `src/app/page.tsx` loses `"use client"` and becomes
-`export default async function HomePage()`. It awaits `getSession()` from
-`@/lib/auth-session`; with no `session.user.id` it renders `<LandingPage />`,
-otherwise `<RepertoireDashboard actions={…} />`. It does **not** call
-`redirect("/login")` — unlike the four precedents, the signed-out branch of `/`
-is the product's public marketing page, and `/` is deliberately absent from
-`src/proxy.ts`'s matcher. Both branches are `"use client"` islands rendered
-through the normal SSR pass, so both ship real HTML.
+**1. Build pipeline.** The `build` npm script gains a final stage that runs the
+Serwist CLI *after* `next build`, so the precache manifest is globbed from the
+finished `.next` output. `dev` is untouched (its guard test must stay green).
 
-**B2 — route classification.** `getSession()` awaits `headers()`, so `/` becomes
-dynamic by construction and moves out of the prerendered set in the `next build`
-route table (10 static / 17 dynamic at `66d9442` becomes 9 static / 18 dynamic).
-No `export const dynamic` is added anywhere — `rootLayoutRendering.test.ts`'s
-allowlist stays exactly `['src/app/api/dev/profiles/route.ts']`. The trade is
-deliberate and is the point of the task: a per-request render in exchange for a
-document that actually contains the landing page.
+**2. Worker source.** `src/app/sw.ts` constructs a `Serwist` from the `serwist`
+package with `precacheEntries: self.__SW_MANIFEST`, `skipWaiting: true`,
+`clientsClaim: true`, `navigationPreload: true`, the single document-scoped
+`NetworkOnly` `runtimeCaching` entry and the `fallbacks.entries` entry pointing
+at the precached `/offline` URL — both required, for the reason established in
+"The navigation fallback" above; a `fallbacks` without a `runtimeCaching` is a
+no-op. It does **not** import `@serwist/next/worker`'s `defaultCache`: no
+response of any kind is written to a runtime cache by this task.
 
-**B3 — where `RepertoireDashboard` goes.** Wholesale into
-`src/components/songs/RepertoireDashboard.tsx` (the existing `songs` area — no
-new component directory, no AGENTS.md area-list change), with `SongResultItem`
-split into its own `src/components/songs/SongResultItem.tsx` to keep the
-one-component-per-file convention that applies under `src/components`. Because
-F21 forbids `src/components/**` importing `@/app/*`, the seven Server Actions it
-imports today (`createAndAddSongAction`, `addSongAction`,
-`searchGlobalSongsAction`, `updateSongAction`, `updateSongStatusAction`,
-`updateSongTagsAction`, `submitGlobalSongEditAction`) become one injected
-`RepertoireDashboardActions` object built in `page.tsx`, exactly as
-`BANDS_VIEW_ACTIONS` / `PLAYLISTS_VIEW_ACTIONS` do; the island keeps passing a
-`SongFormActions` slice down to `SongForm`. `src/store/repertoireStore.ts` is
-**not** covered by F21 (the rule's globs are `src/components/**`, `src/lib/**`,
-`src/hooks/**`) and keeps importing its actions directly — do not touch it.
+**3. Update strategy (settled).** Two halves:
 
-**B4 — signed-in first paint: the dashboard still loads on mount.** Its read is
-keyed by the **band context**, which lives only in the browser
-(`src/store/bandContextStore.ts`, `zustand/persist` → `localStorage`). The
-server cannot know which repertoire to read, so a server read would necessarily
-be the personal one and would be wrong — and visibly wrong in the HTML — for a
-band-mode user. `useRepertoireStore`'s initial state is deterministic and not
-persisted (`songs: []`, `isLoading: false`), so the server render and the
-client's first render are identical and the mount-effect fetch happens strictly
-after hydration: no mismatch. Moving the read to the server is a follow-up
-blocked on moving band context into a cookie, and is out of scope.
+- *No stale HTML by construction.* Precedence matters here and the wording is
+  exact. Serwist registers the `PrecacheRoute` **before** the runtime-caching
+  routes and matches routes in registration order, so any precached URL is
+  answered from the precache — the `NetworkOnly` entry only sees what the
+  precache does not contain. The guarantee is therefore bought by the manifest,
+  not by the handler: the only precached entries are content-hashed
+  `_next/static` assets, `public/**` files and the single document `/offline`
+  (see "The precache manifest must be an allow-list"). Every other navigation —
+  including all seven `src/proxy.ts` routes — falls through to the document
+  `NetworkOnly` handler, which reads from no cache and writes to no cache, goes
+  to the network, and lets the proxy's redirects run normally. It falls back to
+  the precached `/offline` shell only when the handler **errors**, i.e. when
+  there is no network. So: **no application page other than `/offline` is ever
+  served from the worker's cache, and `/offline` is a static shell that carries
+  no user data and cannot go stale in a way a user can observe.**
+- *Worker replacement.* Every production build regenerates `sw.js` with a new
+  manifest, so its bytes differ on every deploy; the browser's byte comparison
+  detects it on the next navigation. `skipWaiting: true` + `clientsClaim: true`
+  make the new worker activate and take control without waiting for every tab to
+  close, and Serwist's precache cleanup drops the superseded entries on
+  `activate`. Registration passes `updateViaCache: 'none'` so the worker script
+  itself is never answered from the HTTP cache. **Recovery for a user stuck on
+  an old build: one further navigation.** No update prompt and no forced reload
+  are introduced — a reload-on-activate would interrupt a musician mid-set, which
+  is precisely the situation this feature exists for.
 
-**B5 — the band-context hydration guard (required, or ER4 does not hold).**
-`persist` with `localStorage` rehydrates synchronously at store creation, so a
-band-mode user's first client render already carries
-`{ type: 'band', … }` while the server rendered the `{ type: 'user' }` default.
-The island therefore must gate every band-context-derived output — the header
-title, the read-only vs. clickable status badge, the empty-state copy and the
-`?bandId=` query on each song link — behind a "has the client hydrated yet"
-flag. Pre-hydration the island renders the personal variant.
+**4. Where registration lives.** A new client component
+`src/components/layout/ServiceWorkerRegistrar.tsx` renders `null` and, in a
+`useEffect` with no `setState` (so `react-hooks/set-state-in-effect` stays
+clean), calls `navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' })`,
+guarded on `'serviceWorker' in navigator` and on
+`process.env.NODE_ENV === 'production'`, with a `.catch` that narrows via
+`instanceof Error` and reports through `logger` (convention P1 — never
+`console.error`).
 
-The flag is a new `useHydrated()` hook in `src/hooks/useHydrated.ts`, built on
-`useSyncExternalStore` with a never-firing `subscribe`, a `getSnapshot` of
-`true` and a `getServerSnapshot` of `false`. It must **not** copy `AppLayout`'s
-`useState(false)` + `useEffect(() => { setMounted(true); }, [])` shape: both
-occurrences of that shape in `AppLayout`
-(`src/components/layout/AppLayout.tsx:48` and `:165`) are themselves
-`react-hooks/set-state-in-effect` **errors** in the 8-error baseline, so copying
-it would add a ninth and break ER8. The `useSyncExternalStore` shape was linted
-in this tree against the project config and reports **0 errors / 0 warnings**,
-and the whole-tree count with the hook file present is still exactly 8/12.
-`AppLayout` itself is not touched — fixing its two errors is out of scope.
+It mounts in **`src/app/layout.tsx`, as a sibling of `<AppShell>` next to
+`<Analytics />`** — not inside `AppShell`. Two reasons: `AppShell` delegates to
+`ConditionalLayout`, which strips the chrome on the landing and auth routes, so a
+registrar mounted inside it would not run on every route; and `AppShell` owns a
+single responsibility (band-chrome data, RH-46) that this must not be folded
+into. The root layout stays a Server Component — it renders a client component,
+which is legal and is already what it does for `AppShell`.
 
-**B6 — `LandingPage` is unchanged.** Its `useState<Locale>("pt-BR")` plus
-cookie-reading effect is mismatch-free by construction (the initial state is a
-constant, so server and first client render agree); server-resolving the locale
-is a different task. Its `LandingPage.tsx:41` stack disappears because the
-subtree above it stops mismatching, not because the file changes.
+**5. Dev vs production (settled).** `npm run dev` runs no Serwist step,
+`public/sw.js` does not exist (it is gitignored, like
+`public/pdf.worker.min.mjs`), and the registrar's `NODE_ENV` guard means nothing
+is registered and nothing 404s. The existing Playwright suite, which starts the
+server with `npm run dev` in CI, therefore behaves exactly as it does today —
+this task must not change a single existing e2e outcome. The service worker is
+exercised by a **new production-only** spec, `e2e/pwa-shell.spec.ts`, which
+`test.skip`s unless `process.env.E2E_PROD` is set; it is run against
+`npm run build && npx next start` (the `PLAYWRIGHT_WEB_SERVER` path AGENTS.md:51
+already describes). Everything else in this task is provable without a browser:
+the emitted artefact is asserted from Node, the hook and the registrar from
+vitest.
 
-**B7 — explicitly unchanged.** `AppShell`/`AppLayout` stay client-resolved, so
-the raw document for a signed-out `/` still contains the chrome
-`nav[aria-label="Main navigation"]` (2 occurrences today, before and after).
-That is a pre-existing `AppShell` wart, not this task's, and it produces no
-hydration error because `isPending` is true on the client's first render too.
+The exact invocation for the production-only spec, which ER5 repeats verbatim
+because QA never sees this document, is:
+
+    npm run build && E2E_PROD=1 \
+      PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" \
+      npx playwright test e2e/pwa-shell.spec.ts --project=chromium
+
+A run that reports the spec as *skipped* is a configuration failure, not a pass.
+CI is deliberately left unchanged: `.github/workflows/ci.yml` still runs
+`npm run test:e2e` against `npm run dev` with neither variable set, so the spec
+skips there and no existing e2e outcome moves.
+
+**6. Manifest.** `src/app/manifest.ts` (Next file convention, served at
+`/manifest.webmanifest`) returns `display: 'standalone'`, `start_url: '/'`,
+`name`/`short_name`, `background_color`/`theme_color`, and the two icons.
+
+**7. Icons (settled).** `src/app/icon.jpg` is a 1024×1024 progressive JPEG and
+stays as the favicon convention. The two manifest icons are **committed PNGs**
+at `public/icons/icon-192.png` and `public/icons/icon-512.png`, derived once
+from `icon.jpg` and regenerable by the documented one-off command recorded in the
+spec header of the guard test (`sips -s format png -Z 192 src/app/icon.jpg
+--out public/icons/icon-192.png`, and likewise 512; any equivalent resizer is
+acceptable — the artefact is what matters). They are **not** generated at build
+time: `sharp` is present only transitively and **fails to load on this machine's
+Node 24**, so taking a build-time dependency on it to produce two assets that
+change approximately never would add a native-binary failure mode to every build
+for no gain. Correctness is held by a test that reads the PNG signature and the
+IHDR width/height with plain Node — no image library. `purpose: 'any'` on both;
+a maskable safe-zone variant is out of scope.
+
+**8. Offline signal.** `src/hooks/useOfflineStatus.ts` exports
+`useOfflineStatus(): boolean`, returning `true` when offline, built on
+`useSyncExternalStore` following `src/hooks/useHydrated.ts` (RH-77): `subscribe`
+adds `online`/`offline` listeners on `window` and returns a teardown removing
+both, `getSnapshot` is `!navigator.onLine`, `getServerSnapshot` is `false`. It
+contains **no `useEffect`** — the `useEffect` + `setState` shape is a
+`react-hooks/set-state-in-effect` error under this config.
+
+**9. The offline shell route.** `src/app/offline/page.tsx` is a static Server
+Component rendering a short "You are offline" panel carrying
+`data-testid="offline-shell"` **server-side**, so the assertion never depends on
+hydration. It is the only place that element is created, and ER5 asserts on it.
+It must use **no dynamic API** (`cookies`, `headers`, `searchParams`, `no-store`
+fetches): if `/offline` is not statically prerendered, no `offline.html` lands in
+`.next/server/app`, the URL never enters the precache manifest, and the fallback
+has nothing to return. It is deliberately named `/offline`, not `/~offline`, to avoid an
+exotic path character. It is not added to the `src/proxy.ts` allow-list: it must
+render with no session, since offline the proxy does not run at all.
 
 ### Files touched
 
-- `src/app/page.tsx` — drops `"use client"`; becomes an async Server Component
-  (~40-60 lines) holding only the session read, the branch and the actions
-  bundle.
-- `src/components/songs/RepertoireDashboard.tsx` — **new**; the dashboard moved
-  verbatim, plus the injected-actions prop and the `useHydrated()` guard of B5.
-- `src/components/songs/SongResultItem.tsx` — **new**; the row component moved out.
-- `src/hooks/useHydrated.ts` — **new**; the `useSyncExternalStore` hydration flag
-  of B5. Imports only `react`, so it is F21-clean under `src/hooks/**`.
-- `src/components/songs/__tests__/repertoireDashboard.test.tsx` — **new** DOM
-  test (see TC3).
-- `eslint.config.mjs` — the `complexity-budget/override` entry for
-  `src/app/page.tsx` is **re-pinned, not added**: its `files` becomes the
-  island's path and its three ceilings are recomputed to the island's exact
-  worst numbers (they will be lower — `SongResultItem` and the actions bundle
-  leave the file). The list stays at **18 entries**, so `MAX_OVERRIDES` is
-  unchanged; `src/app/page.tsx` must end up under the base budget with no entry
-  of its own. If the island happens to fit the base budget, delete the entry
-  instead and lower `MAX_OVERRIDES` to 17.
-- `e2e/ssr-smoke.spec.ts` — the signed-out `/` test is **strengthened** (TC2).
-- `docs/plans/code-quality-review.md` — a new `**Addendum (RH-77).**` at the end
-  of F15's Status, leaving every existing sentence standing (ER11).
+| Path | Change |
+|---|---|
+| `package.json` | add `serwist`, `@serwist/next`, `@serwist/cli`, `esbuild`; append the Serwist CLI stage to `build`; add `typecheck:sw`; bump `version` per the AGENTS.md rule |
+| `serwist.config.js` (new, repo root) | default-exports `serwist.withNextConfig(...)` from `@serwist/next/config` with `swSrc: 'src/app/sw.ts'`, `swDest: 'public/sw.js'`, `precachePrerendered: false`, and `globPatterns` = `generateGlobPatterns(distDir)` plus `<distDir>server/app/offline.html` — the allow-list that keeps the seven proxy-matched documents out of the precache |
+| `src/app/sw.ts` (new) | the worker source: precache entries, skipWaiting/clientsClaim, the document-scoped `NetworkOnly` runtime-caching entry and the `fallbacks` entry to `/offline` |
+| `src/app/manifest.ts` (new) | the web app manifest |
+| `src/app/offline/page.tsx` (new) | the static offline shell document |
+| `src/components/layout/ServiceWorkerRegistrar.tsx` (new) | client registration, renders null |
+| `src/components/layout/__tests__/ServiceWorkerRegistrar.test.tsx` (new) | registration + failure-path unit test |
+| `src/app/layout.tsx` | mount `<ServiceWorkerRegistrar />` beside `<Analytics />` |
+| `src/hooks/useOfflineStatus.ts` (new) | the `useSyncExternalStore` online/offline signal |
+| `src/hooks/__tests__/useOfflineStatus.test.tsx` (new) | event flip + teardown test |
+| `src/lib/__tests__/pwaShell.test.ts` (new) | Node-level guards: emitted `sw.js` shape, icon dimensions, no `withSerwist` |
+| `public/icons/icon-192.png`, `public/icons/icon-512.png` (new) | committed derived icons |
+| `tsconfig.json` | add `src/app/sw.ts` to `exclude` (its `webworker` lib conflicts with the app's `dom` lib) |
+| `tsconfig.sw.json` (new) | extends the base, `lib: ["esnext","webworker"]`, includes only `src/app/sw.ts` |
+| `.gitignore` | ignore `/public/sw.js` and `/public/sw.js.map` (build artefacts, same treatment as `pdf.worker.min.mjs`) |
+| `knip.json` | add **both** `serwist.config.js` **and `src/app/sw.ts`** to `entry`, and add `esbuild` and `@serwist/cli` to `ignoreDependencies`. `src/app/sw.ts` matches none of knip's Next plugin production entry patterns (`node_modules/knip/dist/plugins/next/index.js` covers `manifest`/`robots`/`sitemap`/`icon`/`layout|page|route|template` only) and nothing under `src` imports it — the CLI reaches it through the `swSrc` path literal, which knip cannot resolve — so without the entry knip reports `src/app/sw.ts` as an unused file and `serwist` as an unused dependency. `esbuild` and `@serwist/cli` are reached only through the build-script binary |
+
+`next.config.ts` and `eslint.config.mjs` are **not** modified. `public/**` is
+already in the eslint `globalIgnores`, so the emitted worker cannot move the lint
+baseline.
 
 ### Test criteria
 
-- **TC1 — hydration count.** The criterion is the **full** suite; the ssr-smoke
-  run is the cheap probe. Playwright will not capture this for you:
-  `playwright.config.ts` sets `webServer.stdout: 'ignore'` and
-  `reuseExistingServer: !CI`, so the dev server must be started **outside**
-  Playwright with stderr redirected to a file, and the file must be proven
-  non-empty before any `grep -c` is believed (a `grep -c` over a missing file
-  also returns `0`, which is the pass value).
-  ```
-  rm -f /tmp/rh77-dev.log
-  npm run dev > /tmp/rh77-dev.log 2>&1 &
-  # wait for http://127.0.0.1:3000 to answer
-  npx playwright test                       # full suite  → baseline 5
-  # or: npx playwright test e2e/ssr-smoke.spec.ts   # probe → baseline 1
-  grep -c "GET / 200" /tmp/rh77-dev.log     # POSITIVE CONTROL, must be >= 1
-  grep -c "Hydration failed" /tmp/rh77-dev.log
-  grep -cE "^ *at (RepertoireDashboard|LandingPage) \(" /tmp/rh77-dev.log
-  ```
-  Measured this run against `cc31134` with exactly this recipe, the ssr-smoke
-  probe gives `GET / 200` = 5, `Hydration failed` = 1 and one frame
-  `    at LandingPage (src/components/landing/LandingPage.tsx:41:7)` under
-  `    at HomePage (src/app/page.tsx:636:12)` — that indented `at <Name> (` form
-  is the only shape these stacks take, and it is what the greps must anchor on.
-  A bare identifier grep is **not** acceptable after this task, because
-  `RepertoireDashboard` will also appear in Turbopack's dev compilation output
-  for the new island file. Required after the change: positive control >= 1,
-  `Hydration failed` = 0, stack frames = 0. Use a **fresh** log per measurement.
-- **TC2 — the document.** `e2e/ssr-smoke.spec.ts`'s signed-out `/` test keeps its
-  current assertions and adds two on the raw body: it contains `href="/signup"`
-  (0 occurrences today) and does not contain `>Loading...<` (1 today). The
-  browser-level test in the same file is unchanged and must still pass.
-- **TC3 — the band-context guard.** A jsdom test renders the island through
-  `renderToString` (which runs no effects, so it is exactly the first render)
-  with `useBandContextStore` pre-set to a band, and asserts the output contains
-  `My Repertoire` and not the band name. File opens with
-  `// @vitest-environment jsdom` and registers `afterEach(cleanup)` per AGENTS.md.
-- **TC4 — untouched guards.** `src/lib/__tests__/rootLayoutRendering.test.ts` and
-  `src/lib/__tests__/namingConventions.test.ts` must pass **without edits**: the
-  first because no rendering-mode export is added, the second because it computes
-  the `'use client'` census from source with no hardcoded count.
-  `complexityBudget.test.ts` passes on the re-pinned entry.
-  `e2e/helpers.ts`'s `goHome()` waits on `[aria-label="Song list"]`, which the
-  moved island must keep rendering verbatim — do not rename it.
-- **TC5 — lint.** `npx eslint -f json .` must report **8 errors / 12 warnings**
-  with the same `(file, rule)` pairs as `cc31134` (re-measured this run):
-  `src/app/profile/page.tsx:630`, `src/app/reset-password/page.tsx:21`,
-  `src/app/settings/page.tsx:25` (`react-hooks/set-state-in-effect`) and `:109`
-  (`@next/next/no-html-link-for-pages`),
-  `src/components/landing/LandingPage.tsx:26`,
-  `src/components/layout/AppLayout.tsx:48` **and** `:165`,
-  `src/components/layout/LanguageSelector.tsx:17` — every one except the
-  `settings:109` entry is `react-hooks/set-state-in-effect`, the two `AppLayout`
-  lines included. **None** of the 8 lives in `src/app/page.tsx`, so the
-  relocation moves zero existing errors. Do not fix the baseline here, and do
-  not introduce a ninth error: this is why B5's guard is `useSyncExternalStore`
-  and not a `setState`-in-effect flag. Verification that the prescribed shape is
-  clean was done in this tree, not assumed — the hook file lints to 0/0 and the
-  whole-tree count with it present is 8/12.
+- **vitest** — `useOfflineStatus`: initial value from `navigator.onLine`, flips on
+  dispatched `window` `offline` and `online` events, and both listeners are
+  removed on unmount (assert via spies on `add`/`removeEventListener`). Source
+  contains no `useEffect`.
+- **vitest** — `ServiceWorkerRegistrar`: with a stubbed `navigator.serviceWorker`,
+  `register` is called once with `/sw.js`; with `register` rejecting, nothing
+  throws and `logger.error` is called.
+- **vitest** — `pwaShell.test.ts`: `withSerwist` appears nowhere in
+  `next.config.ts` or `src`; the two icon PNGs exist with the declared
+  dimensions read from IHDR; when `public/sw.js` exists it contains a
+  `__SW_MANIFEST`-derived array with ≥1 entry, an entry whose url is
+  `/offline`, and the strings `registerCapture` and `handlerDidError` (the proof
+  that the runtime-caching route and the fallback plugin were both wired) (the test is a no-op assertion
+  about absence when it does not, so `npm test` stays green on a dev tree).
+- **vitest** — `pwaShell.test.ts`, precache URL set: parse the injected manifest
+  by taking the **first** array literal of `public/sw.js` (it is the leading
+  `var <id>=[{url:"…",revision:"…"},…];` statement) and collecting every
+  `url:"…"` inside **that slice only** — bounding to the first array matters,
+  because the literal `"/offline"` also appears later, in the compiled
+  `fallbacks` entry. Assert the URL set contains `/offline` and at least one
+  `/_next/static/…` entry, and contains **none** of `/login`, `/signup`,
+  `/forgot-password`, `/reset-password`, `/profile`, `/settings`,
+  `/songs/search`, and no URL matching any pattern in the `src/proxy.ts`
+  `config.matcher` (read the matcher from the source rather than duplicating it,
+  so a new private route is covered automatically).
+- **existing guards, unedited** — `devBundler.test.ts` and
+  `complexityBudget.test.ts` must pass with their assertions and `MAX_OVERRIDES`
+  untouched. The override list is already at exactly 18 of a ceiling of 18, so no
+  new entry is even possible.
+- **build** — `npm run build` completes under Turbopack and emits `public/sw.js`
+  with a non-empty precache manifest.
+- **playwright, production-only** — `e2e/pwa-shell.spec.ts`: register the worker,
+  await activation, `context.setOffline(true)`, navigate to a Fast View URL, and
+  assert `[data-testid="offline-shell"]` is visible rather than the browser's
+  network-error page. Run with the §5 invocation; a skipped run is not a pass.
+- **gates** — `npm run lint` reproduces the baseline exactly; `npm run lint:dead`
+  and `npm run test:coverage` pass (`src/hooks/useOfflineStatus.ts` is inside the
+  coverage universe and is fully covered by its suite).
 
 ## Expected Results
 
-- [ ] ER1 `src/app/page.tsx` carries no `'use client'` and its default export is
-      `export default async function HomePage()` that awaits `getSession()` and
-      chooses between `LandingPage` and `RepertoireDashboard` on the server.
-- [ ] ER2 `grep -nE "isPending|Loading\.\.\." src/app/page.tsx` returns nothing.
-- [ ] ER3 With the dev server up and no session cookie, `curl -s http://127.0.0.1:3000/`
-      returns a body containing `href="/signup"` and containing no `>Loading...<`
-      (baseline at `cc31134`: 0 and 1 respectively).
-- [ ] ER4 With the dev server started **outside Playwright** and its output
-      redirected to a fresh log (`rm -f /tmp/rh77-dev.log; npm run dev >
-      /tmp/rh77-dev.log 2>&1 &` — Playwright's own `webServer` sets
-      `stdout: 'ignore'` and captures nothing), after a full `npx playwright
-      test` run: the POSITIVE CONTROL `grep -c "GET / 200" /tmp/rh77-dev.log`
-      is `>= 1` (proving the log really captured the run; it was 5 for the
-      ssr-smoke probe alone at `cc31134`), **and** `grep -c "Hydration failed"
-      /tmp/rh77-dev.log` is `0` (baseline 5). Repeating the same procedure with
-      a fresh log and only `npx playwright test e2e/ssr-smoke.spec.ts` gives the
-      same two values: control `>= 1`, `Hydration failed` `0` (baseline 1).
-- [ ] ER5 In that same log, captured the same way and with the same positive
-      control `grep -c "GET / 200" /tmp/rh77-dev.log` `>= 1`,
-      `grep -cE "^ *at (RepertoireDashboard|LandingPage) \(" /tmp/rh77-dev.log`
-      is `0`. The grep is anchored to stack frames of the form
-      `    at LandingPage (src/components/landing/LandingPage.tsx:41:7)`, never
-      to the bare identifiers, which after this task also appear in Turbopack's
-      dev compilation output for `src/components/songs/RepertoireDashboard.tsx`.
-      Baseline at `cc31134`: 4 `at RepertoireDashboard (` frames over the full
-      suite, 1 `at LandingPage (` frame over the ssr-smoke probe.
-- [ ] ER6 `npx playwright test` passes, 35 specs, 0 failures.
-- [ ] ER7 `RUN_DB_TESTS=1 npx vitest run` passes with 0 skipped test files.
-- [ ] ER8 `npx eslint -f json .` reports exactly 8 errors and 12 warnings, with the
-      same `(file, rule)` pairs as `cc31134`.
-- [ ] ER9 `eslint.config.mjs`'s `complexity-budget/override` list has no entry for
-      `src/app/page.tsx`, has at most 18 entries, and
-      `src/lib/__tests__/complexityBudget.test.ts` passes.
-- [ ] ER10 `src/components/songs/__tests__/repertoireDashboard.test.tsx` exists and
-      passes: with a band pre-set in `useBandContextStore`, the island's first
-      render (`renderToString`, no effects) contains `My Repertoire` and not the
-      band name.
-- [ ] ER11 `docs/plans/code-quality-review.md`'s F15 Status ends with a new
-      `**Addendum (RH-77).**` recording that `/` is no longer one of the five
-      deferred `'use client'` pages (four remain) and that `/` moved from the
-      prerendered set to server-rendered-on-demand, with every pre-existing
-      sentence of F15 left verbatim.
-
-- [ ] ER12 `src/hooks/useHydrated.ts` exists, uses `useSyncExternalStore`, and
-      contains no `useEffect`; `npx eslint -f json src/hooks/useHydrated.ts`
-      reports 0 errors and 0 warnings.
+- [ ] ER1 — `package.json` declares `serwist`, `@serwist/next`, `@serwist/cli` **and `esbuild`** (verified required: without it `@serwist/cli` aborts with "This command needs esbuild"), and a clean `npm install` resolves them with no peer-dependency error.
+- [ ] ER2 — The service worker is wired through the configurator mode of `@serwist/next`: `grep -rn "withSerwist" next.config.ts src` returns no match, a root `serwist.config.js` default-exports the result of `serwist(...)` or `serwist.withNextConfig(...)` from `@serwist/next/config`, and `npm run build`'s final stage invokes the `serwist build` CLI.
+- [ ] ER3 — `npm run dev` and `npm run build` both still run under Turbopack, `next.config.ts` is unchanged, and `src/lib/__tests__/devBundler.test.ts` passes with its assertions unedited.
+- [ ] ER4 — `src/app/sw.ts` exists and `npm run build` emits `public/sw.js` containing a precache manifest with at least one app-shell entry **and an entry whose url is `/offline`**; the CLI's own output reports a non-zero "will precache N URLs".
+- [ ] ER5 — The precache manifest is an allow-list, checkable from Node with no browser: parse the **first** array literal in `public/sw.js` (the leading `var <id>=[{url:"…",revision:"…"},…];` statement) and collect its `url:"…"` values. That set **contains** `/offline` and at least one URL starting `/_next/static/`, and **contains none of** `/`, `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/profile`, `/settings`, `/songs/search`, nor any URL matching a pattern in `src/proxy.ts`'s `config.matcher`. A vitest guard in `src/lib/__tests__/pwaShell.test.ts` asserts exactly this. Rationale, verified against `serwist@9.5.12`: `Serwist` registers its `PrecacheRoute` before the `runtimeCaching` routes and matches in registration order, so any precached document URL is served from the precache while online and bypasses `src/proxy.ts` entirely.
+- [ ] ER6 — The service worker actually installs the navigation fallback, proven by running:
+      `npm run build && E2E_PROD=1 PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/pwa-shell.spec.ts --project=chromium`.
+      The spec registers the worker, awaits activation, sets `context.setOffline(true)`, navigates to a `/songs/<id>/fast-view` URL, and the server-rendered `[data-testid="offline-shell"]` element of `/offline` is visible instead of the browser network-error page. **The test must report as passed, with 1 passed and 0 skipped — a skipped run does NOT count as a pass** (the spec `test.skip`s without `E2E_PROD`, and `npm run test:e2e` alone will skip it).
+- [ ] ER7 — `src/app/sw.ts` passes **both** a `runtimeCaching` entry whose handler is a `Strategy` (a document-scoped `NetworkOnly`) **and** `fallbacks.entries` targeting `/offline`; it does not use `precacheOptions.navigateFallback`. `serwist@9.5.12` discards `fallbacks` entirely when `runtimeCaching` is undefined, so an implementation with only `fallbacks` fails this result even though it builds without error.
+- [ ] ER8 — `GET /manifest.webmanifest` returns HTTP 200 with `display: "standalone"` and icons at 192x192 and 512x512 derived from `src/app/icon.jpg`; a vitest guard reads the PNG IHDR of `public/icons/icon-192.png` and `public/icons/icon-512.png` and asserts those exact dimensions.
+- [ ] ER9 — `src/components/layout/ServiceWorkerRegistrar.tsx` registers the worker on mount and is mounted in `src/app/layout.tsx`; its unit test asserts `navigator.serviceWorker.register` is called with `/sw.js` and that a rejecting `register` is handled without throwing and reaches `logger.error`.
+- [ ] ER10 — `src/hooks/useOfflineStatus.ts` is implemented with `useSyncExternalStore` and contains no `useEffect`.
+- [ ] ER11 — A vitest suite for `useOfflineStatus` asserts the value flips on `window` `online` and `offline` events and that both listeners are removed on unmount.
+- [ ] ER12 — `npm run lint` introduces no new problem against the baseline **re-measured at `c418719`: 8 errors / 12 warnings across 12 files, 14 distinct (file, rule, severity) pairs** — unchanged from the `23c6f1f` measurement.
+- [ ] ER13 — `eslint.config.mjs` gains no new `complexity-budget/override` entry (the list stays at exactly 18, which is already the ceiling) and `src/lib/__tests__/complexityBudget.test.ts` passes with `MAX_OVERRIDES` unedited.
+- [ ] ER14 — `npm run lint:dead` (knip) exits 0 with no reported issue. `knip.json` lists **both** `serwist.config.js` and `src/app/sw.ts` under `entry` (knip's Next plugin matches neither, and nothing under `src` imports `sw.ts`), and lists `esbuild` and `@serwist/cli` under `ignoreDependencies`; `public/sw.js` is gitignored so it never enters knip's or eslint's file set.
 
 ## Out of Scope
 
-- Fixing the 8 existing eslint errors / 12 warnings.
-- Server-resolving the app chrome (`AppShell` / `AppLayout`), so the signed-out
-  `/` document keeps its two `nav[aria-label="Main navigation"]` occurrences.
-- Server-resolving the landing-page locale, or any i18n change.
-- Reading the repertoire on the server / moving band context to a cookie.
-- Decomposing `RepertoireDashboard` beyond extracting `SongResultItem`; it moves
-  as it is.
-- Any visual change. The rendered UI is byte-identical post-hydration, which is
-  why this spec ships no HTML mockup.
+- The snapshot, its store and the per-playlist download — `src/lib/offlineSnapshot.ts`, `src/lib/offlineStore.ts`, `src/hooks/useOfflinePlaylist.ts`, `src/app/offlineActions.ts`, the `/playlists/[id]` control, the `/settings` storage view and the sign-out purge. **RH-79.**
+- `src/lib/offlineFirst.ts`, the Fast View read path, the read-only banner and the cold-start Playwright test that asserts real setlist and PDF content. **RH-80.** RH-80 may replace or extend this task's fallback target; the `/offline` shell is the floor, not the final answer.
+- **Runtime *caching* of responses.** No response — RSC, HTML, image, API — is written to a runtime cache by this task; `@serwist/next/worker`'s `defaultCache` is not imported. The one `runtimeCaching` entry the worker declares is a `NetworkOnly` document route that stores nothing and exists solely because `serwist@9.5.12` will not install a `fallbacks` plugin without one. This keeps the no-stale-shell guarantee of §3 intact while still producing an offline response.
+- Maskable icons, splash screens, `share_target`, push notifications, native packaging (RH-29).
+- Landing-page copy: per the AGENTS.md Landing Page Rule, this task ships no user-visible selling point on its own — installability and offline reading become one once RH-79 and RH-80 land, and that copy belongs to whichever of them completes the feature.

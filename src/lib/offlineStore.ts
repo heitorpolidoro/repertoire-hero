@@ -18,7 +18,7 @@
  * is deliberate: a half-written snapshot claiming a playlist is available is
  * worse than none.
  *
- * See docs/tasks/RH-80-spec.md §§2-4.
+ * See docs/tasks/RH-79-spec.md §§2-4.
  */
 
 import { logger } from '@/lib/logger'
