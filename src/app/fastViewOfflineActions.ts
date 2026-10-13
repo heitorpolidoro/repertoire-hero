@@ -1,5 +1,5 @@
 import { offlineFirst } from '@/lib/offlineFirst'
-import { PDF_STAGE_ACTIONS, TAB_LIBRARY_ACTIONS } from '@/app/fastViewTabActions'
+import { AUDIO_LIBRARY_ACTIONS, PDF_STAGE_ACTIONS, TAB_LIBRARY_ACTIONS } from '@/app/fastViewTabActions'
 import { LYRICS_EDITOR_ACTIONS } from '@/app/fastViewLyricsActions'
 import {
   SONG_ENTRY_ACTIONS,
@@ -31,6 +31,8 @@ import {
  * No `ports` argument: production takes the defaults, `OFFLINE_STORE` and
  * `navigator.onLine`. Injection exists for the unit suite.
  */
+/** Audio is not in the snapshot, so its bundle is passed through unwrapped (RH-162). */
+export { AUDIO_LIBRARY_ACTIONS }
 export const OFFLINE_FIRST_TAB_LIBRARY_ACTIONS = offlineFirst(TAB_LIBRARY_ACTIONS)
 export const OFFLINE_FIRST_PDF_STAGE_ACTIONS = offlineFirst(PDF_STAGE_ACTIONS)
 export const OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS = offlineFirst(LYRICS_EDITOR_ACTIONS)

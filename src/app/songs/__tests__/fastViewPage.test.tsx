@@ -81,6 +81,11 @@ vi.mock('@/app/fastViewOfflineActions', () => {
       uploadTab: call('uploadTab'),
       deleteTab: call('deleteTab'),
     },
+    AUDIO_LIBRARY_ACTIONS: {
+      getAudio: () => Promise.resolve([]),
+      uploadAudio: () => Promise.resolve({}),
+      deleteAudio: () => Promise.resolve({}),
+    },
     OFFLINE_FIRST_PDF_STAGE_ACTIONS: {
       getAnnotations: call('getAnnotations'),
       saveAnnotations: call('saveAnnotations'),

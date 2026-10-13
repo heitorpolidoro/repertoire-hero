@@ -9,6 +9,7 @@ import { useWakeLock } from '@/hooks/useWakeLock'
 // which are unchanged and keep their other consumers. The setlist needs none:
 // RH-133 made it a `sessionStorage` queue the controller reads locally.
 import {
+  AUDIO_LIBRARY_ACTIONS,
   OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS,
   OFFLINE_FIRST_PDF_STAGE_ACTIONS,
   OFFLINE_FIRST_SONG_ENTRY_ACTIONS,
@@ -29,6 +30,7 @@ import { SwipeHint } from '@/components/fastview/SwipeHint'
 import { useTabLibrary } from '@/hooks/useTabLibrary'
 import { usePdfStage } from '@/hooks/usePdfStage'
 import { TabLibrarySection } from '@/components/fastview/TabLibrarySection'
+import { AudioLibrarySection } from '@/components/fastview/AudioLibrarySection'
 import { useLyricsEditor } from '@/hooks/useLyricsEditor'
 import { LyricsSection } from '@/components/fastview/LyricsSection'
 import { useSongEntry } from '@/hooks/useSongEntry'
@@ -233,6 +235,8 @@ export default function FastViewPage() {
               offline={isOffline}
               readOnly={readOnly}
             />
+
+            <AudioLibrarySection songId={song.songId} actions={AUDIO_LIBRARY_ACTIONS} onPersonalEntryCreated={song.adoptPersonalEntry} notify={showToast} offline={isOffline} readOnly={readOnly} />
 
             {/* Links Section — `onDelete`'s wiring is documented on the prop */}
             <LinksSection

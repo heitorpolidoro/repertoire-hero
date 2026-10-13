@@ -377,6 +377,16 @@ Step 3 happens even in band context — see *What creates a personal row in band
 - Images are downscaled on upload. A phone photo passes the size a tab PDF never
   approached. Resizing is safe at any point, before or after annotation, because
   normalized coordinates survive it.
+- Audio (RH-162) is a `song_files` row too: MP3 or M4A, decided by sniffing the leading
+  bytes and never by the file's reported type, stored byte-for-byte with
+  `content_type` `audio/mpeg` or `audio/mp4` and its `size_bytes`. It is the uploader's
+  alone, exactly like a chart: no `band_id`, never shown to a bandmate, and an upload in
+  band context lands on the uploader's own row. Limits: 10 MB per file and 100 MB of
+  audio per musician in total (summed from `size_bytes`; deleting a file frees its
+  share). A refusal writes nothing. Audio never appears in the chart list or the PDF/image
+  viewer, and it is **not** in the offline snapshot: offline, Fast View shows "Audio is
+  not available offline" in place of the player. The player is a native
+  `<audio controls preload="none">`; nothing starts playing until the musician taps it.
 - A file attached to a song whose versions differ sharply — an acoustic reworking — is
   the wrong file, with no way to scope it to one version. Deliberate: scoping to the
   version would break the case that made the decision, tabs written in sections that

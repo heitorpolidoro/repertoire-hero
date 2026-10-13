@@ -391,6 +391,8 @@ export interface SongFile {
    * the upload action accepted nothing else.
    */
   content_type?: string;
+  /** Bytes stored; written for audio rows only (RH-162), `null` otherwise. */
+  size_bytes?: number | null;
   created_at: string;
   annotations?: TabAnnotations; // only present when explicitly fetched via getTabAnnotationsAction
 }

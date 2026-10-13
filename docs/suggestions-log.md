@@ -10086,3 +10086,17 @@ Non-blocking suggestions from spec review round 1:
 ## [RH-155] Add admin catalog data layer: split song and merge songs — 2026-10-13
 
 - Code review: `moveVersions` issues one query per version (N+1); acceptable for admin-scale data.
+
+## [RH-156] Build the /admin/catalog screen with merge, split and delete flows — 2026-10-13
+
+- ER6 has no "asserted by" clause. The Test criteria section covers it, so it is not blocking.
+- The spec names the actions `mergeSongVersions`, `splitSongVersions` and so on. The real exports are suffixed `...Action`. The planned `CATALOG_ADMIN_ACTIONS` bundle should map the names explicitly.
+- The `npm run lint:dead` check is in Test criteria but not in ER8. Consider adding it.
+
+## [RH-162] Play uploaded audio in Fast View with an audio player — 2026-10-13
+
+- AudioSection / useAudioLibrary: the audio list is fetched online only and fetch errors are swallowed, so a reader who opens Fast View while already offline sees no audio files and therefore no "Audio is not available offline" message (it only appears if files loaded before connectivity dropped). Spec decision 4 says offline still lists the files. Consider a follow-up.
+- Audio UI strings are hard-coded English; the spec mentions en.json/pt-BR.json keys. Align with the rest of Fast View if it uses i18n.
+- The section always renders (needed to expose upload); spec says "only when at least one audio file". Acceptable deviation.
+- src/app/fastViewOfflineActions.ts: the re-export sits between the JSDoc of OFFLINE_FIRST_TAB_LIBRARY_ACTIONS and its const, detaching the doc comment; move it above the doc block.
+- QA: add an explicit snapshot-capture test for audio exclusion (ER6 currently relies on the chart-list DB test).

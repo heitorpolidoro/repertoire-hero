@@ -173,7 +173,8 @@ describe('createTab', () => {
     const [sql, params] = statement()
     expect(sql).toContain('INSERT INTO song_files')
     expect(sql).toContain('created_at::text as created_at')
-    expect(params).toEqual([USER_ID, SONG_ID, TITLE, FILE_URL, CONTENT_TYPE])
+    // `size_bytes` is null: only audio rows carry one (RH-162).
+    expect(params).toEqual([USER_ID, SONG_ID, TITLE, FILE_URL, CONTENT_TYPE, null])
   })
 
   // ER10: the stored file's content type is written on insert and returned, so

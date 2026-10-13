@@ -77,18 +77,20 @@ export interface CreateSongFilePayload {
   title: string
   fileUrl: string
   contentType: string
+  /** Written for audio rows (RH-162) so the per-user quota can be summed. */
+  sizeBytes?: number
 }
 
 export async function createTab(payload: CreateSongFilePayload): Promise<SongFile> {
-  const { userId, songId, title, fileUrl, contentType } = payload
+  const { userId, songId, title, fileUrl, contentType, sizeBytes = null } = payload
 
   const res = await runTabQuery<SongFile>(
     'create file',
-    `INSERT INTO song_files (user_id, song_id, title, file_url, content_type)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO song_files (user_id, song_id, title, file_url, content_type, size_bytes)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, user_id, song_id, title, file_url, content_type,
-               created_at::text as created_at`,
-    [userId, songId, title, fileUrl, contentType],
+               size_bytes::int as size_bytes, created_at::text as created_at`,
+    [userId, songId, title, fileUrl, contentType, sizeBytes],
     { userId, songId },
   )
 
@@ -166,19 +168,54 @@ export async function saveTabAnnotations(
   return res.rows.length > 0
 }
 
+/**
+ * The chart list: PDF and image rows only. Audio rows (RH-162) share the table
+ * but never appear here, in the viewer, or in the offline snapshot captured
+ * from this read.
+ */
 export async function listTabs(userId: string, songId: string): Promise<SongFile[]> {
   const res = await runTabQuery<SongFile>(
     'list files',
     `SELECT id, user_id, song_id, title, file_url, content_type,
             created_at::text as created_at
      FROM song_files
-     WHERE user_id = $1 AND song_id = $2
+     WHERE user_id = $1 AND song_id = $2 AND content_type NOT LIKE 'audio/%'
      ORDER BY created_at DESC`,
     [userId, songId],
     { userId, songId },
   )
 
   return res.rows
+}
+
+/** The reader's own audio rows for one song, newest first (RH-162). */
+export async function listAudio(userId: string, songId: string): Promise<SongFile[]> {
+  const res = await runTabQuery<SongFile>(
+    'list audio files',
+    `SELECT id, user_id, song_id, title, file_url, content_type,
+            size_bytes::int as size_bytes, created_at::text as created_at
+     FROM song_files
+     WHERE user_id = $1 AND song_id = $2 AND content_type LIKE 'audio/%'
+     ORDER BY created_at DESC`,
+    [userId, songId],
+    { userId, songId },
+  )
+
+  return res.rows
+}
+
+/** The total bytes of audio the user has stored, across every song (RH-162). */
+export async function sumAudioBytes(userId: string): Promise<number> {
+  const res = await runTabQuery<{ total: number }>(
+    'sum audio bytes',
+    `SELECT COALESCE(SUM(size_bytes), 0)::float8 AS total
+     FROM song_files
+     WHERE user_id = $1 AND content_type LIKE 'audio/%'`,
+    [userId],
+    { userId },
+  )
+
+  return res.rows[0].total
 }
 
 /**
