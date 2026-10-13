@@ -5,6 +5,7 @@ import {
   SONG_ENTRY_ACTIONS,
   SONG_LINKS_ACTIONS,
   SONG_STATUS_ACTIONS,
+  SONG_TUNING_ACTIONS,
   SONG_WINDOW_ACTIONS,
 } from '@/app/fastViewEntryActions'
 
@@ -35,6 +36,7 @@ export const OFFLINE_FIRST_PDF_STAGE_ACTIONS = offlineFirst(PDF_STAGE_ACTIONS)
 export const OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS = offlineFirst(LYRICS_EDITOR_ACTIONS)
 export const OFFLINE_FIRST_SONG_ENTRY_ACTIONS = offlineFirst(SONG_ENTRY_ACTIONS)
 export const OFFLINE_FIRST_SONG_STATUS_ACTIONS = offlineFirst(SONG_STATUS_ACTIONS)
+export const OFFLINE_FIRST_SONG_TUNING_ACTIONS = offlineFirst(SONG_TUNING_ACTIONS)
 export const OFFLINE_FIRST_SONG_LINKS_ACTIONS = offlineFirst(SONG_LINKS_ACTIONS)
 // RH-134. Unclassified in `offlineFirst` on purpose: offline the window is
 // refused and never answered from a snapshot.

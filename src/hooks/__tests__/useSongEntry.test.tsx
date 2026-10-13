@@ -253,6 +253,39 @@ describe('useSongEntry', () => {
     expect(result.current.entry?.status).toBe('mastered')
   })
 
+  it('applyTuning patches the entry tuning without a reload', async () => {
+    const { result, actions } = setup()
+    await flush()
+
+    act(() => result.current.applyTuning('Drop D'))
+
+    expect(result.current.entry?.tuning).toBe('Drop D')
+    expect(actions.getResolvedEntryForVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it('applyTuning(null) re-reads the inherited tuning of the version', async () => {
+    const { result, actions } = setup()
+    await flush()
+    actions.getResolvedEntryForVersion.mockResolvedValue({ ...BAND_ENTRY, tuning: 'Standard' })
+
+    act(() => result.current.applyTuning(null))
+    await flush()
+
+    expect(actions.getResolvedEntryForVersion).toHaveBeenLastCalledWith('version-1', 'band-1')
+    expect(result.current.entry?.tuning).toBe('Standard')
+  })
+
+  it('applyTuning(null) leaves null in place when the re-read fails', async () => {
+    const { result, actions } = setup()
+    await flush()
+    actions.getResolvedEntryForVersion.mockRejectedValue(new Error('offline'))
+
+    act(() => result.current.applyTuning(null))
+    await flush()
+
+    expect(result.current.entry?.tuning).toBeNull()
+  })
+
   it('applyLinks patches the song links', async () => {
     const { result } = setup()
     await flush()

@@ -226,7 +226,7 @@ const REPERTOIRE_ACTIONS = 'src/app/actions/repertoire.ts'
  *
  *     grep -c '^export async function' src/app/actions/repertoire.ts
  */
-const REPERTOIRE_ACTION_EXPORTS = 15
+const REPERTOIRE_ACTION_EXPORTS = 16
 
 /**
  * The seven mutators ER7 drives: every action that resolves its owner through
@@ -244,6 +244,8 @@ const WRITE_OWNER_CALLERS = [
   'updateSongAction',
   'updateSongStatusAction',
   'updateSongTagsAction',
+  // RH-146: the Fast View tuning override write.
+  'updateSongTuningAction',
 ]
 
 /** Each `export async function` of `source`, with its own body. */
@@ -274,7 +276,7 @@ describe('the repertoire actions expose exactly what ER7 enumerates', () => {
     expect(names.every((name) => /^[a-z][A-Za-z0-9_]*$/.test(name))).toBe(true)
   })
 
-  it('routes exactly seven of them through resolveWriteOwner', () => {
+  it('routes exactly the listed mutators through resolveWriteOwner', () => {
     const functions = exportedAsyncFunctions(read(REPERTOIRE_ACTIONS))
     const gated = functions
       .filter((fn) => fn.body.includes('resolveWriteOwner'))

@@ -66,6 +66,7 @@ vi.mock('@/app/fastViewOfflineActions', () => {
       getPersonalEntryForSong: call('getPersonalEntryForSong'),
     },
     OFFLINE_FIRST_SONG_STATUS_ACTIONS: { updateStatus: call('updateStatus') },
+    OFFLINE_FIRST_SONG_TUNING_ACTIONS: { updateTuning: () => Promise.resolve() },
     OFFLINE_FIRST_SONG_LINKS_ACTIONS: {
       updateLinks: call('updateLinks'),
       fetchUrlTitle: call('fetchUrlTitle'),
@@ -247,9 +248,8 @@ describe('Fast View at a version with no owner row (RH-132 ER9)', { timeout: 30_
 
     // Both come from the version, because no owner row overrides either: the
     // key line through `songIdentity`, the lyrics through the editor's
-    // displayed text. `tuning` is NOT asserted here — Fast View renders no
-    // tuning field at all (`SongIdentityHeader` prints title, artist and key),
-    // which predates RH-132 and is unchanged by it.
+    // displayed text. `tuning` is not asserted here; RH-146 covers it in
+    // `SongTuningControl.test.tsx` and the db tests.
     expect(screen.getByText('F#m')).toBeDefined()
     expect(screen.getByText('the words that live on the version')).toBeDefined()
   })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { logger } from '@/lib/logger'
 import { awaitSongWindow, cachedSong } from '@/lib/songWindow'
+import { withTuning } from '@/lib/songTuning'
 import {
   shouldLoadPersonalEntry,
   songIdentity,
@@ -129,6 +130,23 @@ export function useSongEntry({
     [],
   )
 
+  // A cleared tuning (null) hands resolution back to the version, whose value
+  // the client does not hold, so it is read once more; the patch touches only
+  // `tuning`, so nothing else patched in the meantime is overwritten (RH-146).
+  const applyTuning = useCallback(
+    (tuning: string | null) => {
+      setEntry((prev) => withTuning(prev, tuning))
+      if (tuning !== null) return
+      actions
+        .getResolvedEntryForVersion(versionId, bandId)
+        .then((fresh) => {
+          if (fresh) setEntry((prev) => withTuning(prev, fresh.tuning))
+        })
+        .catch(() => undefined) // best-effort: the header keeps showing no tuning
+    },
+    [actions, bandId, versionId],
+  )
+
   const applyLinks = useCallback(
     (links: SongLink[]) => setEntry((prev) => withSongLinks(prev, links)),
     [],
@@ -160,6 +178,7 @@ export function useSongEntry({
     ownerRowId: entry?.ownerRowId ?? null,
     adoptPersonalEntry: setPersonalEntry,
     applyStatus,
+    applyTuning,
     applyLinks,
     applyEntryLyrics,
     applyPersonalLyrics,

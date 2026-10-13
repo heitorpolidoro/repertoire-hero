@@ -204,9 +204,9 @@ export async function updateSongTags(owner: RepertoireOwner, repertoireId: strin
 
 /**
  * **Every override is writable through one call**, which is the other half of
- * what makes {@link writeOwnerSongRow} the single write: `tuning` and `map` have
- * no per-field entry point because no screen hosts them yet (RH-102 and RH-118
- * own that), and a patch is how they are reached in the meantime.
+ * what makes {@link writeOwnerSongRow} the single write: Fast View writes
+ * `tuning` through it (RH-146), and `map` has no entry point because no screen
+ * hosts it yet (RH-118 owns that).
  */
 export async function updateSongOverrides(
   owner: RepertoireOwner,

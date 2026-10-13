@@ -136,6 +136,8 @@ export interface SongEntryController {
   /** Adopts a personal entry another controller just created. */
   adoptPersonalEntry: (entry: Repertoire) => void
   applyStatus: (status: SongStatus) => void
+  /** Patches the tuning; `null` (a cleared override) re-reads the version's value (RH-146). */
+  applyTuning: (tuning: string | null) => void
   applyLinks: (links: SongLink[]) => void
   applyEntryLyrics: (lyrics: string) => void
   applyPersonalLyrics: (lyrics: string) => void

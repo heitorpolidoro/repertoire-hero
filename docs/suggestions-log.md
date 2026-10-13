@@ -9991,3 +9991,13 @@ Non-blocking suggestions from spec review round 1:
 - `lockOptionRows` does not check that `target_table` is `songs`. Passing a `song_links` id is stopped only because the column parse fails. An explicit table check would make the failure clearer.
 - Spec lists new types in `src/types/database.ts`; they live in `src/types/pendingFieldGroup.ts` instead. Fine, but the spec is slightly out of date.
 - `PENDING_LINK_GROUPS_SQL` and the `*_LINK_ROWS_SQL` constants are built with `String.replace` on SQL text, which fails silently if the source text changes. Consider an assertion in the tests (partly present in `catalogSuggestionSql.test.ts`).
+
+## [RH-144] Decide which version an add holds when the song already exists — 2026-10-12
+- ER7 is a generic gate; fine, but ER1 and ER2 could name the test file.
+- ER5 concurrency test should use two real connections (pool), not sequential awaits.
+
+## [RH-146] Let a musician set a song's tuning — 2026-10-12
+- `src/app/songs/[versionId]/fast-view/page.tsx`: the `useSongTuning` call is one long line; reflow it for readability.
+- The "Cancel" button in `SongTuningControl` is not disabled while busy, which is harmless.
+- QA: run the db suite with `RUN_DB_TESTS=1` before commit to confirm the db tests against a live Postgres.
+- QA: knip hints — remove `esbuild` and `@serwist/cli` from `ignoreDependencies` in `knip.json`.

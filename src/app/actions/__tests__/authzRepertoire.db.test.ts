@@ -29,6 +29,7 @@ import {
   getRepertoireAction,
   addSongAction,
   updateSongStatusAction,
+  updateSongTuningAction,
   updateSongTagsAction,
   removeSongAction,
   getResolvedEntryForVersionAction,
@@ -389,6 +390,61 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
         lyrics: 'admin lyrics',
       })
       await removeSongAction(created.id, bandId)
+    })
+  })
+
+  // RH-146 - the tuning write is the owner's override, gated on band admin.
+  describe('updateSongTuningAction', () => {
+    const versionTuning = async () =>
+      (await query<{ tuning: string | null }>('SELECT tuning FROM song_versions WHERE id = $1', [bandVersionId]))
+        .rows[0].tuning
+    const bandTuning = async () =>
+      (await query<{ tuning: string | null }>('SELECT tuning FROM band_songs WHERE id = $1', [bandEntryId]))
+        .rows[0].tuning
+
+    it('refuses a non-admin member and writes nothing', async () => {
+      const before = await bandTuning()
+      asUser(userBId)
+
+      await expect(updateSongTuningAction(bandEntryId, 'Drop D', bandId)).rejects.toThrow(
+        'Access denied: band admin required',
+      )
+
+      expect(await bandTuning()).toBe(before)
+    })
+
+    it('lets an admin write the band row and leaves song_versions.tuning alone', async () => {
+      await query('UPDATE song_versions SET tuning = $2 WHERE id = $1', [bandVersionId, 'Version Tuning'])
+      asUser(userAId)
+
+      await updateSongTuningAction(bandEntryId, 'Drop D', bandId)
+
+      expect(await bandTuning()).toBe('Drop D')
+      expect(await versionTuning()).toBe('Version Tuning')
+      expect((await getResolvedEntryForVersionAction(bandVersionId, bandId)).tuning).toBe('Drop D')
+    })
+
+    it('stores null for a cleared value and the entry then resolves the version tuning', async () => {
+      asUser(userAId)
+
+      await updateSongTuningAction(bandEntryId, null, bandId)
+
+      expect(await bandTuning()).toBeNull()
+      expect(await versionTuning()).toBe('Version Tuning')
+      expect((await getResolvedEntryForVersionAction(bandVersionId, bandId)).tuning).toBe('Version Tuning')
+    })
+
+    it('writes the personal row without touching the band row or the version', async () => {
+      asUser(userAId)
+
+      await updateSongTuningAction(personalEntryId, 'DADGAD')
+
+      const res = await query<{ tuning: string | null }>('SELECT tuning FROM user_songs WHERE id = $1', [
+        personalEntryId,
+      ])
+      expect(res.rows[0].tuning).toBe('DADGAD')
+      expect(await bandTuning()).toBeNull()
+      expect(await versionTuning()).toBe('Version Tuning')
     })
   })
 

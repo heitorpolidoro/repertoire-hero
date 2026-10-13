@@ -3,12 +3,16 @@
 import type { SongIdentity } from '@/lib/songEntry'
 import { StatusNotes } from '@/components/ui/StatusNotes'
 import type { SongStatusController } from '@/lib/songStatus'
+import type { SongTuningController } from '@/lib/songTuning'
+import { SongTuningControl } from '@/components/fastview/SongTuningControl'
 
 export interface SongIdentityHeaderProps {
   identity: SongIdentity
   status: SongStatusController
   /** Forwarded to `StatusNotes`: the page's offline signal (RH-80). */
   readOnly?: boolean
+  /** The tuning line and its editor (RH-146); omitted, no tuning line renders. */
+  tuning?: SongTuningController
 }
 
 /**
@@ -21,7 +25,7 @@ export interface SongIdentityHeaderProps {
  * in-flight write so a tap visibly landed while the Server Action runs
  * (RH-102).
  */
-export function SongIdentityHeader({ identity, status, readOnly = false }: SongIdentityHeaderProps) {
+export function SongIdentityHeader({ identity, status, readOnly = false, tuning }: SongIdentityHeaderProps) {
   return (
     <section aria-label="Song details" className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -49,6 +53,8 @@ export function SongIdentityHeader({ identity, status, readOnly = false }: SongI
           <span className="font-medium">Key:</span> {identity.key}
         </p>
       )}
+
+      {tuning && <SongTuningControl tuning={tuning} readOnly={readOnly} />}
     </section>
   )
 }

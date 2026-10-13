@@ -7,6 +7,7 @@ import {
   addSongToRepertoire,
   updateSongStatus,
   updateSongTags,
+  updateSongOverrides,
   removeSongFromRepertoire,
   getResolvedEntryForVersion,
   updateSong,
@@ -73,6 +74,18 @@ export async function addSongAction(songId: string, bandId?: string | null) {
 export async function updateSongStatusAction(repertoireId: string, status: SongStatus, bandId?: string | null) {
   const owner = await resolveWriteOwner(bandId)
   const result = await updateSongStatus(owner, repertoireId, status)
+  revalidatePath('/')
+  return result
+}
+
+/**
+ * Fast View's tuning write (RH-146): the addressed owner's override only, never
+ * `song_versions.tuning`. `null` clears it and sends resolution back to the
+ * version. A band owner requires band admin, like every band write.
+ */
+export async function updateSongTuningAction(repertoireId: string, tuning: string | null, bandId?: string | null) {
+  const owner = await resolveWriteOwner(bandId)
+  const result = await updateSongOverrides(owner, repertoireId, { tuning })
   revalidatePath('/')
   return result
 }

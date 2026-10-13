@@ -14,6 +14,7 @@ import {
   OFFLINE_FIRST_SONG_ENTRY_ACTIONS,
   OFFLINE_FIRST_SONG_LINKS_ACTIONS,
   OFFLINE_FIRST_SONG_STATUS_ACTIONS,
+  OFFLINE_FIRST_SONG_TUNING_ACTIONS,
   OFFLINE_FIRST_SONG_WINDOW_ACTIONS,
   OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
 } from '@/app/fastViewOfflineActions'
@@ -33,6 +34,7 @@ import { LyricsSection } from '@/components/fastview/LyricsSection'
 import { useSongEntry } from '@/hooks/useSongEntry'
 import { useSongWindow } from '@/hooks/useSongWindow'
 import { useSongStatus } from '@/hooks/useSongStatus'
+import { useSongTuning } from '@/hooks/useSongTuning'
 import { useSongLinks } from '@/hooks/useSongLinks'
 import { SongIdentityHeader } from '@/components/fastview/SongIdentityHeader'
 import { LinksSection } from '@/components/fastview/LinksSection'
@@ -109,6 +111,8 @@ export default function FastViewPage() {
     notify: showToast,
   })
 
+  // The tuning line and its owner-override write (RH-146).
+  const tuning = useSongTuning({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_TUNING_ACTIONS, onSaved: afterWrite(song.applyTuning), notify: showToast })
   // The links section: the add form with its auto-filled label and the delete
   // that goes through the shared-catalog moderation queue (RH-52). Declared
   // before `useTabLibrary`, which closes this confirmation when its own opens.
@@ -219,7 +223,7 @@ export default function FastViewPage() {
             />
 
             {/* Song identity */}
-            <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} />
+            <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} tuning={tuning} />
 
             {/* Tabs Section */}
             <TabLibrarySection
