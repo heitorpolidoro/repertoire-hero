@@ -71,6 +71,11 @@ import {
   uploadBandCoverAction,
 } from '../bands'
 import {
+  getCatalogBlastRadiusAction,
+  mergeSongVersionsAction,
+  deleteSongVersionAction,
+} from '../catalogAdmin'
+import {
   submitCatalogSuggestionAction,
   getPendingCatalogSuggestionsAction,
   reviewLinkChangesAction,
@@ -163,6 +168,11 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   createBandPlaylistAction: { run: () => createBandPlaylistAction(BAND_ID, 'Setlist'), mode: 'throws' },
   regenerateBandInviteCodeAction: { run: () => regenerateBandInviteCodeAction(BAND_ID), mode: 'throws' },
   uploadBandCoverAction: { run: () => uploadBandCoverAction(emptyFormData()), mode: 'envelope' },
+
+  // --- catalogAdmin.ts ---
+  getCatalogBlastRadiusAction: { run: () => getCatalogBlastRadiusAction({ versionId: VERSION_ID }), mode: 'throws' },
+  mergeSongVersionsAction: { run: () => mergeSongVersionsAction(VERSION_ID, 'version-2'), mode: 'throws' },
+  deleteSongVersionAction: { run: () => deleteSongVersionAction(VERSION_ID), mode: 'throws' },
 
   // --- moderation.ts ---
   submitCatalogSuggestionAction: { run: () => submitCatalogSuggestionAction(SONG_ID, { title: 'x' }), mode: 'throws' },

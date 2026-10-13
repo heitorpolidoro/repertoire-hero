@@ -432,7 +432,13 @@ const CATALOG_DELETE = /DELETE\s+FROM\s+(songs|song_versions)\b/i
 describe('the shared catalog is never row-deleted by production source (ER9)', () => {
   it('names no catalog delete outside __tests__, while the same scan finds plenty inside', () => {
     const all = findViolations(CATALOG_DELETE)
-    const production = all.filter((violation) => !violation.file.includes('__tests__'))
+    // RH-154: `catalogAdmin.ts` is the one sanctioned deleter, behind
+    // `checkSystemAdmin` (merge removes A, delete removes an unreferenced
+    // version). A second file naming a catalog delete still fails here.
+    const production = all.filter(
+      (violation) =>
+        !violation.file.includes('__tests__') && !violation.file.endsWith('src/lib/catalogAdmin.ts'),
+    )
 
     expect(formatViolations(production)).toEqual([])
     // The control, which is what says "every matching path is a test": the

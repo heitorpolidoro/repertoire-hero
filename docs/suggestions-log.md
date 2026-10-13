@@ -10005,3 +10005,11 @@ Non-blocking suggestions from spec review round 1:
 ## [RH-150] Add a grouped card to the playlist picker — 2026-10-12
 - `SongGroupCard.test.tsx` collapsed case asserts `versions[0]` is the first version but not that `versions` is exactly `[versions[0]]`; only the test wording is loose.
 - The expander uses text glyphs with an aria-label; an icon would be more consistent.
+
+## [RH-151] Move the dashboard onto the grouped card — 2026-10-12
+- ER 2 and ER 6 each bundle two assertions (absence of identifiers plus file deletion; three ratchet values plus lint); acceptable but could be split.
+- The spec header line says the spec file is RH-152-spec.md while the file is RH-151-dashboard-spec.md; tidy to avoid confusion.
+- SongGroupCard lives under components/playlists; the dashboard importing it across folders is fine but consider noting it.
+
+## [RH-154] Add admin catalog data layer: blast radius, merge versions, delete — 2026-10-12
+- Code review: merge repoint of playlist_songs relies on the pre-delete to keep (playlist_id, version_id) unique when A and B share a playlist; reviewer found it correct, no change needed.
