@@ -587,7 +587,8 @@ queried by part, cascading exactly like lyrics so there is no second override me
 This is the screen that edits it.
 
 ### Download individual songs for offline, not only playlists
-*Low.*
+*Low.* **Done (RH-116):** `OfflineSongButton` on the Fast View page, `useOfflineSong`,
+`src/lib/offlineSongRecord.ts`; the reader's-own-files half shipped earlier with RH-123.
 
 Offline capture is per playlist. One song you are about to perform is a legitimate smaller
 unit, and the snapshot shape already carries songs rather than a playlist blob.

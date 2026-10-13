@@ -10124,3 +10124,13 @@ Non-blocking suggestions from code review round 1:
 Non-blocking suggestions from QA round 1:
 
 - Production server logs "DOMMatrix is not defined" SSR errors during the e2e run (pdf code), unrelated to this task's scope; tests still pass.
+
+## [RH-82] Decide and execute the App Store path for Repertoire Hero — 2026-10-13
+
+- ER5 ("a reason for each of the two paths not recommended") could be tightened if QA reads it loosely, but it is verifiable as written.
+
+## [RH-116] Download individual songs for offline, not only playlists — 2026-10-13
+
+- The `downloading` state in `OfflineSongButton` renders "1 / 1 songs", which reads slightly awkwardly for a single song (cosmetic).
+- `useOfflineSong` re-implements `messageOf`; if `useOfflinePlaylist` has a near-identical helper, share it.
+- The e2e test reuses the `downloadPlaylist` helper for a song; a clearer alias would help readability.

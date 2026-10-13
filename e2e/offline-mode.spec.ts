@@ -210,6 +210,39 @@ test('reads a downloaded playlist after a cold reload with no network', async ({
   await context.setOffline(false)
 })
 
+test('reads a single downloaded song after a cold reload with no network (RH-116)', async ({
+  page,
+  context,
+}) => {
+  const songTitle = uniqueFixtureName('RH116 Song')
+
+  await goHome(page)
+  await addSong(page, { title: songTitle, artist: 'RH116 Artist' })
+  const fastViewUrl = await fastViewUrlFromCard(page, songTitle)
+  await waitForServiceWorker(page)
+
+  // The control lives on the Fast View page itself, which is also what puts the
+  // document in the worker's cache for the cold reload below.
+  await page.goto(fastViewUrl)
+  await expect(page.getByRole('heading', { level: 1, name: songTitle })).toBeVisible({
+    timeout: 20_000,
+  })
+  await downloadPlaylist(page)
+
+  await context.setOffline(true)
+  await page.reload()
+
+  await expect(page.getByRole('heading', { level: 1, name: songTitle })).toBeVisible({
+    timeout: 20_000,
+  })
+  await expect(page.getByTestId('offline-read-only-banner')).toBeVisible()
+  // Refresh is disabled offline, remove stays available.
+  await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Remove offline copy' })).toBeEnabled()
+
+  await context.setOffline(false)
+})
+
 test('renders a downloaded chart from the worker cache and never the gview iframe', async ({
   page,
   context,

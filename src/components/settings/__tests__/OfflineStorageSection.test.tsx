@@ -9,6 +9,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { OfflineStorageSection } from '../OfflineStorageSection'
+import { songRecordId } from '@/lib/offlineSongRecord'
 import { createOfflineStore, type SaveOfflinePlaylistInput } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { Repertoire } from '@/types/database'
@@ -62,6 +63,25 @@ async function seeded(): Promise<FakeOfflinePorts> {
   return ports
 }
 
+describe('OfflineStorageSection, song records (ER8)', () => {
+  it('lists a stored song by title with a Song label, and removes it alone', async () => {
+    const ports = await seeded()
+    const songId = songRecordId('version-1', null)
+    await createOfflineStore(ports).saveOfflinePlaylist(saveInput(songId, 'Tempo Perdido', 'tab-s'))
+    render(<OfflineStorageSection store={createOfflineStore(ports)} />)
+
+    expect(await screen.findByText('Tempo Perdido')).toBeDefined()
+    expect(screen.getAllByText('Song')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /remove tempo perdido from this device/i }))
+
+    await waitFor(() => expect(screen.queryByText('Tempo Perdido')).toBeNull())
+    expect(ports.records.rows.has(songId)).toBe(false)
+    expect(ports.blobs.keysFor(songId)).toEqual([])
+    expect(ports.records.rows.has('pl-1')).toBe(true)
+  })
+})
+
 describe('OfflineStorageSection', () => {
   it('lists every stored playlist and totals the records own bytes', async () => {
     const ports = await seeded()
@@ -94,14 +114,14 @@ describe('OfflineStorageSection', () => {
   it('says so plainly when this device stores nothing', async () => {
     render(<OfflineStorageSection store={createOfflineStore(createFakePorts())} />)
 
-    expect(await screen.findByText(/no playlist is stored on this device/i)).toBeDefined()
+    expect(await screen.findByText(/nothing is stored on this device/i)).toBeDefined()
     expect(screen.getByTestId('offline-total').textContent).toBe('0 B')
   })
 
   it('omits the quota line when the browser offers no estimate', async () => {
     render(<OfflineStorageSection store={createOfflineStore(createFakePorts())} />)
 
-    await screen.findByText(/no playlist is stored on this device/i)
+    await screen.findByText(/nothing is stored on this device/i)
     // jsdom implements no `navigator.storage`: no placeholder, no spinner.
     expect(screen.queryByTestId('offline-quota')).toBeNull()
   })

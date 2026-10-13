@@ -42,6 +42,10 @@ import { SongIdentityHeader } from '@/components/fastview/SongIdentityHeader'
 import { LinksSection } from '@/components/fastview/LinksSection'
 import { SongTagsSection } from '@/components/fastview/SongTagsSection'
 import { SongLoading, SongNotFound } from '@/components/fastview/SongLoadStates'
+// RH-116: the per-song offline control gets the raw actions, not the offline-first
+// wrappers, since a download is disabled while offline.
+import { OFFLINE_DOWNLOAD_ACTIONS } from '@/app/offlineActions'
+import { OfflineSongButton } from '@/components/fastview/OfflineSongButton'
 import { OfflineBanner } from '@/components/fastview/OfflineBanner'
 import { OfflineUnavailable } from '@/components/fastview/OfflineUnavailable'
 import { FastViewOverlays } from '@/components/fastview/FastViewOverlays'
@@ -226,6 +230,7 @@ export default function FastViewPage() {
 
             {/* Song identity */}
             <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} tuning={tuning} />
+            <OfflineSongButton versionId={versionId} bandId={queryBandId} actions={OFFLINE_DOWNLOAD_ACTIONS} offline={isOffline} />
 
             {/* Tabs Section */}
             <TabLibrarySection

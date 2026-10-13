@@ -21,6 +21,7 @@ import {
 } from '@/lib/offlineFirst'
 import { createOfflineStore, type OfflineStore } from '@/lib/offlineStore'
 import { offlineTabCacheKey } from '@/lib/offlineSnapshot'
+import { songRecordId } from '@/lib/offlineSongRecord'
 import { createFakePorts } from './offlineStoreFakes'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
@@ -508,5 +509,58 @@ describe('offlineFirst — the offline writes', () => {
     )
 
     await expect(wrapped.someFutureAction()).rejects.toBe(failure)
+  })
+})
+
+describe('offlineFirst — a single-song record (RH-116 ER3)', () => {
+  /** Only a song record is stored: no playlist at all. */
+  async function songOnlyPorts(): Promise<OfflineFirstPorts> {
+    const store = createOfflineStore(createFakePorts())
+    await store.saveOfflinePlaylist({
+      playlistId: songRecordId('v-rep-1', 'band-1'),
+      playlistName: 'Song rep-1',
+      bandId: 'band-1',
+      savedAt: '2026-09-21T10:00:00.000Z',
+      songs: [
+        {
+          entry: entry('rep-1', 'Song rep-1'),
+          repertoire: repertoire('rep-1'),
+          personalRepertoire: personalRow('rep-1', 'my cues'),
+          tabs: [tab('tab-1', 'song-rep-1', '2026-01-02T00:00:00.000Z')],
+        },
+      ],
+    })
+    return { store, isOffline: () => true }
+  }
+
+  it('answers the entry, the files and the personal row for that version offline', async () => {
+    const unreachable = () => Promise.reject(new Error('unreachable'))
+    const wrapped = offlineFirst(
+      {
+        getResolvedEntryForVersion: unreachable,
+        getTabs: unreachable,
+        getPersonalEntryForSong: unreachable,
+      },
+      await songOnlyPorts(),
+    )
+
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', 'band-1')).resolves.toEqual(
+      repertoire('rep-1'),
+    )
+    const files = await wrapped.getTabs('song-rep-1')
+    expect(files.map((file) => file.id)).toEqual(['tab-1'])
+    expect(files[0].file_url).toBe(offlineTabCacheKey(songRecordId('v-rep-1', 'band-1'), 'tab-1'))
+    await expect(wrapped.getPersonalEntryForSong('song-rep-1')).resolves.toEqual(
+      personalRow('rep-1', 'my cues'),
+    )
+  })
+
+  it('answers null for a version no stored record holds', async () => {
+    const wrapped = offlineFirst(
+      { getResolvedEntryForVersion: () => Promise.resolve(repertoire('x')) },
+      await songOnlyPorts(),
+    )
+
+    await expect(wrapped.getResolvedEntryForVersion('v-other', null)).resolves.toBeNull()
   })
 })

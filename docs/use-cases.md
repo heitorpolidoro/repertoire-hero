@@ -1033,7 +1033,12 @@ arrival you open the app and everything you marked is there to read.
   — offline you get the band's chart and not the one you scanned. Under the new model only
   yours exist, so yours are what must be there.
 - Downloading is per playlist **or** per song. A set list is the common case; one song you
-  are about to perform is a legitimate smaller one, and today only the playlist exists.
+  are about to perform is a legitimate smaller one. **Built (RH-116):** the Fast View page
+  carries an "Available offline" control (`OfflineSongButton`) that stores one song as an
+  ordinary one-song snapshot under its own record id (`src/lib/offlineSongRecord.ts`:
+  version id plus the band context, so a personal and a band copy never overwrite each
+  other). It shares the playlist download's capture, the same disabled-offline rule, and
+  `/settings` lists it with a "Song" label.
 - Stale data never stands in for a real error. The download is read when the browser is
   offline, or when a *reader* failed on the network. Any other failure is reported as
   itself.

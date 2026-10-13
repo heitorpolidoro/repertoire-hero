@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { logger } from '@/lib/logger'
 import { formatDownloadedAgo, readOfflineQuota, type OfflineQuota } from '@/lib/offlineFormat'
+import { isSongRecordId } from '@/lib/offlineSongRecord'
 import { OFFLINE_STORE, type OfflinePlaylistSummary, type OfflineStore } from '@/lib/offlineStore'
 
 /**
@@ -27,6 +28,8 @@ import { OFFLINE_STORE, type OfflinePlaylistSummary, type OfflineStore } from '@
  */
 export interface OfflinePlaylistRow extends OfflinePlaylistSummary {
   downloadedAgo: string
+  /** A single-song record (RH-116), derived from the id — nothing is stored. */
+  isSong: boolean
 }
 
 const EMPTY_LIBRARY: OfflinePlaylistRow[] = []
@@ -89,6 +92,7 @@ export function useOfflineLibrary({
         (await store.listOfflinePlaylists()).map((row) => ({
           ...row,
           downloadedAgo: formatDownloadedAgo(row.savedAt, now),
+          isSong: isSongRecordId(row.playlistId),
         })),
       )
     } catch (error) {

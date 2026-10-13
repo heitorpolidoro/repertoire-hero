@@ -14,6 +14,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary'
+import { songRecordId } from '@/lib/offlineSongRecord'
 import { createOfflineStore, type OfflineStore, type SaveOfflinePlaylistInput } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { Repertoire } from '@/types/database'
@@ -65,6 +66,22 @@ async function seededStore(): Promise<{ store: OfflineStore; ports: FakeOfflineP
   await store.saveOfflinePlaylist(saveInput('pl-2', 'tab-b'))
   return { store, ports }
 }
+
+describe('useOfflineLibrary, song records (ER8)', () => {
+  it('flags a stored single-song record as a song and leaves playlists unflagged', async () => {
+    const { store } = await seededStore()
+    const songId = songRecordId('version-1', null)
+    await store.saveOfflinePlaylist({ ...saveInput(songId, 'tab-s'), playlistName: 'Tempo Perdido' })
+
+    const { result } = renderHook(() => useOfflineLibrary({ store }))
+
+    await waitFor(() => expect(result.current.rows).toHaveLength(3))
+    const byId = new Map(result.current.rows.map((row) => [row.playlistId, row]))
+    expect(byId.get(songId)?.isSong).toBe(true)
+    expect(byId.get(songId)?.playlistName).toBe('Tempo Perdido')
+    expect(byId.get('pl-1')?.isSong).toBe(false)
+  })
+})
 
 describe('useOfflineLibrary', () => {
   it('publishes what is stored, and totals the records own bytes', async () => {

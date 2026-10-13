@@ -8,7 +8,8 @@ import {
   type OfflineSongInput,
   type OfflineStore,
 } from '@/lib/offlineStore'
-import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
+import { captureResolvedEntry, type OfflineCaptureActions } from '@/lib/offlineCapture'
+import type { ResolvedSongEntry } from '@/types/database'
 
 /**
  * The Server Actions the download reads through. Injected rather than imported,
@@ -32,17 +33,11 @@ import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
  * row included. `getTabs` and `getPersonalEntryForSong` are unchanged: both are
  * song-keyed and resolve through `repertoire.song_id`.
  */
-export interface OfflineDownloadActions {
+export interface OfflineDownloadActions extends OfflineCaptureActions {
   getPlaylistDetailsWithEntries: (
     playlistId: string,
     bandId?: string | null,
   ) => Promise<{ name: string; entries: PlaylistEntry[] }>
-  getResolvedEntryForVersion: (
-    versionId: string,
-    bandId?: string | null,
-  ) => Promise<ResolvedSongEntry | null>
-  getTabs: (songId: string) => Promise<SongFile[]>
-  getPersonalEntryForSong: (songId: string) => Promise<Repertoire | null>
 }
 
 export interface UseOfflinePlaylistOptions {
@@ -138,16 +133,7 @@ async function gatherSongs(
       continue
     }
     if (!repertoire) continue
-    // The song id, never the owner row id: in band context that is the band's
-    // row, and the band holds no files at all now. Resolved by the session's
-    // `user_id`, so this captures the downloader's own charts (RH-123).
-    const tabs = await actions.getTabs(repertoire.song_id)
-    // Only in band context: outside one there is no second version to capture,
-    // and `repertoire` already *is* the member's own row.
-    const personalRepertoire = bandId
-      ? await actions.getPersonalEntryForSong(repertoire.song_id)
-      : null
-    songs.push({ entry, repertoire, personalRepertoire, tabs })
+    songs.push(await captureResolvedEntry(actions, entry, repertoire, bandId))
   }
   return songs
 }

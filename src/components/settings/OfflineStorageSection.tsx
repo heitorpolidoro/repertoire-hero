@@ -45,14 +45,21 @@ export function OfflineStorageSection({ store }: OfflineStorageSectionProps) {
 
       {library.rows.length === 0 ? (
         <p className="text-sm text-gray-400 py-6 text-center">
-          No playlist is stored on this device.
+          Nothing is stored on this device.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-gray-100 border-t border-gray-100" role="list">
           {library.rows.map((row) => (
             <li key={row.playlistId} className="flex items-center gap-3 py-3">
               <div>
-                <p className="text-sm font-medium text-gray-900">{row.playlistName}</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {row.playlistName}
+                  {row.isSong && (
+                    <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                      Song
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-gray-400">
                   {formatOfflineBytes(row.bytes)} &middot; downloaded {row.downloadedAgo}
                 </p>
