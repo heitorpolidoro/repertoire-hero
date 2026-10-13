@@ -75,4 +75,25 @@ test.describe('PWA shell (production build only)', () => {
     expect(response?.status()).toBe(200)
     await expect(page.locator('[data-testid="offline-shell"]')).toHaveCount(0)
   })
+
+  test('serves an installable manifest with reachable 192 and 512 PNG icons', async ({ request }) => {
+    const manifestResponse = await request.get('/manifest.webmanifest')
+    expect(manifestResponse.status()).toBe(200)
+    const manifest = (await manifestResponse.json()) as {
+      display: string
+      icons: { src: string; sizes: string; type: string }[]
+    }
+    expect(manifest.display).toBe('standalone')
+
+    for (const sizes of ['192x192', '512x512']) {
+      const icon = manifest.icons.find((entry) => entry.sizes === sizes)
+      expect(icon, `an icon declared at ${sizes}`).toBeDefined()
+      expect(icon?.type).toBe('image/png')
+
+      const iconResponse = await request.get(icon?.src as string)
+      expect(iconResponse.status()).toBe(200)
+      expect(iconResponse.headers()['content-type']).toContain('image/png')
+      expect((await iconResponse.body()).length).toBeGreaterThan(0)
+    }
+  })
 })

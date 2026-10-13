@@ -10100,3 +10100,27 @@ Non-blocking suggestions from spec review round 1:
 - The section always renders (needed to expose upload); spec says "only when at least one audio file". Acceptable deviation.
 - src/app/fastViewOfflineActions.ts: the re-export sits between the JSDoc of OFFLINE_FIRST_TAB_LIBRARY_ACTIONS and its const, detaching the doc comment; move it above the doc block.
 - QA: add an explicit snapshot-capture test for audio exclusion (ER6 currently relies on the chart-list DB test).
+
+## [RH-166] Add a practice transport with loop, slow-down and count-in — 2026-10-13
+
+- ER4 says the audio starts "only then" under a unit test with a fake clock, but the audio start is asserted by a component test in Test criteria. Say that explicitly, or rely on the end callback in the unit test.
+- If C is chosen, ER6 "cannot be written for a file the user does not own" no longer applies. Reword ER6 after the answer.
+- Migration number `0025` is an assumption. Confirm it against `migrations/` at implementation time.
+- Decision 5 creates an `AudioContext` inside the Play tap. A test that the context is created exactly once per Play, and reused or closed afterwards, would prevent leaks.
+
+## [RH-167] Add a setlist player over the RH-133 queue — 2026-10-13
+
+- ER2 names two effects (src change and play()). Both come from one event, so it is acceptable. Keep them in one test.
+- ER6 says "restore", but the store is not persisted. The test can use a pre-filled store, as Test criteria already says.
+- The spec raises "whether to add YouTube/Spotify" as an operator question. Make sure it is also written to the task's questions array (done by the orchestrator).
+
+## [RH-28] Implementar modo offline — 2026-10-13
+
+Non-blocking suggestions from code review round 1:
+
+- ER4 offline assertions use toHaveCount(0), which passes trivially on a failed navigation; acceptable because ER3 asserts the stores are empty first.
+- readOfflineStores recreates the DB schema in onupgradeneeded; fine for a read-only probe but couples to the store name.
+
+Non-blocking suggestions from QA round 1:
+
+- Production server logs "DOMMatrix is not defined" SSR errors during the e2e run (pdf code), unrelated to this task's scope; tests still pass.

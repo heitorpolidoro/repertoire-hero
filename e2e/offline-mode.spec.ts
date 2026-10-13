@@ -30,8 +30,16 @@
  */
 
 import { test, expect, type Page } from '@playwright/test'
-import { AUTH_STATE_PATH } from './global-setup'
-import { addSong, createPlaylist, goHome, openPlaylist, songCard, uniqueFixtureName } from './helpers'
+import { AUTH_STATE_PATH, E2E_USER_EMAIL, E2E_USER_PASSWORD } from './global-setup'
+import {
+  addSong,
+  createPlaylist,
+  goHome,
+  openPlaylist,
+  songCard,
+  uniqueFixtureName,
+  waitForPlaylistDetailHydrated,
+} from './helpers'
 import { OFFLINE_SCHEMA_VERSION } from '../src/lib/offlineSnapshot'
 import type { OfflineSnapshotRecord } from '../src/lib/offlineStore'
 
@@ -126,7 +134,7 @@ test('reads a downloaded playlist after a cold reload with no network', async ({
   await addSong(page, { title: strandedTitle, artist: 'RH80 Artist' })
   const strandedUrl = await fastViewUrlFromCard(page, strandedTitle)
   await createPlaylist(page, playlistName)
-  await openPlaylist(page, playlistName)
+  const playlistUrl = await openPlaylist(page, playlistName)
   await addSongToOpenPlaylist(page, songTitle)
 
   await waitForServiceWorker(page)
@@ -144,6 +152,22 @@ test('reads a downloaded playlist after a cold reload with no network', async ({
     timeout: 20_000,
   })
 
+  // Since RH-133 the setlist is the tab's `sessionStorage` song queue, written
+  // by the playlist row's click handler: a bare `goto` of the Fast View URL
+  // leaves it empty and renders no setlist. Enter through the real link.
+  await page.goto(playlistUrl)
+  await waitForPlaylistDetailHydrated(page)
+  await page
+    .getByRole('region', { name: 'Songs in this playlist' })
+    .getByRole('listitem')
+    .filter({ hasText: songTitle })
+    .locator('a[href*="/fast-view"]')
+    .first()
+    .click()
+  await page.waitForURL((url) => url.pathname === fastViewUrl.split('?')[0], { timeout: 20_000 })
+  // The click is a client-side navigation, which fetches no document for the
+  // worker to store; a real load of the same URL does, and the queue survives it
+  // because `sessionStorage` lives as long as the tab.
   await page.goto(fastViewUrl)
   await expect(page.getByRole('heading', { level: 1, name: songTitle })).toBeVisible({
     timeout: 20_000,
@@ -385,6 +409,97 @@ test('renders a downloaded chart from the worker cache and never the gview ifram
 
   await context.setOffline(false)
 })
+
+test('purges every snapshot and cached chart on sign-out and stops serving the Fast View offline', async ({
+  browser,
+}) => {
+  // A session of its own: signing out revokes it server-side, and the shared
+  // storage state belongs to every other spec in the run.
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3000'
+  const context = await browser.newContext({ baseURL })
+  const signIn = await context.request.post('/api/auth/sign-in/email', {
+    data: { email: E2E_USER_EMAIL, password: E2E_USER_PASSWORD },
+    headers: { Origin: baseURL, Referer: `${baseURL}/` },
+  })
+  expect(signIn.ok(), 'the dedicated session must sign in').toBe(true)
+  const page = await context.newPage()
+
+  const songTitle = uniqueFixtureName('RH28 Song')
+  const playlistName = uniqueFixtureName('RH28 Playlist')
+
+  await goHome(page)
+  await addSong(page, { title: songTitle, artist: 'RH28 Artist' })
+  await createPlaylist(page, playlistName)
+  await openPlaylist(page, playlistName)
+  await addSongToOpenPlaylist(page, songTitle)
+
+  await waitForServiceWorker(page)
+  await downloadPlaylist(page)
+  const fastViewUrl = await fastViewUrlFromPlaylist(page, songTitle)
+
+  // Open it online so the worker holds the document, then seed one chart into
+  // the tab cache: a real upload needs a Vercel Blob token this suite lacks,
+  // and the purge under test is indifferent to who wrote the entry.
+  await page.goto(fastViewUrl)
+  await expect(page.getByRole('heading', { level: 1, name: songTitle })).toBeVisible({
+    timeout: 20_000,
+  })
+  await page.evaluate(async () => {
+    const cache = await caches.open('rh-offline-tabs-v1')
+    await cache.put(
+      '/__offline-tab/rh28/seeded',
+      new Response('x', { headers: { 'content-type': 'application/pdf' } }),
+    )
+  })
+  const before = await readOfflineStores(page)
+  expect(before.snapshots, 'the download must have stored a snapshot').toBeGreaterThan(0)
+  expect(before.tabs, 'the seeded chart must be in the cache').toBeGreaterThan(0)
+
+  // The real Sign Out button; the purge is awaited before the redirect.
+  await page.getByRole('button', { name: 'Sign Out' }).first().click()
+  await page.waitForURL(/\/login/, { timeout: 30_000 })
+
+  // ER3 — both stores are empty.
+  const after = await readOfflineStores(page)
+  expect(after.snapshots).toBe(0)
+  expect(after.tabs).toBe(0)
+
+  // ER4 — with the network cut, the downloaded Fast View no longer renders.
+  await context.setOffline(true)
+  await page.goto(fastViewUrl).catch(() => undefined)
+  await expect(page.getByRole('heading', { level: 1, name: songTitle })).toHaveCount(0)
+  await expect(page.getByText(playlistName)).toHaveCount(0)
+  await expect(page.getByText(songTitle)).toHaveCount(0)
+
+  await context.setOffline(false)
+  await context.close()
+})
+
+/** Counts snapshot records and cached chart entries as the page sees them. */
+async function readOfflineStores(page: Page): Promise<{ snapshots: number; tabs: number }> {
+  return page.evaluate(async () => {
+    const snapshots = await new Promise<number>((resolve, reject) => {
+      const request = indexedDB.open('repertoire-hero-offline', 1)
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains('snapshots')) {
+          request.result.createObjectStore('snapshots', { keyPath: 'playlistId' })
+        }
+      }
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const db = request.result
+        const count = db.transaction('snapshots', 'readonly').objectStore('snapshots').count()
+        count.onsuccess = () => {
+          db.close()
+          resolve(count.result)
+        }
+        count.onerror = () => reject(count.error)
+      }
+    })
+    const cache = await caches.open('rh-offline-tabs-v1')
+    return { snapshots, tabs: (await cache.keys()).length }
+  })
+}
 
 /**
  * A minimal, valid one-page PDF. Inline so the suite needs no fixture file and
