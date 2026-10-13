@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-156 /admin/catalog mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-50 text-gray-900">
+<div class="max-w-3xl mx-auto py-8 px-4 space-y-4">
+  <div class="flex items-center justify-between"><h1 class="text-xl font-bold">Catalog admin</h1>
+    <span class="text-xs text-gray-500">nav: Repertoire, Playlists, Bands, <b>Catalog</b> (admins only), Profile, Settings</span></div>
+  <form onsubmit="event.preventDefault();render()" class="flex gap-2">
+    <input id="q" value="wonderwall" class="flex-1 rounded-lg border px-3 py-2 text-sm" placeholder="Search title or artist">
+    <button class="rounded-lg bg-gray-900 text-white px-4 text-sm">Search</button></form>
+  <div id="banner"></div>
+  <div id="results" class="space-y-4"></div>
+</div>
+<script>
+const songs = [
+  { id: 's1', artist: 'Oasis', title: 'Wonderwall', versions: [
+    { id: 'v1', label: 'Studio', album: "What's the Story Morning Glory", r: 42, p: 11 },
+    { id: 'v2', label: 'Remastered 2014', album: 'Time Flies', r: 3, p: 1 },
+    { id: 'v3', label: 'Live at Knebworth', album: null, r: 0, p: 0 } ] },
+  { id: 's2', artist: 'Oasis ', title: 'Wonderwall ', versions: [
+    { id: 'v4', label: null, album: 'Single', r: 1, p: 0 } ] } ];
+let flow = null;
+const pl = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+function panel(msg, label) {
+  return '<div role="alertdialog" class="rounded-lg border border-red-200 bg-red-50 px-3 py-3 space-y-2 mt-2">' +
+    '<p class="text-xs text-red-800">' + msg + '</p><div class="flex gap-2">' +
+    '<button onclick="confirmFlow()" class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white bg-red-600">' + label + '</button>' +
+    '<button onclick="flow=null;render()" class="rounded-lg border bg-white px-3 py-1.5 text-xs text-gray-600">Cancel</button></div></div>';
+}
+function confirmFlow() {
+  document.getElementById('banner').innerHTML = '<div class="rounded-lg bg-green-50 border border-green-200 text-green-800 text-xs p-3">Done (mock): list refreshed.</div>';
+  flow = null; render();
+}
+function start(kind, id) { flow = { kind: kind, id: id }; render(); }
+function row(s, v) {
+  const del = v.r + v.p === 0;
+  let f = '';
+  if (flow && flow.id === v.id && flow.kind === 'merge')
+    f = panel('Merge "' + (v.label || 'Original') + '" into "' + (s.versions[0].label || 'Original') + '"? ' + pl(v.r, 'repertoire') + ' and ' + pl(v.p, 'playlist') + ' move to the target; where the target is already held, its row wins and this one is discarded.', 'Merge versions');
+  if (flow && flow.id === v.id && flow.kind === 'delete')
+    f = panel('Delete "' + (v.label || 'Original') + '"? 0 repertoires and 0 playlists reference it.', 'Delete');
+  return '<li class="py-2"><div class="flex items-center gap-3"><input type="checkbox" aria-label="split ' + v.id + '">' +
+    '<div class="flex-1"><div class="text-sm font-medium">' + (v.label || 'Original') + ' <span class="text-gray-400 font-normal">' + (v.album || 'no album') + '</span></div>' +
+    '<div class="text-xs text-gray-500">' + pl(v.r, 'repertoire') + ' &middot; ' + pl(v.p, 'playlist') + '</div></div>' +
+    '<button onclick="start(\'merge\',\'' + v.id + '\')" class="text-xs rounded border px-2 py-1">Merge into...</button>' +
+    '<button ' + (del ? 'onclick="start(\'delete\',\'' + v.id + '\')"' : 'disabled title="Still referenced by repertoires or playlists"') +
+    ' class="text-xs rounded border px-2 py-1 ' + (del ? 'text-red-700 border-red-300' : 'opacity-40') + '">Delete</button></div>' + f + '</li>';
+}
+function card(s) {
+  let f = '';
+  if (flow && flow.id === s.id && flow.kind === 'split')
+    f = panel('Split the ticked versions onto a new song "' + s.title.trim() + '" by "' + s.artist.trim() + '"? Up to 45 repertoires and 12 playlists are affected across them.', 'Split');
+  if (flow && flow.id === s.id && flow.kind === 'songmerge')
+    f = panel('Merge song "' + s.title.trim() + '" into the other result? ' + pl(46, 'repertoire') + ' and ' + pl(12, 'playlist') + ' follow the surviving versions.', 'Merge songs');
+  return '<section class="rounded-xl border bg-white p-4"><div class="flex items-center justify-between"><div><h2 class="font-semibold">' + s.title.trim() +
+    '</h2><div class="text-xs text-gray-500">' + s.artist.trim() + ' &middot; ' + pl(s.versions.length, 'version') + '</div></div><div class="flex gap-2">' +
+    '<button onclick="start(\'split\',\'' + s.id + '\')" class="text-xs rounded border px-2 py-1">Split ticked...</button>' +
+    '<button onclick="start(\'songmerge\',\'' + s.id + '\')" class="text-xs rounded border px-2 py-1">Merge song into...</button></div></div>' +
+    '<ul class="divide-y mt-2">' + s.versions.map(function (v) { return row(s, v); }).join('') + '</ul>' + f + '</section>';
+}
+function render() { document.getElementById('results').innerHTML = songs.map(card).join(''); }
+render();
+</script></body></html>

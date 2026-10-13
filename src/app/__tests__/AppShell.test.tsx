@@ -25,8 +25,9 @@ import { useBandContextStore } from '@/store/bandContextStore'
 import { DEFAULT_BAND_COLOR } from '@/lib/bandColors'
 import type { BandOption } from '@/types/database'
 
-const { getBandsSpy, loadSongsSpy, pushSpy, loggerErrorSpy } = vi.hoisted(() => ({
+const { getBandsSpy, getProfileSpy, loadSongsSpy, pushSpy, loggerErrorSpy } = vi.hoisted(() => ({
   getBandsSpy: vi.fn(),
+  getProfileSpy: vi.fn(),
   loadSongsSpy: vi.fn(),
   pushSpy: vi.fn(),
   loggerErrorSpy: vi.fn(),
@@ -57,8 +58,18 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushSpy }),
 }))
 
+vi.mock('@/app/actions/profile', () => ({
+  getProfileAction: getProfileSpy,
+}))
+
 vi.mock('@/components/layout/ConditionalLayout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  default: ({
+    children,
+    isSystemAdmin,
+  }: {
+    children: React.ReactNode
+    isSystemAdmin?: boolean
+  }) => <div data-system-admin={String(!!isSystemAdmin)}>{children}</div>,
 }))
 
 const BANDS: BandOption[] = [
@@ -74,6 +85,7 @@ describe('AppShell band-context reconciliation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useBandContextStore.setState({ context: { type: 'user' } })
+    getProfileSpy.mockResolvedValue(null)
   })
 
   afterEach(cleanup)
@@ -181,5 +193,38 @@ describe('AppShell band-context reconciliation', () => {
     expect(useBandContextStore.getState().context).toEqual(persisted)
     expect(loadSongsSpy).not.toHaveBeenCalled()
     expect(loggerErrorSpy.mock.calls[0][1]).toBeInstanceOf(Error)
+  })
+})
+
+describe('AppShell system-admin flag (RH-156)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useBandContextStore.setState({ context: { type: 'user' } })
+    getBandsSpy.mockResolvedValue([])
+  })
+
+  afterEach(cleanup)
+
+  it('passes isSystemAdmin through once the profile says so', async () => {
+    getProfileSpy.mockResolvedValue({ id: 'user-1', is_system_admin: true })
+
+    const { container } = renderShell()
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-system-admin="true"]')).not.toBeNull(),
+    )
+  })
+
+  it('stays false for a regular user, a missing profile and a failed fetch', async () => {
+    getProfileSpy.mockResolvedValueOnce({ id: 'user-1', is_system_admin: false })
+    const first = renderShell()
+    await waitFor(() => expect(getProfileSpy).toHaveBeenCalledTimes(1))
+    expect(first.container.querySelector('[data-system-admin="false"]')).not.toBeNull()
+    cleanup()
+
+    getProfileSpy.mockRejectedValueOnce(new Error('offline'))
+    const second = renderShell()
+    await waitFor(() => expect(loggerErrorSpy).toHaveBeenCalledTimes(1))
+    expect(second.container.querySelector('[data-system-admin="false"]')).not.toBeNull()
   })
 })

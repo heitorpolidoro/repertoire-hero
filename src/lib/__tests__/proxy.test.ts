@@ -136,6 +136,7 @@ describe('proxy — matcher allow-list', () => {
       '/playlists/abc',
       '/songs/abc/fast-view',
       '/admin/moderation',
+      '/admin/catalog',
     ]) {
       expect(isMatched(path), path).toBe(true)
     }

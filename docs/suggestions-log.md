@@ -10169,3 +10169,14 @@ Non-blocking suggestions from QA round 1:
 
 - (code review) `src/components/songs/RepertoireDashboard.tsx:15`: formatting nit, `useRepertoireSearch,type` is missing a space after the comma.
 - (code review) The "No matches" hint in `AddToRepertoireSection` sits below the list. This is fine for layout B.
+
+## [RH-153] Split SongForm into catalog and repertoire sections — 2026-10-13
+
+- (spec review) The ER about the pin ("does not rise") could be more exact, since the spec also says to lower the pins. Not blocking.
+- (spec review) The fill-empty-only ER is split across the component tests and a possible db test. Fine as written.
+
+## [RH-156] Build the /admin/catalog screen with merge, split and delete flows — 2026-10-13
+
+- (code review) `CatalogFlowPanel.tsx` is 292 lines and `useCatalogAdmin.ts` is 205. Both are under budget, but the per-flow components could be split further if they grow.
+- (code review) The `Confirm` wrapper relies on the `ConfirmPanel` default `tone="danger"`. The spec says to name the tone explicitly, so pass `tone="danger"` to be safe.
+- (code review) `useCatalogAdmin` resets `openSongIds` and `radii` after every successful action, so every card collapses after a mutation. This is acceptable, but a UX note.

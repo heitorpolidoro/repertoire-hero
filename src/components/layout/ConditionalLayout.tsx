@@ -7,13 +7,14 @@ import type { BandOption } from '@/types/database';
 interface ConditionalLayoutProps {
   children: React.ReactNode;
   bands: BandOption[];
+  isSystemAdmin?: boolean;
 }
 
 /**
  * Renders AppLayout for all authenticated routes.
  * Routes that start with /login bypass the app shell entirely.
  */
-export default function ConditionalLayout({ children, bands }: ConditionalLayoutProps) {
+export default function ConditionalLayout({ children, bands, isSystemAdmin }: ConditionalLayoutProps) {
   const pathname = usePathname();
 
   if (
@@ -26,5 +27,5 @@ export default function ConditionalLayout({ children, bands }: ConditionalLayout
     return children;
   }
 
-  return <AppLayout bands={bands}>{children}</AppLayout>;
+  return <AppLayout bands={bands} isSystemAdmin={isSystemAdmin}>{children}</AppLayout>;
 }

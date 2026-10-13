@@ -26,9 +26,17 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Settings', href: '/settings', icon: '⚙️' },
 ];
 
+const CATALOG_NAV_ITEM: NavItem = { label: 'Catalog', href: '/admin/catalog', icon: '📚' };
+
+function navItemsFor(isSystemAdmin: boolean | undefined): NavItem[] {
+  return isSystemAdmin ? [...NAV_ITEMS, CATALOG_NAV_ITEM] : NAV_ITEMS;
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
   bands: BandOption[];
+  /** Adds the Catalog entry (RH-156). Cosmetic: /admin/catalog gates itself. */
+  isSystemAdmin?: boolean;
 }
 
 interface ContextSwitcherProps {
@@ -156,7 +164,8 @@ const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent),
  * `useEffect(() => setMounted(true), [])` pair it replaced, which was a
  * `react-hooks/set-state-in-effect` error (RH-129).
  */
-export default function AppLayout({ children, bands }: AppLayoutProps) {
+export default function AppLayout({ children, bands, isSystemAdmin }: AppLayoutProps) {
+  const navItems = navItemsFor(isSystemAdmin);
   const pathname = usePathname();
   const router = useRouter();
   const context = useBandContextStore((s) => s.context);
@@ -226,7 +235,7 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
           <ContextSwitcher isBandMode={isBandMode} bands={bands} />
 
           <ul className="flex-1 flex flex-col gap-1 px-3 py-4" role="list">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
@@ -307,7 +316,7 @@ export default function AppLayout({ children, bands }: AppLayoutProps) {
             </div>
           )}
           <ul className="flex" role="list">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <li key={item.href} className="flex-1">
                 <Link
                   href={item.href}

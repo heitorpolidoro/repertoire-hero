@@ -229,3 +229,38 @@ describe('AppLayout signs the device out as well as the session (RH-79)', () => 
     expect(useBandContextStore.getState().context).toEqual({ type: 'user' })
   })
 })
+
+describe('AppLayout Catalog nav entry (RH-156)', () => {
+  function catalogLinks() {
+    return screen.queryAllByRole('link').filter((a) => a.getAttribute('href') === '/admin/catalog')
+  }
+
+  it('renders a Catalog link in both navs for a system admin', () => {
+    render(
+      <AppLayout bands={[]} isSystemAdmin>
+        <p>page body</p>
+      </AppLayout>,
+    )
+
+    expect(catalogLinks()).toHaveLength(2)
+    for (const nav of screen.getAllByRole('navigation')) {
+      expect(nav.querySelector('a[href="/admin/catalog"]')?.textContent).toContain('Catalog')
+    }
+  })
+
+  it('renders no Catalog link when the flag is false or omitted', () => {
+    const { rerender } = render(
+      <AppLayout bands={[]} isSystemAdmin={false}>
+        <p>page body</p>
+      </AppLayout>,
+    )
+    expect(catalogLinks()).toHaveLength(0)
+
+    rerender(
+      <AppLayout bands={[]}>
+        <p>page body</p>
+      </AppLayout>,
+    )
+    expect(catalogLinks()).toHaveLength(0)
+  })
+})

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { authClient } from '@/lib/auth-client'
 import { getBandsAction } from '@/app/actions/bands'
+import { getProfileAction } from '@/app/actions/profile'
 import ConditionalLayout from '@/components/layout/ConditionalLayout'
 import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
@@ -24,6 +25,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? null
   const [bands, setBands] = useState<BandOption[]>([])
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false)
 
   useEffect(() => {
     if (!userId) return
@@ -46,7 +48,29 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [userId])
 
-  return <ConditionalLayout bands={bands}>{children}</ConditionalLayout>
+  // RH-156: the Catalog nav entry is cosmetic - /admin/catalog gates itself - so
+  // a failed profile read simply leaves it hidden.
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    getProfileAction()
+      .then((profile) => {
+        if (!cancelled) setIsSystemAdmin(profile?.is_system_admin === true)
+      })
+      .catch((error: unknown) => {
+        const err = error instanceof Error ? error : new Error(String(error))
+        logger.error('Failed to load profile for the Catalog nav entry', err, { userId })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  return (
+    <ConditionalLayout bands={bands} isSystemAdmin={!!userId && isSystemAdmin}>
+      {children}
+    </ConditionalLayout>
+  )
 }
 
 /**
