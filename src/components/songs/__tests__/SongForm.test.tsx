@@ -58,6 +58,11 @@ const HALF_FILLED = {
   },
 } as unknown as Repertoire
 
+const LINK_ROWS = [
+  { id: '11111111-1111-4111-8111-111111111111', label: 'YouTube', url: 'https://youtu.be/rh97' },
+  { id: '22222222-2222-4222-8222-222222222222', label: 'Chords', url: 'https://chords.test/rh97' },
+]
+
 function makeActions(): { [K in keyof SongFormActions]: ReturnType<typeof vi.fn> } {
   return {
     createAndAddSong: vi.fn().mockResolvedValue(ENTRY),
@@ -201,17 +206,31 @@ describe('edit mode renders a populated shared field read-only (ER6)', () => {
   it('keeps the links fieldset editable while the catalog has no links, and locks it once it has', () => {
     const { unmount } = setup(HALF_FILLED)
     expect(screen.getByRole('button', { name: '+ Add link' })).toBeDefined()
-    expect(screen.queryByRole('button', { name: 'Suggest a correction to Links' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Suggest a correction to link / })).toBeNull()
     unmount()
 
     const withLinks = {
       ...HALF_FILLED,
-      song: { ...HALF_FILLED.song!, links: [{ label: 'YouTube', url: 'https://youtu.be/rh97' }] },
+      song: { ...HALF_FILLED.song!, links: LINK_ROWS },
     } as unknown as Repertoire
     setup(withLinks)
 
     expect(screen.queryByRole('button', { name: '+ Add link' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Suggest a correction to Links' })).toBeDefined()
+    // RH-138 — each row has its own button, not one for the array.
+    expect(screen.getAllByRole('button', { name: /^Suggest a correction to link / })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Suggest a correction to Links' })).toBeNull()
+  })
+
+  it('opens the correction modal with the clicked link row focused (RH-138)', () => {
+    const withLinks = {
+      ...HALF_FILLED,
+      song: { ...HALF_FILLED.song!, links: LINK_ROWS },
+    } as unknown as Repertoire
+    setup(withLinks)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest a correction to link Chords' }))
+
+    expect(document.activeElement).toBe(screen.getByLabelText('URL for link 2'))
   })
 
   it('keeps the key input editable — it is the owner\'s own key — beside the catalog\'s', () => {
@@ -281,14 +300,7 @@ describe('"Suggest a correction" opens the correction modal (ER7)', () => {
 describe('a refused save is reported, not swallowed (ER9)', () => {
   const REFUSED: RefusedCatalogField[] = [
     { column: 'artist', current: 'Michael Jackson', proposed: 'Micheal Jackson' },
-    {
-      column: 'links',
-      current: [{ label: 'YouTube', url: 'https://youtu.be/rh97' }],
-      proposed: [
-        { label: 'YouTube', url: 'https://youtu.be/rh97' },
-        { label: 'Chords', url: 'https://chords.test/rh97' },
-      ],
-    },
+    { column: 'duration_seconds', current: 269, proposed: 300 },
   ]
 
   const saveWithRefusal = async () => {
@@ -308,8 +320,8 @@ describe('a refused save is reported, not swallowed (ER9)', () => {
     expect(alert.textContent).toContain('Your own changes were saved')
     expect(alert.textContent).toContain('Artist')
     expect(alert.textContent).toContain('catalog has Michael Jackson, you entered Micheal Jackson')
-    expect(alert.textContent).toContain('Links')
-    expect(alert.textContent).toContain('catalog has 1 link, you entered 2 links')
+    expect(alert.textContent).toContain('Duration')
+    expect(alert.textContent).toContain('catalog has 269, you entered 300')
     expect(onSuccess).not.toHaveBeenCalled()
   })
 
@@ -319,16 +331,14 @@ describe('a refused save is reported, not swallowed (ER9)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Suggest these as corrections' }))
 
     expect((screen.getByLabelText('Artist') as HTMLInputElement).value).toBe('Micheal Jackson')
-    expect((screen.getByLabelText('URL for link 2') as HTMLInputElement).value).toBe(
-      'https://chords.test/rh97',
-    )
+    expect((screen.getByLabelText('Duration') as HTMLInputElement).value).toBe('300')
 
     fireEvent.click(screen.getByRole('button', { name: 'Submit for Moderation' }))
 
     await waitFor(() => expect(actions.submitCatalogSuggestion).toHaveBeenCalledTimes(1))
     expect(actions.submitCatalogSuggestion).toHaveBeenCalledWith('song-1', {
       artist: 'Micheal Jackson',
-      links: REFUSED[1].proposed,
+      duration_seconds: 300,
       reason: null,
     })
   })

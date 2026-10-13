@@ -15,10 +15,9 @@
  * Three rules are worth stating explicitly, because each one exists to avoid a
  * false alarm:
  *
- *  - **Equality is never a refusal.** Text is compared after trimming,
- *    `duration_seconds` as an integer, and `links` as an ordered
- *    `{label,url}` list. A form that round-trips the catalog's own values
- *    proposes nothing.
+ *  - **Equality is never a refusal.** Text is compared after trimming and
+ *    `duration_seconds` as an integer. A form that round-trips the catalog's own
+ *    values proposes nothing.
  *  - **An empty proposal is no proposal.** A column the caller left blank is
  *    neither filled nor refused; erasing a shared value is not something this
  *    path offers, and warning about an absent value would be noise.
@@ -27,6 +26,11 @@
  *
  * A refused column's route is `CorrectionModal` -> the moderation queue; see
  * `docs/use-cases.md` § *Suggest a correction to the catalog*.
+ *
+ * **Links are not a column here (RH-138).** They live in `song_links`, one row
+ * each, and a correction to them is per row: {@link changedLinkRows}. The
+ * `links` member of the snapshot and the proposal below feeds only the
+ * empty-catalog fill, which `applyCatalogFill` decides on `song_links` itself.
  */
 import type { CatalogSuggestionPayload } from '@/lib/catalogSuggestionPayload'
 import type {
@@ -44,7 +48,6 @@ export const CATALOG_COLUMNS = [
   'standard_key',
   'cover_url',
   'duration_seconds',
-  'links',
 ] as const
 
 export type CatalogColumn = (typeof CATALOG_COLUMNS)[number]
@@ -57,6 +60,7 @@ export type CatalogSnapshot = {
   standard_key: string | null
   cover_url: string | null
   duration_seconds: number | null
+  /** Not a column: the link rows the song form and the correction form start from. */
   links: SongLink[] | null
 }
 
@@ -68,6 +72,7 @@ export type CatalogProposal = {
   standard_key: string | null
   cover_url: string | null
   duration_seconds: number | null
+  /** Not a column: consumed by the empty-catalog links fill only. */
   links: SongLink[]
 }
 
@@ -75,10 +80,8 @@ export type CatalogProposal = {
 export interface CatalogFill {
   /** A `songs` column name out of `CATALOG_COLUMNS` — safe to interpolate. */
   column: CatalogColumn
-  /** The value as `pg` must receive it: `links` as a JSON string. */
+  /** The value as `pg` must receive it. */
   value: string | number | null
-  /** The cast the placeholder needs, `'::jsonb'` for `links` and `''` otherwise. */
-  cast: string
 }
 
 export interface CatalogUpdateSplit {
@@ -93,7 +96,6 @@ const REFUSABLE: ReadonlySet<CatalogColumn> = new Set<CatalogColumn>([
   'album',
   'cover_url',
   'duration_seconds',
-  'links',
 ])
 
 function isBlankText(value: string | null | undefined): boolean {
@@ -105,50 +107,34 @@ function isBlankText(value: string | null | undefined): boolean {
  *
  * The definition is per column and matches what the catalog stores: `NULL` or
  * `''` for text, `NULL` for `duration_seconds` (so a `0` duration counts as a
- * value), `NULL` or `[]` for `links`.
+ * value).
  */
 export function isCatalogFieldEmpty(song: CatalogSnapshot, column: CatalogColumn): boolean {
   if (column === 'duration_seconds') return song.duration_seconds === null
-  if (column === 'links') return song.links === null || song.links.length === 0
   return isBlankText(song[column])
 }
 
 /** The proposed value for one column, normalized the way the catalog stores it. */
 function proposedValue(proposal: CatalogProposal, column: CatalogColumn): CatalogFieldValue {
   if (column === 'duration_seconds') return proposal.duration_seconds
-  if (column === 'links') return proposal.links
   const text = proposal[column]
   return typeof text === 'string' ? text.trim() : null
 }
 
 /** Nothing was proposed for this column, so it is neither filled nor refused. */
 function isAbsent(value: CatalogFieldValue): boolean {
-  if (value === null) return true
-  if (Array.isArray(value)) return value.length === 0
-  return value === ''
-}
-
-function sameLinks(current: SongLink[], proposed: SongLink[]): boolean {
-  if (current.length !== proposed.length) return false
-  return current.every((link, i) => link.label === proposed[i].label && link.url === proposed[i].url)
+  return value === null || value === ''
 }
 
 /**
- * Is the proposal the value the catalog already holds? Dispatching on the
- * runtime shape rather than on the column keeps every comparison rule in one
- * place: ordered link lists, integer durations, trimmed text.
+ * Is the proposal the value the catalog already holds? Integer durations and
+ * trimmed text are the two comparison rules.
  */
 function matchesStored(current: CatalogFieldValue, proposed: CatalogFieldValue): boolean {
-  if (Array.isArray(current) && Array.isArray(proposed)) return sameLinks(current, proposed)
   if (typeof current === 'string' && typeof proposed === 'string') {
     return current.trim() === proposed
   }
   return current === proposed
-}
-
-function fillFor(column: CatalogColumn, proposed: CatalogFieldValue): CatalogFill {
-  if (column === 'links') return { column, value: JSON.stringify(proposed), cast: '::jsonb' }
-  return { column, value: proposed as string | number | null, cast: '' }
 }
 
 /**
@@ -172,7 +158,7 @@ export function splitCatalogUpdate(
     if (isAbsent(proposed)) continue
 
     if (isCatalogFieldEmpty(song, column)) {
-      fill.push(fillFor(column, proposed))
+      fill.push({ column, value: proposed })
       continue
     }
 
@@ -189,7 +175,8 @@ export function splitCatalogUpdate(
 
 /**
  * One shared catalog row as the correction form holds it: every value a string,
- * because that is what an `<input>` carries, plus the link rows.
+ * because that is what an `<input>` carries. The link rows are held apart, as
+ * {@link LinkDraftRow}s keyed by id.
  */
 export type CatalogDraft = {
   title: string
@@ -198,7 +185,6 @@ export type CatalogDraft = {
   standard_key: string
   cover_url: string
   duration: string
-  links: SongLink[]
 }
 
 /** The catalog row as the correction form's starting point. */
@@ -210,8 +196,67 @@ export function catalogDraftFromSong(song: CatalogSnapshot): CatalogDraft {
     standard_key: song.standard_key ?? '',
     cover_url: song.cover_url ?? '',
     duration: song.duration_seconds === null ? '' : String(song.duration_seconds),
-    links: song.links ?? [],
   }
+}
+
+/** One catalog link row as the correction form holds it, keyed by its stable id. */
+export type LinkDraftRow = {
+  id: string
+  label: string
+  url: string
+  removed: boolean
+}
+
+/**
+ * One link row's proposed change: the shape `submitCatalogSuggestion` takes as
+ * `linkChanges`. Defined here, with the helper that produces it, because a
+ * client component imports this module and may not import the server-only one
+ * that consumes it.
+ */
+export type LinkChangeInput = {
+  linkId: string
+  url?: string
+  label?: string
+  removed?: true
+}
+
+/**
+ * The catalog's link rows as the correction form's starting point. A link read
+ * without an id (a bare `{label, url}`) cannot be addressed, so it is left out.
+ */
+export function linkDraftFromSong(links: readonly SongLink[] | null): LinkDraftRow[] {
+  return (links ?? []).flatMap((link) =>
+    link.id === undefined ? [] : [{ id: link.id, label: link.label, url: link.url, removed: false }],
+  )
+}
+
+function changeOfLinkRow(base: LinkDraftRow, row: LinkDraftRow): LinkChangeInput | undefined {
+  if (row.removed) return { linkId: base.id, removed: true }
+  const change: LinkChangeInput = { linkId: base.id }
+  const url = row.url.trim()
+  // A blank url is not a correction: the catalog cannot store a link without one.
+  if (url !== '' && url !== base.url.trim()) change.url = url
+  const label = row.label.trim()
+  if (label !== base.label.trim()) change.label = label
+  return change.url === undefined && change.label === undefined ? undefined : change
+}
+
+/**
+ * The link-row corrections: one entry per catalog row the user touched, naming
+ * only what changed on it, and nothing at all for an untouched row. Rows are
+ * matched by id, never by position, so removing the first row cannot be read as
+ * editing the second. Pure.
+ */
+export function changedLinkRows(
+  base: readonly LinkDraftRow[],
+  draft: readonly LinkDraftRow[],
+): LinkChangeInput[] {
+  const baseById = new Map(base.map((row) => [row.id, row]))
+  return draft.flatMap((row) => {
+    const original = baseById.get(row.id)
+    const change = original ? changeOfLinkRow(original, row) : undefined
+    return change ? [change] : []
+  })
 }
 
 /** Reads the duration the form offers — `"3:45"` or `"225"` — as whole seconds. */
@@ -225,11 +270,6 @@ export function parseDurationInput(raw: string): number | null {
   }
   const seconds = Number(trimmed)
   return Number.isFinite(seconds) ? Math.trunc(seconds) : null
-}
-
-/** The link rows the catalog can store: a url is required, a label is not. */
-function usableLinks(links: SongLink[]): SongLink[] {
-  return links.filter((l) => l.url.trim() !== '').map((l) => ({ label: l.label, url: l.url }))
 }
 
 /** The two columns `songs` declares NOT NULL, which a correction may never blank. */
@@ -273,9 +313,6 @@ export function changedCatalogFields(base: CatalogDraft, draft: CatalogDraft): C
   const duration = parseDurationInput(draft.duration)
   if (duration !== parseDurationInput(base.duration)) payload.duration_seconds = duration
 
-  const links = usableLinks(draft.links)
-  if (!sameLinks(usableLinks(base.links), links)) payload.links = links
-
   return payload as CatalogSuggestionPayload
 }
 
@@ -290,9 +327,7 @@ export function catalogDraftFromRefusals(refused: RefusedCatalogField[]): Partia
   const draft: Partial<CatalogDraft> = {}
 
   for (const field of refused) {
-    if (field.column === 'links') {
-      draft.links = Array.isArray(field.proposed) ? field.proposed : []
-    } else if (field.column === 'duration_seconds') {
+    if (field.column === 'duration_seconds') {
       draft.duration = field.proposed === null ? '' : String(field.proposed)
     } else {
       draft[field.column] = typeof field.proposed === 'string' ? field.proposed : ''
@@ -309,16 +344,10 @@ export const CATALOG_FIELD_LABELS: Record<RefusableCatalogColumn, string> = {
   album: 'Album',
   cover_url: 'Cover image',
   duration_seconds: 'Duration',
-  links: 'Links',
 }
 
-/**
- * One catalog value as the refusal notice states it. A link list is described
- * by its size rather than spelled out: the notice's job is to say what was not
- * written, and the correction form shows the rows themselves.
- */
+/** One catalog value as the refusal notice states it. */
 export function describeCatalogValue(value: CatalogFieldValue): string {
-  if (Array.isArray(value)) return value.length === 1 ? '1 link' : `${value.length} links`
   if (value === null || value === '') return 'nothing'
   return String(value)
 }

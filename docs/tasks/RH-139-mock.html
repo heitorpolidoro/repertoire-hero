@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RH-138 mock - per-link corrections</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-6">
+<div class="max-w-3xl mx-auto space-y-10">
+
+<header>
+  <h1 class="text-xl font-bold">RH-138 - a links correction acts per link row</h1>
+  <p class="text-sm text-gray-600">Three screens: the song form, the correction form, the admin queue card. Click around; nothing is saved.</p>
+  <nav class="mt-3 flex gap-2 text-xs">
+    <button data-tab="s1" class="tab px-3 py-1.5 rounded-lg bg-emerald-600 text-white">1. Song form</button>
+    <button data-tab="s2" class="tab px-3 py-1.5 rounded-lg bg-white border">2. Correction form</button>
+    <button data-tab="s3" class="tab px-3 py-1.5 rounded-lg bg-white border">3. Admin queue (Question)</button>
+  </nav>
+</header>
+
+<!-- 1. SONG FORM -->
+<section id="s1" class="panel space-y-3">
+  <h2 class="font-semibold">1. Song form - links locked because the catalog already has rows</h2>
+  <div class="rounded-2xl bg-white p-5 shadow border space-y-2 max-w-md">
+    <span class="text-sm font-medium text-gray-700">Links</span>
+    <ul class="flex flex-col gap-2" aria-label="Catalog links">
+      <li class="flex items-center justify-between gap-2 text-sm">
+        <span class="break-all">Chords - ultimate-guitar.com/tab/bad-chords-1</span>
+        <button onclick="openModal('chords')" class="shrink-0 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Suggest a correction</button>
+      </li>
+      <li class="flex items-center justify-between gap-2 text-sm">
+        <span class="break-all">YouTube - youtube.com/watch?v=dQw4w9</span>
+        <button onclick="openModal('yt')" class="shrink-0 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Suggest a correction</button>
+      </li>
+      <li class="flex items-center justify-between gap-2 text-sm">
+        <span class="break-all">Spotify - open.spotify.com/track/3Wz</span>
+        <button onclick="openModal('sp')" class="shrink-0 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Suggest a correction</button>
+      </li>
+    </ul>
+    <p class="text-xs text-gray-500">Each row now has its own button. It opens the correction form with that row focused. Adding a link still happens directly (Fast View), unchanged.</p>
+  </div>
+</section>
+
+<!-- 2. CORRECTION FORM -->
+<section id="s2" class="panel hidden space-y-3">
+  <h2 class="font-semibold">2. Correction form - the Links block (other fields unchanged, omitted here)</h2>
+  <div class="rounded-2xl bg-white p-5 shadow border max-w-lg space-y-3">
+    <fieldset class="flex flex-col gap-3">
+      <legend class="text-sm font-medium text-gray-700">Links - decide each row</legend>
+      <div id="rows" class="flex flex-col gap-3"></div>
+    </fieldset>
+    <input class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Reason / Notes for Admin (Optional)">
+    <div class="flex justify-between items-center border-t pt-3">
+      <span id="count" class="text-xs text-gray-500"></span>
+      <button class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold">Submit for Moderation</button>
+    </div>
+    <p class="text-xs text-gray-500">An untouched row sends nothing. An edited row sends only the changed fields of that row. A removed row sends one removal. There is no "add a row" here.</p>
+  </div>
+</section>
+
+<!-- 3. ADMIN QUEUE -->
+<section id="s3" class="panel hidden space-y-4">
+  <h2 class="font-semibold">3. Admin moderation queue - Question: how does the reviewer decide link rows?</h2>
+  <p class="text-sm">Same card, two ways to decide. The spec picks <strong>A</strong>: one verdict per link row, so one bad removal does not sink a good edit. <strong>B</strong> keeps one verdict for the whole card, as the queue does today. Answer with one letter.</p>
+
+  <div class="grid md:grid-cols-2 gap-5">
+    <!-- Option A -->
+    <div>
+      <p class="text-xs font-bold text-emerald-700 mb-1">OPTION A - per-row verdict (spec's pick)</p>
+      <div class="rounded-2xl bg-white border shadow p-4 text-xs space-y-3">
+        <div><strong>Bad - Michael Jackson</strong> <span class="text-gray-500">requested by ana@example.com</span></div>
+        <div class="bg-gray-50 rounded-xl p-3 space-y-1">
+          <p><span class="text-gray-500">Artist:</span> <span class="line-through text-gray-400">Michael Jackson</span> <span class="font-semibold text-emerald-900">Michael Jackson (solo)</span></p>
+        </div>
+        <ul class="space-y-2">
+          <li class="rounded-xl border p-2 flex items-start justify-between gap-2">
+            <div><p class="font-semibold">Remove</p><p class="text-gray-600 break-all">Chords - ultimate-guitar.com/tab/bad-chords-1</p></div>
+            <div class="flex gap-1 shrink-0"><button class="vb px-2 py-1 rounded-lg border bg-emerald-600 text-white" data-v="a">Accept</button><button class="vb px-2 py-1 rounded-lg border" data-v="r">Reject</button></div>
+          </li>
+          <li class="rounded-xl border p-2 flex items-start justify-between gap-2">
+            <div><p class="font-semibold">Edit URL</p><p class="text-gray-400 line-through break-all">youtube.com/watch?v=dQw4w9</p><p class="text-emerald-900 break-all">youtube.com/watch?v=FTQbiNvZqaY</p></div>
+            <div class="flex gap-1 shrink-0"><button class="vb px-2 py-1 rounded-lg border bg-emerald-600 text-white" data-v="a">Accept</button><button class="vb px-2 py-1 rounded-lg border" data-v="r">Reject</button></div>
+          </li>
+          <li class="rounded-xl border p-2 flex items-start justify-between gap-2">
+            <div><p class="font-semibold">Edit label</p><p class="text-gray-400 line-through">Spotify</p><p class="text-emerald-900">Spotify (album version)</p></div>
+            <div class="flex gap-1 shrink-0"><button class="vb px-2 py-1 rounded-lg border bg-emerald-600 text-white" data-v="a">Accept</button><button class="vb px-2 py-1 rounded-lg border" data-v="r">Reject</button></div>
+          </li>
+        </ul>
+        <div class="flex gap-2 border-t pt-2"><button class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold">Apply verdicts</button><button class="px-3 py-1.5 rounded-lg border">Reject everything</button></div>
+        <p class="text-gray-500">Song fields (Artist) are still decided together with Apply.</p>
+      </div>
+    </div>
+
+    <!-- Option B -->
+    <div>
+      <p class="text-xs font-bold text-gray-700 mb-1">OPTION B - one verdict for the card</p>
+      <div class="rounded-2xl bg-white border shadow p-4 text-xs space-y-3">
+        <div><strong>Bad - Michael Jackson</strong> <span class="text-gray-500">requested by ana@example.com</span></div>
+        <div class="bg-gray-50 rounded-xl p-3 space-y-1">
+          <p><span class="text-gray-500">Artist:</span> <span class="line-through text-gray-400">Michael Jackson</span> <span class="font-semibold text-emerald-900">Michael Jackson (solo)</span></p>
+        </div>
+        <ul class="space-y-2">
+          <li class="rounded-xl border p-2"><p class="font-semibold">Remove</p><p class="text-gray-600 break-all">Chords - ultimate-guitar.com/tab/bad-chords-1</p></li>
+          <li class="rounded-xl border p-2"><p class="font-semibold">Edit URL</p><p class="text-gray-400 line-through break-all">youtube.com/watch?v=dQw4w9</p><p class="text-emerald-900 break-all">youtube.com/watch?v=FTQbiNvZqaY</p></li>
+          <li class="rounded-xl border p-2"><p class="font-semibold">Edit label</p><p class="text-gray-400 line-through">Spotify</p><p class="text-emerald-900">Spotify (album version)</p></li>
+        </ul>
+        <div class="flex gap-2 border-t pt-2"><button class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold">Approve all</button><button class="px-3 py-1.5 rounded-lg border">Reject all</button></div>
+        <p class="text-gray-500">Link rows are listed (not a JSON blob) but cannot be decided one by one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- Modal opener on screen 1 just jumps to screen 2 with a row highlighted -->
+<script>
+const LINKS = [
+  { id: 'chords', label: 'Chords', url: 'https://ultimate-guitar.com/tab/bad-chords-1' },
+  { id: 'yt', label: 'YouTube', url: 'https://youtube.com/watch?v=dQw4w9' },
+  { id: 'sp', label: 'Spotify', url: 'https://open.spotify.com/track/3Wz' },
+];
+const state = {};
+LINKS.forEach(l => state[l.id] = { label: l.label, url: l.url, removed: false });
+let focusId = null;
+
+function renderRows() {
+  const root = document.getElementById('rows');
+  root.innerHTML = '';
+  let changed = 0;
+  LINKS.forEach(l => {
+    const s = state[l.id];
+    const dirty = s.removed || s.label !== l.label || s.url !== l.url;
+    if (dirty) changed++;
+    const el = document.createElement('div');
+    el.className = 'rounded-xl border p-3 flex flex-col gap-2 ' + (s.removed ? 'bg-red-50 border-red-200' : (dirty ? 'bg-amber-50 border-amber-200' : '')) + (focusId === l.id ? ' ring-2 ring-emerald-500' : '');
+    el.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold ${s.removed ? 'text-red-700' : dirty ? 'text-amber-700' : 'text-gray-500'}">${s.removed ? 'Will be proposed for removal' : dirty ? 'Edited' : 'Unchanged - nothing sent'}</span>
+        <button class="text-[11px] px-2 py-0.5 rounded border ${s.removed ? 'bg-white' : 'text-red-700'}" data-act="rm">${s.removed ? 'Undo remove' : 'Remove this link'}</button>
+      </div>
+      <input class="rounded-lg border px-3 py-1.5 text-sm ${s.removed ? 'opacity-40' : ''}" ${s.removed ? 'disabled' : ''} value="${s.label}" data-f="label" aria-label="Label for ${l.label}">
+      <input class="rounded-lg border px-3 py-1.5 text-sm ${s.removed ? 'opacity-40' : ''}" ${s.removed ? 'disabled' : ''} value="${s.url}" data-f="url" aria-label="URL for ${l.label}">`;
+    el.querySelector('[data-act=rm]').onclick = () => { s.removed = !s.removed; renderRows(); };
+    el.querySelectorAll('input').forEach(i => i.oninput = e => { s[i.dataset.f] = e.target.value; });
+    el.querySelectorAll('input').forEach(i => i.onchange = renderRows);
+    root.appendChild(el);
+  });
+  document.getElementById('count').textContent = changed === 0 ? 'Change at least one row to submit.' : changed + (changed === 1 ? ' link row will be submitted' : ' link rows will be submitted');
+}
+function show(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('hidden', p.id !== id));
+  document.querySelectorAll('.tab').forEach(t => {
+    const on = t.dataset.tab === id;
+    t.className = 'tab px-3 py-1.5 rounded-lg ' + (on ? 'bg-emerald-600 text-white' : 'bg-white border');
+  });
+}
+function openModal(id) { focusId = id; renderRows(); show('s2'); }
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => show(t.dataset.tab));
+document.querySelectorAll('.vb').forEach(b => b.onclick = () => {
+  const group = b.parentElement;
+  group.querySelectorAll('.vb').forEach(x => x.className = 'vb px-2 py-1 rounded-lg border');
+  b.className = 'vb px-2 py-1 rounded-lg border text-white ' + (b.dataset.v === 'a' ? 'bg-emerald-600' : 'bg-red-600');
+});
+renderRows();
+</script>
+</body>
+</html>

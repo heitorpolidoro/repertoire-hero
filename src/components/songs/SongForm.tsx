@@ -21,6 +21,7 @@ import {
 import { useRepertoireStore } from "@/store/repertoireStore";
 import { CatalogRefusalNotice } from "./CatalogRefusalNotice";
 import { CorrectionModal, type CorrectionModalProps } from "./CorrectionModal";
+import { LockedLinksList } from "./LockedLinksList";
 import { SharedCatalogField } from "./SharedCatalogField";
 import { SongLinksEditor, type EditableLink } from "./SongLinksEditor";
 
@@ -81,6 +82,7 @@ interface FormState {
 /** What a "Suggest a correction" control opens the modal with. */
 type CorrectionRequest = {
   focusField?: CatalogColumn;
+  focusLinkId?: string;
   prefill?: Partial<CatalogDraft>;
 };
 
@@ -199,9 +201,9 @@ const sharedText = (
  */
 const catalogOf = (song?: Repertoire): Song | null => song?.song ?? null;
 
-/** The links fieldset follows the catalog rule as a unit, like the `links` column itself. */
+/** The links fieldset is locked as a unit once the catalog holds any `song_links` row. */
 const areLinksLocked = (catalog: Song | null): boolean =>
-  catalog !== null && !isCatalogFieldEmpty(catalog, "links");
+  catalog !== null && (catalog.links?.length ?? 0) > 0;
 
 const editPayload = (form: FormState, links: SongLink[]): SongFormEditInput => ({
   title: form.title.trim(),
@@ -503,24 +505,10 @@ export default function SongForm({
 
         {/* Links — the catalog's own when it has any, editable while it has none. */}
         {linksLocked ? (
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-gray-700">Links</span>
-            <ul className="flex flex-col gap-1" aria-label="Catalog links">
-              {catalog!.links.map((link) => (
-                <li key={link.url} className="text-sm text-gray-900 break-all">
-                  {link.label || link.url}
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={() => setCorrection({ focusField: "links" })}
-              aria-label="Suggest a correction to Links"
-              className="self-start mt-1 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg transition-colors"
-            >
-              Suggest a correction
-            </button>
-          </div>
+          <LockedLinksList
+            links={catalog!.links}
+            onSuggest={(linkId) => setCorrection({ focusLinkId: linkId })}
+          />
         ) : (
           <>
             {/* YouTube Link */}
@@ -583,6 +571,7 @@ export default function SongForm({
           song={catalog}
           prefill={correction.prefill}
           focusField={correction.focusField}
+          focusLinkId={correction.focusLinkId}
           onSubmitCorrection={actions.submitCatalogSuggestion}
           onClose={() => setCorrection(null)}
           onSuccess={() => {

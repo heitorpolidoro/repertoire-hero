@@ -124,19 +124,12 @@ describe('parseCatalogSuggestionPayload', () => {
     }
   })
 
-  it('accepts links as an array of label/url objects with http(s) urls', () => {
+  it('no longer admits links as a songs column', () => {
     const links = [{ label: 'Chords', url: 'https://tabs.example/1' }]
-    expect(parseCatalogSuggestionPayload({ links })).toEqual({ links })
-    expect(parseCatalogSuggestionPayload({ links: [] })).toEqual({ links: [] })
-  })
-
-  it('rejects links that are not an array of label/url objects', () => {
-    const invalid: unknown[] = [42, [{ label: 'x' }], [{ label: 'x', url: 'ftp://a/b' }]]
-    for (const links of invalid) {
-      expect(() => parseCatalogSuggestionPayload({ links })).toThrowError(
-        new Error('Invalid catalog suggestion: links must be an array of {label, url} objects with http(s) urls')
-      )
-    }
+    // Not a column any more: the stray key is ignored like any other, so a
+    // payload carrying only links proposes nothing.
+    expect(() => parseCatalogSuggestionPayload({ links })).toThrowError(/at least one of/)
+    expect(parseCatalogSuggestionPayload({ title: 'Plush', links })).toEqual({ title: 'Plush' })
   })
 
   it('ignores keys that are not songs columns', () => {
@@ -149,7 +142,7 @@ describe('parseCatalogSuggestionPayload', () => {
 
   it('rejects a payload with no proposable field', () => {
     const message =
-      'Invalid catalog suggestion: at least one of title, artist, album, standard_key, cover_url, duration_seconds, links must be present'
+      'Invalid catalog suggestion: at least one of title, artist, album, standard_key, cover_url, duration_seconds must be present'
     expect(() => parseCatalogSuggestionPayload({})).toThrowError(new Error(message))
     expect(() => parseCatalogSuggestionPayload({ reason: 'typo' })).toThrowError(new Error(message))
   })
@@ -176,7 +169,13 @@ describe('parseCatalogSuggestionValue', () => {
     standard_key: 'Am',
     cover_url: 'https://img.example/a.jpg',
     duration_seconds: 217,
-    links: [{ label: 'Chords', url: 'https://tabs.example/1' }],
+  }
+
+  /** A valid sample for every allowlisted `song_links` column (RH-138). */
+  const LINK_SAMPLES: Record<string, unknown> = {
+    url: 'https://tabs.example/1',
+    label: 'Chords',
+    removed: true,
   }
 
   it('refuses a (target_table, target_column) pair outside the allowlist', () => {
@@ -207,12 +206,47 @@ describe('parseCatalogSuggestionValue', () => {
     // an empty sample map while the loop ran zero times.
     expect(columns.length).toBeGreaterThan(0)
     expect(columns).toContain('title')
-    expect(columns).toContain('links')
+    expect(columns).not.toContain('links')
     expect(new Set(Object.keys(SAMPLES))).toEqual(new Set(columns))
 
     for (const column of columns) {
       expect(() => parseCatalogSuggestionValue('songs', column, SAMPLES[column])).not.toThrow()
     }
+  })
+
+  it('admits exactly url, label and removed on song_links, and nothing else', () => {
+    const columns = Object.keys(CATALOG_SUGGESTION_COLUMNS.song_links)
+    expect(new Set(columns)).toEqual(new Set(Object.keys(LINK_SAMPLES)))
+    for (const column of columns) {
+      expect(() => parseCatalogSuggestionValue('song_links', column, LINK_SAMPLES[column])).not.toThrow()
+    }
+    for (const column of ['position', 'song_id', 'provider', 'id']) {
+      expect(() => parseCatalogSuggestionValue('song_links', column, 1)).toThrowError(
+        /is not an allowlisted catalog column/,
+      )
+    }
+  })
+
+  it('refuses (songs, links) with the invalid-suggestion prefix', () => {
+    expect(() => parseCatalogSuggestionValue('songs', 'links', [])).toThrowError(
+      /^Invalid catalog suggestion: /,
+    )
+  })
+
+  it('narrows song_links values', () => {
+    expect(parseCatalogSuggestionValue('song_links', 'url', ' https://a.example/x ')).toBe('https://a.example/x')
+    expect(parseCatalogSuggestionValue('song_links', 'label', 'Chords')).toBe('Chords')
+    expect(parseCatalogSuggestionValue('song_links', 'label', '')).toBe('')
+    expect(parseCatalogSuggestionValue('song_links', 'removed', true)).toBe(true)
+    expect(() => parseCatalogSuggestionValue('song_links', 'url', 'ftp://a/b')).toThrowError(
+      new Error('Invalid catalog suggestion: url must be an http(s) URL'),
+    )
+    expect(() => parseCatalogSuggestionValue('song_links', 'label', 4)).toThrowError(
+      new Error('Invalid catalog suggestion: label must be a string'),
+    )
+    expect(() => parseCatalogSuggestionValue('song_links', 'removed', false)).toThrowError(
+      new Error('Invalid catalog suggestion: removed must be true'),
+    )
   })
 
   it('refuses an inherited Object.prototype key as a column name', () => {

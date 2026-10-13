@@ -677,6 +677,17 @@ One row per field is what makes column-level grouping possible at all: a suggest
 carrying three fields would belong to three groups at once. It also narrows the payload
 to a column and a value, which is what a closed per-table column list has to validate.
 
+**A link correction is per link row (RH-138).** A link is addressed by its stable
+`song_links.id`, never as part of an array: a correction names one row and what changes
+on it — its url, its label, or its removal — and an untouched row sends nothing. Each
+change is one suggestion row (`target_table = 'song_links'`, `target_id` the link's id),
+sharing the submission's group with any song-column rows. The admin decides each link row
+on its own (Accept or Reject per row, the song columns going with Apply), and approving
+one writes that one row: every other row of the song keeps its id, position and values.
+A url edit that would collide with another link of the same song is refused before any
+write, and the group stays pending. Adding a link is not a correction and stays direct;
+reordering is not a correctable thing.
+
 **A pending suggestion is a rung of the cascade**, visible only to whoever made it:
 
 ```

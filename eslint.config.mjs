@@ -120,7 +120,7 @@ const eslintConfig = defineConfig([
   // `CatalogRefusalNotice.tsx`, while the payload builders and the catalog
   // lookups moved to module scope — complexity 17 to 16, the component function
   // 459 lines to 375 and the file 612 to 602.
-  { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 16], "max-lines-per-function": ["error", 375], "max-lines": ["error", 602] } },
+  { name: "complexity-budget/override", files: ["src/components/songs/SongForm.tsx"], rules: { complexity: ["error", 16], "max-lines-per-function": ["error", 362], "max-lines": ["error", 591] } },
   // RH-99: `drawPath` moved to `src/lib/strokeRenderer.ts`, which paid for the
   // `readOnly` prop that disables `Toggle drawing` offline and left the ratchet
   // lower than it found it — the component function 757 lines to 743 and the

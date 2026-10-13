@@ -1,11 +1,10 @@
 /**
- * RH-136 — an approved `links` correction as a replace-set, the two bridge
- * triggers, and the Spotify import, against a real Postgres (ER14, ER17, ER18).
+ * RH-136 — an approved link correction, the two bridge triggers, and the
+ * Spotify import, against a real Postgres (ER14, ER17, ER18).
  *
- * RH-107 replaced the queue with `catalog_suggestions`, so the replace-set is
- * reached through `reviewCatalogSuggestionGroup` by `group_id` now. Nothing
- * about the behaviour under test moved: `links` is still one proposable column
- * whose approved value is applied as a whole set.
+ * The correction is reached through `reviewCatalogSuggestionGroup` by
+ * `group_id`. Since RH-138 it is per row (`linkChanges`), no longer a replace-set
+ * over the whole array.
  *
  * The other half of the behaviour suite lives in `songLinksTable.db.test.ts`;
  * the seam is the subsystem under test and neither file may reach the hard
@@ -41,6 +40,7 @@ import { query } from '@/lib/db'
 import { createTestUser, deleteTestUser } from './test-helpers'
 import { reviewCatalogSuggestionGroup, submitCatalogSuggestion } from '../moderation'
 import { findOrCreateSong } from '../spotifyPlaylistSync'
+import type { LinkChangeInput } from '@/lib/catalogFields'
 import type { SongLink } from '@/types/database'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
@@ -100,9 +100,9 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
     return res.rows[0].updated_at
   }
 
-  /** A pending correction, approved, returning the suggestion's final status. */
-  const approveLinks = async (songId: string, links: SongLink[]): Promise<string> => {
-    const submitted = await submitCatalogSuggestion(userId, songId, { links })
+  /** A pending link-row correction, approved, returning the suggestion's final status. */
+  const approveChange = async (songId: string, change: LinkChangeInput): Promise<string> => {
+    const submitted = await submitCatalogSuggestion(userId, songId, { linkChanges: [change] })
     const reviewed = await reviewCatalogSuggestionGroup(adminId, submitted[0].group_id, 'approve')
     return reviewed[0].status
   }
@@ -121,93 +121,41 @@ describe.skipIf(!RUN_DB_TESTS)('the song_links bridge and the moderation replace
     if (adminId) await deleteTestUser(adminId)
   })
 
-  describe('an approved links array is applied as a replace-set (ER14)', () => {
-    it('drops the removed url, keeps every survivor song_links.id and approves the edit', async () => {
-      const songId = await seedSong('Replace Set')
-      await setColumn(songId, [
-        { label: 'A', url: UA },
-        { label: 'B', url: UB },
-      ])
-      const before = await storedLinks(songId)
-      expect(before.map((row) => row.url)).toEqual([UA, UB])
-
-      expect(await approveLinks(songId, [{ label: 'A', url: UA }])).toBe('approved')
-
-      const after = await storedLinks(songId)
-      expect(after.map((row) => row.url)).toEqual([UA])
-      expect(after[0].id).toBe(before.find((row) => row.url === UA)!.id)
-    })
-
-    it('accepts a correction proposing only links, with no 42601, and bumps the timestamp (ER14a)', async () => {
-      const songId = await seedSong('Only Links')
-      await setColumn(songId, [{ label: 'A', url: UA }])
-      const before = await updatedAt(songId)
-
-      expect(await approveLinks(songId, [{ label: 'A renamed', url: UA }])).toBe('approved')
-
-      // The clause list is empty once `links` is partitioned out, which is a
-      // 42601 for every shape but the inline-array one.
-      expect((await storedLinks(songId))[0].label).toBe('A renamed')
-      expect(await updatedAt(songId) > before).toBe(true)
-    })
-
-    it('collapses a duplicated url to the first label and still approves (ER14b)', async () => {
-      const songId = await seedSong('Approved Duplicate')
-
-      expect(
-        await approveLinks(songId, [
-          { label: 'first', url: UC },
-          { label: 'second', url: UC },
-        ]),
-      ).toBe('approved')
-
-      const rows = await storedLinks(songId)
-      expect(rows).toHaveLength(1)
-      expect(rows[0].label).toBe('first')
-    })
-
-    it('leaves a song zero rows for an approved empty array (ER14c)', async () => {
-      const songId = await seedSong('Approved Empty')
-      await setColumn(songId, [
-        { label: 'A', url: UA },
-        { label: 'B', url: UB },
-      ])
-      expect(await storedLinks(songId)).toHaveLength(2)
-
-      expect(await approveLinks(songId, [])).toBe('approved')
-
-      // `url <> ALL('{}')` is true for every row, so the DELETE takes all of
-      // them and the insert issues nothing.
-      expect(await storedLinks(songId)).toEqual([])
-    })
-
-    it('has authority over order: an approved reorder that drops one url (ER14d)', async () => {
-      const songId = await seedSong('Approved Reorder')
+  // RH-138: the replace-set is gone. An approved link correction writes one row;
+  // the per-row suite (ER3-ER8) lives in `linkRowSuggestions.db.test.ts`. What
+  // stays here is the one thing that needs this file's fixtures: the row id and
+  // position survive an approved edit, and the timestamp still advances.
+  describe('an approved link-row correction touches only its row (ER14)', () => {
+    it('removes one row, keeps every survivor id and position, and bumps the timestamp', async () => {
+      const songId = await seedSong('Row Removal')
       await setColumn(songId, [
         { label: 'A', url: UA },
         { label: 'B', url: UB },
         { label: 'C', url: UC },
       ])
       const before = await storedLinks(songId)
-      expect(before.map((row) => row.url)).toEqual([UA, UB, UC])
+      const stamp = await updatedAt(songId)
 
-      expect(
-        await approveLinks(songId, [
-          { label: 'C', url: UC },
-          { label: 'A', url: UA },
-        ]),
-      ).toBe('approved')
+      expect(await approveChange(songId, { linkId: before[1].id, removed: true })).toBe('approved')
 
       const after = await storedLinks(songId)
-      // The approved array's url order, not the pre-approval order. With
-      // `DO UPDATE SET label` alone this stays [UA, UC] and the reorder is
-      // silently discarded while every other assertion here still passes.
-      expect(after.map((row) => row.url)).toEqual([UC, UA])
-      for (const url of [UA, UC]) {
-        expect(after.find((row) => row.url === url)!.id).toBe(
-          before.find((row) => row.url === url)!.id,
-        )
-      }
+      expect(after).toEqual([before[0], before[2]])
+      expect(await updatedAt(songId) > stamp).toBe(true)
+    })
+
+    it('renames one row without moving it', async () => {
+      const songId = await seedSong('Row Rename')
+      await setColumn(songId, [
+        { label: 'A', url: UA },
+        { label: 'B', url: UB },
+      ])
+      const before = await storedLinks(songId)
+
+      expect(await approveChange(songId, { linkId: before[0].id, label: 'A renamed' })).toBe('approved')
+
+      const after = await storedLinks(songId)
+      expect(after[0]).toEqual({ ...before[0], label: 'A renamed' })
+      expect(after[1]).toEqual(before[1])
     })
   })
 

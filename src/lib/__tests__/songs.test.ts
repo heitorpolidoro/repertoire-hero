@@ -93,8 +93,11 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(entry.song!.standard_key).toBe(songData.standard_key)
     expect(entry.song!.cover_url).toBe(songData.cover_url)
     expect(entry.song!.duration_seconds).toBe(songData.duration_seconds)
-    // `provider` is derived by the schema from the url (RH-136).
-    expect(entry.song!.links).toEqual([{ ...songData.links[0], provider: 'youtube' }])
+    // `provider` is derived by the schema from the url (RH-136); `id` is the
+    // link row's own key, which RH-138 exposes so a correction can name it.
+    expect(entry.song!.links).toEqual([
+      { ...songData.links[0], id: expect.any(String), provider: 'youtube' },
+    ])
 
     // Track the created song ID for cleanup
     createdSongIds.add(entry.song_id)
@@ -378,7 +381,9 @@ describe.skipIf(skip)('songs service integration tests', () => {
     expect(updated!.song!.standard_key).toBe(updateData.key)
     expect(updated!.song!.cover_url).toBe(updateData.cover_url)
     expect(updated!.song!.duration_seconds).toBe(updateData.duration_seconds)
-    expect(updated!.song!.links).toEqual([{ ...updateData.links[0], provider: 'spotify' }])
+    expect(updated!.song!.links).toEqual([
+      { ...updateData.links[0], id: expect.any(String), provider: 'spotify' },
+    ])
   })
 
   // -------------------------------------------------------------------------
@@ -490,10 +495,13 @@ describe.skipIf(skip)('songs service integration tests', () => {
       return res.rows.map((row) => ({ label: row.label, url: row.url }))
     }
 
+    /** The pending link-row suggestions of the song, with the url of the row each names. */
     const pendingSuggestions = async (songId: string) => {
       const res = await query(
-        `SELECT target_column, value FROM catalog_suggestions
-          WHERE target_id = $1 AND status = 'pending'`,
+        `SELECT c.target_table, c.target_column, c.value, sl.url
+           FROM catalog_suggestions c JOIN song_links sl ON sl.id = c.target_id
+          WHERE c.target_table = 'song_links' AND sl.song_id = $1 AND c.status = 'pending'
+          ORDER BY sl.url`,
         [songId],
       )
       return res.rows
@@ -519,10 +527,14 @@ describe.skipIf(skip)('songs service integration tests', () => {
       })
 
       expect(await catalogLinks(songId)).toEqual([ORIGINAL])
-      expect(await pendingSuggestions(songId)).toEqual([{ target_column: 'links', value: [] }])
+      expect(await pendingSuggestions(songId)).toEqual([
+        { target_table: 'song_links', target_column: 'removed', value: true, url: ORIGINAL.url },
+      ])
     })
 
-    it('routes a rewritten url to the moderation queue too', async () => {
+    // RH-138 (deliberate behaviour change): a mixed add-and-remove edit lands the
+    // add and queues only the removal. A "rewritten" url is exactly that pair.
+    it('lands the added url at once and queues only the removal of the replaced one', async () => {
       const songId = await songWithOriginalLink('Links Rewrite')
       const rewritten: SongLink = { label: 'Chords', url: 'https://tabs.example/rh45-moved' }
 
@@ -531,9 +543,9 @@ describe.skipIf(skip)('songs service integration tests', () => {
         pending: true,
       })
 
-      expect(await catalogLinks(songId)).toEqual([ORIGINAL])
+      expect(await catalogLinks(songId)).toEqual([ORIGINAL, rewritten])
       expect(await pendingSuggestions(songId)).toEqual([
-        { target_column: 'links', value: [rewritten] },
+        { target_table: 'song_links', target_column: 'removed', value: true, url: ORIGINAL.url },
       ])
     })
 

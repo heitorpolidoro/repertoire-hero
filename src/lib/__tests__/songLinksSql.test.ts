@@ -92,6 +92,11 @@ describe('songLinksJson', () => {
     // A link-less song answers an empty array, never null.
     expect(sql).toContain("'[]'::json")
   })
+
+  // RH-138: a link row is addressable by its stable id wherever links are read.
+  it('projects the row id so a correction can address the row', () => {
+    expect(songLinksJson('s')).toContain("'id', sl.id")
+  })
 })
 
 describe('spotifyLinkUrlsJson', () => {

@@ -54,9 +54,7 @@ export function PendingEditDiff({ song, proposed }: PendingEditDiffProps) {
               {key.replace("_", " ")}:
             </span>{" "}
             <span className="font-semibold text-emerald-900">
-              {typeof val === "object"
-                ? JSON.stringify(val)
-                : String(val)}
+              {String(val)}
             </span>
           </p>
         ))}

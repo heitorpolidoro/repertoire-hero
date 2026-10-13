@@ -92,14 +92,6 @@ describe.skipIf(!RUN_DB_TESTS)('catalog suggestions (real database)', () => {
     return res.rows
   }
 
-  const storedLinks = async (songId: string) => {
-    const res = await query<{ label: string; url: string }>(
-      `SELECT label, url FROM song_links WHERE song_id = $1 ${SONG_LINKS_CANONICAL_ORDER}`,
-      [songId],
-    )
-    return res.rows
-  }
-
   /** Seeds one pending suggestion row by hand, for the values a writer refuses. */
   const seedSuggestion = async (
     songId: string,
@@ -285,7 +277,7 @@ describe.skipIf(!RUN_DB_TESTS)('catalog suggestions (real database)', () => {
       adminId,
       submitted[0].group_id,
       'reject',
-      'Inaccurate information',
+      { reason: 'Inaccurate information' },
     )
 
     const rows = await suggestionRows(songId)
@@ -326,7 +318,7 @@ describe.skipIf(!RUN_DB_TESTS)('catalog suggestions (real database)', () => {
     expect(card!.requester!.id).toBe(userId)
   })
 
-  it('approves a links-only group: song_links carries the replace-set and songs.updated_at advances', async () => {
+  it('approves a link-only group row by row: only the named row moves and songs.updated_at advances', async () => {
     const songId = await seedSong('Links Only')
     const seed: SongLink[] = [
       { label: 'A', url: UA },
@@ -340,24 +332,29 @@ describe.skipIf(!RUN_DB_TESTS)('catalog suggestions (real database)', () => {
       )
     }
     const before = await songRow(songId)
+    const rowsBefore = await query<{ id: string; url: string; position: number }>(
+      `SELECT id, url, position FROM song_links WHERE song_id = $1 ${SONG_LINKS_CANONICAL_ORDER}`,
+      [songId],
+    )
+    const [rowA, rowB, rowC] = rowsBefore.rows
 
-    const seeded = await seedSuggestion(songId, 'links', [
-      { label: 'C', url: UC },
-      { label: 'A', url: UA },
-    ])
+    const [seededRow] = await submitCatalogSuggestion(userId, songId, {
+      linkChanges: [{ linkId: rowB.id, removed: true }],
+    })
+    const reviewed = await reviewCatalogSuggestionGroup(adminId, seededRow.group_id, 'approve')
 
-    const reviewed = await reviewCatalogSuggestionGroup(adminId, seeded.groupId, 'approve')
-
-    // (a) the replace-set, in canonical read order: the approved array's order,
-    // not the pre-approval one.
-    expect((await storedLinks(songId)).map((row) => row.url)).toEqual([UC, UA])
+    // (a) only B is gone; A and C keep their id and position.
+    const rowsAfter = await query<{ id: string; url: string; position: number }>(
+      `SELECT id, url, position FROM song_links WHERE song_id = $1 ${SONG_LINKS_CANONICAL_ORDER}`,
+      [songId],
+    )
+    expect(rowsAfter.rows).toEqual([rowA, rowC])
     // (b) the group contributes **zero** `SET` clauses and still issues the
-    // statement, so the timestamp bump happens. Skipping the statement for an
-    // empty clause list leaves this where it was.
+    // statement, so the timestamp bump happens.
     expect((await songRow(songId)).updated_at > before.updated_at).toBe(true)
     // (c) and the row is approved rather than left pending.
     expect(reviewed.map((row) => row.status)).toEqual(['approved'])
-    // Nothing wrote `songs.links`: the column is not in the clause list at all.
+    // Nothing wrote `songs.links`.
     const column = await one<{ links: unknown[] }>('SELECT links FROM songs WHERE id = $1', [songId])
     expect(column.links).toEqual([])
   })

@@ -1,14 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import type { Song, SongLink } from "@/types/database";
+import type { Song } from "@/types/database";
 import {
   catalogDraftFromSong,
   changedCatalogFields,
+  changedLinkRows,
+  linkDraftFromSong,
   type CatalogColumn,
   type CatalogDraft,
+  type LinkChangeInput,
+  type LinkDraftRow,
 } from "@/lib/catalogFields";
-import { SongLinksEditor } from "./SongLinksEditor";
+import { CorrectionLinkRows } from "./CorrectionLinkRows";
+import { CorrectionModalHeader } from "./CorrectionModalHeader";
 
 /**
  * The correction payload. A `type` alias, not an `interface`: only an alias gets
@@ -18,7 +23,8 @@ import { SongLinksEditor } from "./SongLinksEditor";
  * Every catalog column is optional because only the ones the user actually
  * changed are sent (RH-97): `parseCatalogSuggestionPayload` accepts any non-empty
  * subset, and a queue row naming one column is what RH-107's one-row-per-field
- * model stores.
+ * model stores. `linkChanges` (RH-138) names the link rows touched, each by its
+ * `song_links.id` and only what changed on it.
  */
 export type SongCorrectionInput = {
   title?: string;
@@ -27,7 +33,7 @@ export type SongCorrectionInput = {
   standard_key?: string | null;
   cover_url?: string | null;
   duration_seconds?: number | null;
-  links?: SongLink[];
+  linkChanges?: LinkChangeInput[];
   reason: string | null;
 };
 
@@ -41,6 +47,8 @@ export interface CorrectionModalProps {
   prefill?: Partial<CatalogDraft>;
   /** The field that was clicked, focused on open. */
   focusField?: CatalogColumn;
+  /** The link row that was clicked, focused on open. */
+  focusLinkId?: string;
   onClose: () => void;
   onSuccess: () => void;
   /** The injected catalog-correction Server Action — `src/components` never imports `@/app` (F21). */
@@ -54,6 +62,7 @@ export function CorrectionModal({
   song,
   prefill,
   focusField,
+  focusLinkId,
   onClose,
   onSuccess,
   onSubmitCorrection,
@@ -61,6 +70,8 @@ export function CorrectionModal({
   // The catalog row as it stands is the baseline every change is measured
   // against, so it is computed once and never follows the draft.
   const [base] = useState<CatalogDraft>(() => catalogDraftFromSong(song));
+  const [baseLinks] = useState<LinkDraftRow[]>(() => linkDraftFromSong(song.links));
+  const [linkRows, setLinkRows] = useState<LinkDraftRow[]>(baseLinks);
   const [draft, setDraft] = useState<CatalogDraft>(() => ({
     ...catalogDraftFromSong(song),
     ...prefill,
@@ -81,7 +92,8 @@ export function CorrectionModal({
     }
 
     const changed = changedCatalogFields(base, draft);
-    if (Object.keys(changed).length === 0) {
+    const linkChanges = changedLinkRows(baseLinks, linkRows);
+    if (Object.keys(changed).length === 0 && linkChanges.length === 0) {
       setError("Change at least one value to suggest a correction.");
       return;
     }
@@ -90,7 +102,11 @@ export function CorrectionModal({
     setError(null);
 
     try {
-      await onSubmitCorrection(song.id, { ...changed, reason: reason.trim() || null });
+      await onSubmitCorrection(song.id, {
+        ...changed,
+        ...(linkChanges.length > 0 ? { linkChanges } : {}),
+        reason: reason.trim() || null,
+      });
       onSuccess();
       onClose();
     } catch (err: unknown) {
@@ -107,23 +123,7 @@ export function CorrectionModal({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl flex flex-col gap-4 text-gray-900 border border-gray-100">
-        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            ✏️ Suggest Global Song Correction
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-            aria-label="Close modal"
-          >
-            &times;
-          </button>
-        </div>
-
-        <p className="text-xs text-gray-500 leading-relaxed bg-amber-50 border border-amber-200/60 text-amber-800 p-3 rounded-xl">
-          ℹ️ Your correction will be sent to the <strong>Admin Moderation Queue</strong>. Once approved by a System Admin, the global catalog song data will update across all repertoires sharing this song. Only the values you change are submitted.
-        </p>
+        <CorrectionModalHeader onClose={onClose} />
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
@@ -205,7 +205,7 @@ export function CorrectionModal({
             </div>
           </div>
 
-          <SongLinksEditor links={draft.links} onChange={(links) => set("links", links)} />
+          <CorrectionLinkRows rows={linkRows} onChange={setLinkRows} focusLinkId={focusLinkId} />
 
           <div className="flex flex-col gap-1">
             <label htmlFor="cm-reason" className="text-xs font-semibold text-gray-700">Reason / Notes for Admin (Optional)</label>

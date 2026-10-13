@@ -175,8 +175,8 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       await seedOwnerSong({ userId }, songId)
       const entry = await entryFor(songId)
       expect(entry.song!.links).toEqual([
-        { label: 'Chords', url: U1, provider: 'other' },
-        { label: 'Video', url: U2, provider: 'youtube' },
+        { id: expect.any(String), label: 'Chords', url: U1, provider: 'other' },
+        { id: expect.any(String), label: 'Video', url: U2, provider: 'youtube' },
       ])
     })
 
@@ -189,8 +189,8 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       const loaded = await getPlaylistWithSongs(playlist.id, userId)
       const entry = loaded!.songs!.find((candidate) => candidate.song!.id === songId)
       expect(entry!.song!.links).toEqual([
-        { label: 'Chords', url: U1, provider: 'other' },
-        { label: 'Video', url: U2, provider: 'youtube' },
+        { id: expect.any(String), label: 'Chords', url: U1, provider: 'other' },
+        { id: expect.any(String), label: 'Video', url: U2, provider: 'youtube' },
       ])
     })
 
@@ -204,8 +204,8 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       const groups = await getPendingCatalogSuggestions(adminId)
       const card = groups.find((candidate) => candidate.song_id === songId)
       expect(card!.song!.links).toEqual([
-        { label: 'Chords', url: U1, provider: 'other' },
-        { label: 'Video', url: U2, provider: 'youtube' },
+        { id: expect.any(String), label: 'Chords', url: U1, provider: 'other' },
+        { id: expect.any(String), label: 'Video', url: U2, provider: 'youtube' },
       ])
     })
   })
@@ -316,13 +316,15 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       ).resolves.toEqual({ success: true, pending: true })
 
       expect(await storedLinks(songId)).toEqual(before)
-      const queued = await query<{ target_column: string; value: unknown }>(
-        `SELECT target_column, value FROM catalog_suggestions
-          WHERE target_id = $1 AND status = 'pending'`,
-        [songId],
+      // RH-138: the removal is queued per row, keyed by the removed link's id.
+      const removed = before.find((row) => row.url === U2)!
+      const queued = await query<{ target_table: string; target_id: string; target_column: string }>(
+        `SELECT target_table, target_id, target_column FROM catalog_suggestions
+          WHERE target_id = ANY($1::uuid[]) AND status = 'pending'`,
+        [before.map((row) => row.id)],
       )
       expect(queued.rows).toEqual([
-        { target_column: 'links', value: [{ label: 'Chords', url: U1 }] },
+        { target_table: 'song_links', target_id: removed.id, target_column: 'removed' },
       ])
     })
 
@@ -371,7 +373,7 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
 
       expect(resolved).toEqual({
         id: songId,
-        links: [{ label: 'Chords', url: U1, provider: 'other' }],
+        links: [{ id: expect.any(String), label: 'Chords', url: U1, provider: 'other' }],
         created: false,
         label: null,
       })
@@ -407,7 +409,7 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
   })
 
   describe('applyCatalogFill (ER16, ER19)', () => {
-    it('refuses a different link against song_links, not against the empty column', async () => {
+    it('neither fills nor refuses on links when song_links already holds rows (RH-138)', async () => {
       const songId = await seedSong('Fill Refusal')
       await seedLinkRows(songId, [[U1, 'Chords', 1]])
       await blankColumn(songId)
@@ -417,8 +419,10 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
         applyCatalogFill(songId, proposal([{ label: 'Spotify', url: U3 }]), client),
       )
 
-      expect(refused.map((field) => field.column)).toContain('links')
-      // Refused means refused: nothing was filled in behind the musician.
+      // A change to existing links is a per-row correction, not a fill, so the
+      // decision is read from song_links (not the empty column) and is silent.
+      expect(refused.map((field) => field.column)).not.toContain('links')
+      // Nothing was filled in behind the musician either.
       expect((await storedLinks(songId)).map((row) => row.url)).toEqual([U1])
     })
 
@@ -439,8 +443,8 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
 
       expect(refused.map((field) => field.column)).not.toContain('links')
       expect((await entryFor(songId)).song!.links).toEqual([
-        { label: 'Chords', url: U1, provider: 'other' },
-        { label: 'Spotify', url: U3, provider: 'spotify' },
+        { id: expect.any(String), label: 'Chords', url: U1, provider: 'other' },
+        { id: expect.any(String), label: 'Spotify', url: U3, provider: 'spotify' },
       ])
     })
 

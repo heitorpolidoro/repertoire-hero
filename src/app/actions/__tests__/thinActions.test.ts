@@ -94,13 +94,29 @@ const THIN_ACTIONS: Array<{
     name: 'reviewCatalogSuggestionGroupAction (approve)',
     invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'approve'),
     target: () => vi.mocked(reviewCatalogSuggestionGroup),
-    expected: [USER_ID, GROUP_ID, 'approve', undefined],
+    expected: [
+      USER_ID,
+      GROUP_ID,
+      'approve',
+      { reason: undefined, rejectLinkSuggestionIds: undefined },
+    ],
   },
   {
     name: 'reviewCatalogSuggestionGroupAction (reject with a reason)',
     invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'reject', 'Wrong album'),
     target: () => vi.mocked(reviewCatalogSuggestionGroup),
-    expected: [USER_ID, GROUP_ID, 'reject', 'Wrong album'],
+    expected: [
+      USER_ID,
+      GROUP_ID,
+      'reject',
+      { reason: 'Wrong album', rejectLinkSuggestionIds: undefined },
+    ],
+  },
+  {
+    name: 'reviewCatalogSuggestionGroupAction (approve, rejecting link rows)',
+    invoke: () => reviewCatalogSuggestionGroupAction(GROUP_ID, 'approve', 'No', ['row-1']),
+    target: () => vi.mocked(reviewCatalogSuggestionGroup),
+    expected: [USER_ID, GROUP_ID, 'approve', { reason: 'No', rejectLinkSuggestionIds: ['row-1'] }],
   },
 ]
 

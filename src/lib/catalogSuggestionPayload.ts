@@ -26,7 +26,6 @@
  * function that tolerates stray keys never produces a name.
  */
 import { splitSongTitle } from '@/lib/songTitle'
-import type { SongLink } from '@/types/database'
 
 /**
  * The one refusal prefix this module uses, exported because
@@ -99,19 +98,21 @@ function parseDurationSeconds(value: unknown): number | null {
   throw new Error(`${PREFIX}: duration_seconds must be a non-negative integer or null`)
 }
 
-function isSongLink(value: unknown): value is SongLink {
-  if (typeof value !== 'object' || value === null) return false
-  // Convention E1: a scoped structural cast, never an `any`-typed binding.
-  const link = value as { label?: unknown; url?: unknown }
-  return typeof link.label === 'string' && typeof link.url === 'string' && HTTP_URL.test(link.url)
+/** A link row's proposed url: the same http(s) test a cover url meets (RH-138). */
+function parseLinkUrl(value: unknown): string {
+  if (typeof value === 'string' && HTTP_URL.test(value.trim())) return value.trim()
+  throw new Error(`${PREFIX}: url must be an http(s) URL`)
 }
 
-function parseLinks(value: unknown): SongLink[] {
-  if (Array.isArray(value)) {
-    const links = value.filter(isSongLink)
-    if (links.length === value.length) return links
-  }
-  throw new Error(`${PREFIX}: links must be an array of {label, url} objects with http(s) urls`)
+function parseLinkLabel(value: unknown): string {
+  if (typeof value === 'string') return value
+  throw new Error(`${PREFIX}: label must be a string`)
+}
+
+/** Removal is the only thing `removed` can say; `false` is not a proposal. */
+function parseLinkRemoved(value: unknown): true {
+  if (value === true) return true
+  throw new Error(`${PREFIX}: removed must be true`)
 }
 
 /**
@@ -130,7 +131,7 @@ function parseLinks(value: unknown): SongLink[] {
  * `Object.entries` over a narrowed payload has to be deterministic: the
  * approval statement builds its `SET` list from it.
  *
- * Only `songs` is admitted today. `albums`, `song_versions` and `song_links`
+ * `songs` and `song_links` are admitted (RH-138). `albums` and `song_versions`
  * are not, because no surface submits a correction to them and an allowlist
  * entry no writer can reach is unverifiable; widening it is one `ALTER … CHECK`
  * plus an entry here, and belongs to the task that builds the surface.
@@ -143,7 +144,13 @@ export const CATALOG_SUGGESTION_COLUMNS = {
     standard_key: parseStandardKey,
     cover_url: parseCoverUrl,
     duration_seconds: parseDurationSeconds,
-    links: parseLinks,
+  },
+  // RH-138: a link correction names one `song_links` row (`target_id` is its
+  // id) and one thing about it. `position` is deliberately absent.
+  song_links: {
+    url: parseLinkUrl,
+    label: parseLinkLabel,
+    removed: parseLinkRemoved,
   },
 } as const
 
@@ -164,8 +171,12 @@ export type CatalogSuggestionPayload = {
   [K in CatalogSuggestionColumn]?: ReturnType<SongsColumns[K]>
 }
 
+type LinkColumns = (typeof CATALOG_SUGGESTION_COLUMNS)['song_links']
+
 /** Every value any allowlisted normaliser can return. */
-export type CatalogSuggestionValue = ReturnType<SongsColumns[CatalogSuggestionColumn]>
+export type CatalogSuggestionValue =
+  | ReturnType<SongsColumns[CatalogSuggestionColumn]>
+  | ReturnType<LinkColumns[keyof LinkColumns]>
 
 /** The allowlisted columns of `songs`, in catalog column order. */
 function songsColumns(): CatalogSuggestionColumn[] {
@@ -224,10 +235,14 @@ export function parseCatalogSuggestionValue(
  * `Object.entries` over the result is deterministic — the approval statement
  * builds its `SET` list from it.
  *
- * @throws when the payload is not a plain object, proposes no known column, or
- * carries a known column whose value the catalog cannot store.
+ * @throws when the payload is not a plain object, proposes no known column
+ * (unless `allowEmpty`), or carries a known column whose value the catalog
+ * cannot store.
  */
-export function parseCatalogSuggestionPayload(data: unknown): CatalogSuggestionPayload {
+export function parseCatalogSuggestionPayload(
+  data: unknown,
+  allowEmpty = false,
+): CatalogSuggestionPayload {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new Error(`${PREFIX}: payload must be a plain object`)
   }
@@ -241,7 +256,9 @@ export function parseCatalogSuggestionPayload(data: unknown): CatalogSuggestionP
     }
   }
 
-  if (Object.keys(payload).length === 0) {
+  // `allowEmpty`: a submission whose only changes are link rows (RH-138) proposes
+  // no song column, and the caller has already seen it propose something else.
+  if (!allowEmpty && Object.keys(payload).length === 0) {
     throw new Error(`${PREFIX}: at least one of ${songsColumns().join(', ')} must be present`)
   }
 

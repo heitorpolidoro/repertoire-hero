@@ -16,6 +16,7 @@ export interface ModerationQueueActions {
     groupId: string,
     action: "approve" | "reject",
     reason?: string,
+    rejectLinkSuggestionIds?: string[],
   ) => Promise<CatalogSuggestion[]>;
 }
 
@@ -37,13 +38,30 @@ export function ModerationQueue({ initialGroups, initialError, actions }: Modera
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Per-card link-row verdicts (RH-138): the suggestion ids marked "reject".
+  const [rejectedLinks, setRejectedLinks] = useState<Record<string, string[]>>({});
+
+  function toggleLinkVerdict(groupId: string, suggestionId: string) {
+    setRejectedLinks((prev) => {
+      const current = prev[groupId] ?? [];
+      const next = current.includes(suggestionId)
+        ? current.filter((id) => id !== suggestionId)
+        : [...current, suggestionId];
+      return { ...prev, [groupId]: next };
+    });
+  }
 
   async function handleApprove(groupId: string) {
     setProcessingId(groupId);
     setError(null);
     setSuccess(null);
     try {
-      await actions.reviewCatalogSuggestionGroup(groupId, "approve");
+      const rejectedIds = rejectedLinks[groupId] ?? [];
+      if (rejectedIds.length > 0) {
+        await actions.reviewCatalogSuggestionGroup(groupId, "approve", undefined, rejectedIds);
+      } else {
+        await actions.reviewCatalogSuggestionGroup(groupId, "approve");
+      }
       setGroups((prev) => prev.filter((g) => g.group_id !== groupId));
       setSuccess("Song edit approved and applied to global catalog.");
       // Local state is what the user sees; `refresh()` only re-seeds the props a
@@ -126,6 +144,8 @@ export function ModerationQueue({ initialGroups, initialError, actions }: Modera
             <PendingEditCard
               key={group.group_id}
               group={group}
+              rejectedLinkIds={rejectedLinks[group.group_id] ?? []}
+              onToggleLinkVerdict={(id) => toggleLinkVerdict(group.group_id, id)}
               isProcessing={processingId === group.group_id}
               isRejecting={rejectingId === group.group_id}
               rejectionReason={rejectionReason}

@@ -57,16 +57,90 @@ describe('moderation domain module', () => {
       const [sql, params] = vi.mocked(query).mock.calls[0]
       expect(sql).toContain('INSERT INTO catalog_suggestions')
       // One statement, two tuples, one shared group id and one shared reason.
-      expect(sql.match(/\(\$1, 'songs', \$2,/g)).toHaveLength(2)
+      expect(sql.match(/\(\$1, \$\d+, \$\d+::uuid,/g)).toHaveLength(2)
       expect(params!.slice(1)).toEqual([
-        'song-1',
         'user-1',
         null,
+        'songs',
+        'song-1',
         'title',
         '"New Title (2026 Remaster)"',
+        'songs',
+        'song-1',
         'artist',
         '"Artist"',
       ])
+    })
+
+    // RH-138 (ER3) — one row per change, each keyed by the link's own id.
+    it('fans a removal and an edit out as song_links rows sharing one group', async () => {
+      const removed = '11111111-1111-4111-8111-111111111111'
+      const edited = '22222222-2222-4222-8222-222222222222'
+      // 1. the membership check, 2. the INSERT
+      vi.mocked(query).mockResolvedValueOnce({ rowCount: 2, rows: [{ id: removed }, { id: edited }] } as never)
+      vi.mocked(query).mockResolvedValueOnce({ rowCount: 2, rows: [suggestion()] } as never)
+
+      await submitCatalogSuggestion('user-1', 'song-1', {
+        linkChanges: [
+          { linkId: removed, removed: true, url: 'https://ignored.example/x' },
+          { linkId: edited, url: 'https://tabs.example/new' },
+        ],
+        reason: 'stale links',
+      })
+
+      expect(vi.mocked(query).mock.calls[0][1]).toEqual(['song-1', [removed, edited]])
+      const [sql, params] = vi.mocked(query).mock.calls[1]
+      expect(sql.match(/\(\$1, \$\d+, \$\d+::uuid,/g)).toHaveLength(2)
+      expect(params!.slice(1)).toEqual([
+        'user-1',
+        'stale links',
+        'song_links',
+        removed,
+        'removed',
+        'true',
+        'song_links',
+        edited,
+        'url',
+        '"https://tabs.example/new"',
+      ])
+    })
+
+    it('refuses a link that is not a row of the song, writing nothing', async () => {
+      vi.mocked(query).mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
+      await expect(
+        submitCatalogSuggestion('user-1', 'song-1', {
+          linkChanges: [{ linkId: '11111111-1111-4111-8111-111111111111', removed: true }],
+        }),
+      ).rejects.toThrowError(/^Invalid catalog suggestion: /)
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses malformed link changes before touching the database', async () => {
+      const id = '11111111-1111-4111-8111-111111111111'
+      const bad: unknown[] = [
+        'x',
+        [null],
+        [{ linkId: 'not-a-uuid', removed: true }],
+        [{ linkId: id }],
+        [{ linkId: id, position: 3 }],
+        [{ linkId: id, removed: true }, { linkId: id, label: 'x' }],
+        [{ linkId: id, url: 'ftp://x/y' }],
+      ]
+      for (const linkChanges of bad) {
+        await expect(
+          submitCatalogSuggestion('user-1', 'song-1', { linkChanges }),
+        ).rejects.toThrowError(/^Invalid catalog suggestion: /)
+      }
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('still refuses a submission that proposes nothing at all', async () => {
+      await expect(submitCatalogSuggestion('user-1', 'song-1', { linkChanges: [] })).rejects.toThrowError(
+        /at least one of/,
+      )
+      await expect(submitCatalogSuggestion('user-1', 'song-1', { reason: 'x' })).rejects.toThrowError(
+        /at least one of/,
+      )
     })
 
     it('carries the submitted reason into the reason column, never as a target_column', async () => {
@@ -75,8 +149,8 @@ describe('moderation domain module', () => {
       await submitCatalogSuggestion('user-1', 'song-1', { title: 'Plush', reason: 'typo' })
 
       const [sql, params] = vi.mocked(query).mock.calls[0]
-      expect(params![3]).toBe('typo')
-      expect(sql.match(/\(\$1, 'songs', \$2,/g)).toHaveLength(1)
+      expect(params![2]).toBe('typo')
+      expect(sql.match(/\(\$1, \$\d+, \$\d+::uuid,/g)).toHaveLength(1)
       expect(params).not.toContain('reason')
     })
 
@@ -135,7 +209,7 @@ describe('moderation domain module', () => {
       // Only `pending` rows are aggregated, and they are aggregated per group.
       expect(query).toHaveBeenNthCalledWith(
         2,
-        expect.stringContaining("WHERE c.status = 'pending'"),
+        expect.stringContaining("WHERE cs.status = 'pending'"),
         []
       )
       expect(query).toHaveBeenNthCalledWith(
@@ -214,7 +288,7 @@ describe('moderation domain module', () => {
         'admin-1',
         'group-1',
         'reject',
-        'Incorrect metadata'
+        { reason: 'Incorrect metadata' }
       )
 
       expect(result).toEqual(rejected)
@@ -271,36 +345,83 @@ describe('moderation domain module', () => {
       ])
     })
 
-    it('issues the bare timestamp bump for a group whose only column is links', async () => {
-      readsGroup([
-        suggestion({
-          target_column: 'links',
-          value: [{ label: 'Chords', url: 'https://tabs.example/1' }],
-        }),
-      ])
+    /** A pending link-row suggestion about link `linkId`. */
+    function linkRow(id: string, linkId: string, column: string, value: unknown) {
+      return suggestion({ id, target_table: 'song_links', target_id: linkId, target_column: column, value })
+    }
+    const LINK_A = '11111111-1111-4111-8111-111111111111'
+    const LINK_B = '22222222-2222-4222-8222-222222222222'
+    const SIBLINGS = [
+      { id: LINK_A, song_id: 'song-1', url: 'https://x.example/a' },
+      { id: LINK_B, song_id: 'song-1', url: 'https://x.example/b' },
+    ]
 
-      // 3. UPDATE songs — no proposed-column clause at all
-      vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
-      // 4. the replace-set's DELETE, 5. its INSERT
-      vi.mocked(query).mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
-      vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [] } as never)
-      // 6. flip, 7. supersede
-      vi.mocked(query).mockResolvedValueOnce({
-        rowCount: 1,
-        rows: [suggestion({ status: 'approved' })],
-      } as never)
-      vi.mocked(query).mockResolvedValueOnce({ rowCount: 0, rows: [] } as never)
+    it('applies a link-only group row by row, then bumps the timestamp bare', async () => {
+      readsGroup([linkRow('r1', LINK_A, 'removed', true), linkRow('r2', LINK_B, 'label', 'Chords')])
+      // 3. the sibling read
+      vi.mocked(query).mockResolvedValueOnce({ rowCount: 2, rows: SIBLINGS } as never)
+      // 4. DELETE, 5. UPDATE label, 6. UPDATE songs, 7. flip, 8. supersede
+      vi.mocked(query).mockResolvedValue({ rowCount: 1, rows: [] } as never)
 
       await reviewCatalogSuggestionGroup('admin-1', 'group-1', 'approve')
 
-      // The clause list is empty once `links` is partitioned out. Any shape but
-      // the inline-array one renders `SET , updated_at = now()` and raises
-      // 42601; `songs.links` is never named at all.
-      expect(vi.mocked(query).mock.calls[2][0]).toBe(
-        'UPDATE songs SET updated_at = now() WHERE id = $1',
+      const calls = vi.mocked(query).mock.calls
+      expect(calls[3]).toEqual(['DELETE FROM song_links WHERE id = $1', [LINK_A]])
+      expect(calls[4]).toEqual(['UPDATE song_links SET label = $2 WHERE id = $1', [LINK_B, 'Chords']])
+      // No `songs` column: the inline-array form keeps the SET list valid.
+      expect(calls[5]).toEqual(['UPDATE songs SET updated_at = now() WHERE id = $1', ['song-1']])
+      expect(calls[6][0]).toContain("status = 'approved'")
+      expect(calls[7][0]).toContain('unnest($2::uuid[], $3::text[])')
+      expect(calls[7][1]).toEqual([
+        'admin-1',
+        [LINK_A, LINK_A, LINK_A, LINK_B],
+        ['url', 'label', 'removed', 'label'],
+      ])
+      // The array is never replaced and position never named.
+      expect(JSON.stringify(calls)).not.toContain('position')
+    })
+
+    // ER5 — the rejected row is flipped before the group approve, the rest land.
+    it('rejects the named link rows with the reason while approving the rest', async () => {
+      readsGroup([linkRow('r1', LINK_A, 'removed', true), linkRow('r2', LINK_B, 'label', 'Chords')])
+      vi.mocked(query).mockResolvedValueOnce({ rowCount: 1, rows: [SIBLINGS[1]] } as never)
+      vi.mocked(query).mockResolvedValue({ rowCount: 1, rows: [] } as never)
+
+      await reviewCatalogSuggestionGroup('admin-1', 'group-1', 'approve', {
+        reason: 'keep it',
+        rejectLinkSuggestionIds: ['r1'],
+      })
+
+      const calls = vi.mocked(query).mock.calls
+      expect(calls[3][0]).toContain('UPDATE song_links SET label')
+      expect(JSON.stringify(calls)).not.toContain('DELETE FROM song_links')
+      const reject = calls.find(([sql]) => sql.includes("status = 'rejected'") && sql.includes('ANY($4::uuid[])'))
+      expect(reject![1]).toEqual(['admin-1', 'keep it', 'group-1', ['r1']])
+      const rejectIndex = calls.indexOf(reject!)
+      const approveIndex = calls.findIndex(([sql]) => sql.includes("status = 'approved'"))
+      expect(rejectIndex).toBeLessThan(approveIndex)
+    })
+
+    it('refuses a rejected id that is not a link row of the group', async () => {
+      readsGroup([linkRow('r1', LINK_A, 'removed', true), suggestion({ id: 'col-1' })])
+      await expect(
+        reviewCatalogSuggestionGroup('admin-1', 'group-1', 'approve', {
+          rejectLinkSuggestionIds: ['col-1'],
+        }),
+      ).rejects.toThrowError(/^Invalid catalog suggestion: /)
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    // ER6 — the collision is refused with nothing written.
+    it('refuses an approved url edit that collides with a sibling, before any write', async () => {
+      readsGroup([linkRow('r1', LINK_A, 'url', 'https://x.example/b')])
+      vi.mocked(query).mockResolvedValueOnce({ rowCount: 2, rows: SIBLINGS } as never)
+
+      await expect(reviewCatalogSuggestionGroup('admin-1', 'group-1', 'approve')).rejects.toThrowError(
+        /^Invalid catalog suggestion: /,
       )
-      expect(vi.mocked(query).mock.calls[2][1]).toEqual(['song-1'])
-      expect(vi.mocked(query).mock.calls[3][0]).toContain('DELETE FROM song_links')
+      // admin check, group read, sibling read: no write was issued.
+      expect(query).toHaveBeenCalledTimes(3)
     })
 
     it('rejects a stored value that no longer validates before updating songs', async () => {

@@ -42,8 +42,12 @@ export async function acknowledgeSuggestionOutcomesAction(ids: string[]): Promis
 export async function reviewCatalogSuggestionGroupAction(
   groupId: string,
   action: 'approve' | 'reject',
-  reason?: string
+  reason?: string,
+  rejectLinkSuggestionIds?: string[]
 ): Promise<CatalogSuggestion[]> {
   const adminUserId = await getRequiredUserId()
-  return reviewCatalogSuggestionGroup(adminUserId, groupId, action, reason)
+  return reviewCatalogSuggestionGroup(adminUserId, groupId, action, {
+    reason,
+    rejectLinkSuggestionIds,
+  })
 }

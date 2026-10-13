@@ -38,6 +38,7 @@ import type { SongLink } from '@/types/database'
 export function songLinksJson(alias: string): string {
   return `COALESCE((
              SELECT json_agg(json_build_object(
+                      'id', sl.id,
                       'label', sl.label,
                       'url', sl.url,
                       'provider', sl.provider

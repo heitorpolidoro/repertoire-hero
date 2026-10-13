@@ -201,7 +201,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
     })
   })
 
-  it('refuses a links list that would replace a populated one, and fills an empty one (ER4)', async () => {
+  it('leaves a populated links list alone without refusing, and fills an empty one (ER4)', async () => {
     const populated = await makeEntry({ links: [YOUTUBE] })
     const refusal = await updateSong(
       { userId },
@@ -209,10 +209,10 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       input(populated, { links: [YOUTUBE, CHORDS] }),
     )
 
+    // RH-138: links are not a catalog column. A song that already has rows
+    // neither fills nor refuses on links; changing them is a per-row correction.
     expect(await catalogLinks(populated.song_id)).toEqual([YOUTUBE_STORED])
-    expect(refusal.refused).toEqual([
-      { column: 'links', current: [YOUTUBE_STORED], proposed: [YOUTUBE, CHORDS] },
-    ])
+    expect(refusal.refused).toEqual([])
 
     const empty = await makeEntry({ links: [] })
     const accepted = await updateSong(

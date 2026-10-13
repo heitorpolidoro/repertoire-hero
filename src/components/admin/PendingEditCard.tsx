@@ -1,8 +1,12 @@
 import { PendingEditDiff } from "@/components/admin/PendingEditDiff";
+import { PendingLinkChanges } from "@/components/admin/PendingLinkChanges";
 import type { PendingCatalogSuggestionGroup } from "@/types/database";
 
 interface PendingEditCardProps {
   group: PendingCatalogSuggestionGroup;
+  /** Link-row suggestion ids marked to reject; the rest of the card is approved. */
+  rejectedLinkIds: readonly string[];
+  onToggleLinkVerdict: (suggestionId: string) => void;
   isProcessing: boolean;
   isRejecting: boolean;
   rejectionReason: string;
@@ -13,6 +17,11 @@ interface PendingEditCardProps {
   onApprove: () => void;
 }
 
+function approveLabel(isProcessing: boolean, rejectedCount: number): string {
+  if (isProcessing) return "Approving...";
+  return rejectedCount > 0 ? "Apply verdicts" : "Approve & Apply";
+}
+
 /**
  * One card of the moderation queue. Presentational and stateless — every piece
  * of state it renders is owned by `ModerationQueue`, which is the only client
@@ -20,6 +29,8 @@ interface PendingEditCardProps {
  */
 export function PendingEditCard({
   group,
+  rejectedLinkIds,
+  onToggleLinkVerdict,
   isProcessing,
   isRejecting,
   rejectionReason,
@@ -54,6 +65,14 @@ export function PendingEditCard({
 
       {/* Diff Comparison */}
       <PendingEditDiff song={group.song} proposed={group.proposed_data} />
+
+      {/* Link rows are decided one by one (RH-138); song columns go with Apply. */}
+      <PendingLinkChanges
+        changes={group.link_changes ?? []}
+        rejectedIds={rejectedLinkIds}
+        disabled={isProcessing}
+        onToggle={onToggleLinkVerdict}
+      />
 
       {/* Rejection reason form */}
       {isRejecting ? (
@@ -103,7 +122,7 @@ export function PendingEditCard({
             onClick={onApprove}
             className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm"
           >
-            {isProcessing ? "Approving..." : "Approve & Apply"}
+            {approveLabel(isProcessing, rejectedLinkIds.length)}
           </button>
         </div>
       )}

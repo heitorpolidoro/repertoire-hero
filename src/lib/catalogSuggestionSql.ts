@@ -35,6 +35,9 @@ import type { SuggestionOutcomeGroup } from '@/types/database'
  */
 export const SUGGESTION_TARGET_TABLE = 'songs'
 
+/** RH-138 — the other target table: `target_id` is then a `song_links.id`. */
+export const LINK_SUGGESTION_TARGET_TABLE = 'song_links'
+
 /**
  * The pending queue, projected back into **one row per `group_id`** — the card
  * the admin reviews.
@@ -60,6 +63,7 @@ export const PENDING_SUGGESTION_GROUPS_SQL = `
          g.song_id,
          g.proposed_data,
          g.suggestion_ids,
+         g.link_changes,
          g.reason,
          g.requested_by,
          g.created_at,
@@ -85,16 +89,36 @@ export const PENDING_SUGGESTION_GROUPS_SQL = `
          ) as requester
     FROM (
           SELECT c.group_id,
-                 c.target_id AS song_id,
+                 c.song_id,
                  c.requested_by,
-                 jsonb_object_agg(c.target_column, c.value) AS proposed_data,
-                 jsonb_object_agg(c.target_column, c.id) AS suggestion_ids,
+                 COALESCE(jsonb_object_agg(c.target_column, c.value)
+                          FILTER (WHERE c.target_table = '${SUGGESTION_TARGET_TABLE}'), '{}'::jsonb) AS proposed_data,
+                 COALESCE(jsonb_object_agg(c.target_column, c.id)
+                          FILTER (WHERE c.target_table = '${SUGGESTION_TARGET_TABLE}'), '{}'::jsonb) AS suggestion_ids,
+                 COALESCE(json_agg(json_build_object(
+                            'suggestion_id', c.id,
+                            'link_id', c.target_id,
+                            'column', c.target_column,
+                            'value', c.value,
+                            'current', json_build_object('url', c.current_url, 'label', c.current_label)
+                          ) ORDER BY c.created_at, c.target_id, c.target_column)
+                          FILTER (WHERE c.target_table = '${LINK_SUGGESTION_TARGET_TABLE}'), '[]'::json) AS link_changes,
                  min(c.reason) AS reason,
                  min(c.created_at) AS created_at
-            FROM catalog_suggestions c
-           WHERE c.status = 'pending'
-             AND c.target_table = '${SUGGESTION_TARGET_TABLE}'
-           GROUP BY c.group_id, c.target_id, c.requested_by
+            FROM (
+                  -- A link-row suggestion finds its song through the link it names;
+                  -- a link deleted since leaves song_id NULL and drops out of the queue.
+                  SELECT cs.*,
+                         CASE WHEN cs.target_table = '${SUGGESTION_TARGET_TABLE}' THEN cs.target_id ELSE sl.song_id END AS song_id,
+                         sl.url AS current_url,
+                         sl.label AS current_label
+                    FROM catalog_suggestions cs
+                    LEFT JOIN song_links sl
+                           ON cs.target_table = '${LINK_SUGGESTION_TARGET_TABLE}' AND sl.id = cs.target_id
+                   WHERE cs.status = 'pending'
+                 ) c
+           WHERE c.song_id IS NOT NULL
+           GROUP BY c.group_id, c.song_id, c.requested_by
          ) g
     JOIN songs s ON g.song_id = s.id
     JOIN profiles p ON g.requested_by = p.id
@@ -152,6 +176,30 @@ export const SUPERSEDE_SUGGESTIONS_SQL = `
      AND target_id = $3
      AND target_column = ANY($4::text[])
      AND status = 'pending'
+`
+
+/**
+ * RH-138 — the link-row twin of {@link SUPERSEDE_SUGGESTIONS_SQL}: closes the
+ * competing pending suggestions for the `(link id, column)` pairs just approved.
+ * `$2` and `$3` are parallel arrays (see `supersededLinkPairs`). Same ordering
+ * rule: after the approve, never before.
+ */
+export const SUPERSEDE_LINK_SUGGESTIONS_SQL = `
+  UPDATE catalog_suggestions c
+     SET status = 'superseded', reviewed_by = $1, updated_at = now()
+    FROM unnest($2::uuid[], $3::text[]) AS t(link_id, col)
+   WHERE c.target_table = '${LINK_SUGGESTION_TARGET_TABLE}'
+     AND c.target_id = t.link_id
+     AND c.target_column = t.col
+     AND c.status = 'pending'
+`
+
+/** Records the rejection on the listed still-pending rows of one group (RH-138). */
+export const REJECT_SUGGESTION_ROWS_SQL = `
+  UPDATE catalog_suggestions
+     SET status = 'rejected', reviewed_by = $1, rejection_reason = $2, updated_at = now()
+   WHERE group_id = $3 AND id = ANY($4::uuid[]) AND status = 'pending'
+   RETURNING *
 `
 
 /**
@@ -234,6 +282,17 @@ export function groupSuggestionOutcomes(
   return [...groups.values()]
 }
 
+/**
+ * One row of the fan-out: the target table and id it is about, so a single
+ * submission can mix `songs` column rows with `song_links` row rows (RH-138).
+ */
+export interface SuggestionEntry {
+  table: string
+  targetId: string
+  column: string
+  value: unknown
+}
+
 /** A fan-out INSERT: its statement text and the parameters it binds. */
 export interface SuggestionInsert {
   sql: string
@@ -253,22 +312,21 @@ export interface SuggestionInsert {
 export function suggestionInsert(
   submission: {
     groupId: string
-    targetId: string
     requestedBy: string
     reason: string | null
   },
-  entries: ReadonlyArray<readonly [string, unknown]>,
+  entries: ReadonlyArray<SuggestionEntry>,
 ): SuggestionInsert {
-  const params: unknown[] = [
-    submission.groupId,
-    submission.targetId,
-    submission.requestedBy,
-    submission.reason,
-  ]
-  const tuples = entries.map(([column, value]) => {
-    params.push(column, JSON.stringify(value === undefined ? null : value))
-    const columnPlaceholder = params.length - 1
-    return `($1, '${SUGGESTION_TARGET_TABLE}', $2, $${columnPlaceholder}, $${params.length}::jsonb, $4, $3, 'pending')`
+  const params: unknown[] = [submission.groupId, submission.requestedBy, submission.reason]
+  const tuples = entries.map((entry) => {
+    params.push(
+      entry.table,
+      entry.targetId,
+      entry.column,
+      JSON.stringify(entry.value === undefined ? null : entry.value),
+    )
+    const n = params.length
+    return `($1, $${n - 3}, $${n - 2}::uuid, $${n - 1}, $${n}::jsonb, $3, $2, 'pending')`
   })
   return {
     sql: `

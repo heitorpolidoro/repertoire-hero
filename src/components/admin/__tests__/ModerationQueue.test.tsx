@@ -195,3 +195,78 @@ describe('ModerationQueue', () => {
     )
   })
 })
+
+/** RH-138 — link rows are decided one by one (mock option A). */
+describe('ModerationQueue link-row verdicts', () => {
+  const LINK_GROUP = {
+    group_id: 'cccccccc-1111-2222-3333-444444444444',
+    song_id: 'song-3',
+    requested_by: 'user-3',
+    proposed_data: { artist: 'Michael Jackson (solo)' },
+    suggestion_ids: {},
+    link_changes: [
+      {
+        suggestion_id: 's-remove',
+        link_id: 'l1',
+        column: 'removed',
+        value: true,
+        current: { url: 'https://tabs.example/bad-1', label: 'Chords' },
+      },
+      {
+        suggestion_id: 's-url',
+        link_id: 'l2',
+        column: 'url',
+        value: 'https://youtu.be/new',
+        current: { url: 'https://youtu.be/old', label: 'YouTube' },
+      },
+      {
+        suggestion_id: 's-label',
+        link_id: 'l3',
+        column: 'label',
+        value: 'Spotify (album version)',
+        current: { url: 'https://open.spotify.com/track/3', label: 'Spotify' },
+      },
+    ],
+    created_at: '2026-01-04T00:00:00.000Z',
+    song: { title: 'Bad', artist: 'Michael Jackson', album: 'Bad', standard_key: 'Am' },
+    requester: { full_name: 'Ana', email: 'ana@example.com' },
+  } as unknown as PendingCatalogSuggestionGroup
+
+  it('renders a verdict control pair per link row, as rows and not as JSON', () => {
+    setup({ initialGroups: [LINK_GROUP] })
+
+    expect(screen.getAllByRole('button', { name: /^Accept link change / })).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: /^Reject link change / })).toHaveLength(3)
+    expect(screen.getByText('Edit URL')).toBeDefined()
+    expect(screen.getByText('Spotify (album version)')).toBeDefined()
+    expect(screen.queryByText(/\[\{/)).toBeNull()
+  })
+
+  it('approves the card with every link accepted by default', async () => {
+    const { actions } = setup({ initialGroups: [LINK_GROUP] })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & Apply' }))
+
+    await waitFor(() =>
+      expect(actions.reviewCatalogSuggestionGroup).toHaveBeenCalledWith(LINK_GROUP.group_id, 'approve'),
+    )
+  })
+
+  it('passes the rejected link rows through while approving the rest, and lets a verdict be undone', async () => {
+    const { actions } = setup({ initialGroups: [LINK_GROUP] })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject link change 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject link change 3' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept link change 3' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply verdicts' }))
+
+    await waitFor(() =>
+      expect(actions.reviewCatalogSuggestionGroup).toHaveBeenCalledWith(
+        LINK_GROUP.group_id,
+        'approve',
+        undefined,
+        ['s-remove'],
+      ),
+    )
+  })
+})

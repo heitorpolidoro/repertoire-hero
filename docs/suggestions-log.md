@@ -9823,3 +9823,150 @@ The honest cost, stated so nobody is surprised: this stops the CI gate noticing 
 *future* dev-dependency advisory. `audit:all` is the escape hatch, and whoever revisits
 this should run it rather than trusting `audit` alone. The alternative — leaving the gate
 red forever on unfixable findings — teaches everyone to ignore it, which is worse.
+
+## [RH-147] Define which of a song's files is the primary one — 2026-10-11
+
+Non-blocking suggestions from spec review round 1:
+
+- ER1's "plus a new index or constraint scoped to `(user_id, song_id)`" is already satisfied by the pre-existing `idx_song_files_user_song btree (user_id, song_id)`; ER1 enumerates the pre-task column set but not the pre-task index set. Not a hole in the contract (ER2's DB-rejection clause catches a missing constraint), but the clause as phrased is decoration.
+- §6/ER1 hard-code the `0022` prefix; `songFilesMigration.db.test.ts`'s header records that a replay suite must resolve its file by the `_<suffix>.sql` suffix, never by prefix. One sentence in §6 would carry that forward.
+- §6 should name the replay *technique* (throwaway schema first on `search_path`, `withTransaction` plus sentinel throw, no transaction-control literals) — the only existing replay suite records `deadlock detected` 2/24 full runs for exactly the mistake it avoids.
+- ER6 keeps only half of §6's offline criterion: nothing asserts the capture *fills* the new field, so an implementation that never writes it into the snapshot passes.
+- ER5's "the 'Open in new tab / download' link stays enabled" is vacuous — it is an `<a href>` in `TabList.tsx` with no `disabled` concept (the mock draws it as a button). Assert presence plus absence of `aria-disabled`.
+- Nothing covers deleting the current primary, the state §6's named fallback exists for; one assertion plus a sentence saying the designation is not reassigned on delete would align the two documents.
+- Mock, cosmetic: Q1 panel A's caption "the list order is unchanged" quietly pre-answers Q3-B; and only Q1 carries a "Today" panel — a caption on Q3-B saying "this is today's order" would save the operator an inference.
+
+## [RH-147] Define which of a song's files is the primary one — 2026-10-12
+- ER1 packs several assertions into one line. It is still mechanically checkable, but consider splitting the DB-test clause out if the budget allows.
+- The spec's "deleting the current primary leaves a resolvable primary" DB test has no ER. Consider folding it into ER2 and adjusting its count.
+- The ER2 count of >=13 is below 11 + 3 = 14. Tighten it to 14.
+
+## [RH-104] Process uploaded images on the way in — 2026-10-12
+- ER2 (column shape plus seeded-row read) and ER6 (corpus, ratchets, schema state) still group more than one assertion; consider splitting them.
+
+## [RH-111] Tell the requester what happened to a correction — 2026-10-12
+- ER4 bundles two assertions (acknowledge exactly the listed rows; later-decided rows still appear); splitting would make QA pass/fail cleaner.
+- No test criterion covers the mount in RepertoireDashboard/page.tsx (ER1 "on the signed-in home"); consider one dashboard render test with injected outcomes.
+- Spec says "dismissing (or an explicit Got it)"; state whether these are one control or two.
+
+## [RH-113] Make catalog search use an index and rank its results — 2026-10-12
+- State which predicate form the GIN index must serve: ILIKE with a leading wildcard is served by gin_trgm_ops, but `lower(col)` forms are not.
+- The migration's conditional btree drop ("only if nothing else queries those columns") is non-mechanical. Decide it in the spec: keep the indexes or drop them.
+- ER1 and ER3 each bundle a small second clause (applies cleanly plus pg_indexes check; ordering plus artist-only inclusion). They are still verifiable, so this is not blocking.
+- The ER8 check on `version_id` and `versions` has no matching line in Test criteria. The existing songs tests probably cover it, but the spec could say so.
+
+## [RH-114] Make last_practiced writable, with the review list — 2026-10-12
+- ER1 "with no status prompt" is a UI absence. Name the jsdom or panel test that checks it.
+- Name the "failing item" mechanism for the rollback DB test (for example, a nonexistent version id).
+- "Date-only input is stored as that day at 00:00 UTC": say whether an unchanged field is omitted from the patch, which the spec implies.
+- "Files touched" says `fastViewEntryActions.ts` "or" the playlist actions bundle. Pick one.
+
+## [RH-134] Fetch Fast View content in a window and invalidate on write — 2026-10-12
+- ER6 joins two outcomes ("surfaces no error" and "per-song loads still render") in one test name. Acceptable as a single named test, but could be split if QA finds it ambiguous.
+- The hook-level test `a neighbour with files: [] renders an empty file library without error` has no ER of its own; ER3 covers only the data layer. Fine at the eight-result cap.
+
+## [RH-139] Roll back the repertoire rows a failed Spotify sync leaves behind — 2026-10-12
+- ER6 bundles three assertions: fails pre-change, passes post-change, and the suite and lint pass. Consider splitting it if QA wants cleaner pass/fail granularity.
+- The spec file is RH-140-spec.md (board id + 1), and its title says RH-139. That matches the repo convention and is explained in the file.
+
+## [RH-138] Make a links correction act per link row, not per whole array — 2026-10-12
+- Add one sentence to the spec saying the operator's answer fixes A or B, and drop the "If B" branch afterwards.
+- The Retype inventory is thorough. Consider noting that `npm run lint:dead` may flag `SongLink.id` readers if the field is unused.
+- ER3 packs table, id and group into one sentence. QA can still verify it mechanically, so this is not blocking.
+- Test criteria lists a unit test for the `songs`/`links` allowlist throw, but no ER covers it. ER2 is type-level only. Consider asserting the runtime rejection in a test, which the spec already plans.
+
+## [RH-144] Decide which version an add holds when the song already exists — 2026-10-12
+- State that the different-version refusal text must contain "already in", or that the catch is widened. Today only messages containing `already in` are passed through unwrapped (ownerSongs.ts line 397).
+- The spec says "see QUESTIONS" but has no QUESTIONS block. Make sure the operator-confirmation question is recorded on the task.
+- ER4 could name the test setup, for example Promise.all of two adds.
+
+## [RH-141] Build the grouped correction review screen — 2026-10-12
+- ER3 and ER6 each bundle two assertions (invalid aborts / links writes; row render / superseded notice). Consider splitting if a future round touches them.
+- ER7 should state the fallback (layout A when no answer is recorded), matching the spec Scope section.
+- The spec Expected Results wording differs from the persisted ERs (e.g. its third item says "behaves correctly"). Keep the persisted versions as the QA contract and sync the spec text to them.
+
+## [RH-146] Let a musician set a song's tuning — 2026-10-12
+- ER4 says "(db test)". The spec could state whether the db test calls the action itself or the resolveWriteOwner and updateSongOverrides pair, because the action needs a session mock.
+- ER6 bundles lint, lint:dead, vitest and the line cap. They are all mechanical, so this is acceptable.
+
+## [RH-149] Play a song's audio while reading its chart — 2026-10-12
+- The Expected Results section ends with "see the report for the shape", but the spec points to no report. Replace it with a one-line statement of the shape, for example 3 to 8 single-sentence results per chosen reading.
+- At re-specification, state which readings stay in this task and which are filed as separate tasks. The spec already notes that D depends on C and F depends on A, B or C.
+- The grounding line references (the Spotify scopes at authorize/route.ts:33-38, etc.) were not re-verified. Re-check them when the chosen reading is specified.
+
+## [RH-150] Add a grouped card to the playlist picker — 2026-10-12
+- The spec H1 reads "RH-150" while the file is RH-151-spec.md. This follows the board id + 1 filename convention, so it is fine, but the first line already explains it.
+- ER4 "styled above the others" is only checkable through the test criterion "no version line differs in class or marker". Keep that assertion in the test.
+- ER7 can be verified with a grep for "In catalog" under src/components/. Consider adding it as a test or lint step.
+
+## [RH-154] Add admin catalog data layer: blast radius, merge versions, delete — 2026-10-12
+- ER8 bundles three checks (DB tests, lint, tsc) in one result; acceptable as a single gate, but could be split.
+- State explicitly whether a merge where A and B are the same id is rejected with a specific error message (spec says A != B but not the behavior).
+- Mention the lock order (e.g. lock both version rows in id order) in merge to avoid deadlocks under concurrent merges.
+
+## [RH-157] Accept last_practiced in the edit-panel write path — 2026-10-12
+- State whether an ISO-8601 timestamp without a timezone offset is accepted, and how it is interpreted (UTC assumed?). Otherwise the parser can be implemented two ways.
+- ER6 bundles lint and the ratchet test; both are checkable, so it is acceptable.
+
+## [RH-158] Add batch practice write and per-song Practised button — 2026-10-12
+- ER9 is exercised by the status-only lib write and the jsdom test; on band playlists the level control may be read-only, so ER9 is only verifiable on personal playlists. The spec says this explicitly, so no change is needed.
+- Consider naming the exact `PlaylistSongHandlers` member in the Files section for the implementer (currently only described in prose).
+
+## [RH-28] Implementar modo offline — 2026-10-12
+- Consider splitting ER3 into two results, one per store.
+- Define how "does not render setlist data" is asserted, for example by naming a song title that must be absent.
+- State that ER1 and ER2 are re-run after the version bump.
+
+## [RH-29] Avaliar transformar o Repertoire Hero em app Android e iOS — 2026-10-12
+- Expected result 4 says "the code version checked". Name the form it takes (package.json version or commit hash) so QA can decide pass or fail.
+- ER6 asserts two things in one line (diff changed, and no other path in docs/plans). It is still mechanical, so this is non-blocking. Consider splitting it if the results list needs trimming.
+
+## [RH-116] Download individual songs for offline, not only playlists — 2026-10-12
+- The mock `docs/tasks/RH-117-mock.html` was not reviewed. Confirm it matches the states the spec describes.
+- State where the shared capture module lives (for example `src/lib/offlineCapture.ts`, taking ports as parameters). The spec leaves it open, and that is an implementable-two-ways risk, though the import-direction constraint bounds it.
+- ER7 still pairs two states; splitting it would be tidier, but it is not blocking.
+- The "personal vs band-context ids differ" check appears in the Test criteria but in no ER. That is fine as a gate.
+
+## [RH-118] Build the song map editor — 2026-10-12
+- ER1, ER3 and ER4 also bundle two assertions each (store plus UI, `null` write plus resolution, reject plus admin success). They are tolerable because each names one db test. Consider splitting if room allows.
+
+## [RH-130] Make confirmDelete read the link-removal envelope — 2026-10-12
+- ER1 does not mention the `Failed to delete link.` fallback for an empty `error` that the spec's Approach defines; consider adding it to the new test.
+- The spec's "Expected Results" section only says "ER1-ER5 as returned"; acceptable, but inlining them would help readers.
+
+## [RH-142] Resolve spotify.link short links before the Spotify push — 2026-10-12
+- ER4 and ER5 each bundle several closely related outcomes of one behaviour (the allow-list; the failure path). They are acceptable as written. Split them only if QA finds them hard to judge.
+- ER3 "contain no network call" is better checked by grep or diff than by a test. The QA step should say so.
+
+## [RH-111] Tell the requester what happened to a correction — 2026-10-12
+- The acknowledge array is passed to `ANY($2::uuid[])` unvalidated; a malformed id from a client throws a generic error. Harmless but could be filtered for uuid shape.
+- The top-right "x" button and "Got it" both do the same thing; fine, but the "x" lacks a visible focus style (`focus:outline-none`).
+
+## [RH-160] Scaffold the Trusted Web Activity repo files with placeholders — 2026-10-12
+- ER4 says "GET /privacy returns 200", but the spec only plans a render test plus a proxy-matcher non-match test. State that this combination is the verification, or add a route-level check.
+- The ER6 test should assert the exact feature phrases, such as "installable offline repertoire", so the wording cannot drift.
+- Specify the placeholder fingerprint literally (00: x32) in the test, so the regex check is deterministic.
+
+## [RH-138] Make a links correction act per link row, not per whole array — 2026-10-12
+- `findUrlCollision` conservatively refuses a swap of urls between two rows in one approval. Acceptable (the group stays pending), but worth a comment or a test.
+- The spec names `0022_link_row_suggestions.sql` but the file is `0023`. Update the spec text for traceability.
+- Confirm the four known DB failures under RUN_DB_TESTS=1 in the QA or CI round.
+
+## [RH-163] Embed the linked YouTube video in Fast View — 2026-10-12
+- The spec says "Fast View composition (shell that renders `LinksSection`)" without naming the file. The implementer must locate it. Naming the path would remove the lookup.
+- The spec gates the build on operator confirmation of the reading. The work skill should keep that gate on the card until the operator answers.
+- The embed does not cover `m.youtube.com` or `music.youtube.com`. Say whether they are accepted hosts.
+
+## [RH-164] Play the linked Spotify track in Fast View — 2026-10-12
+- The spec says "see the open question", but it contains no open-question section. Make sure the re-consent/Premium cost question is actually recorded on the task's `questions` array.
+- Name how Premium is derived (the `product` field from `/v1/me`) in the playback-token route description.
+- Expected result 4 says "connected user lacking scopes". The spec also shows the prompt for a user who is not connected, which no result covers. Consider adding that case to the component tests.
+
+## [RH-165] Add a tempo field and a click track to Fast View — 2026-10-12
+- Test criteria list the 0, 19, 301 rejections, but ER1 names only 0 and 301. Consistent, and the spec covers more.
+- "Fast View composition root" is not named by file. Name it so the implementer does not have to guess.
+- The snapshot version bump references offlineSnapshotV5.ts. State the target version explicitly.
+
+## [RH-138] Make a links correction act per link row, not per whole array — 2026-10-12
+- The migration is `0023_link_row_suggestions.sql`, but the spec names `0022_...`. Harmless; the spec text could be updated to match.
+- `findUrlCollision` treats a swap of two urls between sibling rows (both approved) as a collision. Conservative and safe, but worth a one-line note in the docs if it surprises admins.

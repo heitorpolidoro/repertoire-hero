@@ -12,12 +12,15 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+  CATALOG_COLUMNS,
   CATALOG_FIELD_LABELS,
   catalogDraftFromRefusals,
   catalogDraftFromSong,
   changedCatalogFields,
+  changedLinkRows,
   describeCatalogValue,
   isCatalogFieldEmpty,
+  linkDraftFromSong,
   parseDurationInput,
   splitCatalogUpdate,
   type CatalogProposal,
@@ -61,15 +64,15 @@ describe('isCatalogFieldEmpty keeps the catalog\'s per-column definition of empt
     expect(isCatalogFieldEmpty({ ...EMPTY_SNAPSHOT, duration_seconds: 0 }, 'duration_seconds')).toBe(false)
   })
 
-  it('treats NULL and the empty array as empty for links', () => {
-    expect(isCatalogFieldEmpty(EMPTY_SNAPSHOT, 'links')).toBe(true)
-    expect(isCatalogFieldEmpty({ ...EMPTY_SNAPSHOT, links: [] }, 'links')).toBe(true)
-    expect(
-      isCatalogFieldEmpty(
-        { ...EMPTY_SNAPSHOT, links: [{ label: 'a', url: 'https://a.test' }] },
-        'links',
-      ),
-    ).toBe(false)
+  it('is defined for the mutable songs columns only, never for links', () => {
+    expect(CATALOG_COLUMNS).toEqual([
+      'title',
+      'artist',
+      'album',
+      'standard_key',
+      'cover_url',
+      'duration_seconds',
+    ])
   })
 })
 
@@ -85,14 +88,7 @@ describe('splitCatalogUpdate fills what is empty', () => {
       'standard_key',
       'cover_url',
       'duration_seconds',
-      'links',
     ])
-    expect(fill.find((f) => f.column === 'links')).toEqual({
-      column: 'links',
-      value: JSON.stringify(PROPOSAL.links),
-      cast: '::jsonb',
-    })
-    expect(fill.find((f) => f.column === 'title')?.cast).toBe('')
   })
 
   it('trims the value it writes', () => {
@@ -158,26 +154,15 @@ describe('splitCatalogUpdate refuses what is populated and different', () => {
     ).toEqual([{ column: 'duration_seconds', current: 258, proposed: 257 }])
   })
 
-  it('compares links as an ordered {label,url} list', () => {
+  it('neither fills nor refuses on links, whatever the song holds', () => {
     const one = { label: 'YouTube', url: 'https://youtu.be/abc' }
     const two = { label: 'Chords', url: 'https://chords.test/a' }
 
-    expect(splitCatalogUpdate({ ...EMPTY_SNAPSHOT, links: [one] }, PROPOSAL).refused).toEqual([])
-
-    const reordered = splitCatalogUpdate(
-      { ...EMPTY_SNAPSHOT, links: [one, two] },
-      { ...PROPOSAL, links: [two, one] },
-    )
-    expect(reordered.refused).toEqual([
-      { column: 'links', current: [one, two], proposed: [two, one] },
-    ])
-
-    const grown = splitCatalogUpdate(
-      { ...EMPTY_SNAPSHOT, links: [one] },
-      { ...PROPOSAL, links: [one, two] },
-    )
-    expect(grown.refused).toEqual([{ column: 'links', current: [one], proposed: [one, two] }])
-    expect(grown.fill.some((f) => f.column === 'links')).toBe(false)
+    for (const links of [null, [], [one]]) {
+      const split = splitCatalogUpdate({ ...EMPTY_SNAPSHOT, links }, { ...PROPOSAL, links: [one, two] })
+      expect(split.refused).toEqual([])
+      expect(split.fill.map((f) => f.column)).not.toContain('links')
+    }
   })
 
   it('reports the refusals in column order, next to the columns it still fills', () => {
@@ -192,12 +177,12 @@ describe('splitCatalogUpdate refuses what is populated and different', () => {
     )
 
     expect(refused.map((r) => r.column)).toEqual(['artist', 'duration_seconds'])
-    expect(fill.map((f) => f.column)).toEqual(['album', 'standard_key', 'cover_url', 'links'])
+    expect(fill.map((f) => f.column)).toEqual(['album', 'standard_key', 'cover_url'])
   })
 })
 
 describe('catalogDraftFromSong renders the catalog row as form text', () => {
-  it('turns every absent value into an empty string and keeps the link list', () => {
+  it('turns every absent value into an empty string, and carries no links', () => {
     expect(catalogDraftFromSong(EMPTY_SNAPSHOT)).toEqual({
       title: '',
       artist: '',
@@ -205,7 +190,6 @@ describe('catalogDraftFromSong renders the catalog row as form text', () => {
       standard_key: '',
       cover_url: '',
       duration: '',
-      links: [],
     })
   })
 
@@ -262,18 +246,9 @@ describe('changedCatalogFields emits only what the user actually changed', () =>
     })
   })
 
-  it('emits links only when the ordered list differs, dropping rows with no url', () => {
-    const one = { label: 'YouTube', url: 'https://youtu.be/abc' }
-    const two = { label: 'Chords', url: 'https://chords.test/a' }
-
-    expect(changedCatalogFields(base, { ...base, links: [{ ...one }] })).toEqual({})
-    expect(changedCatalogFields(base, { ...base, links: [one, two] })).toEqual({
-      links: [one, two],
-    })
-    expect(
-      changedCatalogFields(base, { ...base, links: [one, { label: 'x', url: '  ' }] }),
-    ).toEqual({})
-    expect(changedCatalogFields(base, { ...base, links: [] })).toEqual({ links: [] })
+  it('never emits links: they are corrected per row, not as a column', () => {
+    expect(Object.keys(base)).not.toContain('links')
+    expect(changedCatalogFields(base, { ...base })).not.toHaveProperty('links')
   })
 
   it('never emits a title or artist the catalog could not store', () => {
@@ -302,18 +277,14 @@ describe('songs.ts no longer claims the correction mechanism is missing (ER10)',
 
 describe('catalogDraftFromRefusals carries the refused wording into the correction form', () => {
   it('maps every refusable column onto its draft field', () => {
-    const links = [{ label: 'YouTube', url: 'https://youtu.be/abc' }]
-
     expect(
       catalogDraftFromRefusals([
         { column: 'title', current: 'Smooth Criminal', proposed: 'Smooth Criminal (Live)' },
         { column: 'duration_seconds', current: 257, proposed: 300 },
-        { column: 'links', current: [], proposed: links },
       ]),
     ).toEqual({
       title: 'Smooth Criminal (Live)',
       duration: '300',
-      links,
     })
   })
 
@@ -323,15 +294,7 @@ describe('catalogDraftFromRefusals carries the refused wording into the correcti
 })
 
 describe('describeCatalogValue states a value the way the refusal notice reads', () => {
-  it('counts links, names nothing for an absent value, and prints the rest', () => {
-    expect(describeCatalogValue([])).toBe('0 links')
-    expect(describeCatalogValue([{ label: 'a', url: 'https://a.test' }])).toBe('1 link')
-    expect(
-      describeCatalogValue([
-        { label: 'a', url: 'https://a.test' },
-        { label: 'b', url: 'https://b.test' },
-      ]),
-    ).toBe('2 links')
+  it('names nothing for an absent value, and prints the rest', () => {
     expect(describeCatalogValue(null)).toBe('nothing')
     expect(describeCatalogValue('')).toBe('nothing')
     expect(describeCatalogValue('Michael Jackson')).toBe('Michael Jackson')
@@ -344,7 +307,6 @@ describe('describeCatalogValue states a value the way the refusal notice reads',
       'artist',
       'cover_url',
       'duration_seconds',
-      'links',
       'title',
     ])
   })
@@ -356,8 +318,54 @@ describe('catalogDraftFromRefusals is defensive about the shape it is handed', (
       catalogDraftFromRefusals([
         { column: 'album', current: 'Bad', proposed: null },
         { column: 'duration_seconds', current: 257, proposed: null },
-        { column: 'links', current: [], proposed: 'not a list' },
+        { column: 'title', current: 'Bad', proposed: 7 },
       ]),
-    ).toEqual({ album: '', duration: '', links: [] })
+    ).toEqual({ album: '', duration: '', title: '' })
+  })
+})
+
+describe('changedLinkRows emits one change per touched catalog link row (RH-138)', () => {
+  const base = linkDraftFromSong([
+    { id: 'l1', label: 'Chords', url: 'https://tabs.test/1' },
+    { id: 'l2', label: 'YouTube', url: 'https://youtu.be/abc' },
+    { id: 'l3', label: 'Spotify', url: 'https://open.spotify.com/track/3' },
+    { label: 'No id', url: 'https://noid.test/x' },
+  ])
+
+  it('reads only the rows that carry an id', () => {
+    expect(base.map((r) => r.id)).toEqual(['l1', 'l2', 'l3'])
+    expect(base.every((r) => r.removed === false)).toBe(true)
+    expect(linkDraftFromSong(null)).toEqual([])
+  })
+
+  it('emits nothing for untouched rows, however they are retyped', () => {
+    expect(changedLinkRows(base, base.map((r) => ({ ...r })))).toEqual([])
+    expect(changedLinkRows(base, base.map((r) => ({ ...r, url: `  ${r.url} `, label: ` ${r.label}` })))).toEqual([])
+  })
+
+  it('names only what changed on a row, keyed by its id', () => {
+    const draft = base.map((r) => ({ ...r }))
+    draft[1].url = 'https://youtu.be/new'
+    draft[2].label = 'Spotify (album)'
+    expect(changedLinkRows(base, draft)).toEqual([
+      { linkId: 'l2', url: 'https://youtu.be/new' },
+      { linkId: 'l3', label: 'Spotify (album)' },
+    ])
+  })
+
+  it('sends a removal alone, whatever else was edited on the row', () => {
+    const draft = base.map((r) => ({ ...r }))
+    draft[0].removed = true
+    draft[0].url = 'https://ignored.test/'
+    expect(changedLinkRows(base, draft)).toEqual([{ linkId: 'l1', removed: true }])
+  })
+
+  it('matches rows by id, not position, and ignores a blank url or an unknown row', () => {
+    const draft = [
+      { ...base[2], url: '   ' },
+      { ...base[0], label: 'Chords!' },
+      { id: 'ghost', label: 'x', url: 'https://ghost.test/', removed: true },
+    ]
+    expect(changedLinkRows(base, draft)).toEqual([{ linkId: 'l1', label: 'Chords!' }])
   })
 })

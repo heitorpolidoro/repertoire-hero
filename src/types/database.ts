@@ -1,3 +1,4 @@
+import type { PendingLinkChange } from "./pendingLinkChange";
 export type SongStatus =
   | "unknown"
   | "learning"
@@ -14,6 +15,8 @@ export type SongStatus =
 export type SongLinkProvider = "spotify" | "youtube" | "other";
 
 export interface SongLink {
+  /** The `song_links.id` (RH-138); absent on a bare `{label, url}` literal. */
+  id?: string;
   label: string;
   url: string;
   /**
@@ -43,16 +46,10 @@ export interface Song {
  * writes the owner row's `key` (`user_songs` / `band_songs`), which always
  * succeeds, so reporting a refused catalog key would be a false alarm.
  */
-export type RefusableCatalogColumn =
-  | "title"
-  | "artist"
-  | "album"
-  | "cover_url"
-  | "duration_seconds"
-  | "links";
+export type RefusableCatalogColumn = "title" | "artist" | "album" | "cover_url" | "duration_seconds";
 
 /** Whatever one shared catalog column can hold. */
-export type CatalogFieldValue = string | number | SongLink[] | null;
+export type CatalogFieldValue = string | number | null;
 
 /**
  * One shared catalog column a save did not write, because the catalog already
@@ -236,6 +233,7 @@ export interface PendingCatalogSuggestionGroup {
   song_id: string;
   proposed_data: Record<string, unknown>;
   suggestion_ids: Record<string, string>;
+  link_changes: PendingLinkChange[];
   reason: string | null;
   requested_by: string;
   created_at: string;

@@ -19,7 +19,7 @@ import {
   representativeVersionSubquery,
   upsertAlbumAndVersion,
 } from '@/lib/songVersions'
-import { splitCatalogUpdate, type CatalogFill } from '@/lib/catalogFields'
+import { splitCatalogUpdate } from '@/lib/catalogFields'
 import { dedupeLinksByUrl, songLinkInsertRows } from '@/lib/songLinksSql'
 import type { CatalogSearchResult, Song, SongLink, SongStatus, RefusedCatalogField } from '@/types/database'
 
@@ -153,25 +153,25 @@ export async function applyCatalogFill(
     },
   )
 
-  const linksFill = fill.find((f) => f.column === 'links')
-  const columnFills = fill.filter((f) => f.column !== 'links')
-  if (linksFill) await fillSongLinks(songId, linksFill, client)
+  // Links are not a column (RH-138): they are filled iff the song has no
+  // `song_links` row at all. A song that already has rows neither fills nor
+  // refuses on links — a change to them is a per-row correction.
+  const linksFilled = current.rows.length === 0 && (await fillSongLinks(songId, data.links, client))
 
   // Run whenever a column was filled **or** links were written: a links change
   // bumping the catalog row's timestamp is the existing convention (RH-101) and
   // `catalogTimestamp.db.test.ts` asserts it.
-  if (columnFills.length > 0 || linksFill) {
+  if (fill.length > 0 || linksFilled) {
     // Column names come from `CATALOG_COLUMNS`, never from the caller.
-    const clauses = columnFills.map((f, i) => `${f.column} = $${i + 1}${f.cast}`)
+    const clauses = fill.map((f, i) => `${f.column} = $${i + 1}`)
     // `'updated_at = now()'` is appended to the clause array **inline inside the
     // interpolation**, so the join supplies the comma and an empty `clauses` —
-    // reachable now that `links` is partitioned out — still yields valid SQL
-    // rather than an empty SET list and a 42601. The literal must stay between
-    // the statement's verb and its WHERE in the source text:
-    // `catalogTimestampGuard`'s scan is textual.
+    // a links-only fill — still yields valid SQL rather than an empty SET list
+    // and a 42601. The literal must stay between the statement's verb and its
+    // WHERE in the source text: `catalogTimestampGuard`'s scan is textual.
     await client.query<never>(
-      `UPDATE songs SET ${[...clauses, 'updated_at = now()'].join(', ')} WHERE id = $${columnFills.length + 1}`,
-      [...columnFills.map((f) => f.value), songId],
+      `UPDATE songs SET ${[...clauses, 'updated_at = now()'].join(', ')} WHERE id = $${fill.length + 1}`,
+      [...fill.map((f) => f.value), songId],
     )
   }
 
@@ -179,7 +179,8 @@ export async function applyCatalogFill(
 }
 
 /**
- * The `links` entry of a fill, applied row-wise to `song_links`.
+ * The empty-catalog links fill, applied row-wise to `song_links`. Answers
+ * whether any row was written.
  *
  * The conflict policy below is `DO NOTHING`, and deliberately **not**
  * `DO UPDATE`:
@@ -192,24 +193,21 @@ export async function applyCatalogFill(
  * writer whose failure costs a musician the **whole** song-form save: it runs on
  * `updateSong`'s shared transaction (`@/lib/ownerSongs`), so an aborted
  * statement takes the owner-row write with it.
- *
- * `fillFor` hands the entry back already `JSON.stringify`-ed with
- * `cast: '::jsonb'`, so it is parsed back into a `SongLink[]` here.
  */
 async function fillSongLinks(
   songId: string,
-  linksFill: CatalogFill,
+  proposed: SongLink[],
   client: Queryable,
-): Promise<void> {
-  const proposed = JSON.parse(String(linksFill.value)) as SongLink[]
-  const rows = songLinkInsertRows(songId, dedupeLinksByUrl(proposed))
-  if (rows.count === 0) return
+): Promise<boolean> {
+  const rows = songLinkInsertRows(songId, dedupeLinksByUrl(proposed.filter((l) => l.url.trim() !== '')))
+  if (rows.count === 0) return false
   await client.query<never>(
     `INSERT INTO song_links (song_id, url, label, position)
      VALUES ${rows.values}
      ON CONFLICT (song_id, url) DO NOTHING`,
     rows.params,
   )
+  return true
 }
 
 /** What the manual add form submits about the song itself. */
@@ -247,9 +245,11 @@ export async function resolveCatalogSongForAdd(
  * who already proved a claim on a repertoire entry for the song.
  *
  * Additive changes land directly (a musician adding a chords link mid-rehearsal
- * needs to see it now); removing or rewriting an existing link is a correction
- * to data everyone else sees, so it goes to the RH-15/RH-27 moderation queue
- * and reports `pending` instead of writing.
+ * needs to see it now). Removing an existing link is a correction to data
+ * everyone else sees, so each removal goes to the moderation queue as a
+ * `('song_links','removed')` suggestion keyed by the row's id, and the result
+ * reports `pending`. A mixed add-and-remove edit lands the add and queues only
+ * the removal (RH-138).
  */
 export async function applySongLinkUpdate(
   userId: string,
@@ -283,23 +283,26 @@ export async function applySongLinkUpdate(
     })
   )
 
-  let pending: boolean
+  let removedIds: string[]
   try {
     // The `song_links` read, the upsert and the timestamp bump are one
     // transaction — the only sanctioned way to group them.
-    pending = await withTransaction(async (client) => {
-      const current = await client.query<{ url: string }>(
-        'SELECT url FROM song_links WHERE song_id = $1',
+    removedIds = await withTransaction(async (client) => {
+      const current = await client.query<{ id: string; url: string }>(
+        'SELECT id, url FROM song_links WHERE song_id = $1',
         [songId],
       )
       const submittedUrls = new Set(processedLinks.map((l) => l.url))
-      if (!current.rows.every((l) => submittedUrls.has(l.url))) return true
+      // An existing row whose url the submission no longer carries is a removal.
+      const absent = current.rows.filter((l) => !submittedUrls.has(l.url)).map((l) => l.id)
 
-      await upsertSongLinks(songId, processedLinks, client)
-      // No variable clause list remains at this writer: `links` left the column,
-      // so the statement degenerates to a bare timestamp bump.
-      await client.query<never>('UPDATE songs SET updated_at = now() WHERE id = $1', [songId])
-      return false
+      if (processedLinks.length > 0) {
+        await upsertSongLinks(songId, processedLinks, client)
+        // No variable clause list remains at this writer: `links` left the
+        // column, so the statement degenerates to a bare timestamp bump.
+        await client.query<never>('UPDATE songs SET updated_at = now() WHERE id = $1', [songId])
+      }
+      return absent
     })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -307,10 +310,13 @@ export async function applySongLinkUpdate(
     throw new Error(`Failed to update song links: ${err.message}`)
   }
 
-  if (pending) {
-    // Removing or rewriting an existing link is a correction to data everyone
-    // else sees, so it goes to the moderation queue and writes nothing.
-    await submitCatalogSuggestion(userId, songId, { links: processedLinks })
+  if (removedIds.length > 0) {
+    // Removing an existing link is a correction to data everyone else sees, so
+    // each removal goes to the moderation queue as its own row-keyed suggestion
+    // (RH-138) while everything else in the submission has already landed.
+    await submitCatalogSuggestion(userId, songId, {
+      linkChanges: removedIds.map((linkId) => ({ linkId, removed: true })),
+    })
     return { success: true, pending: true }
   }
 

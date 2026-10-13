@@ -439,22 +439,27 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
       expect(result).toEqual({ success: true, pending: true })
       expect(await catalogLinks()).toBe(before)
 
+      // RH-138: the removal is one row keyed by the removed link's own id.
       const queued = await query(
-        `SELECT group_id, status, requested_by, target_column, value
-         FROM catalog_suggestions WHERE target_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        `SELECT c.group_id, c.status, c.requested_by, c.target_table, c.target_column, c.value, sl.url
+           FROM catalog_suggestions c JOIN song_links sl ON sl.id = c.target_id
+          WHERE c.target_table = 'song_links' AND sl.song_id = $1
+          ORDER BY c.created_at DESC LIMIT 1`,
         [catalogSongId],
       )
       expect(queued.rowCount).toBe(1)
       expect(queued.rows[0].status).toBe('pending')
       expect(queued.rows[0].requested_by).toBe(userAId)
-      expect(queued.rows[0].target_column).toBe('links')
-      expect(queued.rows[0].value).toEqual([ADDED_LINK])
+      expect(queued.rows[0].target_column).toBe('removed')
+      expect(queued.rows[0].value).toBe(true)
+      expect(queued.rows[0].url).toBe(ORIGINAL_LINK.url)
     })
 
     it('applies the removal once a system admin approves it', async () => {
       const pending = await query(
-        `SELECT group_id FROM catalog_suggestions
-          WHERE target_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
+        `SELECT c.group_id FROM catalog_suggestions c JOIN song_links sl ON sl.id = c.target_id
+          WHERE c.target_table = 'song_links' AND sl.song_id = $1 AND c.status = 'pending'
+          ORDER BY c.created_at DESC LIMIT 1`,
         [catalogSongId],
       )
       asUser(adminUserId)
