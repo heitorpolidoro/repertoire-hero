@@ -73,6 +73,86 @@ describe('LinksSection', () => {
     expect(screen.getByText('Add New Link')).toBeDefined()
   })
 
+  describe('grouped by provider (RH-145)', () => {
+    const mixedLinks: SongLinksController['links'] = [
+      { label: 'Chords', url: 'https://cifra.example/1', provider: 'other' },
+      { label: 'Video A', url: 'https://youtube.com/watch?v=a', provider: 'youtube' },
+      { label: 'Video B', url: 'https://youtube.com/watch?v=b', provider: 'youtube' },
+      { label: 'Track', url: 'https://open.spotify.com/track/1', provider: 'spotify' },
+      { label: 'Video C', url: 'https://youtube.com/watch?v=c', provider: 'youtube' },
+      { label: 'Drive', url: 'https://drive.example/2', provider: 'other' },
+      { label: 'Bare', url: 'https://bare.example/3' },
+    ]
+
+    it('renders Spotify, YouTube, then the other rows, with a group collapsed by default', () => {
+      render(<LinksSection controller={makeController({ links: mixedLinks })} onDelete={vi.fn()} />)
+
+      const rows = screen.getAllByRole('listitem')
+      expect(rows).toHaveLength(5)
+      expect(rows[0].textContent).toContain('Track')
+      expect(rows[1].textContent).toContain('YouTube')
+      expect(rows[1].textContent).toContain('3')
+      expect(rows.slice(2).map((r) => r.textContent)).toEqual([
+        expect.stringContaining('Chords'),
+        expect.stringContaining('Drive'),
+        expect.stringContaining('Bare'),
+      ])
+      expect(screen.queryByText('Video A')).toBeNull()
+    })
+
+    it('opens a one-link provider on the first tap: an anchor, no expander', () => {
+      render(<LinksSection controller={makeController({ links: mixedLinks })} onDelete={vi.fn()} />)
+
+      const anchor = screen.getByText('Track').closest('a') as HTMLAnchorElement
+      expect(anchor.getAttribute('href')).toBe('https://open.spotify.com/track/1')
+      expect(screen.getAllByRole('listitem')[0].querySelector('button[aria-expanded]')).toBeNull()
+    })
+
+    it('renders a group row as a button without href that reveals every link as an anchor in input order', () => {
+      render(<LinksSection controller={makeController({ links: mixedLinks })} onDelete={vi.fn()} />)
+
+      const toggle = screen.getByRole('button', { name: /YouTube/ })
+      expect(toggle.getAttribute('href')).toBeNull()
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+      fireEvent.click(toggle)
+
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      const hrefs = ['Video A', 'Video B', 'Video C'].map((t) => screen.getByText(t).closest('a')?.getAttribute('href'))
+      expect(hrefs).toEqual([
+        'https://youtube.com/watch?v=a',
+        'https://youtube.com/watch?v=b',
+        'https://youtube.com/watch?v=c',
+      ])
+
+      fireEvent.click(toggle)
+      expect(screen.queryByText('Video A')).toBeNull()
+    })
+
+    it('reports the delete of a link inside an expanded group with that link url', () => {
+      const onDelete = vi.fn()
+      render(<LinksSection controller={makeController({ links: mixedLinks })} onDelete={onDelete} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /YouTube/ }))
+      const row = screen.getByText('Video B').closest('li') as HTMLElement
+      fireEvent.click(row.querySelector('button[aria-label="Delete link"]') as HTMLButtonElement)
+
+      expect(onDelete).toHaveBeenCalledWith('https://youtube.com/watch?v=b')
+    })
+
+    it('read-only disables the delete inside a group but not the expand', () => {
+      render(<LinksSection controller={makeController({ links: mixedLinks })} onDelete={vi.fn()} readOnly />)
+
+      const toggle = screen.getByRole('button', { name: /YouTube/ }) as HTMLButtonElement
+      expect(toggle.disabled).toBe(false)
+      fireEvent.click(toggle)
+
+      const row = screen.getByText('Video B').closest('li') as HTMLElement
+      expect((row.querySelector('button[aria-label="Delete link"]') as HTMLButtonElement).disabled).toBe(true)
+      expect(screen.getByText('Video B').closest('a')).not.toBeNull()
+    })
+  })
+
   it('LinkIcon renders a distinct icon for Spotify, YouTube, a chord site, a PDF and an unknown url', () => {
     const urls = [
       'https://open.spotify.com/track/1',

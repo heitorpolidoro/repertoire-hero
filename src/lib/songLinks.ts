@@ -34,6 +34,31 @@ export function removeLinkByUrl(links: SongLink[], url: string): SongLink[] {
   return links.filter((link) => link.url !== url)
 }
 
+/** One row of the Links section: a plain link, or several links of one provider. */
+export type LinkEntry =
+  | { kind: 'single'; link: SongLink }
+  | { kind: 'group'; provider: 'spotify' | 'youtube'; links: SongLink[] }
+
+const GROUPED_PROVIDERS = ['spotify', 'youtube'] as const
+
+/**
+ * Partitions links into display rows (RH-145): Spotify, then YouTube, then every
+ * other link (a missing provider counts as `other`) as its own row. A provider
+ * with one link is a `single`, with several a `group`. Input order is kept.
+ */
+export function groupLinksByProvider(links: SongLink[]): LinkEntry[] {
+  const entries: LinkEntry[] = []
+  for (const provider of GROUPED_PROVIDERS) {
+    const own = links.filter((link) => link.provider === provider)
+    if (own.length === 1) entries.push({ kind: 'single', link: own[0] })
+    else if (own.length > 1) entries.push({ kind: 'group', provider, links: own })
+  }
+  for (const link of links) {
+    if (link.provider !== 'spotify' && link.provider !== 'youtube') entries.push({ kind: 'single', link })
+  }
+  return entries
+}
+
 /**
  * Everything `useSongLinks` exposes. Declared here, not in the hook, so the
  * presentational components can type it without importing `src/hooks`.

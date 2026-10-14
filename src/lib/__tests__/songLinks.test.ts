@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendLink, isDuplicateLinkUrl, removeLinkByUrl, resolveLinkLabel } from '@/lib/songLinks'
+import { appendLink, groupLinksByProvider, isDuplicateLinkUrl, removeLinkByUrl, resolveLinkLabel } from '@/lib/songLinks'
 import type { SongLink } from '@/types/database'
 
 const LINKS: SongLink[] = [
@@ -48,5 +48,39 @@ describe('songLinks', () => {
     expect(removeLinkByUrl(withDuplicate, 'https://youtube.com/watch?v=1')).toEqual([LINKS[0]])
     expect(removeLinkByUrl(LINKS, 'https://example.com/nothing')).toEqual(LINKS)
     expect(LINKS).toHaveLength(2)
+  })
+
+  describe('groupLinksByProvider', () => {
+    const mixed: SongLink[] = [
+      { label: 'Chords', url: 'https://cifra.example/1', provider: 'other' },
+      { label: 'YT A', url: 'https://youtube.com/watch?v=a', provider: 'youtube' },
+      { label: 'Sp', url: 'https://open.spotify.com/track/1', provider: 'spotify' },
+      { label: 'YT B', url: 'https://youtube.com/watch?v=b', provider: 'youtube' },
+      { label: 'Drive', url: 'https://drive.example/2', provider: 'other' },
+      { label: 'Bare', url: 'https://bare.example/3' },
+      { label: 'YT C', url: 'https://youtube.com/watch?v=c', provider: 'youtube' },
+    ]
+
+    it('orders Spotify, YouTube, then other rows, keeping input order inside each', () => {
+      const entries = groupLinksByProvider(mixed)
+
+      expect(entries.map((e) => e.kind)).toEqual(['single', 'group', 'single', 'single', 'single'])
+      expect(entries[0]).toMatchObject({ kind: 'single', link: { label: 'Sp' } })
+      expect(entries[1]).toMatchObject({ kind: 'group', provider: 'youtube' })
+      expect(entries[1].kind === 'group' && entries[1].links.map((l) => l.label)).toEqual(['YT A', 'YT B', 'YT C'])
+      expect(entries.slice(2).map((e) => e.kind === 'single' && e.link.label)).toEqual(['Chords', 'Drive', 'Bare'])
+    })
+
+    it('turns a lone provider link into a single and returns nothing for no links', () => {
+      expect(groupLinksByProvider([])).toEqual([])
+      const one: SongLink = { label: 'YT', url: 'https://youtu.be/x', provider: 'youtube' }
+      expect(groupLinksByProvider([one])).toEqual([{ kind: 'single', link: one }])
+    })
+
+    it('groups several Spotify links and never groups other links', () => {
+      const sp = [1, 2].map((n) => ({ label: `S${n}`, url: `https://open.spotify.com/track/${n}`, provider: 'spotify' as const }))
+      const oth = [1, 2].map((n) => ({ label: `O${n}`, url: `https://o.example/${n}`, provider: 'other' as const }))
+      expect(groupLinksByProvider([...oth, ...sp]).map((e) => e.kind)).toEqual(['group', 'single', 'single'])
+    })
   })
 })

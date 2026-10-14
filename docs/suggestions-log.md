@@ -10322,3 +10322,33 @@ Non-blocking suggestions from QA round 1:
 
 - (code review) The line "RH-71 ... confirm it before relying on it" reads as a leftover hedge. Once verified, state the fact plainly.
 - (code review) The new decision section sits between 6 and 7 and is unnumbered; consider a link from §6 to it.
+
+## [RH-143] Drop songs.links and the forward bridge trigger — 2026-10-14
+
+- (spec review) ER6 bundles a grep condition with three gate commands; acceptable but borderline on "one assertion".
+- (spec review) The spec's grep pattern does not match `s.links`-style comments; the comment cleanup list in item 5 covers them explicitly.
+
+## [RH-109] Address the Fast View by version and navigate a queue — 2026-10-14
+
+- (spec review) ER7 depends on a task-report artifact. Say where the report is recorded so QA can find it.
+- (spec review) ER6 and ER8 need the operator for the production build and DB migration; the spec already marks this `[operator]`.
+
+## [RH-148] Open a song's primary file half-expanded on arrival in Fast View — 2026-10-14
+
+- (spec review) After the answers arrive, write 3-8 single-sentence ERs (one per chosen decision plus the fixed rules), and delete the "Spec leans" text and the unchosen options from the spec to avoid drift.
+- (spec review) If decision 1 = A, the spec's scope grows (new TabViewer peek UI). Re-check its size at that point.
+- (spec review) Decision 4 B needs a defined way to tell "queue walk" from "direct arrival" (for example a prop or route flag). Name it in the revised Approach.
+
+## [RH-145] Group a song's links by provider, expanding only when there are several — 2026-10-14
+
+- ER 6 bundles delete-calls-onDelete and read-only-disabled; consider splitting if QA finds it ambiguous.
+- The spec references mock "Question 1/2" as if still open; confirm they are resolved by the Decisions section.
+
+## [RH-109] Address the Fast View by version and navigate a queue — 2026-10-14
+
+- (code review) e2e/fast-view-queue.spec.ts: two fixed `waitForTimeout(800)` sleeps back the no-wraparound assertions; acceptable for negative assertions but the likeliest source of flakiness.
+- (code review) The docs/use-cases.md audit produced no staged change; the task report holds the per-statement audit.
+
+## [RH-145] Group a song's links by provider, expanding only when there are several — 2026-10-14
+
+- (code review) `PROVIDER_NAMES` and `GROUPED_PROVIDERS` duplicate the provider list; minor, not worth changing now.
