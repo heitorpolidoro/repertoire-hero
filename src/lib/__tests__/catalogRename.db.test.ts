@@ -56,8 +56,8 @@ describe.skipIf(!RUN_DB_TESTS)('catalog table rename (real database)', () => {
   beforeAll(async () => {
     userId = await createTestUser({ email: `rh121-rename-${suffix}@test.local` })
     const res = await query<{ id: string }>(
-      `INSERT INTO songs (title, artist, links)
-       VALUES ($1, $2, '[]'::jsonb) RETURNING id`,
+      `INSERT INTO songs (title, artist)
+       VALUES ($1, $2) RETURNING id`,
       [`RH-121 Song ${suffix}`, 'RH-121 Artist'],
     )
     songId = res.rows[0].id
@@ -102,7 +102,7 @@ describe.skipIf(!RUN_DB_TESTS)('catalog table rename (real database)', () => {
         ORDER BY column_name`,
     )
     const columns = res.rows.map((r) => r.column_name)
-    for (const column of ['id', 'title', 'artist', 'album', 'standard_key', 'cover_url', 'duration_seconds', 'links', 'created_at', 'updated_at']) {
+    for (const column of ['id', 'title', 'artist', 'album', 'standard_key', 'cover_url', 'duration_seconds', 'created_at', 'updated_at']) {
       expect(columns).toContain(column)
     }
   })

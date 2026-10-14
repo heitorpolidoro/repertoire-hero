@@ -15,6 +15,7 @@ import {
   deleteTab,
   getTabAnnotations,
   saveTabAnnotations,
+  setTabPrimary,
   listTabs,
   recordAbandonedBlob,
 } from '@/lib/tabs'
@@ -210,6 +211,21 @@ export async function saveTabAnnotationsAction(
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined
     return { error: message || 'Failed to save annotations' }
+  }
+}
+
+export async function setTabPrimaryAction(
+  fileId: string,
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const userId = await getRequiredUserId()
+    const updated = await setTabPrimary(fileId, userId)
+    if (!updated) return { error: 'Tab not found' }
+    revalidatePath('/')
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined
+    return { error: message || 'Failed to set the primary file' }
   }
 }
 

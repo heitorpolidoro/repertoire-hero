@@ -37,6 +37,7 @@ const actions = {
   getTabs: vi.fn(),
   uploadTab: vi.fn(),
   deleteTab: vi.fn(),
+  setPrimaryTab: vi.fn(),
   getAnnotations: vi.fn(),
   saveAnnotations: vi.fn(),
 }
@@ -81,6 +82,7 @@ vi.mock('@/app/fastViewOfflineActions', () => {
       getTabs: call('getTabs'),
       uploadTab: call('uploadTab'),
       deleteTab: call('deleteTab'),
+      setPrimaryTab: call('setPrimaryTab'),
     },
     AUDIO_LIBRARY_ACTIONS: {
       getAudio: () => Promise.resolve([]),

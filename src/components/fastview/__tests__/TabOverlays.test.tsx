@@ -182,6 +182,7 @@ describe('the file library for a song the user holds no repertoire row for', () 
       getTabs,
       uploadTab: vi.fn(),
       deleteTab: vi.fn(),
+      setPrimaryTab: vi.fn(),
     } as unknown as TabLibraryActions
 
     await act(async () => {

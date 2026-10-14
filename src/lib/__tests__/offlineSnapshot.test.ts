@@ -38,6 +38,7 @@ import {
   type OfflineTabSnapshot,
 } from '@/lib/offlineSnapshot'
 import { upgradeSnapshotV5ToV6, type OfflineSnapshotV5 } from '@/lib/offlineSnapshotV5'
+import { resolvePrimaryTab } from '@/lib/tabLibrary'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
 function song(id: string) {
@@ -493,6 +494,73 @@ describe('the content type round trip (RH-128 ER7)', () => {
     const snapshot = buildOne()
     const songs = [
       { ...snapshot.songs[0], tabs: [{ ...snapshot.songs[0].tabs[0], contentType: 7 }] },
+      snapshot.songs[1],
+    ]
+
+    expect(readValidSnapshot({ ...snapshot, songs })).toBeNull()
+  })
+})
+
+/**
+ * RH-147 — the primary designation travels in `tabs[]` as an optional
+ * `isPrimary`, so the offline list marks the same file as the online one.
+ * `OFFLINE_SCHEMA_VERSION` stays 6 for the same reason as `contentType`.
+ */
+describe('the primary file round trip (RH-147)', () => {
+  function snapshotWithPrimary() {
+    return buildOfflineSnapshot({
+      playlistId: 'pl-1',
+      playlistName: 'Gig',
+      bandId: null,
+      savedAt: '2026-09-20T18:04:00.000Z',
+      songs: [
+        {
+          entry: { repertoireId: 'rep-1', versionId: 'version-of-rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: null },
+          repertoire: repertoire('rep-1'),
+          personalRepertoire: null,
+          tabs: [
+            { tab: { ...tabRow('tab-first', '2026-01-01T00:00:00Z'), is_primary: false }, bytes: 100 },
+            { tab: { ...tabRow('tab-second', '2026-02-01T00:00:00Z'), is_primary: true }, bytes: 100 },
+          ],
+        },
+      ],
+    })
+  }
+
+  it('writes the designation into the tabs[] entries and reads it back at schema version 6', () => {
+    const snapshot = snapshotWithPrimary()
+    expect(snapshot.schemaVersion).toBe(6)
+    expect(snapshot.songs[0].tabs.map((tab) => tab.isPrimary)).toEqual([false, true])
+
+    const read = readValidSnapshot(JSON.parse(JSON.stringify(snapshot)))
+    expect(read).not.toBeNull()
+    const files = read!.songs[0].tabs.map(offlineTabToSongFile)
+    expect(files.map((file) => file.is_primary)).toEqual([false, true])
+    expect(resolvePrimaryTab(files)?.id).toBe('tab-second')
+  })
+
+  it('still validates a snapshot whose tabs[] entries omit the primary field', () => {
+    const snapshot = buildOne()
+    const bare = snapshot.songs[0].tabs.map((tab) => {
+      const copy = { ...tab }
+      delete copy.isPrimary
+      return copy
+    })
+    const songs = [{ ...snapshot.songs[0], tabs: bare }, snapshot.songs[1]]
+
+    const read = readValidSnapshot({ ...snapshot, songs })
+
+    expect(read).not.toBeNull()
+    expect('isPrimary' in read!.songs[0].tabs[0]).toBe(false)
+    expect(OFFLINE_SCHEMA_VERSION).toBe(6)
+    // Nothing designated: the oldest file is the fallback.
+    expect(resolvePrimaryTab(read!.songs[0].tabs.map(offlineTabToSongFile))?.id).toBe('tab-old')
+  })
+
+  it('rejects a snapshot whose primary flag is not a boolean', () => {
+    const snapshot = buildOne()
+    const songs = [
+      { ...snapshot.songs[0], tabs: [{ ...snapshot.songs[0].tabs[0], isPrimary: 'yes' }] },
       snapshot.songs[1],
     ]
 

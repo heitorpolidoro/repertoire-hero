@@ -47,6 +47,7 @@ export function TabLibrarySection({
             activeTabUrl={library.activeTabUrl}
             onSelect={library.selectTab}
             onDelete={library.requestDelete}
+            onSetPrimary={(tabId) => void library.setPrimaryTab(tabId)}
             readOnly={readOnly}
           />
           <TabViewer

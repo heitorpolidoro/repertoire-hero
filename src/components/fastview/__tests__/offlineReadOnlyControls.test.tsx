@@ -199,6 +199,7 @@ function makeTabLibrary(overrides: Partial<TabLibraryController> = {}): TabLibra
     requestDelete: vi.fn(),
     confirmDelete: vi.fn().mockResolvedValue(undefined),
     cancelDelete: vi.fn(),
+    setPrimaryTab: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -371,6 +372,26 @@ describe('RH-99 ER2 — the tab library controls', () => {
 
     expect(screen.getByRole('button', { name: /Guitar chart/ }).hasAttribute('disabled')).toBe(false)
     expect(screen.getByRole('button', { name: /Stage/ }).hasAttribute('disabled')).toBe(false)
+  })
+
+  // RH-147: designating a primary file is a write, so offline it is disabled
+  // like the delete; the open-in-new-tab anchor beside it stays a plain link.
+  it('disables the set-as-primary star on every row when read-only, leaving the open link alone', () => {
+    renderTabs(true)
+
+    const stars = screen.getAllByRole('button', { name: 'Set as primary file' })
+    expect(stars).toHaveLength(2)
+    expect(stars.every((b) => b.hasAttribute('disabled'))).toBe(true)
+    const links = screen.getAllByTitle('Open in new tab / download')
+    expect(links).toHaveLength(2)
+    expect(links.every((a) => !a.hasAttribute('aria-disabled'))).toBe(true)
+  })
+
+  it('leaves the set-as-primary star enabled by default', () => {
+    renderTabs()
+
+    const stars = screen.getAllByRole('button', { name: 'Set as primary file' })
+    expect(stars.every((b) => b.hasAttribute('disabled'))).toBe(false)
   })
 })
 

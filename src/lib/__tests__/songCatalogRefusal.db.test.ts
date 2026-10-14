@@ -53,23 +53,22 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       standard_key: null,
       cover_url: null,
       duration_seconds: null,
-      // `songs.links` is NOT NULL DEFAULT '[]', so "empty" means `[]`.
       links: [] as SongLink[],
       ...columns,
     }
     const res = await query<{ id: string }>(
-      `INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds, links)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
-      [
-        row.title,
-        row.artist,
-        row.album,
-        row.standard_key,
-        row.cover_url,
-        row.duration_seconds,
-        JSON.stringify(row.links),
-      ],
+      `INSERT INTO songs (title, artist, album, standard_key, cover_url, duration_seconds)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [row.title, row.artist, row.album, row.standard_key, row.cover_url, row.duration_seconds],
     )
+    for (const [position, link] of row.links.entries()) {
+      await query('INSERT INTO song_links (song_id, url, label, position) VALUES ($1, $2, $3, $4)', [
+        res.rows[0].id,
+        link.url,
+        link.label,
+        position,
+      ])
+    }
     createdSongIds.push(res.rows[0].id)
     return addSongToRepertoire({ userId }, res.rows[0].id)
   }
@@ -96,9 +95,8 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
       standard_key: string | null
       cover_url: string | null
       duration_seconds: number | null
-      links: SongLink[]
     }>(
-      'SELECT title, artist, album, standard_key, cover_url, duration_seconds, links FROM songs WHERE id = $1',
+      'SELECT title, artist, album, standard_key, cover_url, duration_seconds FROM songs WHERE id = $1',
       [songId],
     )
     return res.rows[0]

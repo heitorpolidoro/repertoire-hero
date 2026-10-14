@@ -224,7 +224,7 @@ const OFFLINE_READERS: Record<string, OfflineReader> = {
 }
 
 /** Writes whose declared return type is a result envelope their hook inspects. */
-const ENVELOPE_WRITES = new Set(['uploadTab', 'deleteTab', 'saveAnnotations', 'updateLinks'])
+const ENVELOPE_WRITES = new Set(['uploadTab', 'deleteTab', 'setPrimaryTab', 'saveAnnotations', 'updateLinks'])
 
 function offlineWrite(method: string): Promise<unknown> {
   if (ENVELOPE_WRITES.has(method)) {

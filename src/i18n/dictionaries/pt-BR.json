@@ -48,6 +48,10 @@
       "links": "Links"
     }
   },
+  "songFiles": {
+    "setPrimary": "Definir como arquivo principal",
+    "primaryBadge": "Principal"
+  },
   "landing": {
     "badge": "Feito para Músicos & Bandas",
     "title": "Domine seu Setlist.",

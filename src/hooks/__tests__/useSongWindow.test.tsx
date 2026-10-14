@@ -67,6 +67,7 @@ describe('useSongWindow', () => {
       getTabs: vi.fn().mockResolvedValue([{ id: 'f1', title: 'Chart' }]),
       uploadTab: vi.fn(),
       deleteTab: vi.fn(),
+      setPrimaryTab: vi.fn(),
     }
     // Module-level in production; a stable identity here for the same reason.
     const windowActions = { getSongWindow }
@@ -110,7 +111,7 @@ describe('useSongWindow', () => {
         songId: song.songId,
         versionId: 'v3',
         bandId: null,
-        actions: { getTabs, uploadTab: vi.fn(), deleteTab: vi.fn() },
+        actions: { getTabs, uploadTab: vi.fn(), deleteTab: vi.fn(), setPrimaryTab: vi.fn() },
         onPersonalEntryCreated: vi.fn(),
         notify: vi.fn(),
       })

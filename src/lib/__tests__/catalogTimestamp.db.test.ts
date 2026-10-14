@@ -40,8 +40,8 @@ describe.skipIf(!RUN_DB_TESTS)('songs.updated_at (real database)', () => {
   /** A fresh catalog row with no links, so a link add is an additive edit. */
   const makeSong = async (): Promise<string> => {
     const res = await query<{ id: string }>(
-      `INSERT INTO songs (title, artist, links)
-       VALUES ($1, $2, '[]'::jsonb) RETURNING id`,
+      `INSERT INTO songs (title, artist)
+       VALUES ($1, $2) RETURNING id`,
       [`RH-101 Song ${suffix}-${createdSongIds.length}`, 'RH-101 Artist'],
     )
     createdSongIds.push(res.rows[0].id)

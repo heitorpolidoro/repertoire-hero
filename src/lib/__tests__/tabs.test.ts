@@ -13,10 +13,16 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@/lib/db', () => ({
-  query: vi.fn(),
-  pool: { query: vi.fn() },
-}))
+// `withTransaction` hands its callback a client whose `query` is the same mock,
+// so a transactional statement is observed exactly like a plain one.
+vi.mock('@/lib/db', () => {
+  const query = vi.fn()
+  return {
+    query,
+    pool: { query: vi.fn() },
+    withTransaction: (fn: (client: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+  }
+})
 
 import {
   createTab,
@@ -173,8 +179,9 @@ describe('createTab', () => {
     const [sql, params] = statement()
     expect(sql).toContain('INSERT INTO song_files')
     expect(sql).toContain('created_at::text as created_at')
-    // `size_bytes` is null: only audio rows carry one (RH-162).
-    expect(params).toEqual([USER_ID, SONG_ID, TITLE, FILE_URL, CONTENT_TYPE, null])
+    // `size_bytes` is null: only audio rows carry one (RH-162); the last
+    // parameter is whether this attempt may claim the primary slot (RH-147).
+    expect(params).toEqual([USER_ID, SONG_ID, TITLE, FILE_URL, CONTENT_TYPE, null, true])
   })
 
   // ER10: the stored file's content type is written on insert and returned, so

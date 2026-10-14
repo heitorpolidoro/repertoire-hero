@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-147 — Which of a song's files is the primary one?</title>
+<!--
+  Self-contained: no build step, no dev server, no network. Inline CSS, inline
+  SVG, a data-URI placeholder for the chart image. Open by double-clicking.
+  Copy, control positions and proportions follow src/components/fastview/TabList.tsx
+  and src/components/fastview/TabViewer.tsx as built at 51bba28.
+-->
+<style>
+  :root{
+    --emerald-50:#ecfdf5; --emerald-100:#d1fae5; --emerald-200:#a7f3d0;
+    --emerald-300:#6ee7b7; --emerald-600:#059669; --emerald-700:#047857;
+    --gray-50:#f9fafb; --gray-100:#f3f4f6; --gray-200:#e5e7eb; --gray-300:#d1d5db;
+    --gray-400:#9ca3af; --gray-500:#6b7280; --gray-700:#374151; --gray-900:#111827;
+    --red-500:#ef4444; --red-600:#dc2626; --amber-500:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--gray-100);color:var(--gray-900);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header.page{background:#fff;border-bottom:1px solid var(--gray-200);padding:20px 24px}
+  header.page h1{margin:0 0 6px;font-size:20px}
+  header.page p{margin:0;color:var(--gray-500);max-width:70ch}
+  main{padding:24px;max-width:1200px;margin:0 auto}
+  section.q{background:#fff;border:1px solid var(--gray-200);border-radius:14px;
+            padding:18px 18px 22px;margin-bottom:24px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  section.q > h2{margin:0 0 4px;font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500)}
+  section.q > .ask{margin:0 0 16px;font-size:15px;font-weight:600;color:var(--gray-900)}
+  section.q > .note{margin:-8px 0 16px;color:var(--gray-500);font-size:13px;max-width:85ch}
+  .panels{display:flex;flex-wrap:wrap;gap:18px}
+  .panel{flex:1 1 320px;min-width:300px;border:1px solid var(--gray-200);border-radius:12px;
+         padding:14px;background:var(--gray-50)}
+  .panel.today{background:#fff;border-style:dashed}
+  .panel h3{margin:0 0 2px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--gray-700)}
+  .panel .label{display:inline-flex;align-items:center;justify-content:center;
+    width:22px;height:22px;border-radius:999px;background:var(--gray-900);color:#fff;
+    font-size:12px;font-weight:700;margin-right:8px}
+  .panel .label.today{background:var(--gray-400)}
+  .panel .cap{margin:2px 0 12px;font-size:12.5px;color:var(--gray-500)}
+
+  /* --- Fast View "Tabs" section, as built --- */
+  .tabs-head{font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;
+             letter-spacing:.06em;margin:0 0 10px}
+  ul.tablist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  ul.tablist li{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;border-radius:12px;border:1px solid var(--gray-200);background:#fff;
+    box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  ul.tablist li.active{background:rgba(236,253,245,.6);border-color:var(--emerald-300)}
+  .rowmain{display:flex;flex:1 1 auto;align-items:center;gap:12px;min-width:0;
+    background:none;border:0;padding:0;text-align:left;font:inherit;color:var(--gray-700);
+    font-weight:500;cursor:pointer}
+  .rowmain .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;margin-right:6px}
+  .pill{font-size:10px;font-weight:700;color:var(--emerald-700);background:var(--emerald-100);
+    padding:2px 6px;border-radius:999px;text-transform:uppercase;letter-spacing:.08em;flex-shrink:0}
+  .pill.primary{color:#92400e;background:#fef3c7}
+  .rowctl{display:flex;align-items:center;gap:4px;flex-shrink:0;position:relative}
+  .iconbtn{background:none;border:0;padding:6px;border-radius:8px;color:var(--gray-400);
+    cursor:pointer;line-height:0}
+  .iconbtn:hover{background:var(--gray-50);color:var(--emerald-600)}
+  .iconbtn.del:hover{color:var(--red-600)}
+  .iconbtn[disabled]{color:var(--gray-300);cursor:not-allowed;background:none}
+  .iconbtn.star.on{color:var(--amber-500)}
+  .pdf{color:var(--red-500);flex-shrink:0}
+  .grip{color:var(--gray-300);cursor:grab;padding:6px 2px;line-height:0}
+
+  .menu{position:absolute;right:0;top:34px;z-index:5;background:#fff;border:1px solid var(--gray-200);
+    border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:172px;padding:4px;display:none}
+  .menu.open{display:block}
+  .menu button{display:block;width:100%;text-align:left;background:none;border:0;
+    padding:8px 10px;border-radius:7px;font:inherit;color:var(--gray-700);cursor:pointer}
+  .menu button:hover{background:var(--gray-50)}
+  .menu button.danger{color:var(--red-600)}
+  .menu button[disabled]{color:var(--gray-300);cursor:not-allowed;background:none}
+
+  /* --- the viewer card, as built --- */
+  .viewer{display:flex;flex-direction:column;gap:8px;background:#fff;border:1px solid var(--emerald-200);
+    border-radius:12px;padding:12px;margin-top:14px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .viewer .vhead{display:flex;align-items:center;justify-content:space-between;padding:0 4px}
+  .viewer .vtitle{font-size:12px;font-weight:600;color:var(--gray-700);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:200px}
+  .vbtns{display:flex;align-items:center;gap:8px}
+  .stage{font-size:12px;font-weight:500;color:var(--emerald-600);background:var(--emerald-50);
+    padding:2px 8px;border-radius:6px;border:1px solid var(--emerald-200);cursor:pointer}
+  .closeb{font-size:12px;color:var(--gray-400);background:none;border:0;cursor:pointer}
+  .vbody{height:168px;border-radius:8px;background:var(--gray-50);border:1px solid var(--gray-200);
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .vbody img{height:100%;width:100%;object-fit:contain}
+
+  .offline-strip{display:flex;align-items:center;gap:8px;margin:10px 0 0;padding:8px 10px;
+    border:1px dashed var(--emerald-300);background:rgba(236,253,245,.5);border-radius:10px;
+    font-size:12px;color:var(--gray-500)}
+  .switch{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-500)}
+  .cost{margin:12px 0 0;padding:10px 12px;background:#fff;border:1px solid var(--gray-200);
+    border-radius:10px;font-size:12.5px;color:var(--gray-700)}
+  .cost b{color:var(--gray-900)}
+  footer{padding:8px 24px 40px;color:var(--gray-500);font-size:12.5px;max-width:1000px;margin:0 auto}
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>RH-147 — Which of a song's files is the primary one?</h1>
+  <p>Four questions, each with the options side by side on the real Fast View
+     “Tabs” section. The first panel of Q1 is <strong>today's behaviour</strong>.
+     Answering with a letter per question is enough — A or B (Q4 also offers C).</p>
+</header>
+
+<main>
+
+<!-- ============ Q1 ============ -->
+<section class="q">
+  <h2>Q1 — Designation or ordering?</h2>
+  <p class="ask">Do you want one file marked as “the one I play from”, or do you want to put the whole list in the order you like (and the top one is the primary)?</p>
+  <p class="note">Today a song's files are listed newest-upload-first and none of them is marked.
+     Both options are personal: a band mate never sees or changes your choice.</p>
+  <div class="panels">
+
+    <div class="panel today">
+      <h3><span class="label today">0</span>Today</h3>
+      <p class="cap">Newest upload first. Nothing is marked. Nothing can be set.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist">
+        <li>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Phone photo 12 Oct</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li class="active">
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Chord chart (capo 2)</span>
+            <span class="pill">Viewing</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Full score — final.pdf</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+      </ul>
+      <div class="viewer">
+        <div class="vhead">
+          <span class="vtitle">Viewing: Chord chart (capo 2)</span>
+          <div class="vbtns"><button class="stage">⛶ Stage</button><button class="closeb">Close</button></div>
+        </div>
+        <div class="vbody"><img alt="chart placeholder" src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27420%27%20height%3D%27300%27%3E%3Crect%20width%3D%27420%27%20height%3D%27300%27%20fill%3D%27%23fff%27/%3E%3Cg%20fill%3D%27%23374151%27%20font-family%3D%27monospace%27%20font-size%3D%2716%27%3E%3Ctext%20x%3D%2724%27%20y%3D%2744%27%3EG%20%20%20%20%20D/F%23%20%20%20Em7%3C/text%3E%3Ctext%20x%3D%2724%27%20y%3D%2780%27%3EC%20%20%20%20%20G/B%20%20%20%20Am%3C/text%3E%3Ctext%20x%3D%2724%27%20y%3D%27116%27%3EG%20%20%20%20%20D%20%20%20%20%20%20C%3C/text%3E%3C/g%3E%3Cg%20stroke%3D%27%23e5e7eb%27%3E%3Cline%20x1%3D%2724%27%20y1%3D%27150%27%20x2%3D%27396%27%20y2%3D%27150%27/%3E%3Cline%20x1%3D%2724%27%20y1%3D%27180%27%20x2%3D%27396%27%20y2%3D%27180%27/%3E%3Cline%20x1%3D%2724%27%20y1%3D%27210%27%20x2%3D%27396%27%20y2%3D%27210%27/%3E%3C/g%3E%3C/svg%3E"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3><span class="label">A</span>One file is marked</h3>
+      <p class="cap">A star on each row. One tap moves it. Exactly one file per song can wear it. Whether the starred file also moves to the top of the list is a separate choice — that is Q3.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist" data-star-group="q1a">
+        <li>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Phone photo 12 Oct</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn star" data-star aria-label="Set as primary file" title="Set as primary file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button>
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li class="active">
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Chord chart (capo 2)</span>
+            <span class="pill">Viewing</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn star on" data-star aria-label="Primary file" title="Primary file"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button>
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Full score — final.pdf</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn star" data-star aria-label="Set as primary file" title="Set as primary file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button>
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+      </ul>
+      <p class="cost">Try it: tap a star. <b>Smaller change.</b> Answers only “which one”, and the database itself forbids a second primary.</p>
+    </div>
+
+    <div class="panel">
+      <h3><span class="label">B</span>You order the whole list</h3>
+      <p class="cap">A drag handle on each row, the same as a setlist. The top file is the primary one.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist" id="q1b">
+        <li draggable="true">
+          <span class="grip"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Chord chart (capo 2)</span>
+            <span class="pill primary">1st</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li draggable="true">
+          <span class="grip"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Full score — final.pdf</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li draggable="true">
+          <span class="grip"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+          <button class="rowmain" type="button">
+            <svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <span class="title">Phone photo 12 Oct</span>
+          </button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+      </ul>
+      <p class="cost">Try it: drag a row by its dots. <b>Bigger change</b> — a reorder is several rows rewritten at once — but you get the ordering too, and the top row is always the primary.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Q2 ============ -->
+<section class="q">
+  <h2>Q2 — What is already primary, for files you uploaded before this change?</h2>
+  <p class="ask">For a song that already has several files, which one should start out as the primary — the first chart you ever uploaded, or the most recent one?</p>
+  <p class="note">Today’s state is the panel marked <strong>0</strong> in Q1 above: newest first, nothing marked.
+     This runs once, for everybody, and is what you will see on your next visit.
+     The same rule then decides what happens when you upload a <em>new</em> file onto a song that already has one.</p>
+  <div class="panels">
+    <div class="panel">
+      <h3><span class="label">A</span>The oldest file</h3>
+      <p class="cap">The first chart you uploaded for the song. A new upload later does <strong>not</strong> steal the primary.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist">
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span></button><div class="rowctl"><span style="font-size:11px;color:#9ca3af">uploaded today</span></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Full score — final.pdf</span></button><div class="rowctl"><span style="font-size:11px;color:#9ca3af">last month</span></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span><span class="pill primary">Primary</span></button><div class="rowctl"><span style="font-size:11px;color:#9ca3af">a year ago</span></div></li>
+      </ul>
+      <p class="cost">The chart you have played from longest wins, even though it sits at the bottom of the list.</p>
+    </div>
+    <div class="panel">
+      <h3><span class="label">B</span>The newest file</h3>
+      <p class="cap">Whatever is at the top of the list today. A new upload later <strong>becomes</strong> the primary.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist">
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span><span class="pill primary">Primary</span></button><div class="rowctl"><span style="font-size:11px;color:#9ca3af">uploaded today</span></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Full score — final.pdf</span></button><div class="rowctl"><span style="font-size:11px;color:#9ca3af">last month</span></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span></button><div class="rowctl"><span style="font-size:11px;color:#9ca3af">a year ago</span></div></li>
+      </ul>
+      <p class="cost">Nothing appears to move, and a phone photo taken at rehearsal immediately becomes what opens.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Q3 ============ -->
+<section class="q">
+  <h2>Q3 — Does the primary file move to the top of the list?</h2>
+  <p class="ask">Should the primary file jump to the top of the file list, or stay where it is with a badge on it?</p>
+  <p class="note">Today’s state is the panel marked <strong>0</strong> in Q1 above: newest first, nothing marked.
+     Shown here with the oldest chart as the primary, which is the case where the two differ most.</p>
+  <div class="panels">
+    <div class="panel">
+      <h3><span class="label">A</span>Pinned to the top</h3>
+      <p class="cap">Primary first, everything else newest-first below it.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist">
+        <li class="active"><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span><span class="pill primary">Primary</span></button><div class="rowctl"><button class="iconbtn star on"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span></button><div class="rowctl"><button class="iconbtn star"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Full score — final.pdf</span></button><div class="rowctl"><button class="iconbtn star"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button></div></li>
+      </ul>
+      <p class="cost">The file that opens is the first one you see. Rows move when you change the primary.</p>
+    </div>
+    <div class="panel">
+      <h3><span class="label">B</span>Marked where it is</h3>
+      <p class="cap">List order untouched — newest first — with a badge on the primary.</p>
+      <p class="tabs-head">Tabs</p>
+      <ul class="tablist">
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span></button><div class="rowctl"><button class="iconbtn star"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button></div></li>
+        <li><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Full score — final.pdf</span></button><div class="rowctl"><button class="iconbtn star"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button></div></li>
+        <li class="active"><button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span><span class="pill primary">Primary</span></button><div class="rowctl"><button class="iconbtn star on"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button></div></li>
+      </ul>
+      <p class="cost">Nothing you have learned moves, but the file that opens can be the last one in the list.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Q4 ============ -->
+<section class="q">
+  <h2>Q4 — Where do you tap to set it?</h2>
+  <p class="ask">Should the row carry a star you tap directly, or a “⋯” menu that holds “Set as primary”? (Option C is what Q1-B would give you instead: a drag handle.)</p>
+  <p class="note">Today’s row — the panel marked <strong>0</strong> in Q1 above — holds select / open / delete and no set-primary control.
+     Every option is disabled while you are offline, like the delete button already is — flip the switch under each panel to see it.</p>
+  <div class="panels">
+
+    <div class="panel">
+      <h3><span class="label">A</span>A star on the row</h3>
+      <p class="cap">Three controls per row: star, open-in-new-tab, delete.</p>
+      <ul class="tablist" data-star-group="q4a" id="q4a">
+        <li>
+          <button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span></button>
+          <div class="rowctl">
+            <button class="iconbtn star" data-star data-write aria-label="Set as primary file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button>
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" data-write aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+        <li class="active">
+          <button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span><span class="pill">Viewing</span></button>
+          <div class="rowctl">
+            <button class="iconbtn star on" data-star data-write aria-label="Primary file"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.5l2.2 4.46 4.92.72-3.56 3.47.84 4.9-4.4-2.31-4.4 2.31.84-4.9L4.36 8.68l4.92-.72z"/></svg></button>
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn del" data-write aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+          </div>
+        </li>
+      </ul>
+      <label class="switch" style="margin-top:12px"><input type="checkbox" data-offline="#q4a"> Offline</label>
+    </div>
+
+    <div class="panel">
+      <h3><span class="label">B</span>A “⋯” menu on the row</h3>
+      <p class="cap">Two visible controls; “Set as primary” and “Delete” live in the menu.</p>
+      <ul class="tablist" id="q4b">
+        <li>
+          <button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span></button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn" data-menu aria-label="More actions"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+            <div class="menu"><button data-write>Set as primary</button><button class="danger" data-write>Delete file</button></div>
+          </div>
+        </li>
+        <li class="active">
+          <button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span><span class="pill primary">Primary</span></button>
+          <div class="rowctl">
+            <button class="iconbtn" title="Open in new tab / download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></button>
+            <button class="iconbtn" data-menu aria-label="More actions"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+            <div class="menu"><button data-write disabled>Already primary</button><button class="danger" data-write>Delete file</button></div>
+          </div>
+        </li>
+      </ul>
+      <label class="switch" style="margin-top:12px"><input type="checkbox" data-offline="#q4b"> Offline</label>
+    </div>
+
+    <div class="panel">
+      <h3><span class="label">C</span>A drag handle (only if Q1 = B)</h3>
+      <p class="cap">No per-row verb at all — you drag the row you want to the top.</p>
+      <ul class="tablist" id="q4c">
+        <li draggable="true">
+          <span class="grip"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+          <button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Chord chart (capo 2)</span><span class="pill primary">1st</span></button>
+          <div class="rowctl"><button class="iconbtn del" data-write aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div>
+        </li>
+        <li draggable="true">
+          <span class="grip"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+          <button class="rowmain" type="button"><svg class="pdf" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="title">Phone photo 12 Oct</span></button>
+          <div class="rowctl"><button class="iconbtn del" data-write aria-label="Delete file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></div>
+        </li>
+      </ul>
+      <label class="switch" style="margin-top:12px"><input type="checkbox" data-offline="#q4c"> Offline</label>
+    </div>
+  </div>
+  <div class="offline-strip">📴 Offline the app is read-only: setting a primary is disabled, selecting and reading a file are not.</div>
+</section>
+
+</main>
+
+<footer>
+  Spec: <code>docs/tasks/RH-147-spec.md</code>. A choice here is personal — a band mate's
+  primary for the same song is their own and is never shown or changed by yours.
+  The consumer of this decision is RH-148 (“open the primary file half-expanded on
+  arrival”), which is not part of this task.
+</footer>
+
+<script>
+// Stars: one primary per list.
+document.querySelectorAll('[data-star-group]').forEach(function (list) {
+  list.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-star]');
+    if (!btn || btn.disabled) return;
+    list.querySelectorAll('[data-star]').forEach(function (s) {
+      s.classList.remove('on');
+      s.querySelector('svg').setAttribute('fill', 'none');
+      s.setAttribute('aria-label', 'Set as primary file');
+    });
+    btn.classList.add('on');
+    btn.querySelector('svg').setAttribute('fill', 'currentColor');
+    btn.setAttribute('aria-label', 'Primary file');
+  });
+});
+
+// Overflow menus.
+document.addEventListener('click', function (ev) {
+  var trigger = ev.target.closest('[data-menu]');
+  document.querySelectorAll('.menu.open').forEach(function (m) {
+    if (!trigger || m !== trigger.parentElement.querySelector('.menu')) m.classList.remove('open');
+  });
+  if (trigger && !trigger.disabled) {
+    trigger.parentElement.querySelector('.menu').classList.toggle('open');
+  }
+});
+
+// Offline switches: disable every write control in that panel's list.
+document.querySelectorAll('[data-offline]').forEach(function (box) {
+  box.addEventListener('change', function () {
+    var list = document.querySelector(box.getAttribute('data-offline'));
+    list.querySelectorAll('[data-write]').forEach(function (el) { el.disabled = box.checked; });
+    list.querySelectorAll('.grip').forEach(function (g) { g.style.opacity = box.checked ? '.35' : '1'; });
+    list.querySelectorAll('li[draggable]').forEach(function (li) { li.draggable = !box.checked; });
+    list.querySelectorAll('.menu.open').forEach(function (m) { m.classList.remove('open'); });
+  });
+});
+
+// Drag to reorder, in the two orderable panels.
+['q1b', 'q4c'].forEach(function (id) {
+  var list = document.getElementById(id);
+  if (!list) return;
+  var dragged = null;
+  list.addEventListener('dragstart', function (ev) {
+    dragged = ev.target.closest('li');
+    if (dragged) dragged.style.opacity = '.4';
+  });
+  list.addEventListener('dragend', function () {
+    if (dragged) dragged.style.opacity = '1';
+    dragged = null;
+    relabel(list);
+  });
+  list.addEventListener('dragover', function (ev) {
+    ev.preventDefault();
+    var over = ev.target.closest('li');
+    if (!over || !dragged || over === dragged) return;
+    var rect = over.getBoundingClientRect();
+    var after = (ev.clientY - rect.top) > rect.height / 2;
+    list.insertBefore(dragged, after ? over.nextSibling : over);
+  });
+  function relabel(l) {
+    l.querySelectorAll('li').forEach(function (li, i) {
+      var pill = li.querySelector('.pill.primary');
+      if (i === 0 && !pill) {
+        var span = document.createElement('span');
+        span.className = 'pill primary';
+        span.textContent = '1st';
+        li.querySelector('.rowmain').appendChild(span);
+      } else if (i !== 0 && pill) {
+        pill.remove();
+      }
+    });
+  }
+});
+</script>
+</body>
+</html>

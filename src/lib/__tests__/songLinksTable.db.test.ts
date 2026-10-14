@@ -10,11 +10,8 @@
  * here, `moderation.ts` plus the database-level bridge there. Each file carries
  * its own fixtures; nothing is shared across the two beyond `test-helpers.ts`.
  *
- * Every fixture that needs a `songs.links` column **out of step** with
- * `song_links` is built by seeding `song_links` directly while the column stays
- * `'[]'::jsonb`. That is constructible only because the bridge trigger is
- * insert-only and an empty array inserts nothing, so no firing of it can ever
- * contradict the column.
+ * Every fixture seeds `song_links` rows directly (the `songs.links` column is
+ * gone, RH-143).
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
@@ -55,25 +52,17 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
   const createdSongIds = new Set<string>()
   const createdPlaylistIds = new Set<string>()
 
-  /** A catalog row whose `links` column is whatever the caller seeds. */
-  const seedSong = async (label: string, links = '[]'): Promise<string> => {
+  /** A catalog row with no links. */
+  const seedSong = async (label: string): Promise<string> => {
     const res = await query<{ id: string }>(
-      'INSERT INTO songs (title, artist, links) VALUES ($1, $2, $3::jsonb) RETURNING id',
-      [`RH-136 ${label} ${suffix}`, `RH-136 Artist ${suffix}`, links],
+      'INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id',
+      [`RH-136 ${label} ${suffix}`, `RH-136 Artist ${suffix}`],
     )
     createdSongIds.add(res.rows[0].id)
     return res.rows[0].id
   }
 
-  /**
-   * Seeds `song_links` rows by hand.
-   *
-   * Since RH-137 dropped the reverse bridge trigger, these rows reach
-   * `songs.links` through nothing at all: the column keeps whatever the song
-   * was created with. Callers that want the deliberately-empty column of ER9
-   * and ER16 still blank it with {@link blankColumn}, which the forward trigger
-   * leaves standing because an empty array inserts nothing.
-   */
+  /** Seeds `song_links` rows by hand. */
   const seedLinkRows = async (songId: string, links: Array<[string, string, number]>) => {
     for (const [url, label, position] of links) {
       await query('INSERT INTO song_links (song_id, url, label, position) VALUES ($1, $2, $3, $4)', [
@@ -85,17 +74,6 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
     }
   }
 
-  /**
-   * Empties `songs.links` while the song's `song_links` rows stay.
-   *
-   * Holds, rather than being undone: the forward bridge is insert-only and
-   * inserts nothing from `'[]'`, and since RH-137 there is no reverse bridge
-   * left to put the column back.
-   */
-  const blankColumn = async (songId: string): Promise<void> => {
-    await query(`UPDATE songs SET links = '[]'::jsonb WHERE id = $1`, [songId])
-  }
-
   /** The canonical read order, with no exception: position, created_at, id. */
   const storedLinks = async (songId: string): Promise<StoredLink[]> => {
     const res = await query<StoredLink>(
@@ -104,11 +82,6 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
       [songId],
     )
     return res.rows
-  }
-
-  const columnLinks = async (songId: string): Promise<unknown> => {
-    const res = await query<{ links: unknown }>('SELECT links FROM songs WHERE id = $1', [songId])
-    return res.rows[0].links
   }
 
   const updatedAt = async (songId: string): Promise<string> => {
@@ -159,16 +132,11 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
     let songId: string
 
     beforeAll(async () => {
-      // The discriminating fixture: the column stays empty while the table
-      // holds the real links, so a reader still projecting `s.links` returns
-      // `[]` and fails here.
       songId = await seedSong('Read Fixture')
       await seedLinkRows(songId, [
         [U1, 'Chords', 1],
         [U2, 'Video', 2],
       ])
-      await blankColumn(songId)
-      expect(await columnLinks(songId)).toEqual([])
     })
 
     it('getRepertoire returns both links with their provider, in position order', async () => {
@@ -212,26 +180,22 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
 
   describe('applySongLinkUpdate', () => {
     /**
-     * A song whose `song_links` rows were produced by the bridge trigger and
-     * therefore carry a **gap**: `u1` at position 1, `u2` at position 3
-     * (`max` 1 + ordinality 2). Built exactly as ER17 builds it, because the
-     * gap is what makes `position = EXCLUDED.position` observable.
+     * A song whose `song_links` rows carry a **gap**: `u1` at position 1, `u2`
+     * at position 3. The gap is what makes `position = EXCLUDED.position`
+     * observable.
      */
     const songWithTriggerGap = async (label: string): Promise<string> => {
-      const songId = await seedSong(label, JSON.stringify([{ label: 'Chords', url: U1 }]))
-      await query('UPDATE songs SET links = $1::jsonb WHERE id = $2', [
-        JSON.stringify([
-          { label: 'Chords', url: U1 },
-          { label: 'Video', url: U2 },
-        ]),
-        songId,
+      const songId = await seedSong(label)
+      await seedLinkRows(songId, [
+        [U1, 'Chords', 1],
+        [U2, 'Video', 3],
       ])
       const seeded = await storedLinks(songId)
       expect(seeded.map((row) => row.position)).toEqual([1, 3])
       return songId
     }
 
-    it('adds a link, preserves the submitted order and leaves the column alone (ER11)', async () => {
+    it('adds a link, preserves the submitted order and (ER11)', async () => {
       const songId = await songWithTriggerGap('Additive')
       const before = await storedLinks(songId)
 
@@ -262,17 +226,6 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
           before.find((row) => row.url === url)!.id,
         )
       }
-      // `songs.links` comes back **unmodified** — the 2-element array the
-      // fixture seeded, not the 3-element submitted set. RH-136 had to amend
-      // this clause because the Spotify push still read the column, so the
-      // reverse bridge trigger mirrored the rows back into it; RH-137 re-keyed
-      // the push off `song_links.provider` and dropped that trigger, so the
-      // original clause holds again: nothing reads the column, and this writer
-      // leaves it alone.
-      expect(await columnLinks(songId)).toEqual([
-        { label: 'Chords', url: U1 },
-        { label: 'Video', url: U2 },
-      ])
     })
 
     it('rewrites a label on an otherwise additive submission (ER12a)', async () => {
@@ -412,8 +365,6 @@ describe.skipIf(!RUN_DB_TESTS)('song_links reads and the song-side writers (RH-1
     it('neither fills nor refuses on links when song_links already holds rows (RH-138)', async () => {
       const songId = await seedSong('Fill Refusal')
       await seedLinkRows(songId, [[U1, 'Chords', 1]])
-      await blankColumn(songId)
-      expect(await columnLinks(songId)).toEqual([])
 
       const refused = await withTransaction((client) =>
         applyCatalogFill(songId, proposal([{ label: 'Spotify', url: U3 }]), client),

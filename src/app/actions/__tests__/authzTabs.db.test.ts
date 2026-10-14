@@ -42,6 +42,7 @@ import {
   getTabAnnotationsAction,
   saveTabAnnotationsAction,
   getTabsAction,
+  setTabPrimaryAction,
 } from '../tabs'
 import type { Stroke } from '@/types/database'
 
@@ -203,6 +204,151 @@ describe.skipIf(!RUN_DB_TESTS)('the file actions are scoped to user_id (real dat
       await expect(
         getTabAnnotationsAction('00000000-0000-0000-0000-000000000000'),
       ).resolves.toEqual({ error: 'Tab not found' })
+    })
+  })
+
+  // RH-147. The primary file is personal to a (user_id, song_id) pair.
+  describe('the primary file of a song (RH-147)', () => {
+    let primarySongId: string
+
+    const primaryFlags = async (userId: string) => {
+      const res = await query<{ id: string; is_primary: boolean }>(
+        'SELECT id, is_primary FROM song_files WHERE user_id = $1 AND song_id = $2 ORDER BY id',
+        [userId, primarySongId],
+      )
+      return res.rows
+    }
+    /** Inserted with an explicit age so "oldest" is decided by created_at, not insertion order. */
+    const insertPrimaryFile = async (userId: string, title: string, ageDays: number, primary = false) => {
+      const res = await query<{ id: string }>(
+        `INSERT INTO song_files (user_id, song_id, title, file_url, is_primary, created_at)
+         VALUES ($1, $2, $3, $4, $5, now() - ($6 || ' days')::interval) RETURNING id`,
+        [userId, primarySongId, title, `https://blob.example/rh147/${title}-${suffix}.pdf`, primary, ageDays],
+      )
+      return res.rows[0].id
+    }
+    const clearPrimaryRows = () => query('DELETE FROM song_files WHERE song_id = $1', [primarySongId])
+
+    beforeAll(async () => {
+      primarySongId = await createTestSong(`RH-147 Song ${suffix}`)
+    })
+    afterAll(async () => {
+      await clearPrimaryRows()
+      await query('DELETE FROM songs WHERE id = $1', [primarySongId])
+    })
+    beforeEach(async () => {
+      await clearPrimaryRows()
+    })
+
+    it('designating a second file moves the primary off the first, atomically', async () => {
+      const first = await insertPrimaryFile(userAId, 'first', 2, true)
+      const second = await insertPrimaryFile(userAId, 'second', 1)
+      asUser(userAId)
+
+      await expect(setTabPrimaryAction(second)).resolves.toEqual({ success: true })
+
+      const rows = await primaryFlags(userAId)
+      expect(rows.find((row) => row.id === second)?.is_primary).toBe(true)
+      expect(rows.find((row) => row.id === first)?.is_primary).toBe(false)
+      expect(rows.filter((row) => row.is_primary)).toHaveLength(1)
+    })
+
+    it('the first file uploaded for a song is its primary', async () => {
+      asUser(userAId)
+      vi.mocked(put).mockResolvedValueOnce({ url: `${UPLOADED_URL}?1` } as never)
+
+      const firstUpload = await uploadTabAction(uploadForm(primarySongId))
+
+      expect(firstUpload.error).toBeUndefined()
+      expect(firstUpload.data!.is_primary).toBe(true)
+      expect((await getTabsAction(primarySongId))[0].is_primary).toBe(true)
+    })
+
+    it('a second upload keeps the first file primary', async () => {
+      asUser(userAId)
+      vi.mocked(put).mockResolvedValueOnce({ url: `${UPLOADED_URL}?1` } as never)
+      const firstUpload = await uploadTabAction(uploadForm(primarySongId))
+      vi.mocked(put).mockResolvedValueOnce({ url: `${UPLOADED_URL}?2` } as never)
+
+      const secondUpload = await uploadTabAction(uploadForm(primarySongId))
+
+      expect(secondUpload.error).toBeUndefined()
+      expect(secondUpload.data!.is_primary).toBe(false)
+      const rows = await primaryFlags(userAId)
+      expect(rows).toHaveLength(2)
+      expect(rows.filter((row) => row.is_primary).map((row) => row.id)).toEqual([firstUpload.data!.id])
+    })
+
+    it('deleting the primary promotes the oldest remaining file', async () => {
+      const oldest = await insertPrimaryFile(userAId, 'oldest', 5)
+      await insertPrimaryFile(userAId, 'middle', 3)
+      const doomed = await insertPrimaryFile(userAId, 'doomed', 4, true)
+      vi.mocked(del).mockResolvedValue(undefined as never)
+      asUser(userAId)
+
+      await expect(deleteTabAction(doomed)).resolves.toEqual({ success: true })
+
+      const rows = await primaryFlags(userAId)
+      expect(rows).toHaveLength(2)
+      expect(rows.filter((row) => row.is_primary).map((row) => row.id)).toEqual([oldest])
+    })
+
+    it('deleting a non-primary file leaves the primary alone', async () => {
+      const primary = await insertPrimaryFile(userAId, 'primary', 3, true)
+      const other = await insertPrimaryFile(userAId, 'other', 1)
+      vi.mocked(del).mockResolvedValue(undefined as never)
+      asUser(userAId)
+
+      await expect(deleteTabAction(other)).resolves.toEqual({ success: true })
+
+      expect((await primaryFlags(userAId)).map((row) => [row.id, row.is_primary])).toEqual([[primary, true]])
+    })
+
+    it("user B cannot set the primary of user A's file and A's rows are unchanged", async () => {
+      await insertPrimaryFile(userAId, 'a1', 3, true)
+      const a2 = await insertPrimaryFile(userAId, 'a2', 1)
+      const before = await query(
+        'SELECT * FROM song_files WHERE user_id = $1 AND song_id = $2 ORDER BY id',
+        [userAId, primarySongId],
+      )
+      asUser(userBId)
+
+      await expect(setTabPrimaryAction(a2)).resolves.toEqual({ error: 'Tab not found' })
+
+      const after = await query(
+        'SELECT * FROM song_files WHERE user_id = $1 AND song_id = $2 ORDER BY id',
+        [userAId, primarySongId],
+      )
+      expect(after.rows).toEqual(before.rows)
+    })
+
+    it('keeps two users on the same song with independent primaries', async () => {
+      const a1 = await insertPrimaryFile(userAId, 'a1', 3, true)
+      const b1 = await insertPrimaryFile(userBId, 'b1', 3, true)
+      const b2 = await insertPrimaryFile(userBId, 'b2', 1)
+      asUser(userBId)
+
+      await expect(setTabPrimaryAction(b2)).resolves.toEqual({ success: true })
+
+      expect((await primaryFlags(userAId)).find((row) => row.id === a1)?.is_primary).toBe(true)
+      const bRows = await primaryFlags(userBId)
+      expect(bRows.find((row) => row.id === b2)?.is_primary).toBe(true)
+      expect(bRows.find((row) => row.id === b1)?.is_primary).toBe(false)
+    })
+
+    it('never marks an audio row primary, and refuses to designate one', async () => {
+      const chart = await insertPrimaryFile(userAId, 'chart', 3, true)
+      const audio = await query<{ id: string }>(
+        `INSERT INTO song_files (user_id, song_id, title, file_url, content_type, size_bytes)
+         VALUES ($1, $2, 'audio', $3, 'audio/mpeg', 10) RETURNING id`,
+        [userAId, primarySongId, `https://blob.example/rh147/audio-${suffix}.mp3`],
+      )
+      asUser(userAId)
+
+      await expect(setTabPrimaryAction(audio.rows[0].id)).resolves.toEqual({ error: 'Tab not found' })
+
+      const rows = await primaryFlags(userAId)
+      expect(rows.filter((row) => row.is_primary).map((row) => row.id)).toEqual([chart])
     })
   })
 

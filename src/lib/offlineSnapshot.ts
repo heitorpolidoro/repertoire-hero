@@ -129,6 +129,13 @@ export interface OfflineTabSnapshot {
    * for nothing.
    */
   contentType?: string
+  /**
+   * Whether this was the musician's primary file for the song when the snapshot
+   * was taken (RH-147). **Optional, and absent reads as "not designated"** -
+   * `resolvePrimaryTab` then falls back to the oldest file - so
+   * `OFFLINE_SCHEMA_VERSION` is not bumped, for the same reason as `contentType`.
+   */
+  isPrimary?: boolean
 }
 
 /**
@@ -225,6 +232,7 @@ function toTabSnapshot(playlistId: string, material: OfflineTabMaterial): Offlin
     cacheKey: offlineTabCacheKey(playlistId, material.tab.id),
     bytes: material.bytes,
     contentType: material.tab.content_type,
+    isPrimary: material.tab.is_primary,
   }
 }
 
@@ -266,6 +274,7 @@ export function offlineTabToSongFile(tab: OfflineTabSnapshot): SongFile {
     // Absent is `application/pdf`: a snapshot written before RH-128 carries no
     // such field and is certainly a PDF (RH-128).
     content_type: tab.contentType ?? DEFAULT_TAB_CONTENT_TYPE,
+    is_primary: tab.isPrimary,
   }
 }
 
@@ -283,7 +292,9 @@ function isTabSnapshot(value: unknown): boolean {
   if (!strings.every(isString) || typeof value.bytes !== 'number' || !isString(value.cacheKey)) return false
   // Optional, unlike every field above: absent is the pre-RH-128 snapshot, and
   // it reads as `application/pdf` rather than invalidating the whole download.
-  return value.contentType === undefined || isString(value.contentType)
+  if (value.contentType !== undefined && !isString(value.contentType)) return false
+  // Optional too (RH-147): absent is a snapshot written before the primary file.
+  return value.isPrimary === undefined || typeof value.isPrimary === 'boolean'
 }
 
 function isSongSnapshot(value: unknown): boolean {

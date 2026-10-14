@@ -10279,3 +10279,41 @@ Non-blocking suggestions from QA round 1:
 
 - (code review) `runtime.ts` `runFrom`/`step`: on previous/next while an entry is playing, the old engine keeps playing until the next source resolves. Pausing the active engine first would give snappier feedback.
 - (code review) The skipped-title message set via `onSkip` is overwritten by later patches. Fine, but worth a test if it is not already covered.
+
+## [RH-143] Drop songs.links and the forward bridge trigger — 2026-10-13
+
+- (spec review) The eslint pin is at `eslint.config.mjs:169`, not 159; fix the line reference.
+- (spec review) Remove the stale "board id + 1" header lines; they contradict the rename note.
+- (spec review) Item 5 contains a garbled sentence ("If the count reaches 0 net change"); say plainly that the pin changes only if the line count drops.
+- (spec review) ER6 bundles several assertions (grep, tsc, lint, tests); consider splitting it to stay single-assertion.
+- (spec review) ER5 depends on a seed test the spec only calls "test or script run"; name the test file.
+
+## [RH-109] Address the Fast View by version and navigate a queue — 2026-10-13
+
+- (spec review) ER2, ER3 and ER8 each bundle several assertions in one sentence; splitting them would give QA cleaner per-line verdicts.
+- (spec review) ER7 relies on "the task report" as the audit artifact; name where it lives.
+- (spec review) ER1 could name the exact grep for the stale reference, e.g. `grep -rn "songs/\[id\]" src e2e`.
+- (spec review) Behavior 6 (owner precedence by `?bandId=`) has no ER; add it to ER2 or a new ER.
+
+## [RH-147] Define which of a song's files is the primary one — 2026-10-13
+
+- (spec review) Name the exact envelope shape (`{ error }`) once in the spec so the A1 convention is unambiguous for the cross-user test.
+- (spec review) The "Test environment" section reads as QA history; consider trimming it to the baseline-run rule and the conditional fixture conversion.
+- (spec review) ER1, ER2, ER5, ER6 and ER7 still list several facts after "proving"; splitting them is optional.
+- (spec review) ER2-ER4 depend on a green `songs.links` baseline; QA should check that first.
+
+## [RH-104] Process uploaded images on the way in — 2026-10-13
+
+- (spec review) ER6 bundles corpus, ratchets and DB-state checks into one sentence. It is still checkable through the Verification Procedure, but it is the most likely result to be disputed at QA.
+- (spec review) The spec says to fix the stale `migrationSqlBySuffix` doc comment as a drive-by. Consider leaving it out so the diff stays test-only.
+
+## [RH-109] Address the Fast View by version and navigate a queue — 2026-10-13
+
+- (QA) ER1 wording: the new spec legitimately mentions `returnTo` in assertions and comments; relax the ER to "no remaining use of returnTo".
+- (QA) Re-run after fixing the test database schema (apply/rollback migrations to match HEAD) to confirm `npm test` is green.
+
+## [RH-147] Define which of a song's files is the primary one — 2026-10-14
+
+- (code review) The i18n keys `songFiles.setPrimary` and `songFiles.primaryBadge` were added to both dictionaries but nothing reads them; TabList.tsx hardcodes "Set as primary file" and "Primary". Wire them or drop them later to avoid dead data.
+- (code review) The loser of a concurrent first upload is retried outside a transaction; fine because the retry insert is a single statement.
+- (code review) `olderFirst` in src/lib/tabLibrary.ts has several branches; a short test of mixed unparsable timestamps would pin it down.

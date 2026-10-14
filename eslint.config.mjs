@@ -166,7 +166,7 @@ const eslintConfig = defineConfig([
   // over by collapsing the three `||`-joined transaction-keyword comparisons
   // into one regex.
   { name: "complexity-budget/override", files: ["src/lib/__tests__/errors.test.ts"], rules: { complexity: ["error", 16] } },
-  { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 678] } },
+  { name: "complexity-budget/override", files: ["src/lib/__tests__/spotify.test.ts"], rules: { "max-lines": ["error", 670] } },
   // END:complexity-budget-overrides
   // Override default ignores of eslint-config-next.
   globalIgnores([

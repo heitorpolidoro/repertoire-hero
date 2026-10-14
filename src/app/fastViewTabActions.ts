@@ -2,6 +2,7 @@ import {
   getTabsAction,
   uploadTabAction,
   deleteTabAction,
+  setTabPrimaryAction,
   getTabAnnotationsAction,
   saveTabAnnotationsAction,
 } from '@/app/actions/tabs'
@@ -24,6 +25,7 @@ export const TAB_LIBRARY_ACTIONS: TabLibraryActions = {
   getTabs: getTabsAction,
   uploadTab: uploadTabAction,
   deleteTab: deleteTabAction,
+  setPrimaryTab: setTabPrimaryAction,
 }
 
 /**

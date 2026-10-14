@@ -4,7 +4,9 @@ import type { ToastTone } from '@/lib/uiTones'
 import {
   defaultTitleFromFileName,
   tabUploadTitle,
+  markPrimaryTab,
   validateTabFile,
+  withoutTab,
   type PendingTabDelete,
   type TabLibraryController,
 } from '@/lib/tabLibrary'
@@ -20,6 +22,7 @@ export interface TabLibraryActions {
   getTabs: (songId: string) => Promise<SongFile[]>
   uploadTab: (formData: FormData) => Promise<{ data?: SongFile; entry?: Repertoire; error?: string }>
   deleteTab: (fileId: string) => Promise<{ success?: boolean; error?: string }>
+  setPrimaryTab: (fileId: string) => Promise<{ success?: boolean; error?: string }>
 }
 
 export interface UseTabLibraryOptions {
@@ -204,7 +207,7 @@ export function useTabLibrary({
       if (res.error) {
         notify(res.error, 'error')
       } else {
-        setTabs((prev) => prev.filter((tab) => tab.id !== tabId))
+        setTabs((prev) => withoutTab(prev, tabId))
         onFilesChanged?.()
         notify('File deleted.', 'info')
       }
@@ -219,6 +222,27 @@ export function useTabLibrary({
   }, [actions, notify, onFilesChanged, pendingDelete])
 
   const cancelDelete = useCallback(() => setPendingDelete(null), [])
+
+  // Optimistic: the star moves at once and is put back if the write fails.
+  const setPrimaryTab = useCallback(
+    async (tabId: string) => {
+      const before = tabs
+      setTabs(markPrimaryTab(before, tabId))
+      try {
+        const res = await actions.setPrimaryTab(tabId)
+        if (res.error) {
+          setTabs(before)
+          notify(res.error, 'error')
+          return
+        }
+        onFilesChanged?.()
+      } catch {
+        setTabs(before)
+        notify('Failed to set the primary file', 'error')
+      }
+    },
+    [actions, notify, onFilesChanged, tabs],
+  )
 
   return {
     tabs,
@@ -241,5 +265,6 @@ export function useTabLibrary({
     requestDelete,
     confirmDelete,
     cancelDelete,
+    setPrimaryTab,
   }
 }

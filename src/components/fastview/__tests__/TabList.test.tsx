@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
 import { TabList } from '../TabList'
 import type { SongFile } from '@/types/database'
 
@@ -28,11 +28,21 @@ const TABS: SongFile[] = [
 function renderList(overrides: Partial<React.ComponentProps<typeof TabList>> = {}) {
   const onSelect = vi.fn()
   const onDelete = vi.fn()
+  const onSetPrimary = vi.fn()
   const view = render(
-    <TabList tabs={TABS} activeTabUrl={null} onSelect={onSelect} onDelete={onDelete} {...overrides} />,
+    <TabList
+      tabs={TABS}
+      activeTabUrl={null}
+      onSelect={onSelect}
+      onDelete={onDelete}
+      onSetPrimary={onSetPrimary}
+      {...overrides}
+    />,
   )
-  return { ...view, onSelect, onDelete }
+  return { ...view, onSelect, onDelete, onSetPrimary }
 }
+
+const starOf = (row: HTMLElement) => within(row).getByRole('button', { name: 'Set as primary file' })
 
 describe('TabList', () => {
   // RH-123 removed the band/personal badge with the duality behind it: every
@@ -83,6 +93,64 @@ describe('TabList', () => {
     ])
     expect(links[0].getAttribute('target')).toBe('_blank')
     expect(links[0].getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  // RH-147
+  it('exposes a set-as-primary star on every row that calls the handler with that row id', () => {
+    const { onSetPrimary } = renderList()
+
+    const stars = screen.getAllByRole('button', { name: 'Set as primary file' })
+    expect(stars).toHaveLength(2)
+    fireEvent.click(stars[1])
+
+    expect(onSetPrimary).toHaveBeenCalledTimes(1)
+    expect(onSetPrimary).toHaveBeenCalledWith('p-1')
+  })
+
+  it('places the star between the open link and the delete button', () => {
+    renderList()
+
+    const row = screen.getAllByRole('listitem')[0]
+    const controls = Array.from(row.querySelectorAll('a[title="Open in new tab / download"], button[aria-label]'))
+    expect(controls.map((el) => el.getAttribute('aria-label') ?? el.getAttribute('title'))).toEqual([
+      'Open in new tab / download',
+      'Set as primary file',
+      'Delete file',
+    ])
+  })
+
+  it('disables the star when readOnly while the open link stays enabled', () => {
+    const { onSetPrimary } = renderList({ readOnly: true })
+
+    const stars = screen.getAllByRole('button', { name: 'Set as primary file' })
+    expect(stars.every((star) => star.hasAttribute('disabled'))).toBe(true)
+    fireEvent.click(stars[0])
+    expect(onSetPrimary).not.toHaveBeenCalled()
+    const links = screen.getAllByTitle('Open in new tab / download')
+    expect(links.every((link) => !link.hasAttribute('aria-disabled'))).toBe(true)
+  })
+
+  it('fills the star and badges the designated file only, without reordering the list', () => {
+    renderList({ tabs: [TABS[0], { ...TABS[1], is_primary: true }] })
+
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0].textContent).toContain('Horn section')
+    expect(rows[0].textContent).not.toContain('Primary')
+    expect(rows[1].textContent).toContain('Primary')
+    expect(screen.getAllByText('Primary')).toHaveLength(1)
+    expect(starOf(rows[0]).getAttribute('aria-pressed')).toBe('false')
+    expect(starOf(rows[1]).getAttribute('aria-pressed')).toBe('true')
+    expect(starOf(rows[0]).querySelector('svg')?.getAttribute('fill')).toBe('none')
+    expect(starOf(rows[1]).querySelector('svg')?.getAttribute('fill')).toBe('currentColor')
+  })
+
+  it('marks the oldest file when nothing is designated', () => {
+    renderList()
+
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0].textContent).not.toContain('Primary')
+    expect(rows[1].textContent).toContain('Primary')
+    expect(starOf(rows[1]).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('renders nothing but an empty list when there are no tabs', () => {

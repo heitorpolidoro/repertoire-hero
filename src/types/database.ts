@@ -393,6 +393,8 @@ export interface SongFile {
   content_type?: string;
   /** Bytes stored; written for audio rows only (RH-162), `null` otherwise. */
   size_bytes?: number | null;
+  /** RH-147: the primary chart, one per (user, song); absent = undesignated (`resolvePrimaryTab`). */
+  is_primary?: boolean;
   created_at: string;
   annotations?: TabAnnotations; // only present when explicitly fetched via getTabAnnotationsAction
 }

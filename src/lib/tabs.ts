@@ -1,5 +1,5 @@
 import type { QueryResultRow } from 'pg'
-import { query, type DbRow } from '@/lib/db'
+import { query, withTransaction, type DbRow } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import type { SongFile, Stroke, TabAnnotations } from '@/types/database'
 
@@ -46,10 +46,15 @@ async function runTabQuery<T extends QueryResultRow = DbRow>(
   try {
     return await query<T>(sql, params)
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error))
-    logger.error(`Failed to ${verb}`, err, context)
-    throw new Error(`Failed to ${verb}: ${err.message}`)
+    return failTabQuery(verb, error, context)
   }
+}
+
+/** The L1 log-then-wrap, shared by every statement here (AGENTS.md, "Error Handling Conventions"). */
+function failTabQuery(verb: string, error: unknown, context: Record<string, unknown>): never {
+  const err = error instanceof Error ? error : new Error(String(error))
+  logger.error(`Failed to ${verb}`, err, context)
+  throw new Error(`Failed to ${verb}: ${err.message}`)
 }
 
 /**
@@ -81,19 +86,46 @@ export interface CreateSongFilePayload {
   sizeBytes?: number
 }
 
+/** The chart predicate every primary-file rule shares: audio rows are never primary (RH-147). */
+const IS_CHART = "content_type NOT LIKE 'audio/%'"
+
+/** `unique_violation` raised by the one-primary-per-pair index (E1). */
+function isPrimarySlotTaken(error: unknown): boolean {
+  const { code, constraint } = error as { code?: string; constraint?: string }
+  return code === '23505' && constraint === 'uq_song_files_primary'
+}
+
+/**
+ * The first chart for a pair becomes its primary; a later upload keeps the
+ * existing one (`migrations/0027`'s header). `$7` is whether this attempt may
+ * claim the primary slot: two concurrent first uploads both see an empty pair,
+ * the index refuses the second, and {@link createTab} retries it with `$7`
+ * false, so the loser is stored as a non-primary file instead of failing.
+ */
+const INSERT_TAB_SQL = `INSERT INTO song_files (user_id, song_id, title, file_url, content_type, size_bytes, is_primary)
+     SELECT $1::uuid, $2::uuid, $3::text, $4::text, $5::text, $6::bigint,
+            $7::boolean AND $5::text NOT LIKE 'audio/%'
+            AND NOT EXISTS (SELECT 1 FROM song_files WHERE user_id = $1::uuid AND song_id = $2::uuid
+                            AND is_primary AND ${IS_CHART})
+     RETURNING id, user_id, song_id, title, file_url, content_type, is_primary,
+               size_bytes::int as size_bytes, created_at::text as created_at`
+
 export async function createTab(payload: CreateSongFilePayload): Promise<SongFile> {
   const { userId, songId, title, fileUrl, contentType, sizeBytes = null } = payload
+  const params = [userId, songId, title, fileUrl, contentType, sizeBytes]
 
-  const res = await runTabQuery<SongFile>(
-    'create file',
-    `INSERT INTO song_files (user_id, song_id, title, file_url, content_type, size_bytes)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, user_id, song_id, title, file_url, content_type,
-               size_bytes::int as size_bytes, created_at::text as created_at`,
-    [userId, songId, title, fileUrl, contentType, sizeBytes],
-    { userId, songId },
-  )
+  try {
+    const res = await query<SongFile>(INSERT_TAB_SQL, [...params, true])
+    return res.rows[0]
+  } catch (error) {
+    if (!isPrimarySlotTaken(error)) return failTabQuery('create file', error, { userId, songId })
+  }
 
+  // The loser of a concurrent first upload: the pair has a primary now.
+  const res = await runTabQuery<SongFile>('create file', INSERT_TAB_SQL, [...params, false], {
+    userId,
+    songId,
+  })
   return res.rows[0]
 }
 
@@ -109,13 +141,69 @@ export async function getTabFileUrl(fileId: string, userId: string): Promise<str
   return res.rows[0].file_url
 }
 
+/**
+ * Deletes one file. When it was the pair's primary chart, the oldest remaining
+ * chart is promoted in the same transaction, so a non-empty list never has zero
+ * primaries (RH-147).
+ */
 export async function deleteTab(fileId: string, userId: string): Promise<void> {
-  await runTabQuery<never>(
-    'delete file',
-    'DELETE FROM song_files WHERE id = $1 AND user_id = $2',
-    [fileId, userId],
-    { fileId },
-  )
+  try {
+    await withTransaction(async (client) => {
+      const gone = await client.query<{ song_id: string; is_primary: boolean }>(
+        'DELETE FROM song_files WHERE id = $1 AND user_id = $2 RETURNING song_id, is_primary',
+        [fileId, userId],
+      )
+      if (gone.rows.length === 0 || !gone.rows[0].is_primary) return
+      await client.query(
+        `UPDATE song_files SET is_primary = true
+         WHERE id = (SELECT id FROM song_files
+                     WHERE user_id = $1 AND song_id = $2 AND ${IS_CHART}
+                     ORDER BY created_at ASC, id ASC LIMIT 1)`,
+        [userId, gone.rows[0].song_id],
+      )
+    })
+  } catch (error) {
+    failTabQuery('delete file', error, { fileId })
+  }
+}
+
+/**
+ * Makes one chart file the primary of its `(user_id, song_id)` pair, clearing
+ * the previous primary in the same transaction. Answers `false` — writing
+ * nothing — when the file/owner pair matches no chart row: another musician's
+ * file looks exactly like a missing one, and an audio row is never primary.
+ *
+ * The pair's rows are locked first so two concurrent designations serialise
+ * instead of both setting a primary, which the partial unique index would
+ * refuse for one of them.
+ */
+export async function setTabPrimary(fileId: string, userId: string): Promise<boolean> {
+  try {
+    return await withTransaction(async (client) => {
+      const target = await client.query<{ song_id: string }>(
+        `SELECT song_id FROM song_files WHERE id = $1 AND user_id = $2 AND ${IS_CHART}`,
+        [fileId, userId],
+      )
+      if (target.rows.length === 0) return false
+      const songId = target.rows[0].song_id
+
+      await client.query(
+        'SELECT id FROM song_files WHERE user_id = $1 AND song_id = $2 ORDER BY id FOR UPDATE',
+        [userId, songId],
+      )
+      await client.query(
+        'UPDATE song_files SET is_primary = false WHERE user_id = $1 AND song_id = $2 AND is_primary AND id <> $3',
+        [userId, songId, fileId],
+      )
+      await client.query('UPDATE song_files SET is_primary = true WHERE id = $1 AND user_id = $2', [
+        fileId,
+        userId,
+      ])
+      return true
+    })
+  } catch (error) {
+    return failTabQuery('set primary file', error, { fileId })
+  }
 }
 
 export async function getTabAnnotations(
@@ -176,7 +264,7 @@ export async function saveTabAnnotations(
 export async function listTabs(userId: string, songId: string): Promise<SongFile[]> {
   const res = await runTabQuery<SongFile>(
     'list files',
-    `SELECT id, user_id, song_id, title, file_url, content_type,
+    `SELECT id, user_id, song_id, title, file_url, content_type, is_primary,
             created_at::text as created_at
      FROM song_files
      WHERE user_id = $1 AND song_id = $2 AND content_type NOT LIKE 'audio/%'

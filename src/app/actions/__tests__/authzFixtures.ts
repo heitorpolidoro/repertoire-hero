@@ -23,11 +23,24 @@ export async function countRows(sql: string, params: unknown[]): Promise<number>
   return res.rows[0].count
 }
 
-/** Inserts a global song with the given links and returns its id. */
+/**
+ * Inserts a global song and returns its id. Links are seeded through
+ * `song_links` (one row per link, in the given order), never through the
+ * retired `songs.links` column.
+ */
 export async function createTestSong(title: string, links: unknown[] = []): Promise<string> {
-  const res = await query(
-    'INSERT INTO songs (title, artist, links) VALUES ($1, $2, $3::jsonb) RETURNING id',
-    [title, 'RH-34 Artist', JSON.stringify(links)],
-  )
-  return res.rows[0].id as string
+  const res = await query('INSERT INTO songs (title, artist) VALUES ($1, $2) RETURNING id', [
+    title,
+    'RH-34 Artist',
+  ])
+  const songId = res.rows[0].id as string
+  for (const [position, link] of (links as { url: string; label?: string }[]).entries()) {
+    await query('INSERT INTO song_links (song_id, url, label, position) VALUES ($1, $2, $3, $4)', [
+      songId,
+      link.url,
+      link.label ?? '',
+      position,
+    ])
+  }
+  return songId
 }

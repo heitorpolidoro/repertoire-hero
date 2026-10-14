@@ -47,6 +47,7 @@ function makeActions(): ActionSpies {
     getTabs: vi.fn().mockResolvedValue(SONG_FILES),
     uploadTab: vi.fn().mockResolvedValue({ data: UPLOADED }),
     deleteTab: vi.fn().mockResolvedValue({ success: true }),
+    setPrimaryTab: vi.fn().mockResolvedValue({ success: true }),
   }
 }
 
@@ -390,5 +391,79 @@ describe('the delete', () => {
     })
 
     expect(actions.deleteTab).not.toHaveBeenCalled()
+  })
+
+  it('promotes the oldest remaining file locally when the primary is deleted (RH-147)', async () => {
+    const actions = makeActions()
+    actions.getTabs.mockResolvedValue([
+      { ...SONG_FILES[0], is_primary: false },
+      { ...SONG_FILES[1], is_primary: true },
+    ])
+    const { result } = setup({ actions: actions as unknown as TabLibraryActions })
+    await flush()
+
+    act(() => result.current.requestDelete('t-1'))
+    await act(async () => {
+      await result.current.confirmDelete()
+    })
+
+    expect(result.current.tabs.map((file) => [file.id, file.is_primary])).toEqual([['t-2', true]])
+  })
+})
+
+describe('setPrimaryTab (RH-147)', () => {
+  it('moves the designation at once and keeps it when the write succeeds', async () => {
+    const { result, actions } = setup()
+    await flush()
+
+    await act(async () => {
+      await result.current.setPrimaryTab('t-1')
+    })
+
+    expect(actions.setPrimaryTab).toHaveBeenCalledWith('t-1')
+    expect(result.current.tabs.map((file) => [file.id, file.is_primary])).toEqual([
+      ['t-2', false],
+      ['t-1', true],
+    ])
+  })
+
+  it('puts the list back and reports the error when the write returns an error', async () => {
+    const actions = makeActions()
+    actions.setPrimaryTab.mockResolvedValue({ error: 'Tab not found' })
+    const { result, notify } = setup({ actions: actions as unknown as TabLibraryActions })
+    await flush()
+
+    await act(async () => {
+      await result.current.setPrimaryTab('t-1')
+    })
+
+    expect(notify).toHaveBeenCalledWith('Tab not found', 'error')
+    expect(result.current.tabs).toEqual(SONG_FILES)
+  })
+
+  it('puts the list back and reports a thrown write', async () => {
+    const actions = makeActions()
+    actions.setPrimaryTab.mockRejectedValue(new Error('network'))
+    const { result, notify } = setup({ actions: actions as unknown as TabLibraryActions })
+    await flush()
+
+    await act(async () => {
+      await result.current.setPrimaryTab('t-1')
+    })
+
+    expect(notify).toHaveBeenCalledWith('Failed to set the primary file', 'error')
+    expect(result.current.tabs).toEqual(SONG_FILES)
+  })
+
+  it('tells the page the files changed after a successful write', async () => {
+    const onFilesChanged = vi.fn()
+    const { result } = setup({ onFilesChanged })
+    await flush()
+
+    await act(async () => {
+      await result.current.setPrimaryTab('t-1')
+    })
+
+    expect(onFilesChanged).toHaveBeenCalledTimes(1)
   })
 })

@@ -138,9 +138,9 @@ describe.skipIf(skip)('playlists integration tests', () => {
     // 1. Create a test global song first
     const songTitle = `Playlist Song ${suffix}`
     const songInsert = await query<{ id: string }>(
-      `INSERT INTO songs (title, artist, album, duration_seconds, links)
-       VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`,
-      [songTitle, 'Test Artist', 'Test Album', 240, JSON.stringify([])],
+      `INSERT INTO songs (title, artist, album, duration_seconds)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [songTitle, 'Test Artist', 'Test Album', 240],
     )
     const songId = songInsert.rows[0].id
     createdSongs.push(songId)

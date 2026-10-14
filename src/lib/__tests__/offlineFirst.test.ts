@@ -452,6 +452,7 @@ describe('offlineFirst — the offline writes', () => {
       {
         uploadTab: () => Promise.reject(new Error('unreachable')),
         deleteTab: () => Promise.reject(new Error('unreachable')),
+        setPrimaryTab: () => Promise.reject(new Error('unreachable')),
         saveAnnotations: () => Promise.reject(new Error('unreachable')),
         updateLinks: () => Promise.reject(new Error('unreachable')),
       },
@@ -461,6 +462,7 @@ describe('offlineFirst — the offline writes', () => {
     for (const call of [
       wrapped.uploadTab(),
       wrapped.deleteTab(),
+      wrapped.setPrimaryTab(),
       wrapped.saveAnnotations(),
       wrapped.updateLinks(),
     ]) {

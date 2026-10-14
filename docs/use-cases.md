@@ -375,6 +375,15 @@ Step 3 happens even in band context — see *What creates a personal row in band
   A manual rotate control, if it is ever built, re-encodes the file rather than setting a
   display flag — the flag is the thing being eliminated — and transforms existing
   strokes, which in normalized coordinates is `(x, y) → (1 - y, x)` per quarter turn.
+- One of a musician's chart files for a song is the primary one (RH-147). The designation
+  is personal, like the file: it is per `(user_id, song_id)`, so two band mates on the
+  same song may each have a different primary and neither can see or set the other's. The
+  oldest chart is the initial primary (files uploaded before the designation existed were
+  backfilled that way); a new upload never takes the primary from an existing one, and
+  the first file for a song becomes its primary. Deleting the primary promotes the oldest
+  remaining chart. The file list keeps its newest-first order and marks the primary in
+  place with a badge and a star; tapping another file's star moves the mark. Audio is
+  never primary. Offline the star is disabled and the snapshot carries the mark.
 - Images are downscaled on upload. A phone photo passes the size a tab PDF never
   approached. Resizing is safe at any point, before or after annotation, because
   normalized coordinates survive it.

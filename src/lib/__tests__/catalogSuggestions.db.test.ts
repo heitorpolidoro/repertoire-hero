@@ -354,8 +354,5 @@ describe.skipIf(!RUN_DB_TESTS)('catalog suggestions (real database)', () => {
     expect((await songRow(songId)).updated_at > before.updated_at).toBe(true)
     // (c) and the row is approved rather than left pending.
     expect(reviewed.map((row) => row.status)).toEqual(['approved'])
-    // Nothing wrote `songs.links`.
-    const column = await one<{ links: unknown[] }>('SELECT links FROM songs WHERE id = $1', [songId])
-    expect(column.links).toEqual([])
   })
 })

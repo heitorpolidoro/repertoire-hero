@@ -497,31 +497,21 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
       await query("DELETE FROM songs WHERE title ILIKE 'Sync Song B'")
 
       // 1. Create global songs with Spotify links and exact albums matching the Spotify mock
-      const songA = await query<{ id: string }>(
-        `INSERT INTO songs (title, artist, album, links)
-         VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
-        [
-          'Sync Song A',
-          'Sync Artist A',
-          'Album A',
-          JSON.stringify([{ label: 'Sync Song A', url: 'https://open.spotify.com/track/spotify-track-a' }]),
-        ],
-      )
-      songIdA = songA.rows[0].id
-      createdSongs.push(songIdA)
-
-      const songB = await query<{ id: string }>(
-        `INSERT INTO songs (title, artist, album, links)
-         VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
-        [
-          'Sync Song B',
-          'Sync Artist B',
-          'Album B',
-          JSON.stringify([{ label: 'Sync Song B', url: 'https://open.spotify.com/track/spotify-track-b' }]),
-        ],
-      )
-      songIdB = songB.rows[0].id
-      createdSongs.push(songIdB)
+      const seed = async (x: 'A' | 'B') => {
+        const song = await query<{ id: string }>(
+          'INSERT INTO songs (title, artist, album) VALUES ($1, $2, $3) RETURNING id',
+          [`Sync Song ${x}`, `Sync Artist ${x}`, `Album ${x}`],
+        )
+        createdSongs.push(song.rows[0].id)
+        await query('INSERT INTO song_links (song_id, url, label, position) VALUES ($1, $2, $3, 0)', [
+          song.rows[0].id,
+          `https://open.spotify.com/track/spotify-track-${x.toLowerCase()}`,
+          `Sync Song ${x}`,
+        ])
+        return song.rows[0].id
+      }
+      songIdA = await seed('A')
+      songIdB = await seed('B')
     })
 
     beforeEach(async () => {
@@ -608,20 +598,22 @@ describe.skipIf(skip)('Spotify Integration and Sync tests', () => {
 
       // Create 105 mock songs in songs in bulk to avoid DB overhead
       const bulkTitles = Array.from({ length: 105 }, (_, i) => `Bulk Song ${i}`)
-      const bulkLinks = bulkTitles.map((title, i) =>
-        JSON.stringify([{ label: title, url: `https://open.spotify.com/track/bulktrackid${i}` }]),
-      )
-
-      const insertedSongs = await query<{ id: string }>(
-        `INSERT INTO songs (title, artist, links)
-         SELECT t, 'Bulk Artist', l::jsonb
-         FROM unnest($1::text[], $2::text[]) AS s(t, l)
-         RETURNING id`,
-        [bulkTitles, bulkLinks],
+      const insertedSongs = await query<{ id: string; title: string }>(
+        `INSERT INTO songs (title, artist)
+         SELECT t, 'Bulk Artist'
+         FROM unnest($1::text[]) AS s(t)
+         RETURNING id, title`,
+        [bulkTitles],
       )
       expect(insertedSongs.rows).toHaveLength(105)
       const bulkSongIds = insertedSongs.rows.map((r) => r.id)
       createdSongs.push(...bulkSongIds)
+      await query(
+        `INSERT INTO song_links (song_id, url, label, position)
+         SELECT id, 'https://open.spotify.com/track/bulktrackid' || substring(title from 11), title, 0
+         FROM songs WHERE id = ANY($1::uuid[])`,
+        [bulkSongIds],
+      )
 
       // Add to playlist_songs in bulk — versions, not songs, since RH-125
       await query(

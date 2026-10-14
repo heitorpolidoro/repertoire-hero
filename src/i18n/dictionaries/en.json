@@ -48,6 +48,10 @@
       "links": "Links"
     }
   },
+  "songFiles": {
+    "setPrimary": "Set as primary file",
+    "primaryBadge": "Primary"
+  },
   "landing": {
     "badge": "Built for Musicians & Bands",
     "title": "Master Your Setlist.",

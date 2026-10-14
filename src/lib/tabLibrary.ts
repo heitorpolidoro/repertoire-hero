@@ -66,6 +66,50 @@ export function validateTabFile(file: TabFileDescriptor): TabFileValidation {
   return { ok: true }
 }
 
+/** Oldest first by `created_at` (compared as instants), the id breaking a tie: a total, order-independent ranking. */
+function olderFirst(a: SongFile, b: SongFile): number {
+  const at = Date.parse(a.created_at)
+  const bt = Date.parse(b.created_at)
+  if (!Number.isNaN(at) && !Number.isNaN(bt) && at !== bt) return at < bt ? -1 : 1
+  if (a.created_at !== b.created_at && (Number.isNaN(at) || Number.isNaN(bt))) {
+    return a.created_at < b.created_at ? -1 : 1
+  }
+  if (a.id === b.id) return 0
+  return a.id < b.id ? -1 : 1
+}
+
+/**
+ * Which file is the musician's primary for this song (RH-147): the designated
+ * one, or - where the data is silent (an offline snapshot written before this
+ * task, a missed row) - the oldest file, the rule the migration's backfill, the
+ * upload and the delete promotion all follow. `null` only for an empty list;
+ * the answer does not depend on the order the list arrives in. Every reader
+ * that needs "the" file goes through here, never through `tabs[0]`.
+ */
+export function resolvePrimaryTab(tabs: SongFile[]): SongFile | null {
+  if (tabs.length === 0) return null
+  const designated = tabs.filter((tab) => tab.is_primary === true)
+  const pool = designated.length > 0 ? designated : tabs
+  return [...pool].sort(olderFirst)[0]
+}
+
+/** The list with exactly one file designated primary, order untouched (RH-147). */
+export function markPrimaryTab(tabs: SongFile[], tabId: string): SongFile[] {
+  return tabs.map((tab) => ({ ...tab, is_primary: tab.id === tabId }))
+}
+
+/**
+ * The list after a delete, mirroring the server: deleting the designated primary
+ * promotes the oldest remaining file, so a non-empty list keeps one primary.
+ */
+export function withoutTab(tabs: SongFile[], tabId: string): SongFile[] {
+  const removed = tabs.find((tab) => tab.id === tabId)
+  const rest = tabs.filter((tab) => tab.id !== tabId)
+  if (!removed?.is_primary) return rest
+  const promoted = resolvePrimaryTab(rest)
+  return promoted ? markPrimaryTab(rest, promoted.id) : rest
+}
+
 /**
  * A file delete awaiting confirmation.
  *
@@ -106,4 +150,6 @@ export interface TabLibraryController {
   requestDelete: (tabId: string) => void
   confirmDelete: () => Promise<void>
   cancelDelete: () => void
+  /** Designates one file as the primary (RH-147); the list updates without a reload. */
+  setPrimaryTab: (tabId: string) => Promise<void>
 }
