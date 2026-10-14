@@ -10361,3 +10361,7 @@ Non-blocking suggestions from QA round 1:
 ## [RH-143] Drop songs.links and the forward bridge trigger — 2026-10-14
 
 - (code review) `spotifyPushUris.db.test.ts` header comment: one line is now overlong after the rewrap. Cosmetic only.
+
+## [RH-104] Process uploaded images on the way in — 2026-10-14
+
+- (qa) knip.json hints: esbuild and @serwist/cli can be dropped from ignoreDependencies.

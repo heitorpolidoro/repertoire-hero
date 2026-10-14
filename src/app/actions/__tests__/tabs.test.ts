@@ -94,6 +94,9 @@ const sampleStrokes: Stroke[] = [
 
 const PDF_BYTES = Buffer.from('%PDF-1.4 minimal', 'latin1')
 
+/** A string planted in a fixture's EXIF and XMP that the stored bytes must not contain. */
+const METADATA_NEEDLE = 'RH-104-must-not-survive'
+
 // One libvips thread: the fixtures here are tiny, but the default pool is the
 // core count and these suites run beside the jsdom ones. See
 // `src/lib/__tests__/fileIngest.test.ts`.
@@ -303,6 +306,45 @@ describe('uploadTabAction', () => {
     },
     30_000,
   )
+
+  // RH-104 ER5: the property that matters most for a public blob URL, proven
+  // through the running upload path rather than at the helper. A phone photo
+  // carrying GPS must reach `put` stripped.
+  it('hands put a metadata-bearing photo stripped of EXIF, GPS, ICC and XMP', async () => {
+    vi.mocked(createTab).mockResolvedValue({} as never)
+    const fixture = await sharp({
+      create: { width: 120, height: 90, channels: 3, background: { r: 180, g: 40, b: 40 } },
+    })
+      .withMetadata({
+        exif: {
+          IFD0: { Copyright: METADATA_NEEDLE },
+          GPS: { GPSLatitudeRef: 'N', GPSLatitude: '51/1 30/1 0/1' },
+        },
+      })
+      .withIccProfile('p3')
+      .withXmp(
+        '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/">' +
+          '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+          '<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+          `<dc:creator><rdf:Seq><rdf:li>${METADATA_NEEDLE}</rdf:li></rdf:Seq></dc:creator>` +
+          '</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="r"?>',
+      )
+      .jpeg()
+      .toBuffer()
+
+    // Non-vacuous: the input really carries what the output must not.
+    expect((await sharp(fixture).metadata()).exif).toBeDefined()
+    expect(fixture.includes(METADATA_NEEDLE)).toBe(true)
+
+    await uploadTabAction(uploadForm(fakeFile({ name: 'phone.jpg', type: 'image/jpeg', bytes: fixture })))
+
+    const stored = vi.mocked(put).mock.calls[0][1] as Buffer
+    const meta = await sharp(stored).metadata()
+    expect(meta.exif).toBeUndefined()
+    expect(meta.icc).toBeUndefined()
+    expect(meta.xmp).toBeUndefined()
+    expect(stored.includes(METADATA_NEEDLE)).toBe(false)
+  }, 30_000)
 
   // ER7, the action's half: an image the ingest refuses stores nothing at all.
   it('refuses an image that cannot be brought under the byte bound', async () => {

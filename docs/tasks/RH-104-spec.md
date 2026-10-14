@@ -23,10 +23,13 @@ link exists and every link has a test. Three things are nevertheless unproven, a
 is a property neither child could verify alone. Every number below is a command's output,
 not a recollection.
 
-1. **The stored `content_type` value has no real-database coverage, and the column has
-   never been seen holding anything but `application/pdf`.** The precise measurements:
-   `grep -rn content_type src --include="*.db.test.ts"` returns **nothing** — no DB-backed
-   suite reads the column back at all — while `grep -rn contentType src
+1. **The stored `content_type` value of a *chart* row has no real-database coverage, and
+   the column has never been seen holding an image type.** Re-measured 2026-10-13 (the
+   tree moved: RH-162 added audio rows to `song_files`): `grep -rn content_type src
+   --include="*.db.test.ts"` now returns only `audioUpload.db.test.ts:64-65`, which reads
+   an **audio** type; no DB suite reads a PDF or image type back, and `listTabs` now
+   excludes audio rows with `content_type NOT LIKE 'audio/%'`. Earlier measurements, kept
+   for the record: `grep -rn contentType src
    --include="*.db.test.ts"` returns exactly `oneOwnerPerWrite.db.test.ts:134` and
    `catalogRestructureIntegration.db.test.ts:138`, both `contentType: 'application/pdf'`.
    `grep -rln 'listTabs\|createTab\|uploadTabAction' src --include="*.db.test.ts"` returns
@@ -40,9 +43,9 @@ not a recollection.
    `toContain('content_type')` plus the bound parameter array (`:176`), which a wrong
    column *position* satisfies — see the probe in ER3, measured green under exactly that
    mutation. And `migrations/0018_add_song_file_content_type.sql` has **no replay suite**:
-   `ls migrations/*.sql | wc -l` is 21 against 6 replay suites
+   `ls migrations/*.sql | wc -l` is 26 against 6 replay suites
    (`songFiles`, `songLinks`, `ownerSongs`, `playlistSongsVersion`, `catalogSuggestions`,
-   `catalogVersions`), so fifteen migrations have none and there is **no repository-wide
+   `catalogVersions`), so twenty migrations have none and there is **no repository-wide
    convention that every migration is replayed** — the claim is only that *this* column,
    the one both children hinge on, is proven nowhere. `migrationsSingleSource.test.ts`
    checks only that prefixes are unique and contiguous.
@@ -211,11 +214,12 @@ They name outcomes only; every command, probe, grep and counting rule lives in t
 ## Run State (2026-10-12)
 
 A previous implement run was blocked because the headless sandbox refused test commands.
-Partial work on disk: the ER5 test in `src/app/actions/__tests__/tabs.test.ts` (unstaged,
-unrun). Not done: the DB suite, the version bump, every probe. Run commands exactly as
+Re-checked 2026-10-13: the ER5 test once described as partial work is **not** on disk
+(`tabs.test.ts` is unmodified; no `Copyright`/`withIccProfile`/`xmp` in it), so nothing of
+this task is built. Not done: the ER5 test, the DB suite, the version bump, every probe. Run commands exactly as
 spelled below (`/bin/zsh -f -c 'cd <repo> && ... /usr/bin/env npx vitest run ...'`); if
 the sandbox still refuses them, stop and report BLOCKED rather than claiming a result.
-This file is board RH-104's spec (board id + 1); RH-105's is `RH-105-spec.md`.
+This file is RH-104's spec, named by its own id.
 
 ## Verification Procedure
 
@@ -245,9 +249,8 @@ silent, re-run green. Never run `migrate`/`build` while a migration file is muta
   `image/png`, `image/webp`, real `createTab` then `listTabs(userId, songId)` returns that
   exact `content_type`; a raw INSERT naming no `content_type` reads `application/pdf`;
   `select count(*) from song_files` is equal before and after the run. Probe (only this
-  one): in `src/lib/tabs.ts` `createTab`, swap the last two column names to
-  `(user_id, song_id, title, content_type, file_url)` leaving `VALUES ($1..$5)` and the
-  array; ER1's run needs `1 failed` while `src/lib/__tests__/tabs.test.ts` stays green.
+  one): in `src/lib/tabs.ts` `createTab`, swap `file_url` and `content_type` in the `INSERT` column list at `src/lib/tabs.ts:89`
+  leaving `VALUES` and the bound array untouched (both are `text`, so Postgres accepts it); ER1's run needs `1 failed` while `src/lib/__tests__/tabs.test.ts` stays green.
   Do not use a literal-for-`$5` or drop-placeholder mutation.
 - **ER4 (ingest drives render).** Suite contains `prepareUploadBytes` and `isImageTab`;
   a test runs real `prepareUploadBytes` (real `sharp`) on an in-test JPEG, persists its
@@ -299,7 +302,7 @@ silent, re-run green. Never run `migrate`/`build` while a migration file is muta
   one. This is the gap between the two halves: RH-127 owned the column and asserted only
   its SQL text, RH-128 declared "no migration" and read the column from hand-written
   props. It is **not** true that this is the only migration without a replay suite —
-  `ls migrations/*.sql | wc -l` is 21 against six replay suites, so fifteen have none.
+  `ls migrations/*.sql | wc -l` is 26 against six replay suites, so twenty have none.
   A previous round of this spec asserted the stronger claim; it is withdrawn, and the
   narrower measured one above is what justifies ER1–ER4.
 - **`information_schema` is schema-ambiguous for this table**, because `public.song_files`
@@ -316,7 +319,7 @@ silent, re-run green. Never run `migrate`/`build` while a migration file is muta
 - **RH-128's spec states the override list "already holds 17 entries" against
   `MAX_OVERRIDES = 17`, so it "may not grow at all". The conclusion that this is no longer
   the tree is right; the cause this spec previously gave was wrong.**
-  `grep -cF 'name: "complexity-budget/override"' eslint.config.mjs` is **14** against
+  `grep -cF 'name: "complexity-budget/override"' eslint.config.mjs` was **14** (13 on 2026-10-13) against
   `MAX_OVERRIDES = 17` (`complexityBudget.test.ts:56`), so the list has headroom for three
   — but **`TabDrawingStage.tsx`'s entry was not dropped**: it survives at
   `eslint.config.mjs:141` with `max-lines-per-function: 709` / `max-lines: 788`, lowered
@@ -324,10 +327,10 @@ silent, re-run green. Never run `migrate`/`build` while a migration file is muta
   other entries leaving (RH-124 deleted `src/lib/songs.ts`'s outright, per the comment at
   `eslint.config.mjs:144-150`). Any later spec quoting either sentence should re-derive
   both the count and the ceiling.
-- **The mocked `tabs.test.ts` does not pin column *position*.** Swapping the last two
-  names of `createTab`'s `INSERT` column list to
-  `(user_id, song_id, title, content_type, file_url)`, leaving `VALUES ($1..$5)` and the
-  five-element array untouched, leaves that suite at `Tests 27 passed (27)` — and Postgres
+- **The mocked `tabs.test.ts` does not pin column *position*.** `createTab`'s `INSERT` is now
+  `(user_id, song_id, title, file_url, content_type, size_bytes)` (`src/lib/tabs.ts:89`).
+  Swapping `file_url` and `content_type` in that list, leaving `VALUES` and the bound
+  array untouched (first measured on the earlier five-column shape), leaves that suite at `Tests 27 passed (27)` — and Postgres
   accepts the statement, because both columns are `text`, storing the blob URL in
   `content_type` (`RETURNING content_type, file_url` →
   `https://blob.example/p.jpg | image/jpeg`). This is the mutation ER3 probes with, and
