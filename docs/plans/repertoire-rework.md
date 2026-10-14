@@ -619,9 +619,9 @@ pushed into the on-screen list and the toast read "Link added successfully!". No
 saved.
 
 `confirmDelete`, twenty lines below in the same hook, at least read the same return
-value, which is why this was an oversight rather than a decision — though it branches
-on `result.pending` alone, so a `{ success: false }` envelope is still announced as
-`Link deleted.` there. RH-130 owns that remainder.
+value, which is why this was an oversight rather than a decision. It branched on
+`result.pending` alone, so a `{ success: false }` envelope was announced as `Link deleted.`;
+RH-130 closed that remainder, and it now shows the envelope's error as an error toast.
 
 RH-99 closed it by disabling the controls, and audited every write surface reachable with
 no network against the same rule. Now disabled: the link add trigger, the per-link

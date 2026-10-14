@@ -96,7 +96,7 @@ export function useSongLinks({
       // `{ success: false, error }` instead of rejecting (it is one of
       // `offlineFirst`'s ENVELOPE_WRITES), and reporting "Link added
       // successfully!" over a refusal would show the musician a link that was
-      // never saved. Mirrors `confirmDelete` below (RH-99 ER6).
+      // never saved. `confirmDelete` below does the same (RH-99 ER6, RH-130).
       const result = await actions.updateLinks(entry.ownerRowId, updated)
       if (!result.success) throw new Error(result.error || 'Failed to add link.')
 
@@ -127,7 +127,11 @@ export function useSongLinks({
           // submitted for review instead of applied: keep the link on screen
           // until an admin approves the removal.
           const result = await actions.updateLinks(ownerRowId, updated)
-          if (result.pending) {
+          if (!result.success) {
+            // Read the envelope, as `submit` does: a refusal must not be
+            // announced as "Link deleted." (RH-130).
+            notify(result.error || 'Failed to delete link.', 'error')
+          } else if (result.pending) {
             notify('Link removal submitted for review. It stays visible until an admin approves it.', 'warning')
           } else {
             onLinksSaved(updated)

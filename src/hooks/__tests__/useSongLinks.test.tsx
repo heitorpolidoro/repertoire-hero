@@ -288,6 +288,25 @@ describe('useSongLinks', () => {
     expect(result.current.deleteBusy).toBe(false)
   })
 
+  it.each([
+    ['shows the envelope error', { success: false, error: 'You are offline.' }, 'You are offline.'],
+    ['falls back to a generic message without one', { success: false }, 'Failed to delete link.'],
+  ])('treats a success:false envelope as a failed delete and %s', async (_name, envelope, message) => {
+    const actions = makeActions()
+    actions.updateLinks.mockResolvedValue(envelope)
+    const { result, onLinksSaved, notify } = setup({ actions })
+
+    act(() => result.current.requestDelete('https://youtube.com/watch?v=1'))
+    await act(async () => { await result.current.confirmDelete() })
+
+    expect(onLinksSaved).not.toHaveBeenCalled()
+    expect(notify).not.toHaveBeenCalledWith('Link deleted.', 'info')
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(message, 'error')
+    expect(result.current.pendingDeleteUrl).toBeNull()
+    expect(result.current.deleteBusy).toBe(false)
+  })
+
   it('cancelDelete closes the confirmation without calling the action', async () => {
     const { result, actions } = setup()
 

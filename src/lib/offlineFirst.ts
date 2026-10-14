@@ -53,10 +53,8 @@
  * toggle, the lyrics editor's writes and the per-playlist download
  * (docs/tasks/RH-99-spec.md, the RH-99 spec). `useSongLinks.submit` also reads
  * the envelope now, so an offline refusal can no longer be reported as success
- * there. `confirmDelete` still branches on `result.pending` alone, so a
- * `{ success: false }` envelope from a server-side refusal is still announced as
- * `Link deleted.` — out of reach offline now that the control is disabled, but
- * not yet fixed. Tracked as RH-130.
+ * there. `confirmDelete` reads it too (RH-130): a `{ success: false, error }`
+ * envelope raises the error as an error toast, never `Link deleted.`.
  *
  * The rule those controls follow: a write that **crosses the network** is
  * disabled offline, because it cannot complete. A purely local write — removing

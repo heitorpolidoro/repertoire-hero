@@ -1092,9 +1092,8 @@ arrival you open the app and everything you marked is there to read.
   that call resolves `success: false` rather than rejecting, so the link appeared on
   screen and the toast said "Link added successfully!" while nothing was saved. The
   controls are now disabled, and `submit` now reads the envelope. `confirmDelete`
-  twenty lines below still branches on `result.pending` alone, so a server-side
-  refusal is announced as `Link deleted.` — unreachable offline now that the
-  control is disabled, but not yet fixed (RH-130).
+  reads it as well (RH-130): a `{ success: false, error }` refusal shows the error as an
+  error toast and never announces `Link deleted.`. The remainder is closed.
 
   RH-99 audited every write surface a musician can reach with no network, not just that
   one. Disabled offline: the `+ Add Link` trigger, every per-link delete and the add
