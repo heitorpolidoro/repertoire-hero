@@ -48,6 +48,11 @@ export function TabLibrarySection({
             onSelect={library.selectTab}
             onDelete={library.requestDelete}
             onSetPrimary={(tabId) => void library.setPrimaryTab(tabId)}
+            onOpenStage={(tab) => {
+              // selectTab toggles an active file off, so only select a new one.
+              if (library.activeTabUrl !== tab.file_url) library.selectTab(tab)
+              onOpenStage()
+            }}
             readOnly={readOnly}
           />
           <TabViewer

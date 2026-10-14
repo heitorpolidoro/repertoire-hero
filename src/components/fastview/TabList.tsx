@@ -10,10 +10,12 @@ export interface TabListProps {
   onDelete: (fileId: string) => void
   /** Designates one file as the primary (RH-147). */
   onSetPrimary: (fileId: string) => void
+  /** Opens Stage Mode for this row's file (RH-148). A read: stays enabled offline. */
+  onOpenStage: (tab: SongFile) => void
   /**
    * True while the Fast View is read-only, i.e. offline (RH-99). The delete and
-   * the set-as-primary star are disabled: selecting a tab and opening it in a
-   * new tab are reads.
+   * the set-as-primary star are disabled: selecting a tab, opening it in a
+   * new tab and opening Stage Mode are reads.
    */
   readOnly?: boolean
 }
@@ -31,6 +33,7 @@ export function TabList({
   onSelect,
   onDelete,
   onSetPrimary,
+  onOpenStage,
   readOnly = false,
 }: TabListProps) {
   // The list keeps its `created_at DESC` order; the primary is marked in place.
@@ -74,6 +77,16 @@ export function TabList({
             </button>
 
             <div className="flex items-center gap-1 shrink-0">
+              {/* Stage Mode button (RH-148) */}
+              <button
+                type="button"
+                onClick={() => onOpenStage(tab)}
+                aria-label="Open in Stage Mode"
+                className="min-w-[44px] min-h-[44px] px-2 flex items-center justify-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 rounded-lg border border-emerald-200 transition-colors shrink-0"
+              >
+                <span aria-hidden="true">⛶</span> Stage
+              </button>
+
               {/* External Link Button */}
               <a
                 href={tab.file_url}

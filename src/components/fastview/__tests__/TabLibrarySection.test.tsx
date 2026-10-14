@@ -9,7 +9,7 @@
  * a chart and RH-128 taught the viewer to render one.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import type { SongFile } from '@/types/database'
 import type { TabLibraryController } from '@/lib/tabLibrary'
 import { TabLibrarySection } from '../TabLibrarySection'
@@ -84,5 +84,44 @@ describe('TabLibrarySection copy (RH-128 ER11)', () => {
     expect(img).not.toBeNull()
     expect(img.getAttribute('src')).toBe(IMAGE_TAB.file_url)
     expect(container.querySelector('iframe')).toBeNull()
+  })
+})
+
+describe('TabLibrarySection Stage button (RH-148)', () => {
+  const OTHER_TAB: SongFile = { ...IMAGE_TAB, id: 't-2', title: 'Other', file_url: 'https://blob.example/other.jpg' }
+  const stageButton = (i: number) => screen.getAllByRole('button', { name: 'Open in Stage Mode' })[i]
+  const activeLibrary = () =>
+    controller({ tabs: [IMAGE_TAB, OTHER_TAB], activeTabId: IMAGE_TAB.id, activeTabUrl: IMAGE_TAB.file_url })
+
+  it('activates a non-active row then opens Stage Mode once', () => {
+    const library = activeLibrary()
+    const onOpenStage = vi.fn()
+    render(<TabLibrarySection library={library} loadingPersonal={false} onOpenStage={onOpenStage} />)
+
+    fireEvent.click(stageButton(1))
+
+    expect(library.selectTab).toHaveBeenCalledTimes(1)
+    expect(library.selectTab).toHaveBeenCalledWith(OTHER_TAB)
+    expect(onOpenStage).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not toggle the already-active row off and opens Stage Mode once', () => {
+    const library = activeLibrary()
+    const onOpenStage = vi.fn()
+    render(<TabLibrarySection library={library} loadingPersonal={false} onOpenStage={onOpenStage} />)
+
+    fireEvent.click(stageButton(0))
+
+    expect(library.selectTab).not.toHaveBeenCalled()
+    expect(onOpenStage).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not auto-select or open Stage Mode on arrival', () => {
+    const library = controller({ tabs: [IMAGE_TAB, OTHER_TAB] })
+    const onOpenStage = vi.fn()
+    render(<TabLibrarySection library={library} loadingPersonal={false} onOpenStage={onOpenStage} />)
+
+    expect(library.selectTab).not.toHaveBeenCalled()
+    expect(onOpenStage).not.toHaveBeenCalled()
   })
 })

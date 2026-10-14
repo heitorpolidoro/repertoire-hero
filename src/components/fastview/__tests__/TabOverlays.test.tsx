@@ -148,7 +148,7 @@ describe('TabLibrarySection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete file' }))
     expect(library.requestDelete).toHaveBeenCalledWith('t-1')
 
-    fireEvent.click(screen.getByRole('button', { name: /Stage/ }))
+    fireEvent.click(screen.getByRole('button', { name: '⛶ Stage' }))
     expect(onOpenStage).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))

@@ -10391,3 +10391,9 @@ Non-blocking suggestions from QA round 1:
 
 - (qa) Statements 30 and 31 of *Walk a queue of songs* are documented "Open" residue with no owning task id; consider naming an owner (RH-115 or a new task) so ER7's "confirmed, fixed, or owned" is explicit.
 - (qa) The e2e does not exercise picking an entry from the setlist list (statement 8); covered by unit tests only.
+
+## [RH-171] Upload a tab picked from Google Drive on an Android phone — 2026-10-14
+
+- (code-review) The spec's Expected Results cite `npm run typecheck`, but package.json has no such script (only `typecheck:sw`); fix the wording (use `npx tsc --noEmit`).
+- (code-review) The read buffers up to 10MB in memory; acceptable given the cap.
+- (qa) Add a `typecheck` script (`tsc --noEmit`) to package.json so the stated gate exists.

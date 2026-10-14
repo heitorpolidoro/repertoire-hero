@@ -371,7 +371,8 @@ describe('RH-99 ER2 — the tab library controls', () => {
     renderTabs(true)
 
     expect(screen.getByRole('button', { name: /Guitar chart/ }).hasAttribute('disabled')).toBe(false)
-    expect(screen.getByRole('button', { name: /Stage/ }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: '⛶ Stage' }).hasAttribute('disabled')).toBe(false)
+    screen.getAllByRole('button', { name: 'Open in Stage Mode' }).forEach((b) => expect(b.hasAttribute('disabled')).toBe(false))
   })
 
   // RH-147: designating a primary file is a write, so offline it is disabled

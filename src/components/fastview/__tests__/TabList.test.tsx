@@ -29,6 +29,7 @@ function renderList(overrides: Partial<React.ComponentProps<typeof TabList>> = {
   const onSelect = vi.fn()
   const onDelete = vi.fn()
   const onSetPrimary = vi.fn()
+  const onOpenStage = vi.fn()
   const view = render(
     <TabList
       tabs={TABS}
@@ -36,10 +37,11 @@ function renderList(overrides: Partial<React.ComponentProps<typeof TabList>> = {
       onSelect={onSelect}
       onDelete={onDelete}
       onSetPrimary={onSetPrimary}
+      onOpenStage={onOpenStage}
       {...overrides}
     />,
   )
-  return { ...view, onSelect, onDelete, onSetPrimary }
+  return { ...view, onSelect, onDelete, onSetPrimary, onOpenStage }
 }
 
 const starOf = (row: HTMLElement) => within(row).getByRole('button', { name: 'Set as primary file' })
@@ -111,8 +113,9 @@ describe('TabList', () => {
     renderList()
 
     const row = screen.getAllByRole('listitem')[0]
-    const controls = Array.from(row.querySelectorAll('a[title="Open in new tab / download"], button[aria-label]'))
+    const controls = Array.from(row.querySelector('div')!.children)
     expect(controls.map((el) => el.getAttribute('aria-label') ?? el.getAttribute('title'))).toEqual([
+      'Open in Stage Mode',
       'Open in new tab / download',
       'Set as primary file',
       'Delete file',
@@ -158,5 +161,38 @@ describe('TabList', () => {
 
     expect(screen.queryAllByRole('listitem')).toHaveLength(0)
     expect(screen.getByRole('list')).toBeDefined()
+  })
+
+  // RH-148
+  it('renders a Stage button per row with a 44 px target', () => {
+    renderList()
+
+    const buttons = screen.getAllByRole('button', { name: 'Open in Stage Mode' })
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0].textContent).toContain('⛶')
+    expect(buttons[0].textContent).toContain('Stage')
+    expect(buttons[0].className).toContain('min-w-[44px]')
+    expect(buttons[0].className).toContain('min-h-[44px]')
+  })
+
+  it('calls onOpenStage with that row file and not onSelect', () => {
+    const { onOpenStage, onSelect } = renderList()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open in Stage Mode' })[1])
+
+    expect(onOpenStage).toHaveBeenCalledTimes(1)
+    expect(onOpenStage).toHaveBeenCalledWith(TABS[1])
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('keeps Stage enabled when readOnly while delete and star are disabled', () => {
+    const { onOpenStage } = renderList({ readOnly: true })
+
+    const stage = screen.getAllByRole('button', { name: 'Open in Stage Mode' })
+    expect(stage.every((b) => !b.hasAttribute('disabled'))).toBe(true)
+    fireEvent.click(stage[0])
+    expect(onOpenStage).toHaveBeenCalledWith(TABS[0])
+    expect(screen.getAllByRole('button', { name: 'Delete file' }).every((b) => b.hasAttribute('disabled'))).toBe(true)
+    expect(screen.getAllByRole('button', { name: 'Set as primary file' }).every((b) => b.hasAttribute('disabled'))).toBe(true)
   })
 })
