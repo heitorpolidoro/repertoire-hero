@@ -1,5 +1,7 @@
 # RH-29 — Shipping Repertoire Hero on Google Play and the Apple App Store
 
+> **RH-82 status.** The "App Store decision (RH-82)" section near the end of this file recommends one path and asks the operator to decide. Apple's guideline text was verified first-hand on 2026-10-14 and is quoted in that section.
+>
 > **Status.** Re-verified against the code on **2026-10-13**, at `package.json` version `0.1.183-202610130947` (git HEAD `18be8d0`). **Decision requested from the operator:** approve the recommended path in §6 (harden the remaining PWA gaps, build account deletion, then a Capacitor shell with `server.url`, Android first) so the follow-up backlog items in §6.1 can be created.
 
 **Type:** analysis / decision document. No code changes.
@@ -347,6 +349,65 @@ Titles in Portuguese to match the existing backlog convention; justifications in
 
 10. **`Configurar pipeline de release mobile (EAS Build/Submit)`**
     *Removes the macOS build-machine requirement and extends the existing label-driven release convention in `.github/workflows/` to store submissions.*
+
+---
+
+## App Store decision (RH-82)
+
+### Guideline verification
+
+**Date Apple's guidelines page was accessed: 2026-10-14.** Source: https://developer.apple.com/app-store/review/guidelines/ (the page states "Last Updated: June 8, 2026"). The text was copied verbatim from the page's HTML by the operator's session and is kept in `docs/tasks/RH-82-apple-guidelines.md`. Guidelines 4.2.4 and 4.2.5 read "Intentionally omitted."; 4.2.6 and 4.2.7 are not relevant here.
+
+**Guideline 4.2 Minimum Functionality (verbatim):**
+
+> 4.2 Minimum Functionality
+> Your app should include features, content, and UI that elevate it beyond a repackaged website. If your app is not particularly useful, unique, or “app-like,” it doesn’t belong on the App Store. If your App doesn’t provide some sort of lasting entertainment value or adequate utility, it may not be accepted. Apps that are simply a song or movie should be submitted to the iTunes Store. Apps that are simply a book or game guide should be submitted to the Apple Books Store.
+
+**Guidelines 4.2.1 to 4.2.3 (verbatim):**
+
+> 4.2.1 Apps using ARKit should provide rich and integrated augmented reality experiences; merely dropping a model into an AR view or replaying animation is not enough.
+>
+> 4.2.2 Other than catalogs, apps shouldn’t primarily be marketing materials, advertisements, web clippings, content aggregators, or a collection of links.
+>
+> 4.2.3
+> (i) Your app should work on its own without requiring installation of another app to function.
+> (ii) If your app needs to download additional resources in order to function on initial launch, disclose the size of the download and prompt users before doing so.
+
+**Guideline 5.1.1(v) Account Sign-In (verbatim):**
+
+> (v) Account Sign-In: If your app doesn’t include significant account-based features, let people use it without a login. If your app supports account creation, you must also offer account deletion within the app. Apps may not require users to enter personal information to function, except when directly relevant to the core functionality of the app or required by law. If your core app functionality is not related to a specific social network (e.g. Facebook, WeChat, Weibo, X, etc.), you must provide access without a login or via another mechanism. Pulling basic profile information, sharing to the social network, or inviting friends to use the app are not considered core app functionality. The app must also include a mechanism to revoke social network credentials and disable data access between the app and social network from within the app. An app may not store credentials or tokens to social networks off of the device and may only use such credentials or tokens to directly connect to the social network from the app itself while the app is in use.
+
+**Premise "a repackaged website is rejected": nuanced.**
+
+- Confirmed in part: 4.2 says the app must "elevate it beyond a repackaged website", so a bare WebView around the site is outside what Apple wants.
+- Not an absolute rule: the text bans no web technology. The test is whether the app is "useful, unique, or app-like" and offers "adequate utility", and the failure wording is soft ("may not be accepted"). Acceptance is a reviewer judgement, not a mechanical check.
+- For this project: the `server.url` variant is closest to a repackaged website, so the native-feeling features in section 3.3 (offline, Pencil, wake lock, share) carry the argument. 4.2.2 (web clippings, collection of links) does not fit an app with accounts and a personal repertoire, and 4.2.3 does not apply because the app needs no other app to function.
+- 5.1.1(v) is firm and applies: the app has account creation, so in-app account deletion is required before the first submission. It is still missing (section 3.3). Check the social-network revoke clause when the Spotify link is built into the app.
+
+### Recommended path: Capacitor (`server.url`)
+
+This keeps the recommendation in section 6. It is the cheapest path that gives iOS a store listing, and it is the only one of the three that reuses the code as it is.
+
+- **Why not React Native.** It is a rewrite (Option C, section 4) that replaces cookie sessions with bearer tokens and puts a new HTTP API in front of Postgres. That cost buys nothing the operator has asked for. Reconsider only if Capacitor is rejected after the mitigations in section 3.3 are in place.
+- **Why not "no App Store".** It is the cheapest option and is a legitimate answer. It is not recommended here only because the operator has not said that a listing is unnecessary; if the listing is not a business requirement, this becomes the better choice and the Capacitor work below is not needed. iOS stays on the home-screen PWA (section 2.1).
+
+### Does the recommended path need the fail-closed HTTP API?
+
+**No.** The `server.url` variant keeps Server Actions and cookie auth, so no new authorization surface is created. This is also the variant closest to a "repackaged website", so the 4.2 risk is highest here and rests on the mitigations in section 3.3. If the verified 4.2 text shows that `server.url` is too risky, the API cost below applies to the Capacitor path as well.
+
+The bundled-assets variant and React Native do need it. Every endpoint would have to authorize and fail closed (deny by default, covered by guard tests like `actionSessionGuard.test.ts` and `actionAuthorizationGuard.test.ts`). The bundled variant is blocked in the code today: `next.config.ts` sets `output` only to `"standalone"` (or undefined on Vercel), never `"export"`, and the Server Components added by RH-62, RH-63, RH-71 and RH-77 cannot be statically exported (section 3.1). Checked against git history: RH-62 (`6e32874`) moved `/bands` and `/admin/moderation` to the server, RH-63 (`35d6f66`) `/playlists`, RH-71 (`a134a7b`) `/playlists/[id]`, and RH-77 (`ec934fb`) `/`; RH-61 (`57bc60a`) is not a conversion, it dropped `force-dynamic` from the root layout. Effort on the existing scale: Capacitor `server.url` L (~2-3 weeks to credibly pass review, section 3.2); bundled or React Native adds the API layer on top.
+
+### Recurring costs of Apple distribution
+
+- Apple Developer Program membership: **US$99 per year**, recurring (section 5.1). Re-check the price when enrolling.
+- A Mac, or a paid cloud build service, for builds and signing.
+- Certificates and provisioning profiles to create and renew.
+- A review cycle measured in days for every fix, including urgent ones. With `server.url`, web changes ship without review, but any shell change waits.
+- Account deletion (5.1.1(v)) is still missing and must be built before the first submission (section 3.3).
+
+### Decision requested
+
+Whether an App Store listing is a business requirement is not a technical question. My recommendation is Capacitor (`server.url`), conditional on the 4.2 mitigations in section 3.3 and in-app account deletion being in place before submission. The operator's answer is the decision.
 
 ---
 

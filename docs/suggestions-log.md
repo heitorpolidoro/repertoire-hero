@@ -10317,3 +10317,8 @@ Non-blocking suggestions from QA round 1:
 - (code review) The i18n keys `songFiles.setPrimary` and `songFiles.primaryBadge` were added to both dictionaries but nothing reads them; TabList.tsx hardcodes "Set as primary file" and "Primary". Wire them or drop them later to avoid dead data.
 - (code review) The loser of a concurrent first upload is retried outside a transaction; fine because the retry insert is a single statement.
 - (code review) `olderFirst` in src/lib/tabLibrary.ts has several branches; a short test of mixed unparsable timestamps would pin it down.
+
+## [RH-82] Decide and execute the App Store path for Repertoire Hero — 2026-10-14
+
+- (code review) The line "RH-71 ... confirm it before relying on it" reads as a leftover hedge. Once verified, state the fact plainly.
+- (code review) The new decision section sits between 6 and 7 and is unnumbered; consider a link from §6 to it.
