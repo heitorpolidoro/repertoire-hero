@@ -2037,6 +2037,12 @@ picked up by a follow-up task.
   them for RH-24 alone. The 30-entry trim the `work` skill performs periodically is worth
   running soon so the deferred-items entries stay findable.
 
+## [RH-148] Open a song's primary file half-expanded on arrival in Fast View — 2026-10-14
+
+- The `TabList` ordering test reads `row.querySelector('div')!.children`, which depends on the
+  action cluster being the first `div` in the row. Acceptable today; a `data-testid` on the
+  cluster would make it robust to markup changes.
+
 ---
 
 **VERDICT: APPROVED** — ER15 is satisfied, the change is append-only, all three deferred
@@ -10365,3 +10371,23 @@ Non-blocking suggestions from QA round 1:
 ## [RH-104] Process uploaded images on the way in — 2026-10-14
 
 - (qa) knip.json hints: esbuild and @serwist/cli can be dropped from ignoreDependencies.
+
+## [RH-148] Open a song's primary file half-expanded on arrival in Fast View — 2026-10-14
+
+- (code review) Tests use the literal name '⛶ Stage' to disambiguate the viewer button from the new row button; acceptable but brittle to icon changes.
+
+## [RH-148] Add a Stage Mode button to each file row in Fast View — 2026-10-14
+
+- (spec review) ER1 packs name, label, and ordering into one line; acceptable but near the limit.
+- (spec review) The 44 px class is in the test criteria but not in any ER; consider adding it to one.
+
+## [RH-171] Upload a tab picked from Google Drive on an Android phone — 2026-10-14
+
+- (spec review) The Diagnosis is a hypothesis: a failure that only happens while the request is being sent would not be caught by a prior `arrayBuffer()` read. ER5 (operator) covers this.
+- (spec review) The spec's expected-results wording differs slightly from the board's for ER1/ER2; keep the two copies in sync.
+- (spec review) Consider asserting in the hook test that `fileInputRef` and the form state are left intact on a read failure, so a retry is a single tap.
+
+## [RH-109] Address the Fast View by version and navigate a queue — 2026-10-14
+
+- (qa) Statements 30 and 31 of *Walk a queue of songs* are documented "Open" residue with no owning task id; consider naming an owner (RH-115 or a new task) so ER7's "confirmed, fixed, or owned" is explicit.
+- (qa) The e2e does not exercise picking an entry from the setlist list (statement 8); covered by unit tests only.

@@ -4,7 +4,7 @@
  * Next.js 16 runs Turbopack by default for both `next dev` and `next build`; `--webpack` is an
  * opt-in flag. Under the webpack dev runtime `pdfjs-dist`'s ESM build fails module evaluation with
  * "TypeError: Object.defineProperty called on non-object", and because
- * `src/app/songs/[id]/fast-view/page.tsx` imports `FastViewOverlays` -> `PdfStageOverlay` ->
+ * `src/app/songs/[versionId]/fast-view/page.tsx` imports `FastViewOverlays` -> `PdfStageOverlay` ->
  * `TabDrawingStage` -> `react-pdf` eagerly, that failure takes down the whole Fast View client
  * module graph: the route renders Next.js's client error shell instead of the song. Re-adding
  * `--webpack` to `dev` therefore breaks Fast View for everyone running `npm run dev` and turns the

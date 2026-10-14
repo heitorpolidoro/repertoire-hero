@@ -535,6 +535,79 @@ async function readOfflineStores(page: Page): Promise<{ snapshots: number; tabs:
 }
 
 /**
+ * RH-109 — the queue walk, offline. A downloaded three-song playlist is opened
+ * from its row (which writes the tab's song queue), every song's document is
+ * fetched once online (the worker stores the Fast View document per URL, as the
+ * first test explains), then the network is cut: the setlist chrome comes from
+ * `sessionStorage` and the content from the snapshot, and the arrow keys still
+ * walk the queue.
+ */
+test('walks a downloaded playlist with the network cut: queue chrome and content render', async ({
+  page,
+  context,
+}) => {
+  const titles = [
+    uniqueFixtureName('RH109 Offline A'),
+    uniqueFixtureName('RH109 Offline B'),
+    uniqueFixtureName('RH109 Offline C'),
+  ]
+  const playlistName = uniqueFixtureName('RH109 Offline Playlist')
+
+  await goHome(page)
+  for (const title of titles) await addSong(page, { title, artist: 'RH109 Artist' })
+  await createPlaylist(page, playlistName)
+  await openPlaylist(page, playlistName)
+  for (const title of titles) await addSongToOpenPlaylist(page, title)
+
+  await waitForServiceWorker(page)
+  await downloadPlaylist(page)
+
+  const urls: string[] = []
+  for (const title of titles) urls.push(await fastViewUrlFromPlaylist(page, title))
+
+  // Opening a row is what writes the queue; the tab keeps it across the
+  // same-origin document loads below.
+  await page
+    .getByRole('region', { name: 'Songs in this playlist' })
+    .getByRole('listitem')
+    .filter({ hasText: titles[1] })
+    .getByRole('link')
+    .click()
+  const setlist = page.getByRole('complementary')
+  await expect(page.getByRole('heading', { level: 1, name: titles[1] })).toBeVisible({ timeout: 20_000 })
+  await expect(setlist).toContainText('2 / 3')
+
+  // Every Fast View document is fetched once online, ending on song 2.
+  for (const index of [0, 2, 1]) {
+    await page.goto(urls[index])
+    await expect(page.getByRole('heading', { level: 1, name: titles[index] })).toBeVisible({
+      timeout: 20_000,
+    })
+    await expect(setlist).toContainText(`${index + 1} / 3`)
+  }
+
+  await context.setOffline(true)
+  await page.reload()
+
+  // Cold, offline: the chrome is the stored queue, the content the snapshot.
+  await expect(page.getByRole('heading', { level: 1, name: titles[1] })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('offline-read-only-banner')).toBeVisible()
+  await expect(setlist.getByRole('heading', { name: playlistName })).toBeVisible()
+  await expect(setlist).toContainText('2 / 3')
+  await expect(page.getByRole('region', { name: 'Lyrics' })).toBeVisible()
+
+  // Walking still works offline: forward to song 3, then back to song 2.
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('heading', { level: 1, name: titles[2] })).toBeVisible({ timeout: 20_000 })
+  await expect(setlist).toContainText('3 / 3')
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByRole('heading', { level: 1, name: titles[1] })).toBeVisible({ timeout: 20_000 })
+  await expect(setlist).toContainText('2 / 3')
+
+  await context.setOffline(false)
+})
+
+/**
  * A minimal, valid one-page PDF. Inline so the suite needs no fixture file and
  * no network: the point is only that `react-pdf` can parse and paint it.
  */

@@ -12,7 +12,7 @@
  * The routes that genuinely need per-request rendering are dynamic by
  * construction and need no directive: the `/api/**` handlers read the request,
  * `/join/[code]` awaits its params and resolves a session, and `/bands/[id]`,
- * `/playlists/[id]` and `/songs/[id]/fast-view` carry a dynamic segment with no
+ * `/playlists/[id]` and `/songs/[versionId]/fast-view` carry a dynamic segment with no
  * `generateStaticParams`. The one segment that declares the mode explicitly is
  * the dev-only profiles handler, which 404s outside development on the value of
  * `NODE_ENV` at request time — hence the allowlist below.

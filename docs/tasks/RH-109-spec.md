@@ -1,12 +1,5 @@
 # RH-109 — Address the Fast View by version and navigate a queue (integration and verification)
 
-> **Renamed 2026-10-13** to match its task id. Older text below may describe a "board id + 1" filename rule: that was a mistake copied between specs, not a convention. A spec is always `docs/tasks/<task id>-spec.md`.
-
-
-> Filename note: repo convention is spec file = board id + 1, so RH-109's spec is
-> `RH-109-spec.md`. `docs/tasks/RH-108-spec.md` is RH-108's committed spec and is NOT touched;
-> the old `RH-108-mock.html` likewise belongs to RH-108.
-
 ## Scope
 
 RH-109 was split into RH-132 (route by version, offline snapshot re-key), RH-133 (`sessionStorage`
@@ -14,7 +7,7 @@ queue replaces `returnTo`) and RH-134 (window fetch, `invalidateSongWindow`); al
 This task is the closing step: prove the three parts work **together**, and clean up what the parts
 individually left behind. It builds no feature and redoes no part.
 
-Read against the tree on 2026-10-12, the parts are in place: `src/app/songs/[versionId]/fast-view/page.tsx`,
+Re-verified against the tree on 2026-10-13, the parts are in place: `src/app/songs/[versionId]/fast-view/page.tsx`,
 `src/lib/songQueue.ts` (written once, from `PlaylistSongList.tsx`), `src/lib/songWindow.ts`,
 `songWindowData.ts` and `useSongWindow`/`usePlaylistNav`; no `returnTo` remains in `src` or `e2e`; both
 link builders (`RepertoireDashboard.tsx`, `PlaylistSongRow.tsx`) emit `/songs/<versionId>/fast-view`;
@@ -54,7 +47,9 @@ landing page (the queue is plumbing for a feature owned by RH-115, not a selling
 
 - `e2e/fast-view-queue.spec.ts` (new): covers behaviours 1-4 and 6 against the real server; behaviour 5 lives
   in `e2e/offline-mode.spec.ts` as one added case if it is not already covered there (check first; do not
-  duplicate).
+  duplicate). On 2026-10-13 that file (~lines 155-191) already reloads offline and reads the setlist from
+  the snapshot for one song, but does not step prev/next with the network cut: the added case must do that
+  walk, not repeat the reload.
 - `src/lib/__tests__/rootLayoutRendering.test.ts`, `src/lib/__tests__/devBundler.test.ts`: comments say
   `[versionId]`, no behavioural change.
 - `docs/use-cases.md`: only if the audit finds a line contradicting shipped behaviour; fix the text, and
@@ -68,22 +63,34 @@ order", one window request, write invalidates, Decided bullets including arrow k
 is up, origin-based back) with the code. Each statement is either confirmed in the report with the file that
 implements it, marked as owned by RH-115, or fixed in the doc.
 
-### Test criteria
+### Test criteria and how to run them
 
-The new e2e spec and the existing suites pass: `npm run lint`, `npx tsc --noEmit`, `npm test`, and
-`npx playwright test e2e/fast-view-queue.spec.ts e2e/offline-mode.spec.ts e2e/fast-view-mobile.spec.ts`.
-Version bump in `package.json` per AGENTS.md when committing to master.
+- **Test DB**: `npm test` needs the test database at the current migration state. A prior run failed 32 tests
+  in 12 DB-backed files with `column "links" of relation "songs" does not exist`: a stale test DB, not a code
+  defect. Run `npm run db:migrate` (`scripts/migrate.mjs`) against the test `DATABASE_URL` first, then
+  `npm test`. Resetting a database the developer does not own is `[operator]` work.
+- **Offline e2e (ER6)**: `offline-mode.spec.ts` skips unless built for production. Run
+  `npm run build && E2E_PROD=1 BETTER_AUTH_SECRET=<any non-empty value> PLAYWRIGHT_WEB_SERVER="npx next start -p 3000 -H 127.0.0.1" npx playwright test e2e/offline-mode.spec.ts`.
+  A run that reports the offline case *skipped* does not satisfy ER6. If the sandbox refuses `npm run build`
+  or `next start`, the developer still writes the case and QA reports it unrun; the run itself is `[operator]`.
+- **Regression guard**: the new spec names `returnTo` to assert its absence from the URL. ER1 forbids *use* of
+  `returnTo`, not that guard.
+- Lint/types/units: `npm run lint`, `npx tsc --noEmit`, `npm test`; Playwright:
+  `npx playwright test e2e/fast-view-queue.spec.ts e2e/offline-mode.spec.ts e2e/fast-view-mobile.spec.ts`.
+- Version bump in `package.json` per AGENTS.md when committing to master.
+- **ER7 report**: list every *Walk a queue of songs* statement with its disposition (confirmed + file, fixed,
+  or RH-115-owned); a partial audit does not satisfy ER7.
 
 ## Expected Results
 
-- [ ] `grep -rn returnTo src e2e` finds nothing, and no source or test comment still refers to `/songs/[id]`.
+- [ ] `grep -rn returnTo src e2e` shows no use of `returnTo` outside the one negative assertion in `e2e/fast-view-queue.spec.ts`, and no comment refers to `/songs/[id]`.
 - [ ] `e2e/fast-view-queue.spec.ts` passes: opening song 2 of 3 from a playlist shows position 2 of 3 at `/songs/<versionId>/fast-view` with no `returnTo`, swipe/arrow keys reach songs 1 and 3, and prev/next are absent at the ends.
 - [ ] That spec passes a reload mid-queue (chrome kept) and a fresh tab on the same URL (no setlist chrome), and back returns to the playlist.
 - [ ] That spec edits song 2's lyrics, walks to song 3 and back, and asserts the edited text, not the old one.
 - [ ] That spec opens a queue entry that has no repertoire row and asserts it renders at defaults while the setlist chrome stays.
-- [ ] An offline e2e case, in `offline-mode.spec.ts` or the new spec, walks a downloaded playlist with the network cut and shows queue chrome and content.
-- [ ] Every statement in `docs/use-cases.md` *Walk a queue of songs* is confirmed against code, fixed, or marked as owned by RH-115, as listed in the task report.
-- [ ] `npm run lint`, `npx tsc --noEmit`, `npm test` and the three named Playwright specs exit 0.
+- [ ] `offline-mode.spec.ts` (or the new spec) has a case that steps prev/next through a downloaded playlist with the network cut, showing queue chrome and content, and it runs unskipped under `E2E_PROD=1` on a production build.
+- [ ] Every statement in `docs/use-cases.md` *Walk a queue of songs* is listed in the task report as confirmed (with file), fixed, or owned by RH-115.
+- [ ] `npm run lint`, `npx tsc --noEmit`, `npm test` (on a migrated test DB) and the three named Playwright specs exit 0.
 
 ## Out of Scope
 
