@@ -88,8 +88,7 @@ describe.skipIf(!RUN_DB_TESTS)('repertoire actions are band-scoped (real databas
   /**
    * The catalog links of song S, as stored — a json text so the comparison
    * stays exact. Since RH-136 a link is a `song_links` row, so this reads the
-   * table in the canonical order rather than the retained `songs.links` column,
-   * which no writer on this path maintains any more.
+   * table in the canonical order (`songs` has no `links` column since RH-143).
    */
   const catalogLinks = async (): Promise<string> => {
     const res = await query<{ links: string }>(

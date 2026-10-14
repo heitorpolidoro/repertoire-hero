@@ -75,8 +75,7 @@ describe.skipIf(!RUN_DB_TESTS)('updateSong reports what the catalog refused (rea
 
   /**
    * The song's links as the catalog really holds them: `song_links` rows in the
-   * canonical order, not the retained `songs.links` column (RH-136 — no writer
-   * in this path maintains the column any more).
+   * canonical order (`songs` has no `links` column since RH-143).
    */
   const catalogLinks = async (songId: string): Promise<SongLink[]> => {
     const res = await query<SongLink>(

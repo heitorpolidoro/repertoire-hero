@@ -315,14 +315,14 @@ export interface PlaylistSong {
 /**
  * A catalog row as the song search answers it (RH-125): the shared `songs` row
  * plus the id of its **representative version**, so a collapsed picker card can
- * add exactly that version without computing an ordering of its own.
- *
+ * add exactly that version without computing an ordering of its own. No `links`
+ * (RH-143): the column is gone, so `SELECT s.*` has none and the type says so.
  * `version_id` is nullable because a `songs` row written outside the version
  * upsert — `scripts/seed-catalog.sql` does — has no `song_versions` row until
- * `ensureSongHasVersion` gives it one. A null means "ask the repertoire write
+ * `ensureSongHasVersion` gives it one: null means "ask the repertoire write
  * for the version", never "this song cannot be added".
  */
-export interface CatalogSearchResult extends Song {
+export interface CatalogSearchResult extends Omit<Song, 'links'> {
   version_id: string | null;
   /**
    * Every version of this song, in representative order (RH-108). Empty for a

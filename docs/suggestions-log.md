@@ -10352,3 +10352,12 @@ Non-blocking suggestions from QA round 1:
 ## [RH-145] Group a song's links by provider, expanding only when there are several — 2026-10-14
 
 - (code review) `PROVIDER_NAMES` and `GROUPED_PROVIDERS` duplicate the provider list; minor, not worth changing now.
+
+## [RH-148] Open a song's primary file half-expanded on arrival in Fast View — 2026-10-14
+
+- (spec review) State that the row Stage button for image-type files behaves like the viewer's (opens Stage regardless of type).
+- (spec review) The 44 px minimum size and the 360 px title truncation are in the spec's Test criteria and Approach but in no expected result; optionally add a single-assertion result for the 44 px size class (testable in TabList).
+
+## [RH-143] Drop songs.links and the forward bridge trigger — 2026-10-14
+
+- (code review) `spotifyPushUris.db.test.ts` header comment: one line is now overlong after the rewrap. Cosmetic only.

@@ -5,13 +5,12 @@
  * lowercase label "spotify", a spelling **no writer in `src/` produces**, so
  * `uris` was built empty for every song and the route answered success having
  * pushed nothing. Three fixtures in `spotify.test.ts` hid it by writing that
- * exact label into a `songs.links` SQL fixture themselves — the test supplied
- * the input in the one form the reader wanted.
+ * exact label into a links SQL fixture themselves — the test supplied the
+ * input in the one form the reader wanted.
  *
- * So this suite never writes a links column by hand. Every song it pushes gets
- * its link through a **real write path**, and the assertion is on the outbound
- * `PUT .../tracks` body. RH-136 moved a link out of the `songs.links` column
- * and into `song_links` rows, so the suite covers **all four** paths by which a
+ * So this suite never writes a link by hand. Every song it pushes gets its
+ * link through a **real write path**, and the assertion is on the outbound
+ * `PUT .../tracks` body. A link is a `song_links` row, so the suite covers **all four** paths by which a
  * Spotify url reaches a song, because each one would have gone silently empty
  * on its own: `findOrCreateSong` (the Spotify pull), `createAndAddSong` (the
  * song picker, `src/hooks/useSongPicker.ts:197`), `applySongLinkUpdate` (the
@@ -162,11 +161,8 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify push (real database, real write path
     versionCId = await representativeVersionId(songC.song_id)
 
     // Song D — the Fast View add-link path (`applySongLinkUpdate`), the third
-    // way a Spotify url reaches a song. It is here because RH-136 moved the
-    // links write off `songs.links` while the push still read that column, so
-    // until RH-137 only the reverse bridge trigger kept this path pushable.
-    // Since RH-137 the push reads the `song_links` row this writer created
-    // directly. Either way, a regression here is this song's `uris` entry going
+    // way a Spotify url reaches a song. The push reads the `song_links` row this
+    // writer created directly, so a regression here is this song's `uris` entry going
     // missing while the push answers 200 with `{added: 1}` — success, having
     // pushed one track of two.
     const songD = await createAndAddSong(

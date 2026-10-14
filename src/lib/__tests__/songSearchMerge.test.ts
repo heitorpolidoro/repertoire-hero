@@ -51,7 +51,6 @@ function catalogSong(
     standard_key: null,
     cover_url: null,
     duration_seconds: null,
-    links: [],
     created_at: '2026-01-01T00:00:00.000Z',
     version_id: null,
     versions: [],

@@ -27,8 +27,8 @@ export interface BandMemberRoleRow {
  * `songIdentity.ts`'s `LOOKUP_SQL`:
  * `SELECT s.id, <songLinksJson('s')> AS links FROM songs s WHERE LOWER(BTRIM(title)) = LOWER(BTRIM($1)) AND LOWER(BTRIM(artist)) = LOWER(BTRIM($2))`.
  *
- * `links` is the correlated `song_links` aggregate (RH-136), not the
- * `songs.links` column it used to be, so each element may carry a `provider`.
+ * `links` is the correlated `song_links` aggregate (RH-136), so each element
+ * may carry a `provider`.
  * The matching insert no longer returns links at all — it returns `id` alone and
  * the create path writes `song_links` rows itself.
  */
@@ -85,8 +85,7 @@ export interface PlaylistVersionIdRow {
  * no Spotify link answers an empty array and contributes nothing to the push.
  *
  * There is no `songs` row in this query at all — the push reaches a song's links
- * through `song_links` correlated on the entry's own `v.song_id`, so the
- * retained `songs.links` column is read by nothing in production.
+ * through `song_links` correlated on the entry's own `v.song_id`.
  */
 export interface PlaylistVersionSpotifyUrlsRow {
   version_id: string

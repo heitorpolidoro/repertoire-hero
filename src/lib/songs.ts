@@ -141,9 +141,8 @@ export async function applyCatalogFill(
   if (songRes.rowCount === 0) throw new Error('Song entry not found')
 
   // The fill-or-refuse decision is taken against the links the catalog really
-  // holds — `song_links` rows, not the retained `songs.links` column, which this
-  // writer stopped maintaining in RH-136 (`SELECT *` above still returns it, and
-  // overriding it here is what keeps `isCatalogFieldEmpty` off a stale array).
+  // holds — `song_links` rows. `songs` has no `links` column (RH-143), so the
+  // row is given `links` from this query before `splitCatalogUpdate` reads it.
   // `FOR UPDATE` on the `songs` row does not lock these rows; it still
   // serialises two concurrent fills of the same song, which is all it ever
   // bought.

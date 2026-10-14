@@ -232,11 +232,8 @@ describe('findOrCreateSong', () => {
     expect(insertValues[4]).toBe('http://art')
     // RH-136 — `links` left the `songs` column list; the Spotify link is a
     // `song_links` row, inserted by the next statement. This pins the
-    // single-source design, not a regression: the retained `songs.links`
-    // column is kept current by the reverse bridge trigger in
-    // `migrations/0019_song_links.sql`, which fires off that row insert, so the
-    // Spotify push still finds the url. Nothing here needs deleting to make
-    // the push work.
+    // single-source design, not a regression: `songs` has no `links` column
+    // (RH-143), and the Spotify push reads this `song_links` row directly.
     expect(insertValues).toHaveLength(6)
 
     const [linksSql, linksValues] = mockedQuery.mock.calls[2]

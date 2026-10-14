@@ -173,10 +173,8 @@ describe('resolveOrCreateSongIdentity', () => {
     // column, so the bind list starts at the title, and RH-136 took `links`
     // out of it — a link is a `song_links` row now.
     expect(sql).toContain('VALUES ($1, $2, $3, $4, $5, $6)')
-    // Not a pinned regression: the retained `songs.links` column is written by
-    // the reverse bridge trigger (`migrations/0019_song_links.sql`) off the
-    // `song_links` insert this statement is followed by, so the Spotify push —
-    // which still reads the column — keeps working without a dual write here.
+    // Not a pinned regression: `songs` has no `links` column (RH-143), and the
+    // Spotify push reads the `song_links` row this statement is followed by.
     expect(sql).not.toMatch(/\blinks\b/)
     // The album name arrives raw (RH-122): `albums` has a real identity key, so
     // stripping the edition would merge two genuinely separate releases.

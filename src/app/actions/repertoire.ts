@@ -278,7 +278,7 @@ export async function fetchLyricsAction(artist: string, title: string): Promise<
 }
 
 /**
- * Writes to the shared `songs.links` catalog on behalf of a repertoire owner.
+ * Writes to the shared `song_links` catalog on behalf of a repertoire owner.
  * The entry is what resolves the song id and what authorizes the caller, so
  * `assertRepertoireAccess` stays here; the additive-vs-moderated decision and
  * both statements live in `applySongLinkUpdate`.

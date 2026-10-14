@@ -129,8 +129,7 @@ export async function POST(
       // one is what made every push send an empty track list while reporting
       // success (RH-135). The links hang off the shared catalog song, which the
       // entry names through its version (RH-125), so the correlation is on
-      // `v.song_id` and this query joins no `songs` row at all — the retained
-      // `songs.links` column is read by nothing here.
+      // `v.song_id` and this query joins no `songs` row at all.
       const playlistSongsRes = await query<PlaylistVersionSpotifyUrlsRow>(`
         SELECT ps.version_id, ps.position,
                ${spotifyLinkUrlsJson('v.song_id')} AS spotify_urls
