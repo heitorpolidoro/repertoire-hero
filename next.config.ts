@@ -34,14 +34,15 @@ const nextConfig: NextConfig = {
   // turbopack config silences the "webpack config without turbopack config" error.
   turbopack: {},
   // RH-163: the one CSP directive the app sets - Fast View may frame the YouTube
-  // privacy-enhanced embed and the docs.google.com gview PDF preview (TabViewer),
-  // nothing else. Other directives stay unset on
-  // purpose (Sentry, Blob, the service worker); a full CSP is a separate task.
+  // privacy-enhanced embed, the docs.google.com gview PDF preview (TabViewer) and
+  // the Spotify Web Playback SDK iframe (RH-173, sdk.scdn.co), nothing else. Other
+  // directives stay unset on purpose (Sentry, Blob, the service worker); a full
+  // CSP is a separate task.
   async headers() {
     return [
       {
         source: "/:path*",
-        headers: [{ key: "Content-Security-Policy", value: "frame-src https://www.youtube-nocookie.com https://docs.google.com" }],
+        headers: [{ key: "Content-Security-Policy", value: "frame-src https://www.youtube-nocookie.com https://docs.google.com https://sdk.scdn.co" }],
       },
     ];
   },

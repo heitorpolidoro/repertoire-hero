@@ -20,7 +20,7 @@ async function cspValue() {
 describe('next.config.ts headers', () => {
   it('sets Content-Security-Policy to exactly the nocookie and gview frame-src on all routes', async () => {
     const value = await cspValue()
-    expect(value).toBe('frame-src https://www.youtube-nocookie.com https://docs.google.com')
+    expect(value).toBe('frame-src https://www.youtube-nocookie.com https://docs.google.com https://sdk.scdn.co')
     expect(value).not.toContain('*')
   })
 
@@ -38,5 +38,12 @@ describe('next.config.ts headers', () => {
     const iframe = container.querySelector('iframe') as HTMLIFrameElement
     expect(iframe).not.toBeNull()
     expect(allowed).toContain(new URL(iframe.getAttribute('src') as string).origin)
+  })
+
+  it('allows the origin of the Spotify Web Playback SDK iframe, with no wildcard', async () => {
+    const value = await cspValue()
+    const allowed = value.replace('frame-src ', '').split(' ')
+    expect(allowed).toContain(new URL('https://sdk.scdn.co/embedded/index.html').origin)
+    expect(value).not.toContain('*')
   })
 })
