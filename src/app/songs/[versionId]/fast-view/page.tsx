@@ -227,8 +227,6 @@ export default function FastViewPage() {
 
             {/* Song identity */}
             <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} tuning={tuning} />
-            <SpotifyPlayer links={entry.song?.links ?? []} offline={isOffline} />
-            <YoutubeEmbed song={entry.song} offline={isOffline} />
             <OfflineSongButton versionId={versionId} bandId={queryBandId} actions={OFFLINE_DOWNLOAD_ACTIONS} offline={isOffline} />
 
             {/* Tabs Section */}
@@ -260,6 +258,9 @@ export default function FastViewPage() {
 
             {/* Tags Section */}
             <SongTagsSection tags={entry.tags} />
+            {/* Players last, so the reading sections come first */}
+            <SpotifyPlayer links={entry.song?.links ?? []} offline={isOffline} />
+            <YoutubeEmbed song={entry.song} offline={isOffline} />
 
             <PracticeFinishButton finish={finish} />
 
