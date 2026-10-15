@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-149 mock - what does "player" mean inside Fast View?</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:#e5e7eb;color:#111827}
+  header.top{padding:20px 28px;background:#111827;color:#fff}
+  header.top h1{margin:0 0 6px;font-size:20px}
+  header.top p{margin:2px 0;font-size:13px;color:#d1d5db;max-width:980px}
+  .grid{display:flex;flex-wrap:wrap;gap:28px;padding:28px;align-items:flex-start}
+  .panel{width:420px}
+  .panel>h2{margin:0 0 4px;font-size:15px}
+  .panel>h2 .tag{display:inline-block;background:#059669;color:#fff;border-radius:6px;padding:2px 9px;margin-right:6px}
+  .panel>h2 .tag.zero{background:#6b7280}
+  .panel>p.what{margin:0 0 8px;font-size:12px;color:#374151;min-height:48px}
+  .limits{margin:0 0 8px;padding:8px 10px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:11.5px;line-height:1.4}
+  .limits.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+  .limits b{display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:.04em;font-size:10.5px}
+  .limits ul{margin:0;padding-left:16px}
+  /* the phone: the real page is <main class="px-6 py-8 flex flex-col gap-6 max-w-xl mx-auto"> on bg-gray-50 */
+  .phone{background:#f9fafb;border:1px solid #9ca3af;border-radius:18px;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+  .phone main{padding:32px 24px;display:flex;flex-direction:column;gap:24px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .back{font-size:14px;font-weight:500;color:#059669;background:none;border:0;padding:0}
+  .pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+  h1.title{margin:0;font-size:30px;line-height:1.2;font-weight:700;color:#111827}
+  p.artist{margin:4px 0 0;font-size:18px;color:#6b7280}
+  .notes{display:flex;gap:3px;margin-top:4px}
+  .notes i{width:22px;height:22px;border-radius:5px;background:#d1fae5;border:1px solid #6ee7b7;display:block}
+  .notes i.off{background:#f3f4f6;border-color:#e5e7eb}
+  .key{font-size:14px;color:#4b5563;margin-top:12px}
+  section{display:flex;flex-direction:column;gap:12px}
+  section.tabs{gap:16px}
+  h2.sec{margin:0;font-size:14px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.025em}
+  .link{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,.05);color:#059669;font-weight:500;font-size:14px}
+  .link .x{color:#9ca3af}
+  .empty{font-size:14px;color:#6b7280;background:rgba(243,244,246,.6);border:1px solid rgba(229,231,235,.5);border-radius:12px;padding:16px;text-align:center}
+  .small-green{font-size:12px;font-weight:600;color:#059669}
+  .tabrow{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid #a7f3d0;background:#ecfdf5;font-size:14px;font-weight:500;color:#065f46}
+  .viewer{height:150px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px;position:relative}
+  .viewer .stage{position:absolute;top:8px;right:10px;color:#059669;font-weight:600;font-size:12px}
+  .upload{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .upload h3{margin:0;font-size:12px;font-weight:600;color:#374151}
+  .upload .inp{border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;font-size:14px;color:#9ca3af}
+  .upload .btn{background:#f3f4f6;color:#9ca3af;border-radius:8px;padding:8px;text-align:center;font-size:14px;font-weight:500}
+  .lyrics{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,.05);font-size:14px;line-height:1.6;color:#374151}
+  .lyrics em{color:#9ca3af;font-style:normal;font-size:12px}
+  .swipe{display:flex;justify-content:space-between;padding:0 4px 8px;font-size:10px;color:#9ca3af}
+  .swipe b{font-weight:600}
+  .offline{display:flex;gap:8px;align-items:center;border-radius:12px;border:1px solid #fde68a;background:#fffbeb;padding:10px 16px;font-size:14px;color:#92400e}
+  /* the new things */
+  .new{outline:2px dashed #2563eb;outline-offset:3px;border-radius:12px;position:relative}
+  .new::before{content:"NEW";position:absolute;top:-9px;left:10px;background:#2563eb;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;z-index:2}
+  .bar{display:flex;align-items:center;gap:10px;background:#111827;color:#fff;border-radius:12px;padding:10px 12px}
+  .bar .play{width:36px;height:36px;border-radius:50%;background:#10b981;border:0;color:#fff;font-size:14px;flex:none}
+  .bar .meta{flex:1;min-width:0;font-size:12px}
+  .bar .meta small{display:block;color:#9ca3af;font-size:10.5px}
+  .track{height:4px;border-radius:2px;background:#374151;margin-top:5px;position:relative}
+  .track i{position:absolute;left:0;top:0;bottom:0;width:34%;background:#10b981;border-radius:2px}
+  .track u{position:absolute;top:-3px;bottom:-3px;left:40%;width:22%;background:rgba(251,191,36,.45);border:1px solid #fbbf24;border-radius:2px}
+  .chip{font-size:11px;font-weight:600;background:#1f2937;border:1px solid #374151;border-radius:999px;padding:3px 9px;color:#e5e7eb}
+  .chip.on{background:#fbbf24;color:#111827;border-color:#fbbf24}
+  .embed{border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;background:#fff}
+  .embed .art{display:flex;gap:10px;align-items:center;padding:10px;background:#121212;color:#fff}
+  .embed .art svg{flex:none}
+  .embed .art b{font-size:13px}.embed .art small{display:block;color:#b3b3b3;font-size:11px}
+  .embed.yt .vid{height:170px;background:#0f0f0f;position:relative;display:flex;align-items:center;justify-content:center}
+  .embed.yt .vid span{width:52px;height:36px;background:#ff0000;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px}
+  .embed.yt .cap{padding:8px 12px;font-size:12px;color:#374151}
+  .switch{display:flex;gap:6px;font-size:11px}
+  .gate{background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:12.5px;color:#92400e}
+  .gate button{margin-top:8px;background:#1db954;border:0;color:#fff;font-weight:700;font-size:12px;border-radius:999px;padding:7px 14px}
+  .meterbox{display:flex;align-items:center;gap:12px;background:#111827;color:#fff;border-radius:12px;padding:10px 12px}
+  .beats{display:flex;gap:6px}
+  .beats i{width:14px;height:14px;border-radius:50%;background:#374151;display:block}
+  .beats i.a{background:#fbbf24}
+  .bpm{font-size:22px;font-weight:700}
+  .bpm small{font-size:10px;color:#9ca3af;font-weight:500}
+  .stepper{display:flex;gap:4px}
+  .stepper span{width:26px;height:26px;border-radius:7px;background:#1f2937;border:1px solid #374151;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .setbar{display:flex;align-items:center;gap:10px;background:#111827;color:#fff;border-radius:12px;padding:10px 12px}
+  .setbar .tr{font-size:11px;color:#9ca3af}
+  .sticky{position:sticky;bottom:0}
+  .mini{margin-top:6px;font-size:11px;color:#6b7280}
+  .legend{padding:0 28px 28px;font-size:12px;color:#374151;max-width:1000px}
+  .legend span.sw{display:inline-block;width:12px;height:12px;border:2px dashed #2563eb;border-radius:3px;vertical-align:-2px;margin-right:4px}
+  .toggle{margin:0 28px;display:flex;gap:8px;align-items:center;font-size:12px;color:#374151}
+  .toggle button{border:1px solid #9ca3af;background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .toggle button.sel{background:#111827;color:#fff;border-color:#111827}
+  .ofl .offline{display:flex}
+  .offline{display:none}
+  .ofl .needsnet{opacity:.45;filter:grayscale(1)}
+  .ofl .netnote{display:block}
+  .netnote{display:none;margin-top:6px;font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 8px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>RH-149 &mdash; "player": which feature do you mean?</h1>
+  <p>The request was one word. These panels show the seven candidate shapes on the real Fast View (<code>/songs/[versionId]/fast-view</code>) at phone width, with today's copy and section order: Back + Setlist pill, title / artist / mastery notes, Key, Tabs, Links, Lyrics, swipe hint. Dashed blue = new. Red boxes = limits that exist whatever we prefer.</p>
+  <p><b>Answer with letters</b>: which panels do you want to keep (one or several), and in what order? Panel 0 is today's screen, for comparison only. Readings are different features; the likely outcome is one task kept and the rest filed separately.</p>
+</header>
+
+<div class="toggle">
+  <span>Preview the offline state:</span>
+  <button id="btn-on" class="sel" type="button">Online</button>
+  <button id="btn-off" type="button">Offline (downloaded snapshot)</button>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="legend">
+  <p><span class="sw"></span>New element. The song used throughout is a placeholder ("Wonderwall" / Oasis, key Em, one chart uploaded, one Spotify link and one YouTube link). Nothing here is wired to real data.</p>
+  <p>Browsers block audio autoplay without a tap, so on every panel the music starts on a tap, never on arrival at the page. The screen already stays awake (<code>useWakeLock</code>), so a playing song does not fight the wake lock.</p>
+</div>
+
+<script>
+/* Shared Fast View skeleton, copy taken from the components under src/components/fastview. */
+function phone(slots){
+  slots = slots || {};
+  return '<div class="phone"><main>'
+   + '<div class="offline"><span>&#128244;</span><span><b>You are offline.</b> This song is read-only until you reconnect.</span></div>'
+   + '<div class="row"><button class="back" type="button">&larr; Back</button>'
+   + (slots.pill===false ? '' : '<span class="pill"><span>&#127925;</span><span>Setlist (3/12)</span></span>') + '</div>'
+   + (slots.top || '')
+   + '<section><div class="row" style="align-items:flex-start"><div><h1 class="title">Wonderwall</h1><p class="artist">Oasis</p></div>'
+   + '<div class="notes" title="mastery notes"><i></i><i></i><i></i><i class="off"></i></div></div>'
+   + '<p class="key"><b style="font-weight:500">Key:</b> Em</p></section>'
+   + (slots.afterIdentity || '')
+   + '<section class="tabs"><h2 class="sec">Tabs</h2>'
+   + '<div class="tabrow"><span>&#128196;</span><span>Wonderwall - chords.pdf</span></div>'
+   + '<div class="viewer"><span>chart preview</span><span class="stage">&#9974; Stage</span></div>'
+   + (slots.inTabs || '')
+   + '<div class="upload"><h3>Upload New Tab</h3><div class="inp">Title (optional)</div><div class="inp">Choose file</div><div class="btn">Upload</div></div></section>'
+   + '<section><div class="row"><h2 class="sec">Links</h2><span class="small-green">+ Add Link</span></div>'
+   + '<div class="link"><span>Wonderwall - Remastered (Spotify)</span><span class="x">&#8599; &nbsp;|&nbsp; &#128465;</span></div>'
+   + '<div class="link"><span>Oasis - Wonderwall (Official Video)</span><span class="x">&#8599; &nbsp;|&nbsp; &#128465;</span></div>'
+   + (slots.inLinks || '') + '</section>'
+   + '<section><div class="row"><h2 class="sec">Lyrics</h2><span class="small-green">&#128269; Stage Mode &nbsp; Edit</span></div>'
+   + '<div class="lyrics">Today I was gonna throw it all away...<br>Maybe you&rsquo;re gonna be the one that saves me<br><em>(lyrics continue)</em></div></section>'
+   + '<div class="swipe"><span>&larr; prev</span><b>3 / 12</b><span>next &rarr;</span></div>'
+   + '</main>' + (slots.sticky || '') + '</div>';
+}
+function limits(title, items, ok){
+  return '<div class="limits'+(ok?' ok':'')+'"><b>'+title+'</b><ul>'+items.map(function(i){return '<li>'+i+'</li>';}).join('')+'</ul></div>';
+}
+function bar(label, extra){
+  return '<div class="bar"><button class="play" type="button" data-play>&#9654;</button><div class="meta">'+label+'<div class="track"><i></i>'+(extra||'')+'</div></div><span style="font-size:11px;color:#9ca3af">1:42 / 4:18</span></div>';
+}
+
+var panels = [
+ { tag:'0', zero:true, title:'Today: Fast View with no player',
+   what:'The screen as built at 51bba28. Nothing audio exists in the codebase.',
+   lim:limits('Nothing to limit', ['No audio code, no tempo field, no playback scope.'], true),
+   body: phone() },
+
+ { tag:'A', title:'Reading 1a: Spotify embed of the song\'s own linked track',
+   what:'Plays the track behind the song\'s Spotify link, inside Fast View, while you read. Sits directly under the song header so the chart stays one scroll away.',
+   lim: limits('Hard limits (not preferences)', [
+     'Spotify <b style="display:inline">Premium</b> required for full playback via the Web Playback SDK; free accounts get 30-second previews at most, or nothing.',
+     'Requires new OAuth scopes <code>streaming</code>, <code>user-read-playback-state</code>, <code>user-modify-playback-state</code> (today only playlist-read/modify-private/public + user-read-private).',
+     'Adding scopes <b style="display:inline">re-consents every already-connected user</b>.',
+     'Only works when the link is a <code>/track/</code> url; <code>spotify.link</code>, <code>spoti.fi</code> short links answer null today.',
+     'Online only. Autoplay blocked: needs a tap.']),
+   body: phone({ afterIdentity:
+     '<div class="new needsnet"><div class="embed"><div class="art"><svg width="44" height="44"><rect width="44" height="44" fill="#1db954"/><text x="22" y="29" font-size="22" text-anchor="middle" fill="#000">&#9835;</text></svg><div><b>Wonderwall (Remastered)</b><small>Oasis &middot; Spotify</small></div></div>'
+     + bar('<span>Wonderwall</span><small>Playing on this device</small>') + '</div><div class="netnote">No connection: playback unavailable.</div></div>'
+     + '<div class="gate">Connect Spotify Premium to play here. <br><button type="button">Re-connect Spotify (new permissions)</button></div>' }) },
+
+ { tag:'B', title:'Reading 1b: YouTube embed of the song\'s own linked video',
+   what:'Same placement as A, but the video behind the song\'s YouTube link. No account or scope involved.',
+   lim: limits('Limits', [
+     'No Premium and no OAuth scope: works for everybody with a YouTube link on the song.',
+     'Online only. Autoplay blocked: needs a tap.',
+     'Third-party iframe: ads and "related video" end-cards are YouTube\'s, not ours; needs the iframe allowed by the page\'s CSP.',
+     'Only works for songs that already carry a YouTube link.']),
+   body: phone({ afterIdentity:
+     '<div class="new needsnet"><div class="embed yt"><div class="vid"><span>&#9654;</span></div><div class="cap">Oasis - Wonderwall (Official Video)</div></div><div class="netnote">No connection: playback unavailable.</div></div>' }) },
+
+ { tag:'C', title:'Reading 2: your own audio, played with &lt;audio&gt; (SPLIT OUT: its own task)',
+   what:'An uploaded backing track or reference recording, listed in the same place as the chart and played by a compact bar. Upload sits next to "Upload New Tab".',
+   lim: limits('Limits', [
+     'A file is personal and a band holds none: a track uploaded in band context lands on the uploader\'s own row and is <b style="display:inline">not shared</b> with the band.',
+     'Storage: audio is far larger than a PDF in Vercel Blob; needs a size cap and a quota decision.',
+     'Only reading that can work <b style="display:inline">offline</b>, and only if the audio is included in the downloaded snapshot (which today holds charts, not audio).',
+     'Autoplay blocked: needs a tap.'], false),
+   body: phone({ afterIdentity:
+     '<section class="new"><h2 class="sec">Audio</h2>'
+     + bar('<span>Wonderwall - backing track.mp3</span><small>Your file</small>')
+     + '<div class="upload"><h3>Upload New Audio</h3><div class="inp">Title (optional)</div><div class="inp">Choose file</div><div class="btn">Upload</div></div></section>' }) },
+
+ { tag:'D', title:'Reading 3: practice transport (loop, slow down, count-in)',
+   what:'Reading 2 plus practice controls: loop a section, 0.5x-1.25x speed, 4-beat count-in. A practice tool, not a listening feature, so it only makes sense over audio the app controls.',
+   lim: limits('Limits', [
+     '<b style="display:inline">Depends on reading C</b>: needs an uploaded file the app controls. Cannot play Spotify or YouTube.',
+     'Speed uses <code>playbackRate</code>; pitch-preserving behaviour differs by browser.',
+     'Loop points need a place to be stored (new field) or are lost on reload.',
+     'Autoplay blocked: needs a tap.']),
+   body: phone({ afterIdentity:
+     '<section class="new"><h2 class="sec">Practice</h2>'
+     + bar('<span>Wonderwall - backing track.mp3</span><small>Loop 1:05 - 1:48</small>','<u></u>')
+     + '<div class="bar" style="gap:8px;flex-wrap:wrap"><span class="chip on">Loop A-B</span><span class="chip">0.75x</span><span class="chip">Count-in 4</span><span class="chip">- 5s</span><span class="chip">+ 5s</span></div></section>' }) },
+
+ { tag:'E', title:'Reading 4: click track / metronome',
+   what:'No audio file at all: a tempo and a click. Compact strip near the key, since tempo belongs to the song.',
+   lim: limits('Limits', [
+     '<b style="display:inline">Schema change</b>: <code>songs</code> holds no tempo column today, so a tempo field (and where it is edited and who may edit it in the wiki-style catalog) comes with it.',
+     'Works fully offline (generated in the browser) once tempo is known.',
+     'Autoplay blocked: needs a tap.']),
+   body: phone({ afterIdentity:
+     '<div class="new"><div class="meterbox"><button class="play" type="button" style="width:36px;height:36px;border-radius:50%;background:#10b981;border:0;color:#fff" data-play>&#9654;</button>'
+     + '<div class="bpm">92 <small>BPM</small></div><div class="stepper"><span>-</span><span>+</span></div><div class="beats"><i class="a"></i><i></i><i></i><i></i></div><span class="chip" style="margin-left:auto">4/4</span></div></div>' }) },
+
+ { tag:'F', title:'Reading 5: setlist player (walks the queue)',
+   what:'A transport pinned to the bottom of the screen that plays the songs in the RH-133 setlist queue in order, instead of living inside one song.',
+   lim: limits('Limits', [
+     '<b style="display:inline">Needs a source of audio per song</b>: Spotify (Premium + scopes, as A) or YouTube (as B) or own files (as C). It is not a standalone feature.',
+     'Online only for provider sources. Autoplay blocked: first song needs a tap; advancing to the next song is allowed once the user has interacted.',
+     'Page navigation between songs must not stop the audio: the player has to live above the song route, which Fast View\'s composition root does not do today.']),
+   body: phone({ sticky:
+     '<div class="setbar sticky new" style="border-radius:0"><button class="play" type="button" style="width:36px;height:36px;border-radius:50%;background:#10b981;border:0;color:#fff" data-play>&#9654;</button>'
+     + '<div style="flex:1;font-size:12px"><b>Wonderwall</b><div class="tr">Next: Don\'t Look Back in Anger</div></div><span class="chip">&#9198;</span><span class="chip">&#9197;</span><span class="chip">3 / 12</span></div>' }) }
+];
+
+var grid = document.getElementById('grid');
+panels.forEach(function(p){
+  var el = document.createElement('div');
+  el.className = 'panel';
+  el.innerHTML = '<h2><span class="tag'+(p.zero?' zero':'')+'">'+p.tag+'</span>'+p.title+'</h2><p class="what">'+p.what+'</p>'+p.lim+p.body;
+  grid.appendChild(el);
+});
+
+/* play buttons just toggle the glyph, to feel the control; no audio is produced */
+document.addEventListener('click', function(e){
+  var b = e.target.closest('[data-play]');
+  if(!b) return;
+  b.innerHTML = b.textContent.trim()==='▶' ? '&#10074;&#10074;' : '&#9654;';
+});
+
+var on = document.getElementById('btn-on'), off = document.getElementById('btn-off');
+function setOffline(v){
+  document.body.classList.toggle('ofl', v);
+  on.classList.toggle('sel', !v); off.classList.toggle('sel', v);
+}
+on.onclick = function(){ setOffline(false); };
+off.onclick = function(){ setOffline(true); };
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-165 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-100 p-6 font-sans text-sm">
+<h1 class="text-lg font-bold mb-1">RH-165 - tempo and click track</h1>
+<p class="mb-4">Toggle the song state. The click starts only when you press play.</p>
+<div class="mb-4 flex gap-2">
+ <button data-s="tempo" class="px-3 py-1 rounded bg-emerald-600 text-white">Song with tempo</button>
+ <button data-s="none" class="px-3 py-1 rounded bg-gray-300">Song without tempo</button>
+ <button data-s="off" class="px-3 py-1 rounded bg-gray-300">Offline snapshot</button>
+</div>
+<div class="flex gap-8 flex-wrap">
+<div class="w-[380px] bg-white rounded-xl shadow p-4">
+ <div id="offline" class="hidden bg-amber-100 text-amber-900 rounded p-2 mb-3 text-xs">You are offline. This song is read-only until you reconnect. The click still works.</div>
+ <h2 class="text-3xl font-bold">Wonderwall</h2><p class="text-gray-500 text-lg">Oasis</p><p class="text-gray-500 mt-1">Key: Em</p>
+ <div id="strip" class="mt-3 border-2 border-dashed border-blue-400 rounded-lg p-2 flex items-center gap-3">
+  <button id="play" class="w-10 h-10 rounded-full bg-emerald-500 text-white">&#9654;</button>
+  <div class="text-xl font-bold">92 <small class="text-xs text-gray-500">BPM</small></div>
+  <div class="flex gap-1" id="dots"><i class="w-3 h-3 rounded-full bg-gray-300"></i><i class="w-3 h-3 rounded-full bg-gray-300"></i><i class="w-3 h-3 rounded-full bg-gray-300"></i><i class="w-3 h-3 rounded-full bg-gray-300"></i></div>
+ </div>
+ <p id="none" class="hidden mt-3 text-xs text-gray-400">(no strip: this song has no tempo)</p>
+ <h3 class="mt-4 font-semibold">Tabs, Links, Lyrics...</h3>
+</div>
+<div class="w-[380px] bg-white rounded-xl shadow p-4">
+ <h3 class="font-semibold mb-2">Song form: new field</h3>
+ <label class="block text-xs text-gray-600">Tempo (BPM, 20-300)</label>
+ <input class="border-2 border-dashed border-blue-400 rounded w-full p-2" value="92" type="number" min="20" max="300">
+ <p class="text-xs text-gray-500 mt-2">Blank: you fill it. Already set by someone else: your value goes to the moderation queue as a correction.</p>
+</div></div>
+<script>
+var t=null,i=0,on=false,d=document.querySelectorAll('#dots i'),play=document.getElementById('play');
+function stop(){clearInterval(t);t=null;on=false;play.innerHTML='&#9654;';d.forEach(function(x){x.className='w-3 h-3 rounded-full bg-gray-300'})}
+play.onclick=function(){if(on){stop();return}on=true;play.innerHTML='&#9632;';i=0;
+ t=setInterval(function(){d.forEach(function(x,k){x.className='w-3 h-3 rounded-full '+(k==i%4?(i%4==0?'bg-emerald-600':'bg-emerald-400'):'bg-gray-300')});i++},60000/92)};
+document.querySelectorAll('[data-s]').forEach(function(b){b.onclick=function(){stop();var s=b.dataset.s;
+ document.getElementById('strip').style.display=s=='none'?'none':'flex';
+ document.getElementById('none').classList.toggle('hidden',s!='none');
+ document.getElementById('offline').classList.toggle('hidden',s!='off')}});
+</script></body></html>

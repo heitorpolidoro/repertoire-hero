@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-166 - Practice transport mock</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>.chip{border:1px solid #d1d5db;border-radius:9999px;padding:4px 10px;font-size:12px;background:#fff;cursor:pointer}.chip.on{background:#10b981;color:#fff;border-color:#10b981}</style>
+</head>
+<body class="bg-gray-100 p-4 text-gray-800">
+<h1 class="text-xl font-bold mb-1">RH-166 - Practice transport (Fast View, online, song with uploaded audio)</h1>
+<p class="text-sm mb-2">Interactive: buttons below update the readout only; no sound is produced. Offline toggle previews the unavailable state.</p>
+<div class="mb-4 flex gap-2"><button class="chip on" id="on">Online</button><button class="chip" id="off">Offline</button></div>
+
+<section class="mb-8">
+  <h2 class="font-semibold mb-2">The transport</h2>
+  <div class="max-w-sm bg-white rounded-2xl shadow p-4 flex flex-col gap-3" id="phone">
+    <div class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Practice</div>
+    <div id="offmsg" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Practice tools are not available offline</div>
+    <div id="tp" class="flex flex-col gap-3">
+      <div class="text-sm font-medium">Wonderwall - backing track.mp3</div>
+      <div class="flex items-center gap-3"><button id="play" class="w-10 h-10 rounded-full bg-emerald-500 text-white">&#9654;</button>
+        <div class="text-xs text-gray-600" id="status">Stopped - 0:00</div></div>
+      <div class="flex flex-wrap gap-2 items-center"><span class="text-xs text-gray-500 w-14">Loop</span>
+        <button class="chip" id="setA">Set A</button><button class="chip" id="setB">Set B</button><button class="chip" id="clr">Clear</button>
+        <span class="text-xs" id="loop">none</span></div>
+      <div class="flex flex-wrap gap-2 items-center"><span class="text-xs text-gray-500 w-14">Speed</span>
+        <button class="chip" data-r="0.5">0.5x</button><button class="chip" data-r="0.75">0.75x</button><button class="chip on" data-r="1">1x</button><button class="chip" data-r="1.25">1.25x</button></div>
+      <div class="flex flex-wrap gap-2 items-center"><span class="text-xs text-gray-500 w-14">Count-in</span>
+        <button class="chip" data-c="0">Off</button><button class="chip" data-c="2">2</button><button class="chip on" data-c="4">4</button>
+        <span class="text-xs text-gray-500 ml-2">at</span><button class="chip" id="bm">-</button><span id="bpm" class="text-sm font-mono">90</span><button class="chip" id="bp">+</button><span class="text-xs text-gray-500">BPM</span></div>
+      <div class="flex gap-2"><button class="chip">&minus; 5s</button><button class="chip">+ 5s</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="mb-8">
+  <h2 class="font-semibold mb-1">Decision - where the loop points are stored</h2>
+  <p class="text-sm mb-3">Decided: <b>only on this device (browser storage)</b>, one loop per audio file. No migration and no server code. A loop set on the phone is not on the tablet, and it is lost if browser data is cleared.</p>
+  <div class="bg-white rounded-xl shadow p-4 text-sm inline-block"><div class="chip inline-block on">Loop 1:05 - 1:48</div></div>
+</section>
+
+<script>
+var t=0,A=null,B=null,rate=1,cnt=4,bpm=90,playing=false,online=true;
+function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
+function loopTxt(){document.getElementById('loop').textContent=(A!=null&&B!=null)?fmt(A)+' - '+fmt(B):(A!=null?'A '+fmt(A)+' - set B':'none')}
+document.getElementById('play').onclick=function(){playing=!playing;this.innerHTML=playing?'&#10074;&#10074;':'&#9654;';
+  document.getElementById('status').textContent=playing?(cnt?('Count-in: '+cnt+' beats at '+bpm+' BPM, then playing at '+rate+'x'):'Playing at '+rate+'x'):'Stopped'};
+document.getElementById('setA').onclick=function(){A=65;B=null;loopTxt()};
+document.getElementById('setB').onclick=function(){if(A!=null){B=108;loopTxt()}};
+document.getElementById('clr').onclick=function(){A=B=null;loopTxt()};
+function group(sel,fn){document.querySelectorAll(sel).forEach(function(b){b.onclick=function(){document.querySelectorAll(sel).forEach(function(x){x.classList.remove('on')});b.classList.add('on');fn(b)}})}
+group('[data-r]',function(b){rate=+b.dataset.r});group('[data-c]',function(b){cnt=+b.dataset.c});
+document.getElementById('bm').onclick=function(){bpm=Math.max(40,bpm-5);document.getElementById('bpm').textContent=bpm};
+document.getElementById('bp').onclick=function(){bpm=Math.min(200,bpm+5);document.getElementById('bpm').textContent=bpm};
+function setOnline(v){document.getElementById('tp').classList.toggle('hidden',!v);document.getElementById('offmsg').classList.toggle('hidden',v);
+ document.getElementById('on').classList.toggle('on',v);document.getElementById('off').classList.toggle('on',!v)}
+document.getElementById('on').onclick=function(){setOnline(true)};document.getElementById('off').onclick=function(){setOnline(false)};
+</script>
+</body></html>
