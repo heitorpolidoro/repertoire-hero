@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useState, type Dispatch } from "react";
+import { useCallback, useRef, useState, type Dispatch, type ReactNode } from "react";
+import { PlaylistDeleteModal } from "@/components/playlists/PlaylistDeleteModal";
+import { PlaylistHeaderMenu } from "@/components/playlists/PlaylistHeaderMenu";
 import { PlaylistSpotifyStrip } from "@/components/playlists/PlaylistSpotifyStrip";
-import { SongPickerToggle } from "@/components/playlists/SongPickerToggle";
 import { Spinner } from "@/components/ui/Spinner";
 import {
   renameDraft,
@@ -29,25 +30,30 @@ export interface PlaylistDetailHeaderProps {
   /** Pulls from Spotify. */
   onSync: () => Promise<void>;
   /**
-   * RH-103 — whether to offer the *Reorder* toggle at all. The island folds two
+   * RH-103 — whether to offer the *Reorder* item at all. The island folds two
    * facts into it: the caller may reorder this playlist (personal, or band
    * admin), and no filter is narrowing the list. While a filter is active the
    * visible list is a subset, so "the row above" on screen is not the row above
    * in the playlist and the mode would lie.
    */
   canReorder: boolean;
-  /** True while the list is in reorder mode; the toggle reads *Done*. */
+  /** True while the list is in reorder mode; the top-level button reads *Done*. */
   reordering: boolean;
   /** Enters or leaves that mode. */
   onToggleReorder: () => void;
-  /** RH-159 — opens the whole-playlist practice review; omit to hide the button. */
+  /** RH-159 — opens the whole-playlist practice review; omit to hide the item. */
   onReviewPractice?: () => void;
+  /** RH-172 — the "Start practice" button, mounted by the view; omit for an empty playlist. */
+  startPractice?: ReactNode;
 }
 
 /**
  * RH-70 — the sticky header of `/playlists/[id]`: the back arrow, the cover,
- * the title or the inline rename input, the three action buttons and the
- * Spotify strip.
+ * the title or the inline rename input, the action group and the Spotify strip.
+ *
+ * RH-172: the action group is "Start practice" (when given), "Done" while
+ * reordering and the three-dots menu that holds every secondary action. The
+ * delete confirmation is a modal, so the header stays one row.
  *
  * It receives the panel state and its `dispatch` rather than a boolean and a
  * callback per panel, for the reason RH-69 handed a whole `TagEditorController`
@@ -68,10 +74,13 @@ export function PlaylistDetailHeader({
   reordering,
   onToggleReorder,
   onReviewPractice,
+  startPractice,
 }: PlaylistDetailHeaderProps) {
   const renaming = panel.kind === "rename";
   // The rename in flight: Save says so and cannot fire twice.
   const [saving, setSaving] = useState(false);
+  // The dots button, so the delete modal can hand focus back to it.
+  const menuButton = useRef<HTMLButtonElement>(null);
 
   const rename = () => {
     if (saving) return;
@@ -176,69 +185,30 @@ export function PlaylistDetailHeader({
 
         {/* Actions */}
         {!renaming && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            {/* Reorder mode (RH-103) */}
-            {canReorder && (
-              <ReorderToggle reordering={reordering} onToggle={onToggleReorder} />
-            )}
-
-            {onReviewPractice && <ReviewPracticeButton onClick={onReviewPractice} />}
-
-            {/* Add songs */}
-            <SongPickerToggle
-              open={panel.kind === "picker"}
-              onToggle={() => dispatch({ type: "toggle-picker" })}
+          <div className="flex items-center gap-1 shrink-0">
+            {startPractice}
+            {reordering && <DoneReorderingButton onClick={onToggleReorder} />}
+            <PlaylistHeaderMenu
+              buttonRef={menuButton}
+              canReorder={canReorder}
+              reordering={reordering}
+              onReorder={onToggleReorder}
+              onReviewPractice={onReviewPractice}
+              onAddSongs={() => dispatch({ type: "toggle-picker" })}
+              onRename={() => dispatch({ type: "open-rename", name: playlist.name })}
+              onDelete={() => dispatch({ type: "open-delete-confirm" })}
             />
-
-            <button
-              type="button"
-              onClick={() =>
-                dispatch({ type: "open-rename", name: playlist.name })
-              }
-              aria-label="Rename playlist"
-              className="p-1.5 rounded text-gray-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-              </svg>
-            </button>
-
-            {panel.kind === "delete-confirm" ? (
-              <PlaylistDeleteConfirm
-                onDelete={onDelete}
-                onCancel={() => dispatch({ type: "close" })}
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => dispatch({ type: "open-delete-confirm" })}
-                aria-label="Delete playlist"
-                className="p-1.5 rounded text-gray-400 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-400"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            )}
           </div>
         )}
       </div>
+
+      {panel.kind === "delete-confirm" && (
+        <PlaylistDeleteModal
+          onDelete={onDelete}
+          onCancel={() => dispatch({ type: "close" })}
+          returnFocusRef={menuButton}
+        />
+      )}
 
       <PlaylistSpotifyStrip
         playlist={playlist}
@@ -250,94 +220,22 @@ export function PlaylistDetailHeader({
 }
 
 /**
- * The inline "Sure? Yes / No" of the delete button. While the delete (and the
- * redirect that follows it) runs, both answers give way to a spinner, so the
- * click visibly landed and cannot be repeated.
+ * The *Done* button of reorder mode (RH-103). Entering the mode is the menu's
+ * "Reorder"; leaving it stays a visible top-level button.
+ *
+ * The accessible name is `Done reordering` — the visible label is the shorter
+ * `Done`, which on its own would not say what is being finished.
  */
-function PlaylistDeleteConfirm({
-  onDelete,
-  onCancel,
-}: {
-  onDelete: () => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [deleting, setDeleting] = useState(false);
-
-  if (deleting) {
-    return (
-      <span className="flex items-center gap-1 text-xs px-1 text-gray-600" role="status">
-        <Spinner />
-        Deleting…
-      </span>
-    );
-  }
-
-  return (
-    <span className="flex items-center gap-1 text-xs px-1">
-      <span className="text-gray-600">Sure?</span>
-      <button
-        type="button"
-        onClick={() => {
-          setDeleting(true);
-          onDelete()
-            .catch(console.error)
-            .finally(() => setDeleting(false));
-        }}
-        className="text-red-500 font-medium hover:text-red-700 focus:outline-none focus:underline"
-      >
-        Yes
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
-      >
-        No
-      </button>
-    </span>
-  );
-}
-
-/** RH-159 — opens the whole-playlist practice review. */
-function ReviewPracticeButton({ onClick }: { onClick: () => void }) {
+function DoneReorderingButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="px-2 py-1 rounded text-xs font-medium text-emerald-700 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      aria-pressed={true}
+      aria-label="Done reordering"
+      className="px-2 py-1 rounded text-xs font-medium bg-emerald-600 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
     >
-      Review practice
-    </button>
-  );
-}
-
-/**
- * The *Reorder* / *Done* toggle (RH-103). Its own component for the reason
- * `PlaylistDeleteConfirm` below is one: the header's function is already at the
- * complexity budget's line ceiling, and this is a self-contained control.
- *
- * The accessible name is `Reorder` entering the mode and `Done reordering`
- * leaving it — the visible label is the shorter `Done`, which on its own would
- * not say what is being finished.
- */
-function ReorderToggle({
-  reordering,
-  onToggle,
-}: {
-  reordering: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={reordering}
-      aria-label={reordering ? "Done reordering" : undefined}
-      className={`px-2 py-1 rounded text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-        reordering ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50"
-      }`}
-    >
-      {reordering ? "Done" : "Reorder"}
+      Done
     </button>
   );
 }

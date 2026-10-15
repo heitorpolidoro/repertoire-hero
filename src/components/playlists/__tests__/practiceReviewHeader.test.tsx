@@ -44,13 +44,15 @@ describe('Review practice entry point', () => {
   it('shows a button that calls the callback', () => {
     const open = vi.fn()
     renderHeader(open)
-    fireEvent.click(screen.getByRole('button', { name: 'Review practice' }))
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Review practice' }))
     expect(open).toHaveBeenCalledTimes(1)
   })
 
   it('is hidden when no callback is given (empty playlist)', () => {
     renderHeader()
-    expect(screen.queryByRole('button', { name: 'Review practice' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.queryByRole('menuitem', { name: 'Review practice' })).toBeNull()
   })
 
   it('the panel reducer opens the review and close leaves it', () => {

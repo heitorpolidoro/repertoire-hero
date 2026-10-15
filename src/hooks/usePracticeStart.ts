@@ -27,6 +27,10 @@ export interface UsePracticeStartOptions {
   push: (href: string) => void
   /** Injectable for tests; defaults to `Math.random`. */
   random?: () => number
+  /** RH-172: when set, the button starts this source at once, with no menu. */
+  fixedChoice?: PracticeChoice
+  /** RH-172: overrides where Back from Fast View returns. */
+  originHref?: string
 }
 
 export type PracticeChoice = { kind: 'repertoire' } | { kind: 'playlist'; id: string; name: string }
@@ -37,6 +41,8 @@ export interface PracticeStartController {
   pending: boolean
   /** The inline message under the button, or `null`. */
   message: string | null
+  /** True when a fixed choice replaces the source menu. */
+  fixed: boolean
   toggle: () => void
   start: (choice: PracticeChoice) => Promise<void>
 }
@@ -53,6 +59,8 @@ export function usePracticeStart({
   actions,
   push,
   random,
+  fixedChoice,
+  originHref,
 }: UsePracticeStartOptions): PracticeStartController {
   const [open, setOpen] = useState(false)
   const [playlists, setPlaylists] = useState<PracticePlaylistChoice[]>([])
@@ -60,6 +68,10 @@ export function usePracticeStart({
   const [message, setMessage] = useState<string | null>(null)
 
   const toggle = () => {
+    if (fixedChoice) {
+      void start(fixedChoice)
+      return
+    }
     const opening = !open
     setOpen(opening)
     if (!opening) return
@@ -82,6 +94,7 @@ export function usePracticeStart({
       const session = buildPracticeSession({
         ordered: orderForPractice(candidates, { random }),
         owner: bandId ? { type: 'band', bandId } : { type: 'personal' },
+        originHref,
         source: choice.kind === 'playlist' ? { kind: 'playlist', name: choice.name } : { kind: 'repertoire' },
       })
       if (!session) {
@@ -99,5 +112,5 @@ export function usePracticeStart({
     }
   }
 
-  return { open, playlists, pending, message, toggle, start }
+  return { open, playlists, pending, message, fixed: fixedChoice !== undefined, toggle, start }
 }

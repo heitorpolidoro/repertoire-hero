@@ -409,11 +409,17 @@ function renderIsland(options: { canReorder?: boolean; playlist?: Playlist } = {
       actions={DETAIL_ACTIONS}
       pickerActions={PICKER_ACTIONS}
       offlineActions={OFFLINE_ACTIONS}
+      practiceActions={{ getCandidates: vi.fn(), getPlaylists: vi.fn() }}
     />,
   )
 }
 
-const reorderToggle = () => screen.queryByRole('button', { name: 'Reorder' })
+// RH-172: "Reorder" is an item of the "More actions" menu, so look it up there.
+const reorderToggle = () => {
+  const dots = screen.getByRole('button', { name: 'More actions' })
+  if (dots.getAttribute('aria-expanded') !== 'true') fireEvent.click(dots)
+  return screen.queryByRole('menuitem', { name: 'Reorder' })
+}
 
 describe('the Reorder toggle (RH-103)', () => {
   beforeEach(() => vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true })))

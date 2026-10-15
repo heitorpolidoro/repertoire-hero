@@ -8,15 +8,15 @@ import type { PracticeStartController } from "@/hooks/usePracticeStart";
  * Presentational: `usePracticeStart` owns every decision.
  */
 export function PracticeStartButton({ practice }: { practice: PracticeStartController }) {
-  const { open, playlists, pending, message, toggle, start } = practice;
+  const { open, playlists, pending, message, fixed, toggle, start } = practice;
   return (
     <div className="relative">
       <button
         type="button"
         onClick={toggle}
         disabled={pending}
-        aria-haspopup="menu"
-        aria-expanded={open}
+        aria-haspopup={fixed ? undefined : "menu"}
+        aria-expanded={fixed ? undefined : open}
         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
       >
         {pending ? "Starting..." : "Start practice"}

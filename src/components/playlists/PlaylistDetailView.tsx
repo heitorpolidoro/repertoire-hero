@@ -6,6 +6,8 @@ import { PlaylistSongList } from "@/components/playlists/PlaylistSongList";
 import { PlaylistSummary } from "@/components/playlists/PlaylistSummary";
 import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
 import { OfflineDownloadButton } from "@/components/playlists/OfflineDownloadButton";
+import { PracticeStart } from "@/components/songs/PracticeStart";
+import type { PracticeActions } from "@/hooks/usePracticeStart";
 import { PracticeReviewList } from "@/components/ui/PracticeReviewList";
 import { practiceReviewRows } from "@/lib/practiceReviewRows";
 import { SongPicker } from "@/components/playlists/SongPicker";
@@ -38,6 +40,8 @@ export interface PlaylistDetailViewProps {
   pickerActions: SongPickerActions;
   /** Injected by the page (F21) — the three reads one offline copy is made of. */
   offlineActions: OfflineDownloadActions;
+  /** RH-172 — injected by the page (F21): the two reads behind "Start practice". */
+  practiceActions: PracticeActions;
 }
 
 /**
@@ -64,6 +68,7 @@ export function PlaylistDetailView({
   actions,
   pickerActions,
   offlineActions,
+  practiceActions,
 }: PlaylistDetailViewProps) {
   const router = useRouter();
   // The route's single offline reader — see the note above the component.
@@ -99,6 +104,11 @@ export function PlaylistDetailView({
         onToggleReorder={() => detail.setReordering(!detail.reordering)}
         onReviewPractice={
           detail.songs.length > 0 ? detail.openPracticeReview : undefined
+        }
+        startPractice={
+          detail.songs.length > 0 ? (
+            <PracticeStart bandId={playlist.band_id} actions={practiceActions} fixedChoice={{ kind: "playlist", id: playlist.id, name: detail.playlist.name }} originHref={`/playlists/${playlist.id}`} />
+          ) : undefined
         }
       />
 

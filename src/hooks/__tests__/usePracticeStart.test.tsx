@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { renderHook, cleanup, act, waitFor } from '@testing-library/react'
-import { usePracticeStart, type PracticeActions } from '../usePracticeStart'
+import { usePracticeStart, type PracticeActions, type PracticeChoice } from '../usePracticeStart'
 import { clearSongQueue, readSongQueue } from '@/lib/songQueue'
 import type { PracticeCandidate } from '@/lib/practiceOrder'
 
@@ -24,7 +24,14 @@ const SONGS: PracticeCandidate[] = [
   { versionId: 'never', title: 'Never', artist: 'C', status: 'unknown', lastPracticed: null },
 ]
 
-function setup(options: { bandId?: string | null; candidates?: PracticeCandidate[] } = {}) {
+function setup(
+  options: {
+    bandId?: string | null
+    candidates?: PracticeCandidate[]
+    fixedChoice?: PracticeChoice
+    originHref?: string
+  } = {},
+) {
   const writes = {
     recordPractice: vi.fn(),
     recordPracticeStatus: vi.fn(),
@@ -36,7 +43,16 @@ function setup(options: { bandId?: string | null; candidates?: PracticeCandidate
     getPlaylists: vi.fn(async () => [{ id: 'p-1', name: 'Friday gig' }]),
   } satisfies PracticeActions
   const push = vi.fn()
-  const hook = renderHook(() => usePracticeStart({ bandId: options.bandId ?? null, actions, push, random: () => 0 }))
+  const hook = renderHook(() =>
+    usePracticeStart({
+      bandId: options.bandId ?? null,
+      actions,
+      push,
+      random: () => 0,
+      fixedChoice: options.fixedChoice,
+      originHref: options.originHref,
+    }),
+  )
   return { hook, actions, push, writes }
 }
 
@@ -138,6 +154,46 @@ describe('usePracticeStart', () => {
     await waitFor(() => expect(actions.getPlaylists).toHaveBeenCalled())
     expect(hook.result.current.playlists).toEqual([])
     expect(hook.result.current.open).toBe(true)
+  })
+
+  it('starts a fixed playlist choice directly, with the given originHref and no menu', async () => {
+    const { hook, actions, push, writes } = setup({
+      bandId: 'band-1',
+      fixedChoice: { kind: 'playlist', id: 'p-1', name: 'Friday gig' },
+      originHref: '/playlists/p-1',
+    })
+
+    expect(hook.result.current.fixed).toBe(true)
+    await act(async () => hook.result.current.toggle())
+
+    expect(hook.result.current.open).toBe(false)
+    expect(actions.getPlaylists).not.toHaveBeenCalled()
+    expect(actions.getCandidates).toHaveBeenCalledExactlyOnceWith({ kind: 'playlist', playlistId: 'p-1' }, 'band-1')
+    expect(readSongQueue()).toMatchObject({
+      owner: { type: 'band', bandId: 'band-1' },
+      originHref: '/playlists/p-1',
+      label: 'Friday gig',
+    })
+    expect(readSongQueue()?.entries.map((e) => e.versionId)).toEqual(['never', 'overdue', 'fresh'])
+    expect(push).toHaveBeenCalledExactlyOnceWith('/songs/never/fast-view?bandId=band-1')
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled()
+  })
+
+  it('records a personal owner for a fixed choice without a band', async () => {
+    const { hook } = setup({ fixedChoice: { kind: 'playlist', id: 'p-2', name: 'Mine' }, originHref: '/playlists/p-2' })
+    await act(async () => hook.result.current.toggle())
+    expect(readSongQueue()?.owner).toEqual({ type: 'personal' })
+  })
+
+  it('is not fixed without a fixed choice', () => {
+    const { hook } = setup()
+    expect(hook.result.current.fixed).toBe(false)
+  })
+
+  it('passes originHref through the menu path too', async () => {
+    const { hook } = setup({ bandId: 'band-1', originHref: '/' })
+    await act(() => hook.result.current.start({ kind: 'repertoire' }))
+    expect(readSongQueue()?.originHref).toBe('/')
   })
 
   it('exposes no write in its action bundle', () => {

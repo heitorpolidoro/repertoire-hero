@@ -12,6 +12,7 @@ import {
   updateSongTagsAction,
 } from "@/app/actions/repertoire";
 import { OFFLINE_DOWNLOAD_ACTIONS } from "@/app/offlineActions";
+import { PRACTICE_ACTIONS } from "@/app/practiceActions";
 import { SONG_PICKER_ACTIONS } from "@/app/songPickerActions";
 import { PlaylistDetailView } from "@/components/playlists/PlaylistDetailView";
 import type { PlaylistDetailActions } from "@/hooks/usePlaylistDetail";
@@ -76,6 +77,7 @@ export default async function PlaylistDetailPage(props: {
       actions={PLAYLIST_DETAIL_ACTIONS}
       pickerActions={SONG_PICKER_ACTIONS}
       offlineActions={OFFLINE_DOWNLOAD_ACTIONS}
+      practiceActions={PRACTICE_ACTIONS}
     />
   );
 }

@@ -10397,3 +10397,22 @@ Non-blocking suggestions from QA round 1:
 - (code-review) The spec's Expected Results cite `npm run typecheck`, but package.json has no such script (only `typecheck:sw`); fix the wording (use `npx tsc --noEmit`).
 - (code-review) The read buffers up to 10MB in memory; acceptable given the cap.
 - (qa) Add a `typecheck` script (`tsc --noEmit`) to package.json so the stated gate exists.
+
+## [RH-172] Offer Start practice on more screens — 2026-10-15
+
+- (spec-review) Fold the read-only invariant (no `last_practiced` or status write) back into a result if one can be freed, e.g. merge ER5 and ER7; QA sees only the results and is the dropped check that guards a regression.
+- (spec-review) ER1 and ER7 each still assert more than one fact; tightening would help QA.
+- (spec-review) Round 3: ER1, ER4, ER7 and ER8 each join two closely related assertions with "and"; still verifiable, but splitting them would exceed the cap of eight.
+- (spec-review) Round 4: ER1 asserts more than one thing (queue order, label, originHref, navigation); acceptable but near the single-assertion limit.
+- (spec-review) Round 4: band dashboard ER7 "a start records owner band" depends on the existing PracticeStart band path; `PRACTICE_ACTIONS` and the `bandContext.type === 'user'` guard confirmed (RepertoireDashboard.tsx:212).
+
+## [RH-173] Allow the Spotify Web Playback SDK iframe in the CSP so Spotify playback starts — 2026-10-15
+- (spec-review) ER4 depends on a running dev server; fine, but note QA must start it.
+
+## [RH-172] Offer Start practice on more screens — 2026-10-15
+- (spec-review) Round 3: ER6 says existing tests change "only to open the menu first", but the spec also converts the `aria-pressed` assertion on "Add songs" into a picker-panel shown/hidden assertion; say so in the ER.
+- (spec-review) Round 3: ER7 asserts `originHref` `/`, but the dashboard test criterion only says "starts with the band id"; add the `originHref` check.
+- (spec-review) Round 3: the delete dialog needs `aria-labelledby` and focus return to the dots button; make sure the tests assert both.
+- (code-review) `PlaylistDetailView.tsx` (`startPractice` prop): the `<PracticeStart ... />` JSX is one very long line; wrap it to match the surrounding formatting.
+- (code-review) `RepertoireDashboard.tsx` (`PracticeStart` line): same long single line with an inline ternary for `bandId`; consider a small local `const`.
+- (code-review) `PlaylistDeleteModal`: `onCancel` is an inline arrow in the header, so the Escape listener is re-attached every render; harmless, could use `useCallback`.

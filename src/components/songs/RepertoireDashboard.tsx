@@ -209,7 +209,7 @@ function RepertoireDashboard({ actions, outcomeBanner }: RepertoireDashboardProp
           </h1>
           <div className="flex gap-2">
             <SelectSongsButton picker={picker} />
-            {bandContext.type === 'user' && !picker.active && <PracticeStart bandId={null} actions={actions.practice} />}
+            {!picker.active && <PracticeStart bandId={bandContext.type === 'band' ? bandContext.id : null} actions={actions.practice} originHref="/" />}
           </div>
         </div>
 

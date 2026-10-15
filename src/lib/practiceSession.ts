@@ -19,6 +19,8 @@ export interface PracticeSessionInput {
   ordered: readonly PracticeCandidate[]
   owner: SongQueueOwner
   source: PracticeSourceLabel
+  /** Overrides the owner-derived origin (RH-172): where Back from Fast View returns. */
+  originHref?: string
 }
 
 export interface PracticeSession {
@@ -30,13 +32,13 @@ export const WHOLE_REPERTOIRE_LABEL = 'Whole repertoire'
 
 /** `null` when there is nothing to practise. */
 export function buildPracticeSession(input: PracticeSessionInput): PracticeSession | null {
-  const { ordered, owner, source } = input
+  const { ordered, owner, source, originHref } = input
   if (ordered.length === 0) return null
 
   const queue: SongQueue = {
     entries: ordered.map((song) => ({ versionId: song.versionId, title: song.title, artist: song.artist })),
     owner,
-    originHref: owner.type === 'band' ? `/bands/${owner.bandId}` : '/',
+    originHref: originHref ?? (owner.type === 'band' ? `/bands/${owner.bandId}` : '/'),
     label: source.kind === 'playlist' ? source.name : WHOLE_REPERTOIRE_LABEL,
   }
   const first = `/songs/${ordered[0].versionId}/fast-view`

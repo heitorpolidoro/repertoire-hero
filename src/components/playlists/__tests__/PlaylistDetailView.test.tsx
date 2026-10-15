@@ -19,6 +19,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }))
 const { replace, refresh } = router
 
 import { PlaylistDetailView } from '../PlaylistDetailView'
+import { clearSongQueue, readSongQueue } from '@/lib/songQueue'
 import type { PlaylistDetailActions } from '@/hooks/usePlaylistDetail'
 import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
 import type { SongPickerActions } from '@/hooks/useSongPicker'
@@ -28,6 +29,8 @@ afterEach(cleanup)
 afterEach(() => vi.unstubAllGlobals())
 
 beforeEach(() => {
+  clearSongQueue()
+  router.push.mockClear()
   replace.mockClear()
   refresh.mockClear()
 })
@@ -137,8 +140,15 @@ function setup(props: Partial<React.ComponentProps<typeof PlaylistDetailView>> =
       actions={(props.actions ?? ACTIONS) as unknown as PlaylistDetailActions}
       pickerActions={PICKER_ACTIONS as unknown as SongPickerActions}
       offlineActions={props.offlineActions ?? OFFLINE_ACTIONS}
+      practiceActions={props.practiceActions ?? { getCandidates: vi.fn(), getPlaylists: vi.fn() }}
     />,
   )
+}
+
+/** RH-172: the header's secondary actions live in the "More actions" menu. */
+function openMenuItem(name: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+  fireEvent.click(screen.getByRole('menuitem', { name }))
 }
 
 describe('PlaylistDetailView (RH-71)', () => {
@@ -191,11 +201,70 @@ describe('PlaylistDetailView (RH-71)', () => {
 
     expect(screen.queryByPlaceholderText('Search catalog and Spotify…')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add songs' }))
+    openMenuItem('Add songs')
     expect(screen.getByPlaceholderText('Search catalog and Spotify…')).toBeDefined()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add songs' }))
+    openMenuItem('Add songs')
     expect(screen.queryByPlaceholderText('Search catalog and Spotify…')).toBeNull()
+  })
+
+  describe('Start practice (RH-172)', () => {
+    // s1 is overdue and s2 was practised yesterday, so the due order is s1, s2.
+    const DAY = 86_400_000
+    const candidate = (versionId: string, title: string) => ({
+      versionId,
+      title,
+      artist: 'RH71 Artist',
+      status: versionId === 's1' ? ('learning' as const) : ('mastered' as const),
+      lastPracticed: new Date(Date.now() - (versionId === 's1' ? 10 : 1) * DAY).toISOString(),
+    })
+
+    it('is a top-level header button on a playlist with songs, not a menu item', () => {
+      setup()
+
+      const start = screen.getByRole('button', { name: 'Start practice' })
+      expect(start.getAttribute('aria-haspopup')).toBeNull()
+      expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Start practice' })).toBe(start)
+    })
+
+    it('is not rendered on a playlist with no songs', () => {
+      setup({ playlist: playlist({ songs: [] }), repertoire: [] })
+
+      expect(screen.queryByRole('button', { name: 'Start practice' })).toBeNull()
+    })
+
+    it('starts a personal session from this playlist and opens Fast View on the first song', async () => {
+      const getCandidates = vi.fn().mockResolvedValue([candidate('s2', 'Red Sun'), candidate('s1', 'Blue Moon')])
+      setup({ practiceActions: { getCandidates, getPlaylists: vi.fn() } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Start practice' }))
+
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/songs/s1/fast-view'))
+      expect(getCandidates).toHaveBeenCalledWith({ kind: 'playlist', playlistId: 'pl-1' }, null)
+      expect(readSongQueue()).toMatchObject({
+        owner: { type: 'personal' },
+        originHref: '/playlists/pl-1',
+        label: 'Friday Setlist',
+      })
+      expect(readSongQueue()?.entries.map((e) => e.versionId)).toEqual(['s1', 's2'])
+    })
+
+    it('starts a band playlist with the band owner and bandId on the Fast View href', async () => {
+      const getCandidates = vi.fn().mockResolvedValue([candidate('s2', 'Red Sun')])
+      setup({
+        playlist: playlist({ user_id: null, band_id: 'band-1' }),
+        practiceActions: { getCandidates, getPlaylists: vi.fn() },
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Start practice' }))
+
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/songs/s2/fast-view?bandId=band-1'))
+      expect(getCandidates).toHaveBeenCalledWith({ kind: 'playlist', playlistId: 'pl-1' }, 'band-1')
+      expect(readSongQueue()).toMatchObject({
+        owner: { type: 'band', bandId: 'band-1' },
+        originHref: '/playlists/pl-1',
+      })
+    })
   })
 
   it('passes the server-resolved user id to the playlist tag bar', () => {
@@ -211,7 +280,7 @@ describe('PlaylistDetailView (RH-71)', () => {
   it('refreshes the route after a successful rename', async () => {
     setup()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rename playlist' }))
+    openMenuItem('Rename playlist')
     fireEvent.change(screen.getByRole('textbox', { name: 'Playlist name' }), {
       target: { value: 'Saturday Setlist' },
     })
@@ -224,8 +293,8 @@ describe('PlaylistDetailView (RH-71)', () => {
   it('navigates to the playlist list after the playlist is deleted', async () => {
     setup()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete playlist' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    openMenuItem('Delete playlist')
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }))
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/playlists'))
     expect(ACTIONS.deletePlaylist).toHaveBeenCalledWith('pl-1')

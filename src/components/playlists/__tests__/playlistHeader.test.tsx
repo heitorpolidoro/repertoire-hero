@@ -11,8 +11,9 @@
  *
  * Between them these tests pin every locator the e2e net reaches for on this
  * slice — the `<h1>` whose accessible name is the playlist name, a link named
- * `Back to playlists`, buttons named `Add songs`, `Rename playlist`,
- * `Delete playlist`, `Save`, `Cancel`, `Yes`, `No` and `Sync with Spotify`, and
+ * `Back to playlists`, menu items named `Add songs`, `Rename playlist` and
+ * `Delete playlist` (RH-172), buttons named `Save`, `Cancel`, `Yes, delete`,
+ * `No` and `Sync with Spotify`, and
  * a textbox named `Playlist name` — plus the focus-on-open that replaced the
  * page's deleted focus effect.
  */
@@ -71,6 +72,11 @@ function renderHeader(overrides: HeaderOverrides = {}) {
   return { ...view, dispatch, onRename, onDelete, onSync }
 }
 
+/** RH-172: the secondary actions live in the "More actions" menu. */
+function openMenu() {
+  fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+}
+
 /** The linked playlist the strip renders for. */
 const LINKED = { spotify_playlist_id: 'spotify-1' }
 
@@ -98,7 +104,8 @@ describe('PlaylistDetailHeader', () => {
   it('dispatches open-rename with the current name when Rename playlist is clicked', () => {
     const { dispatch } = renderHeader()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rename playlist' }))
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename playlist' }))
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'open-rename', name: 'Set one' })
   })
@@ -149,10 +156,10 @@ describe('PlaylistDetailHeader', () => {
     const { onDelete } = renderHeader({ panel: { kind: 'delete-confirm' } })
     onDelete.mockReturnValueOnce(new Promise<void>(() => {}))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }))
 
     expect(screen.getByRole('status').textContent).toContain('Deleting')
-    expect(screen.queryByRole('button', { name: 'Yes' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Yes, delete' })).toBeNull()
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
@@ -170,38 +177,35 @@ describe('PlaylistDetailHeader', () => {
   it('renders no action buttons while the rename panel is open', () => {
     renderHeader({ panel: { kind: 'rename', draft: 'Set one' } })
 
-    expect(screen.queryByRole('button', { name: 'Add songs' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Rename playlist' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Delete playlist' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Add songs' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Rename playlist' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Delete playlist' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Set one' })).toBeNull()
   })
 
-  it('toggles the add-song panel and reports it pressed while it is open', () => {
-    const { dispatch, unmount } = renderHeader()
-    const toggle = screen.getByRole('button', { name: 'Add songs' })
+  it('toggles the add-song panel from the menu (the panel itself is the view\'s, see PlaylistDetailView)', () => {
+    const { dispatch } = renderHeader()
 
-    expect(toggle.getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(toggle)
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add songs' }))
+
     expect(dispatch).toHaveBeenCalledWith({ type: 'toggle-picker' })
-    unmount()
-
-    renderHeader({ panel: { kind: 'picker' } })
-    expect(screen.getByRole('button', { name: 'Add songs' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    )
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('asks Sure? and calls the delete only after Yes', () => {
+  it('asks in a dialog and calls the delete only after Yes, delete', () => {
     const { dispatch, onDelete, unmount } = renderHeader()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete playlist' }))
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete playlist' }))
     expect(dispatch).toHaveBeenCalledWith({ type: 'open-delete-confirm' })
     expect(onDelete).not.toHaveBeenCalled()
     unmount()
 
     const armed = renderHeader({ panel: { kind: 'delete-confirm' } })
-    expect(screen.getByText('Sure?')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    expect(screen.getByRole('dialog', { name: 'Delete playlist' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }))
     expect(armed.onDelete).toHaveBeenCalledTimes(1)
   })
 

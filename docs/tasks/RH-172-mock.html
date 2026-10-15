@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RH-172 mock - Start practice and the three-dots menu on the playlist header</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-6 space-y-10">
+<h1 class="text-xl font-bold">RH-172 - "Start practice" on /playlists/[id]</h1>
+<p class="text-sm text-gray-600 max-w-2xl">Markup and classes copied from <code>PlaylistDetailHeader.tsx</code>. Per the operator's answer, "Reorder" and "Review practice" now live in a three-dots menu; "Start practice" is the visible primary action. Click the dots to open or close each menu; click "Start practice" to see the pending label. While reordering, "Done" stays visible.</p>
+
+<div class="flex flex-wrap gap-4 text-sm">
+  <label>Playlist:
+    <select id="has" class="border rounded px-2 py-1">
+      <option value="1">3 songs (button shown)</option>
+      <option value="0">Empty (button hidden)</option>
+    </select>
+  </label>
+  <label>Title:
+    <select id="title" class="border rounded px-2 py-1">
+      <option value="Sunday set">Short: Sunday set</option>
+      <option value="Friday night gig - covers and originals 2026">Long title</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="rev" checked> Review practice listed</label>
+  <label><input type="checkbox" id="reo" checked> Reorder listed (admin)</label>
+  <label><input type="checkbox" id="reordering"> Reordering (Done shown)</label>
+</div>
+
+<section>
+  <h2 class="font-semibold mb-2">Desktop (1024px wide) - menu closed, then open</h2>
+  <div class="space-y-6">
+    <div class="bg-white border border-gray-200 w-[1024px] max-w-full" data-w="desk" data-open="0"></div>
+    <div class="bg-white border border-gray-200 w-[1024px] max-w-full min-h-[120px]" data-w="desk" data-open="1"></div>
+  </div>
+</section>
+
+<section>
+  <h2 class="font-semibold mb-2">Phone (375px wide) - menu closed, then open (single row)</h2>
+  <div class="flex flex-wrap gap-8 items-start">
+    <div class="bg-white border border-gray-200 w-[375px] min-h-[120px]" data-w="phone" data-open="0"></div>
+    <div class="bg-white border border-gray-200 w-[375px] min-h-[120px]" data-w="phone" data-open="1"></div>
+  </div>
+</section>
+
+<section>
+  <h2 class="font-semibold mb-1">Delete from the menu (operator decision: closes the menu, shows a confirmation modal)</h2>
+  <p class="text-sm text-gray-600 mb-4 max-w-2xl">Choosing "Delete playlist" closes the menu and opens a modal dialog over the page. "No", Escape, or a click on the backdrop cancels; "Yes, delete" deletes and shows "Deleting..." while it runs. Click the button below to try it.</p>
+  <button id="openDel" class="mb-3 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm">Choose "Delete playlist" from the menu</button>
+  <div class="relative w-[375px] h-[320px] overflow-hidden border border-gray-200 bg-gray-50">
+    <div data-w="phone" data-open="0" class="bg-white"></div>
+    <div id="delModal" class="hidden absolute inset-0 z-30 flex items-center justify-center bg-black/30 p-4" onclick="if(event.target===this)closeDel()">
+      <div role="dialog" aria-modal="true" aria-labelledby="delTitle" class="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
+        <h2 id="delTitle" class="text-sm font-semibold text-gray-900">Delete playlist?</h2>
+        <p id="delBody" class="mt-2 text-sm text-gray-600">This deletes the playlist. Its songs stay in your repertoire.</p>
+        <div id="delActions" class="mt-4 flex justify-end gap-2">
+          <button id="delNo" class="rounded px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">No</button>
+          <button id="delYes" class="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500">Yes, delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+const back = `<a class="p-1.5 rounded text-gray-400 shrink-0"><svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/></svg></a>`;
+const plus = `<button class="p-1.5 rounded text-gray-400"><svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg></button>`;
+const pen = `<button class="p-1.5 rounded text-gray-400"><svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg></button>`;
+const trash = `<button class="p-1.5 rounded text-gray-400"><svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg></button>`;
+const dotsIcon = `<svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg>`;
+const done = `<button class="px-2 py-1 rounded text-xs font-medium bg-emerald-600 text-white" aria-label="Done reordering">Done</button>`;
+const start = `<button class="start rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors whitespace-nowrap mx-1">Start practice</button>`;
+
+function menuItems() {
+  const reo = document.getElementById('reo').checked, rev = document.getElementById('rev').checked;
+  const reordering = document.getElementById('reordering').checked;
+  const items = [];
+  if (reo && !reordering) items.push('Reorder');
+  if (rev) items.push('Review practice');
+  items.push('Add songs', 'Rename playlist', 'Delete playlist');
+  return items;
+}
+function dots(open, items) {
+  const list = open ? `<ul role="menu" aria-label="More actions" class="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 text-sm shadow-lg">${items.map(i => `<li role="none"><button role="menuitem" class="w-full px-3 py-2 text-left text-gray-900 hover:bg-gray-100">${i}</button></li>`).join('')}</ul>` : '';
+  return `<div class="relative"><button class="dots p-1.5 rounded text-gray-500 hover:bg-gray-100" aria-label="More actions" aria-haspopup="menu" aria-expanded="${open}">${dotsIcon}</button>${list}</div>`;
+}
+function render() {
+  const title = document.getElementById('title').value;
+  const has = document.getElementById('has').value === '1';
+  const reordering = document.getElementById('reordering').checked;
+  document.querySelectorAll('[data-w]').forEach(el => {
+    if (el.dataset.open === undefined) return;
+    const open = el.dataset.open === '1';
+    el.innerHTML = `<header class="bg-white border-b border-gray-100 px-4 py-3 md:px-6">
+      <div class="flex items-center gap-3">
+        ${back}
+        <h1 class="flex-1 text-lg font-bold text-gray-900 truncate min-w-0">${title}</h1>
+        <div class="flex items-center gap-0.5 shrink-0">
+          ${reordering ? done : ''}${has ? start : ''}${dots(open, menuItems())}
+        </div>
+      </div>
+    </header>`;
+  });
+  document.querySelectorAll('.start').forEach(b => b.onclick = () => {
+    b.disabled = true; b.textContent = 'Starting...';
+    setTimeout(() => { b.disabled = false; b.textContent = 'Start practice'; }, 1200);
+  });
+  document.querySelectorAll('.dots').forEach(b => b.onclick = () => {
+    const host = b.closest('[data-open]');
+    host.dataset.open = host.dataset.open === '1' ? '0' : '1';
+    render();
+  });
+}
+const delText = 'This deletes the playlist. Its songs stay in your repertoire.';
+function closeDel(){document.getElementById('delModal').classList.add('hidden');document.getElementById('openDel').focus();}
+document.getElementById('openDel').onclick=()=>{document.getElementById('delModal').classList.remove('hidden');document.getElementById('delNo').focus();};
+document.getElementById('delNo').onclick=closeDel;
+document.getElementById('delYes').onclick=()=>{document.getElementById('delBody').textContent='Deleting...';document.getElementById('delActions').classList.add('hidden');setTimeout(()=>{closeDel();document.getElementById('delBody').textContent=delText;document.getElementById('delActions').classList.remove('hidden');},1200);};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDel();});
+['has','title','rev','reo','reordering'].forEach(id => document.getElementById(id).onchange = render);
+render();
+</script>
+</body>
+</html>

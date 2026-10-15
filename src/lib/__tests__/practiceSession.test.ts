@@ -43,6 +43,17 @@ describe('buildPracticeSession', () => {
     expect(session?.href).toBe('/songs/v9/fast-view')
   })
 
+  it('lets an explicit originHref win over the owner-derived one', () => {
+    const session = buildPracticeSession({
+      ordered: [rich('v1')],
+      owner: { type: 'band', bandId: 'b-1' },
+      source: { kind: 'repertoire' },
+      originHref: '/playlists/p-1',
+    })
+    expect(session?.queue.originHref).toBe('/playlists/p-1')
+    expect(session?.href).toBe('/songs/v1/fast-view?bandId=b-1')
+  })
+
   it('returns null for an empty list', () => {
     expect(
       buildPracticeSession({ ordered: [], owner: { type: 'personal' }, source: { kind: 'repertoire' } }),
