@@ -10416,3 +10416,13 @@ Non-blocking suggestions from QA round 1:
 - (code-review) `PlaylistDetailView.tsx` (`startPractice` prop): the `<PracticeStart ... />` JSX is one very long line; wrap it to match the surrounding formatting.
 - (code-review) `RepertoireDashboard.tsx` (`PracticeStart` line): same long single line with an inline ternary for `bandId`; consider a small local `const`.
 - (code-review) `PlaylistDeleteModal`: `onCancel` is an inline arrow in the header, so the Escape listener is re-attached every render; harmless, could use `useCallback`.
+
+## [RH-174] Update the landing page to present recently shipped features — 2026-10-15
+
+- (spec-review) Round 1: ER8 should name `landingCopy.test.ts` explicitly, or say "the full vitest suite".
+- (spec-review) Round 1: ER1 could be checked by counting the cards rendered in the test.
+- (spec-review) Round 1: the f4 rewrite (song map, tuning, primary file, screen on) is not covered by any ER. Add an ER or drop it from Scope.
+- (spec-review) Round 2: ER1 to ER6 could name the vitest assertions that check them, so QA has a mechanical check beyond reading the copy.
+- (spec-review) Round 2: the Approach says nine cards fill the `lg:grid-cols-3` grid evenly. Confirm this in the implementation.
+- (code-review) Round 1: add an explicit key-set equality assertion for `landing.*` between en and pt-BR (ER7); the new test only iterates en keys.
+- (code-review) Round 1: EN uses British "practise"/"practised" while other cards use "Practice"; confirm that is intended.

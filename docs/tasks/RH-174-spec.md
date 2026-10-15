@@ -38,7 +38,7 @@ Covers: landing copy in both dictionaries and the feature grid in `LandingPage.t
 - Update `subtitle` to name practising and listening.
 - Mention that the app can be installed on the phone's home screen, in an existing card or the CTA subtitle, without naming any app store.
 
-Does not cover: layout or visual redesign, screenshots, new routes, any change outside `LandingPage.tsx` and the `landing.*` keys.
+Does not cover: layout or visual redesign, screenshots, new routes, any change outside `LandingPage.tsx`, the `landing.*` keys, and the two tests that pin them (`LandingPage.test.tsx` header comment and `src/lib/__tests__/landingCopy.test.ts`).
 
 ## Approach
 
@@ -46,6 +46,12 @@ Does not cover: layout or visual redesign, screenshots, new routes, any change o
 - Every `landing.*` key must differ between `en.json` and `pt-BR.json`: `src/components/landing/__tests__/LandingPage.test.tsx` relies on that to tell the two renders apart. Update the key count in its header comment.
 - Copy must only claim shipped behaviour: Spotify playback says Premium is required; no Google Play or iOS claim.
 - `LandingPage.tsx` must stay under its `max-lines-per-function` budget without a new `complexity-budget/override` entry (F20). If the card list pushes it over, map over a `FEATURES` array instead of adding JSX lines.
+
+- `src/lib/__tests__/landingCopy.test.ts` must be updated: its test "the landing page renders a card for every feature key it has copy for" loops over f1..f7 and ends with `expect(source).not.toContain('f8Title')`, which fails once f8/f9 exist. Extend the loop to 1..9 and drop the f8 negation.
+- Copy constraints enforced by that same file, to respect in every new or rewritten string (EN and PT):
+  - No `landing.*` string may match `/moderat|moderaç|aprovaç|approval|corrig|correct/i` (so no "correct", "correctly" or "corrigir" anywhere) nor `/weakest|menor n[ií]vel|aggregate/i`.
+  - `f7Title` must contain "offline"; `f7Desc` must contain "download", "playlist" and "offline" (EN) and "baix", "playlist" and "offline" (PT), even after the single-song rewrite.
+  - `f1`, `f3` and `f5` have pinned wording and are not rewritten; leave them as they are.
 
 ## Expected results
 
@@ -56,4 +62,4 @@ Does not cover: layout or visual redesign, screenshots, new routes, any change o
 - ER5: The offline card mentions downloading a single song as well as a playlist.
 - ER6: No landing copy mentions Google Play, the App Store or iOS.
 - ER7: Every `landing.*` key has a different value in `en.json` and `pt-BR.json`, and both dictionaries have the same set of `landing.*` keys.
-- ER8: `npm run lint`, `npm run typecheck` (or `tsc --noEmit`) and the `LandingPage` vitest suite pass with no new eslint override.
+- ER8: `npm run lint`, `npm run typecheck` (or `tsc --noEmit`) and the full `npm test` vitest suite (including `landingCopy.test.ts`, updated to nine cards, and the `LandingPage` suite) pass with no new eslint override.

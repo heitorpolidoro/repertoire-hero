@@ -10,7 +10,7 @@
  * flag it.
  *
  * Unlike `LanguageSelector`, this component's locale is plainly visible in its
- * text: all 26 `landing.*` keys differ between `pt-BR.json` and `en.json`, so
+ * text: all 30 `landing.*` keys differ between `pt-BR.json` and `en.json`, so
  * the server-shaped render and the client render are textually distinct and can
  * be compared by copy. `useHydrated()` is `useSyncExternalStore` with
  * `getServerSnapshot = () => false`, and `renderToStaticMarkup` takes that path.

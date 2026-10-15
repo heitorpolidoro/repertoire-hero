@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-174 landing mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-50 p-6"><div class="max-w-5xl mx-auto">
+<h1 class="text-3xl font-bold text-center">Repertoire Hero</h1>
+<p class="text-center text-slate-600 mt-2 mb-6" id="sub"></p>
+<div class="flex justify-center gap-2 mb-6"><button onclick="setL('en')" class="px-3 py-1 border rounded">EN</button><button onclick="setL('pt')" class="px-3 py-1 border rounded">PT-BR</button></div>
+<div id="grid" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div></div>
+<script>
+const D={
+en:{sub:"The all-in-one repertoire manager for musicians and bands. Catalog songs, practise them, listen while you read, share setlists, and pull up chords & tabs on stage.",
+c:[["📚","Song Catalog","Catalog songs, pre-filled from what other musicians catalogued."],["🎚️","5-Stage Mastery Scale","Levels fed by your practice: last practised date, updated in the review list."],["🎸","Band Shared Repertoires","Bands with their own key, lyrics and readiness."],["🎤","Stage-Ready Fast View","Song map, tuning, screen stays on, primary file opens first, Stage Mode."],["✍️","Handwritten Notes","Draw on PDFs and photos."],["🟢","Spotify Integration","Search, import playlists, and play tracks in-app (Premium)."],["📴","Works Offline","Download a playlist or a single song."],["🔁","NEW: Practice Sessions","Start in due order or from a selection, tick Practised it, finish with a review list."],["🎵","NEW: Listen While You Read","Uploaded audio, YouTube, Spotify, and Play setlist."]]},
+pt:{sub:"O gerenciador de repertorio para musicos e bandas. Catalogue, pratique, ouca enquanto le, compartilhe setlists e abra cifras no palco.",
+c:[["📚","Catalogo","Musicas pre-preenchidas."],["🎚️","Escala de 5 niveis","Nivel alimentado pela pratica."],["🎸","Repertorios de banda","Tom e letra proprios."],["🎤","Fast View","Mapa da musica, afinacao, tela ligada."],["✍️","Anotacoes","Escreva em PDFs e fotos."],["🟢","Spotify","Importe e toque (Premium)."],["📴","Offline","Baixe playlist ou uma musica."],["🔁","NOVO: Sessoes de pratica","Em ordem de vencimento ou selecao."],["🎵","NOVO: Ouca enquanto le","Audio, YouTube, Spotify e setlist."]]}};
+function setL(l){
+  document.getElementById('sub').textContent=D[l].sub;
+  document.getElementById('grid').innerHTML=D[l].c.map(c=>'<div class="bg-white rounded-xl border p-4 '+(/NEW|NOVO/.test(c[1])?'ring-2 ring-indigo-400':'')+'"><div class="text-2xl">'+c[0]+'</div><h3 class="font-semibold">'+c[1]+'</h3><p class="text-sm text-slate-600">'+c[2]+'</p></div>').join('');
+}
+setL('en');
+</script></body></html>

@@ -114,11 +114,55 @@ describe('landing copy', () => {
       'utf8',
     )
 
-    for (const index of [1, 2, 3, 4, 5, 6, 7]) {
+    for (const index of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
       expect(source, `no card renders landing.f${index}Title`).toContain(`f${index}Title`)
       expect(source, `no card renders landing.f${index}Desc`).toContain(`f${index}Desc`)
     }
-    expect(source).not.toContain('f8Title')
+  })
+
+  /** RH-174: practice, playback, Spotify playback, single-song download, no store claims. */
+  it('EN practice and listen cards cover the shipped behaviour (RH-174)', () => {
+    for (const term of ['due', 'selection', 'practised', 'review']) {
+      expect(en.landing.f8Desc).toMatch(new RegExp(term, 'i'))
+    }
+    for (const term of ['audio', 'youtube', 'spotify', 'setlist']) {
+      expect(en.landing.f9Desc).toMatch(new RegExp(term, 'i'))
+    }
+  })
+
+  it('PT practice and listen cards cover the shipped behaviour (RH-174)', () => {
+    for (const term of ['vencid', 'seleç', 'pratiquei', 'revis']) {
+      expect(ptBR.landing.f8Desc).toMatch(new RegExp(term, 'i'))
+    }
+    for (const term of ['áudio', 'youtube', 'spotify', 'setlist']) {
+      expect(ptBR.landing.f9Desc).toMatch(new RegExp(term, 'i'))
+    }
+  })
+
+  it('Spotify card mentions import, playback and Premium (RH-174)', () => {
+    expect(en.landing.f6Desc).toMatch(/import/i)
+    expect(en.landing.f6Desc).toMatch(/play/i)
+    expect(en.landing.f6Desc).toMatch(/premium/i)
+    expect(ptBR.landing.f6Desc).toMatch(/importe/i)
+    expect(ptBR.landing.f6Desc).toMatch(/toc|reprodu/i)
+    expect(ptBR.landing.f6Desc).toMatch(/premium/i)
+  })
+
+  it('offline card mentions a single song as well as a playlist (RH-174)', () => {
+    expect(en.landing.f7Desc).toMatch(/single song|one song/i)
+    expect(ptBR.landing.f7Desc).toMatch(/uma única música|música avulsa/i)
+  })
+
+  it('landing copy never names an app store or iOS (RH-174)', () => {
+    for (const value of [...landingStrings(en), ...landingStrings(ptBR)]) {
+      expect(value).not.toMatch(/google play|app store|\bios\b|iphone/i)
+    }
+  })
+
+  it('every landing key differs between locales (RH-174)', () => {
+    for (const [key, value] of Object.entries(en.landing)) {
+      expect(value, key).not.toEqual((ptBR.landing as Record<string, unknown>)[key])
+    }
   })
 
   it('landing copy never mentions moderation or corrections', () => {

@@ -170,6 +170,8 @@ export default function LandingPage() {
               <FeatureCard icon="📄" title={dict.landing.f5Title} desc={dict.landing.f5Desc} />
               <FeatureCard icon="🎧" title={dict.landing.f6Title} desc={dict.landing.f6Desc} />
               <FeatureCard icon="📴" title={dict.landing.f7Title} desc={dict.landing.f7Desc} />
+              <FeatureCard icon="🔁" title={dict.landing.f8Title} desc={dict.landing.f8Desc} />
+              <FeatureCard icon="🎵" title={dict.landing.f9Title} desc={dict.landing.f9Desc} />
             </div>
           </div>
         </section>
