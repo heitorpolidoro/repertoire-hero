@@ -1,0 +1,61 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>RH-148 mock</title>
+<style>
+body{font-family:system-ui,sans-serif;color:#1f2937;margin:24px;background:#fff}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 4px}
+.note{font-size:13px;color:#4b5563;margin:0 0 8px}
+.row{display:flex;gap:24px;flex-wrap:wrap}
+.p{width:360px}
+.tag{display:inline-block;color:#fff;font-weight:700;border-radius:4px;padding:2px 8px;font-size:12px;margin-bottom:6px}
+.t-now{background:#1f2937}.t-new{background:#059669}
+.scr{border:1px solid #d1d5db;border-radius:16px;background:#f9fafb;padding:12px}
+.scr h3{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 8px}
+.li{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;margin-bottom:8px;font-size:14px;font-weight:500;box-shadow:0 1px 2px #0001}
+.li.on{background:#ecfdf588;border-color:#6ee7b7}
+.nm{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.nm span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.b{font-size:10px;font-weight:600;background:#fef3c7;color:#b45309;border-radius:99px;padding:2px 6px;text-transform:uppercase;flex:none}
+.v{font-size:10px;font-weight:600;background:#d1fae5;color:#047857;border-radius:99px;padding:2px 6px;text-transform:uppercase;flex:none}
+.act{display:flex;align-items:center;gap:4px;flex:none}
+.ic{width:33px;height:33px;display:flex;align-items:center;justify-content:center;color:#9ca3af;border-radius:8px;font-size:15px}
+.ic.dis{color:#d1d5db}
+.stage{min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;gap:4px;padding:0 10px;border-radius:8px;border:1px solid #a7f3d0;background:#ecfdf5;color:#059669;font-size:13px;font-weight:600;cursor:pointer}
+.stage:hover{background:#d1fae5}
+.stage.touch{outline:2px dashed #f59e0b;outline-offset:1px}
+.cap{font-size:12px;color:#6b7280;margin:6px 0 0}
+.ov{position:fixed;inset:0;background:#111827;color:#fff;display:none;flex-direction:column}
+.ov.show{display:flex}.ov header{display:flex;justify-content:space-between;padding:14px 16px;background:#1f2937}
+.ov main{flex:1;display:flex;align-items:center;justify-content:center;color:#9ca3af}
+.ov button{background:#374151;color:#fff;border:0;border-radius:6px;padding:6px 12px}
+</style></head><body>
+<h1>RH-148 Stage Mode button on each file row</h1>
+<p class="note">Goal: fewer taps to Stage Mode. Today: tap the row, then tap Stage in the viewer. New: one tap on the row's own Stage button. Static illustration; the Stage buttons below open a fake overlay.</p>
+
+<h2>1. File row, today vs new (online)</h2>
+<div class="row">
+<div class="p"><span class="tag t-now">TODAY</span>
+<div class="scr"><h3>Tabs</h3>
+<div class="li"><div class="nm">📄<span class="t">Chart v2 (handwritten)</span></div><div class="act"><span class="ic">↗</span><span class="ic">☆</span><span class="ic">🗑</span></div></div>
+<div class="li"><div class="nm">📄<span class="t">Chart v1</span><span class="b">Primary</span></div><div class="act"><span class="ic">↗</span><span class="ic" style="color:#f59e0b">★</span><span class="ic">🗑</span></div></div>
+</div><p class="cap">Reading a chart in Stage Mode: tap row, wait for the viewer card, tap its Stage = 2 taps.</p></div>
+<div class="p"><span class="tag t-new">NEW</span>
+<div class="scr"><h3>Tabs</h3>
+<div class="li"><div class="nm">📄<span class="t">Chart v2 (handwritten)</span></div><div class="act"><button class="stage" onclick="ov.classList.add('show')" aria-label="Open in Stage Mode">⛶ Stage</button><span class="ic">↗</span><span class="ic">☆</span><span class="ic">🗑</span></div></div>
+<div class="li"><div class="nm">📄<span class="t">Chart v1</span><span class="b">Primary</span></div><div class="act"><button class="stage" onclick="ov.classList.add('show')" aria-label="Open in Stage Mode">⛶ Stage</button><span class="ic">↗</span><span class="ic" style="color:#f59e0b">★</span><span class="ic">🗑</span></div></div>
+</div><p class="cap">One tap on the row's Stage button = Stage Mode. The title truncates first on a narrow screen. Tap it to try.</p></div>
+</div>
+
+<h2>2. Offline (read-only)</h2>
+<p class="note">Stage stays enabled, like selecting a row (opening is a read). Open-link stays, star and delete are greyed.</p>
+<div class="row"><div class="p"><span class="tag t-new">NEW</span>
+<div class="scr"><h3>Tabs</h3>
+<div class="li on"><div class="nm">📄<span class="t">Chart v1</span><span class="b">Primary</span><span class="v">Viewing</span></div><div class="act"><button class="stage" onclick="ov.classList.add('show')" aria-label="Open in Stage Mode">⛶ Stage</button><span class="ic">↗</span><span class="ic dis">★</span><span class="ic dis">🗑</span></div></div>
+</div></div></div>
+
+<h2>3. Touch target</h2>
+<p class="note">The Stage button is at least 44x44 px (dashed outline); today's icon buttons are about 33 px and are unchanged.</p>
+<div class="row"><div class="p"><div class="scr"><div class="li"><div class="nm">📄<span class="t">Chart v1</span></div><div class="act"><button class="stage touch" onclick="ov.classList.add('show')">⛶ Stage</button><span class="ic">↗</span><span class="ic">☆</span><span class="ic">🗑</span></div></div></div></div></div>
+
+<div class="ov" id="ov"><header><b>Chart v1</b><button onclick="ov.classList.remove('show')">Close Stage Mode</button></header><main>(Stage Mode, as it opens today)</main></div>
+<script>const ov=document.getElementById('ov')</script>
+</body></html>

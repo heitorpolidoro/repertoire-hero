@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-163 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-100 p-6 font-sans">
+<h1 class="text-xl font-bold mb-2">RH-163 — YouTube embed in Fast View</h1>
+<p class="mb-4 text-sm text-gray-600">Decision: build this reading? Toggle the connection to see both states.</p>
+<label class="text-sm"><input type="checkbox" id="off"> Offline</label>
+<div class="mt-4 max-w-sm bg-white rounded-xl shadow p-4">
+ <h2 class="font-bold text-lg">Wonderwall</h2><p class="text-sm text-gray-500 mb-3">Oasis</p>
+ <section id="online"><div class="aspect-video bg-black rounded-lg flex items-center justify-center text-white text-5xl">&#9654;</div>
+  <p class="text-xs text-gray-500 mt-1">Oasis - Wonderwall (Official Video) &middot; starts only when you tap play</p></section>
+ <section id="offl" class="hidden"><p class="text-sm text-gray-500 border rounded-lg p-3 text-center">Video is not available offline</p></section>
+ <p class="mt-4 text-sm text-gray-400">(chart and links continue below)</p>
+</div>
+<script>
+document.getElementById('off').onchange = function (e) {
+  document.getElementById('online').classList.toggle('hidden', e.target.checked)
+  document.getElementById('offl').classList.toggle('hidden', !e.target.checked)
+}
+</script>
+</body></html>

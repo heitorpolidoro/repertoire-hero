@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RH-116 mock - download one song for offline</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-6 text-gray-900">
+<h1 class="text-xl font-bold mb-1">RH-116 - Download one song for offline</h1>
+<p class="text-sm text-gray-500 mb-6">Left: the control on the Fast View page in its four states (use the buttons). Right: how a stored song appears on /settings.</p>
+
+<div class="grid lg:grid-cols-2 gap-6 items-start">
+  <section class="bg-gray-50 rounded-xl border border-gray-200 p-4">
+    <div class="flex gap-2 mb-4 text-xs">
+      <button data-s="idle" class="st px-2 py-1 rounded border bg-white">Idle</button>
+      <button data-s="downloading" class="st px-2 py-1 rounded border bg-white">Downloading</button>
+      <button data-s="downloaded" class="st px-2 py-1 rounded border bg-white">Downloaded</button>
+      <button data-s="offline" class="st px-2 py-1 rounded border bg-white">Device offline</button>
+    </div>
+    <p class="text-sm font-medium text-emerald-600 mb-3">&larr; Back</p>
+    <h2 class="text-3xl font-bold leading-tight">Sweet Child O' Mine</h2>
+    <p class="mt-1 text-lg text-gray-500">Guns N' Roses</p>
+    <p class="text-sm text-gray-600 mt-2"><span class="font-medium">Key:</span> D</p>
+
+    <div id="ctl" class="mt-4"></div>
+
+    <div class="mt-6 text-sm text-gray-400">Files, links, lyrics, tags sections follow as today.</div>
+  </section>
+
+  <section class="bg-white rounded-xl border border-gray-200 p-4">
+    <div class="flex items-baseline justify-between">
+      <h3 class="text-sm font-semibold text-gray-700">Offline storage</h3>
+      <p class="text-2xl font-bold">14.2 MB</p>
+    </div>
+    <ul class="divide-y divide-gray-100 border-t border-gray-100 mt-3">
+      <li class="flex items-center gap-3 py-3">
+        <div><p class="text-sm font-medium">Friday gig</p><p class="text-xs text-gray-400">12.6 MB &middot; downloaded 2 days ago</p></div>
+        <button class="ml-auto rounded-md px-3 py-1.5 text-xs text-red-600 border border-red-200">Remove</button>
+      </li>
+      <li class="flex items-center gap-3 py-3">
+        <div>
+          <p class="text-sm font-medium">Sweet Child O' Mine <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">Song</span></p>
+          <p class="text-xs text-gray-400">1.6 MB &middot; downloaded just now</p>
+        </div>
+        <button class="ml-auto rounded-md px-3 py-1.5 text-xs text-red-600 border border-red-200">Remove</button>
+      </li>
+    </ul>
+    <p class="text-xs text-gray-400 mt-3">Empty state copy becomes "Nothing is stored on this device."</p>
+  </section>
+</div>
+
+<script>
+const ctl = document.getElementById('ctl');
+const views = {
+  idle: `<button class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center gap-3 hover:border-emerald-300"><span class="text-gray-400">&#10515;</span><span class="font-semibold">Available offline</span></button>`,
+  downloading: `<button disabled aria-busy="true" class="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3 text-emerald-800"><span class="font-semibold">Downloading...</span><span class="ml-auto text-sm">1 / 1 songs</span></button>`,
+  downloaded: `<div class="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3"><span class="text-emerald-600">&#10003;</span><div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">1.6 MB &middot; downloaded just now</p></div><div class="ml-auto flex gap-1"><button class="p-2 text-gray-500" aria-label="Refresh offline copy">&#10227;</button><button class="p-2 text-red-500" aria-label="Remove offline copy">&#128465;</button></div></div>`,
+  offline: `<button disabled class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center gap-3 opacity-50"><span class="text-gray-400">&#10515;</span><span class="font-semibold">Available offline</span></button><p class="text-xs text-gray-400 mt-1">Offline: connect to download.</p>`
+};
+function show(s){ ctl.innerHTML = views[s]; }
+document.querySelectorAll('.st').forEach(b => b.onclick = () => show(b.dataset.s));
+show('idle');
+</script>
+</body>
+</html>

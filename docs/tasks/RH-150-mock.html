@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>RH-150 grouped card</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-50 p-6 max-w-md mx-auto">
+<h1 class="text-sm font-semibold mb-3">Playlist picker: grouped card (click a card to expand)</h1>
+<ul id="list" aria-live="polite" class="flex flex-col gap-1 bg-white rounded-lg p-2 border border-gray-100"></ul>
+<script>
+const rows=[
+ {title:'Bad',artist:'Michael Jackson',versions:[
+  {album:'Bad',year:'1987',dur:257,label:null},
+  {album:'Bad 25',year:'2012',dur:259,label:'Remaster 2012'},
+  {album:'Live At Wembley',year:'1988',dur:402,label:'Live'},
+  {album:'Number Ones',year:'2003',dur:247,label:null}]},
+ {title:'Kashmir',artist:'Led Zeppelin',versions:[{album:'Physical Graffiti',year:'1975',dur:517,label:null}]}];
+const fmt=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+const line=v=>[v.album,v.year,v.dur&&fmt(v.dur)].filter(Boolean).join(' · ');
+const ul=document.getElementById('list');
+function draw(){ul.innerHTML='';rows.forEach(r=>{
+ const li=document.createElement('li');li.className='rounded px-2 py-1.5 hover:bg-gray-50';
+ const v0=r.versions[0];
+ li.innerHTML=`<div class="flex items-center gap-2"><div class="h-8 w-8 rounded bg-emerald-100 shrink-0"></div>
+ <button class="flex-1 min-w-0 text-left" data-x><p class="text-sm text-gray-900 truncate">${r.title}</p><p class="text-xs text-gray-500 truncate">${r.artist}</p>
+ ${r.open?'':`<p class="text-xs text-gray-400 italic truncate">${line(v0)}</p>`}</button>
+ <span class="text-xs text-gray-400">${r.open?'▾':'▸'} ${r.versions.length}</span>
+ ${r.open?'':'<button class="text-xs text-emerald-600 font-medium">Add</button>'}</div>
+ ${r.open?`<ul class="ml-10 mt-1 flex flex-col gap-1">${r.versions.map(v=>`<li class="flex items-center gap-2"><div class="flex-1 min-w-0"><p class="text-xs text-gray-700 truncate">${line(v)}</p>${v.label?`<p class="text-[11px] text-gray-400 truncate">${v.label}</p>`:''}</div><button class="text-xs text-emerald-600 font-medium">Add</button></li>`).join('')}</ul>`:''}`;
+ li.querySelector('[data-x]').onclick=()=>{r.open=!r.open;draw()};ul.appendChild(li)})}
+draw();
+</script></body></html>

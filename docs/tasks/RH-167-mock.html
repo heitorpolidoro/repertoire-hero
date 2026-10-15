@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-167 mock - setlist player</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-6 text-sm text-gray-800">
+<h1 class="text-xl font-bold mb-1">RH-167 - Setlist player (panel F of RH-149)</h1>
+<p class="mb-4 max-w-2xl">A bar pinned to the bottom plays each song's uploaded audio, Spotify track or YouTube video (preferred in that order). It stays when you change song or page. Click the states to see each one. No audio is produced.</p>
+<div class="mb-4 flex gap-2 flex-wrap" id="tabs"></div>
+<div class="w-[360px] h-[600px] bg-white border rounded-2xl shadow flex flex-col overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b"><span>&larr; Back</span><span class="px-2 py-1 rounded-full bg-gray-100 text-xs" id="pill">Setlist (3/12)</span></div>
+  <div class="p-4 flex-1 overflow-auto">
+    <h2 class="text-lg font-bold" id="song">Wonderwall</h2><p class="text-gray-500">Oasis</p>
+    <button id="start" class="mt-3 px-3 py-2 rounded-lg border border-dashed border-blue-500 text-blue-700">Play setlist</button>
+    <p class="mt-4 text-gray-400">Key, Tabs, Links, Lyrics ...</p>
+    <button id="nav" class="mt-4 px-3 py-2 rounded-lg bg-gray-100">Go to next song in Fast View (route change)</button>
+  </div>
+  <div id="bar" class="hidden"></div>
+</div>
+<script>
+var states = {
+  idle: null,
+  playing_file: {icon:'&#10074;&#10074;', t:'Wonderwall', badge:'File', sub:'Next: Don\'t Look Back in Anger', n:'3 / 12'},
+  playing_youtube: {icon:'&#10074;&#10074;', t:'Champagne Supernova', badge:'YouTube', sub:'Next: Live Forever', n:'5 / 12', video:true},
+  playing_spotify: {icon:'&#10074;&#10074;', t:'Live Forever', badge:'Spotify', sub:'Next: Supersonic', n:'6 / 12'},
+  tap_to_play: {icon:'&#9654;', t:'Champagne Supernova', badge:'YouTube', sub:'Tap to play Champagne Supernova', n:'5 / 12'},
+  skipped: {icon:'&#10074;&#10074;', t:'Live Forever', badge:'Spotify', sub:'Skipped: Don\'t Look Back in Anger (no audio or video)', n:'6 / 12'},
+  offline: {icon:'&#9654;', t:'Wonderwall', badge:'', sub:'Playback is not available offline', n:'3 / 12'},
+  end: {icon:'&#9654;', t:'End of setlist', badge:'', sub:'No more songs with audio or video', n:'12 / 12'}
+};
+var bar = document.getElementById('bar'), tabs = document.getElementById('tabs');
+function show(k){
+  var s = states[k];
+  if(!s){ bar.className='hidden'; return; }
+  bar.className='bg-gray-900 text-white px-3 py-2 border-t-2 border-dashed border-blue-400 flex items-center flex-wrap gap-2';
+  bar.innerHTML=(s.video?'<div class="w-full h-24 bg-black text-gray-400 text-center pt-9 text-xs">YouTube video (visible while this source plays)</div>':'')
+   +'<button class="w-9 h-9 rounded-full bg-emerald-500 text-white">'+s.icon+'</button>'
+   +'<div class="flex-1 text-xs"><b>'+s.t+'</b> <span class="px-1 bg-gray-700 rounded text-[10px]">'+s.badge+'</span><div class="text-gray-400">'+s.sub+'</div></div>'
+   +'<span class="px-2 py-1 bg-gray-700 rounded">&#9198;</span><span class="px-2 py-1 bg-gray-700 rounded">&#9197;</span><span class="px-2 py-1 bg-gray-700 rounded">'+s.n+'</span><span class="px-2 py-1">&times;</span>';
+}
+Object.keys(states).forEach(function(k){
+  var b=document.createElement('button'); b.textContent=k; b.className='px-3 py-1 rounded-full border bg-white';
+  b.onclick=function(){show(k)}; tabs.appendChild(b);
+});
+document.getElementById('start').onclick=function(){show('playing_file')};
+document.getElementById('nav').onclick=function(){
+  document.getElementById('song').textContent='Don\'t Look Back in Anger';
+  document.getElementById('pill').textContent='Setlist (4/12)';
+};
+</script>
+</body></html>

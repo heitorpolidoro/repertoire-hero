@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RH-141 mock - grouped correction review</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+<div class="max-w-6xl mx-auto py-8 px-4 space-y-10">
+
+  <header>
+    <h1 class="text-2xl font-bold">RH-141 - Grouped correction review (admin moderation)</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      Same data in both layouts. Competing corrections to one field are grouped; identical proposals collapse into one option with a count.
+      Choosing an option approves it and closes the others in the same act (they become "superseded", not "rejected").
+    </p>
+  </header>
+
+  <!-- ============ Question 1 ============ -->
+  <section id="q1" class="space-y-4">
+    <h2 class="text-lg font-bold">Question 1 - How is the queue organised? (answer: A or B)</h2>
+    <p class="text-sm text-gray-600">
+      <b>A</b> - one card per song, with a section per contested field inside it (the admin sees everything wrong with one song at once).
+      <b>B</b> - one card per field (the admin works through contested fields one after another; the song name is in the card header).
+      The spec currently picks <b>A</b>.
+    </p>
+
+    <div class="grid lg:grid-cols-2 gap-6">
+
+      <!-- Option A -->
+      <div class="space-y-3">
+        <div class="text-sm font-bold text-indigo-700">Option A - card per song</div>
+        <div id="optA" class="space-y-3"></div>
+      </div>
+
+      <!-- Option B -->
+      <div class="space-y-3">
+        <div class="text-sm font-bold text-indigo-700">Option B - card per field</div>
+        <div id="optB" class="space-y-3"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ States (shared) ============ -->
+  <section id="states" class="space-y-4">
+    <h2 class="text-lg font-bold">Shared states (same in A and B)</h2>
+    <div class="grid md:grid-cols-3 gap-4 text-xs">
+      <div class="rounded-xl border bg-white p-4 space-y-2">
+        <div class="font-semibold">Option row, one requester</div>
+        <div class="flex items-center justify-between rounded-lg border p-2">
+          <div><span class="font-mono">Hotel California (Live)</span>
+            <div class="text-gray-500">Maria S. - 3 days ago</div></div>
+          <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-semibold">x1</span>
+        </div>
+      </div>
+      <div class="rounded-xl border bg-white p-4 space-y-2">
+        <div class="font-semibold">Option row, many requesters (expanded)</div>
+        <div class="rounded-lg border border-indigo-200 bg-indigo-50 p-2">
+          <div class="flex items-center justify-between">
+            <span class="font-mono">Hotel California</span>
+            <span class="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-semibold">x5</span>
+          </div>
+          <div class="text-gray-600 mt-1">Maria S., Joao P., Ana L., Rui T., Bia C.</div>
+        </div>
+      </div>
+      <div class="rounded-xl border bg-white p-4 space-y-2">
+        <div class="font-semibold">Empty queue</div>
+        <div class="text-center text-gray-500 py-4">There are no pending catalog corrections to review right now.</div>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500">
+      Reject: each field has "Reject all proposals for this field" with an optional reason (rows become <i>rejected</i>, current value stays).
+      After an approve, the card shows an inline notice "2 other proposals closed (superseded)".
+      Fields are decided independently, so a song card may be partly resolved while other fields stay pending.
+    </p>
+  </section>
+</div>
+
+<script>
+  // Mock data: one song, two contested fields, plus a single-proposer field.
+  const data = [
+    {
+      song: "Hotel California", artist: "Eagles", current_note: "",
+      fields: [
+        { column: "Title", current: "Hotel Califonia",
+          options: [
+            { value: "Hotel California", count: 5, who: ["Maria S.", "Joao P.", "Ana L.", "Rui T.", "Bia C."] },
+            { value: "Hotel California (Live)", count: 1, who: ["Carlos D."] }
+          ] },
+        { column: "Key", current: "G",
+          options: [
+            { value: "Bm", count: 2, who: ["Maria S.", "Ana L."] },
+            { value: "Am", count: 1, who: ["Rui T."] }
+          ] }
+      ]
+    },
+    {
+      song: "Wonderwall", artist: "Oasis", current_note: "",
+      fields: [
+        { column: "Duration", current: "3:12",
+          options: [{ value: "4:18", count: 1, who: ["Bia C."] }] }
+      ]
+    }
+  ];
+
+  const btnApprove = "px-3 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700";
+  const btnReject = "px-3 py-1 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100";
+
+  function optionRow(o, group, withWho) {
+    return `
+      <div class="rounded-lg border border-gray-200 p-2 flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-sm">${o.value}</span>
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${o.count > 1 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}">x${o.count}</span>
+          </div>
+          <div class="text-xs text-gray-500 mt-0.5">${o.who.join(", ")}</div>
+        </div>
+        <button class="${btnApprove}" onclick="pick(this)">Approve this</button>
+      </div>`;
+  }
+
+  function fieldBlock(f) {
+    const total = f.options.reduce((s, o) => s + o.count, 0);
+    return `
+      <div class="space-y-2" data-field>
+        <div class="flex items-center justify-between">
+          <div class="text-xs"><span class="font-semibold uppercase tracking-wide text-gray-500">${f.column}</span>
+            <span class="text-gray-400">current:</span> <span class="font-mono">${f.current}</span></div>
+          <span class="text-xs text-gray-500">${total} request${total > 1 ? "s" : ""}, ${f.options.length} option${f.options.length > 1 ? "s" : ""}</span>
+        </div>
+        ${[...f.options].sort((a, b) => b.count - a.count).map(o => optionRow(o)).join("")}
+        <div class="flex items-center justify-between">
+          <span class="notice text-xs text-emerald-700"></span>
+          <button class="${btnReject}" onclick="rejectAll(this)">Reject all for this field</button>
+        </div>
+      </div>`;
+  }
+
+  // Option A: card per song
+  document.getElementById("optA").innerHTML = data.map(s => `
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+      <div class="border-b pb-2">
+        <div class="font-bold">${s.song} <span class="font-normal text-gray-500">- ${s.artist}</span></div>
+        <div class="text-xs text-gray-400">${s.fields.length} contested field${s.fields.length > 1 ? "s" : ""}</div>
+      </div>
+      ${s.fields.map(fieldBlock).join('<hr class="border-gray-100">')}
+    </div>`).join("");
+
+  // Option B: card per field
+  document.getElementById("optB").innerHTML = data.flatMap(s => s.fields.map(f => `
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
+      <div class="border-b pb-2 flex items-center justify-between">
+        <div class="font-bold">${f.column} <span class="font-normal text-gray-500">of ${s.song} - ${s.artist}</span></div>
+      </div>
+      ${fieldBlock(f)}
+    </div>`)).join("");
+
+  function pick(btn) {
+    const block = btn.closest("[data-field]");
+    const rows = [...block.querySelectorAll(".rounded-lg.border")];
+    const mine = btn.closest(".rounded-lg.border");
+    let closed = 0;
+    rows.forEach(r => {
+      if (r === mine) { r.classList.add("border-emerald-400", "bg-emerald-50"); r.querySelector("button").remove(); }
+      else { r.classList.add("opacity-50"); r.querySelector("button").remove(); closed++; }
+    });
+    block.querySelector(".notice").textContent = closed ? `Approved. ${closed} other option${closed > 1 ? "s" : ""} closed (superseded).` : "Approved.";
+    block.querySelector("button.border-red-200")?.remove();
+  }
+  function rejectAll(btn) {
+    const block = btn.closest("[data-field]");
+    block.querySelectorAll(".rounded-lg.border button").forEach(b => b.remove());
+    block.querySelectorAll(".rounded-lg.border").forEach(r => r.classList.add("opacity-50"));
+    const n = block.querySelector(".notice");
+    n.className = "notice text-xs text-red-700"; n.textContent = "All proposals for this field rejected.";
+    btn.remove();
+  }
+</script>
+</body>
+</html>

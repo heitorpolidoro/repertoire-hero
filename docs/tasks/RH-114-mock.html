@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-114 mock — practice dates</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-50 p-6 text-slate-800">
+<h1 class="text-xl font-bold mb-4">Playlist: Friday Gig <button id="open" class="ml-4 text-sm bg-indigo-600 text-white rounded px-3 py-1">Review practice</button></h1>
+<ul id="songs" class="bg-white rounded shadow divide-y max-w-xl"></ul>
+<div id="level" class="hidden max-w-xl mt-3 bg-white rounded shadow p-3 text-sm">
+  Practised today. How did it go? <span id="lv"></span>
+  <button onclick="this.parentElement.classList.add('hidden')" class="ml-2 underline">Skip</button></div>
+<h2 class="mt-8 font-semibold">Edit panel field</h2>
+<label class="block text-sm mt-2">Last practiced <input type="date" value="2026-10-08" class="border rounded px-2 py-1"> <button class="text-xs underline">clear</button></label>
+<div id="modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center"><div class="bg-white rounded p-4 w-96">
+  <div class="flex justify-between mb-2"><b>Review practice</b><button onclick="modal.classList.add('hidden')">x</button></div>
+  <label class="text-sm"><input type="checkbox" id="all"> Tick all</label>
+  <ul id="rows" class="my-2 divide-y"></ul>
+  <button id="ok" class="bg-indigo-600 text-white rounded px-3 py-1 text-sm disabled:opacity-40" disabled>Confirm (0)</button></div></div>
+<script>
+const S=[{t:'Wonderwall',a:'Oasis'},{t:'Creep',a:'Radiohead'},{t:'Zombie',a:'The Cranberries'}];
+const L=['learning','practicing','polishing','mastered'];
+songs.innerHTML=S.map(s=>`<li class="p-3 flex justify-between"><span>${s.t} <i class="text-slate-500">${s.a}</i></span><button class="text-sm border rounded px-2" onclick="tap()">Practised</button></li>`).join('');
+function tap(){level.classList.remove('hidden');lv.innerHTML=L.map(l=>`<button class="border rounded px-2 mx-1">${l}</button>`).join('')}
+open.onclick=()=>modal.classList.remove('hidden');
+rows.innerHTML=S.map(s=>`<li class="py-2 text-sm flex justify-between"><label><input type="checkbox" class="r"> ${s.t}</label><select class="border rounded"><option>keep level</option>${L.map(l=>`<option>${l}</option>`)}</select></li>`).join('');
+function upd(){const n=[...document.querySelectorAll('.r')].filter(c=>c.checked).length;ok.disabled=!n;ok.textContent=`Confirm (${n})`}
+document.querySelectorAll('.r').forEach(c=>c.onchange=upd);
+all.onchange=()=>{document.querySelectorAll('.r').forEach(c=>c.checked=all.checked);upd()};
+</script></body></html>

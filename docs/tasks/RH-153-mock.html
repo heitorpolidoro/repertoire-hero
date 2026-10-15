@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RH-153 mock</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-gray-100 p-8"><div class="max-w-lg mx-auto bg-white rounded-2xl shadow-xl">
+<div class="flex justify-between px-6 py-4 border-b"><h2 class="text-lg font-semibold">Edit song</h2><span>&times;</span></div>
+<form class="px-6 py-5 flex flex-col gap-6" onsubmit="return false">
+<section aria-labelledby="c" class="rounded-xl border border-gray-200 p-4 flex flex-col gap-4">
+<div><h3 id="c" class="text-sm font-semibold text-gray-900">Shared catalog</h3>
+<p class="text-xs text-gray-500 mt-1">Shared with everyone. An empty field can be filled in; a field with a value is never overwritten &mdash; use Suggest a correction.</p></div>
+<div><span class="text-sm font-medium text-gray-700">Title</span><div class="flex justify-between"><p class="text-sm font-medium">Garota de Ipanema</p><button type="button" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Suggest a correction</button></div></div>
+<div><span class="text-sm font-medium text-gray-700">Artist</span><div class="flex justify-between"><p class="text-sm font-medium">Tom Jobim</p><button type="button" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Suggest a correction</button></div></div>
+<div><label class="text-sm font-medium text-gray-700">Album</label><input class="block w-full rounded-lg border px-3 py-2 text-sm" placeholder="Album name"><p class="text-[11px] text-gray-500">The catalog has no album for this song yet &mdash; filling it in adds it for everyone.</p></div>
+<div><label class="text-sm font-medium text-gray-700">Duration</label><input class="block w-32 rounded-lg border px-3 py-2 text-sm" placeholder="ex: 3:45"></div>
+</section>
+<section aria-labelledby="r" class="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 flex flex-col gap-4">
+<h3 id="r" class="text-sm font-semibold text-gray-900">My repertoire</h3>
+<div><label class="text-sm font-medium text-gray-700">Key</label><div class="flex items-center gap-3"><input class="w-32 rounded-lg border px-3 py-2 text-sm" value="Am"><span class="text-xs text-gray-500">your key</span></div><p class="text-xs text-gray-600 mt-1">Catalog key: <b>Dm</b></p></div>
+<div><span class="text-sm font-medium text-gray-700">Status</span><div class="flex gap-2 mt-1"><span class="px-3 py-1 rounded-full text-xs bg-yellow-100 border-2 border-current">Learning</span><span class="px-3 py-1 rounded-full text-xs bg-green-100">Ready</span></div></div>
+<div><label class="text-sm font-medium text-gray-700">Tags</label><input class="block w-full rounded-lg border px-3 py-2 text-sm" value="bossa nova"></div>
+</section>
+<div class="flex justify-end gap-3 border-t pt-3"><button type="button" class="text-sm text-gray-600">Cancel</button><button class="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold">Save</button></div>
+</form></div></body></html>
