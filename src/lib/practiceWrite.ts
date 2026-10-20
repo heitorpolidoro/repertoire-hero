@@ -23,6 +23,7 @@
 
 import { withTransaction, type Queryable } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { PRESENCE_USER_SQL, presentOthers } from '@/lib/practicePresence'
 import type { SongStatus } from '@/types/database'
 
 export interface PracticeItem {
@@ -66,15 +67,18 @@ interface Batch {
   userId: string
   bandId: string | undefined
   items: Array<{ versionId: string; status?: SongStatus }>
+  /** RH-119: other members to credit (already validated by the caller). */
+  present?: string[]
 }
 
-async function writeBatch({ verb, sql, userId, bandId, items }: Batch): Promise<void> {
+async function writeBatch({ verb, sql, userId, bandId, items, present = [] }: Batch): Promise<void> {
   if (items.length === 0) return
   try {
     await withTransaction(async (client: Queryable) => {
       for (const { versionId, status } of items) {
         await client.query(sql.user, [userId, versionId, status ?? null])
         if (bandId) await client.query(sql.band, [bandId, versionId, status ?? null])
+        for (const memberId of present) await client.query(PRESENCE_USER_SQL, [memberId, versionId])
       }
     })
   } catch (error) {
@@ -85,9 +89,15 @@ async function writeBatch({ verb, sql, userId, bandId, items }: Batch): Promise<
 }
 
 /** Sets `last_practiced` to the database's now() for every item (see module doc). */
-export function recordPractice(userId: string, bandId: string | undefined, items: PracticeItem[]): Promise<void> {
+export function recordPractice(
+  userId: string,
+  bandId: string | undefined,
+  items: PracticeItem[],
+  presentUserIds?: readonly string[],
+): Promise<void> {
   const sql = { user: PRACTISE_USER_SQL, band: PRACTISE_BAND_SQL }
-  return writeBatch({ verb: 'record practice', sql, userId, bandId, items })
+  const present = presentOthers(userId, presentUserIds)
+  return writeBatch({ verb: 'record practice', sql, userId, bandId, items, present })
 }
 
 /** The status-only sibling: writes `status` and never mentions `last_practiced`. */

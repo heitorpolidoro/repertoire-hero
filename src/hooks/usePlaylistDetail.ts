@@ -1,5 +1,5 @@
 import { useMemo, useReducer, useState, type Dispatch } from 'react'
-import type { PracticeReviewController } from '@/hooks/usePracticeReview'
+import type { PracticePresence, PracticeReviewController } from '@/hooks/usePracticeReview'
 import { usePracticeReviewPanel } from '@/hooks/usePracticeReviewPanel'
 import { practiceReviewRows } from '@/lib/practiceReviewRows'
 import { usePractiseSong, type PractiseActions, type PractiseController } from '@/hooks/usePractiseSong'
@@ -63,6 +63,8 @@ export interface UsePlaylistDetailOptions {
   pickerActions: SongPickerActions
   /** Re-reads the server props after a write; the island binds `router.refresh`. */
   onRefresh: () => void
+  /** RH-119: set only for a band admin on a band playlist; absent means no presence checklist. */
+  presence?: PracticePresence
   /** Leaves the route once the playlist is gone; the island binds `router.replace`. */
   onDeleted: () => void
 }
@@ -192,6 +194,7 @@ export function usePlaylistDetail({
   actions,
   pickerActions,
   onRefresh,
+  presence,
   onDeleted,
 }: UsePlaylistDetailOptions): PlaylistDetailController {
   const bandId = playlist.band_id
@@ -292,7 +295,7 @@ export function usePlaylistDetail({
     playlistId: playlist.id, songs, actions, record, setError, pushIfNeeded: sync.pushIfNeeded, onRefresh,
   })
 
-  const reviewPanel = usePracticeReviewPanel({ rows: practiceReviewRows(songs), recordPractice: actions.recordPractice, bandId, setError, onRefresh, dispatch })
+  const reviewPanel = usePracticeReviewPanel({ rows: practiceReviewRows(songs), recordPractice: actions.recordPractice, bandId, presence, setError, onRefresh, dispatch })
 
   const rename = async () => {
     const trimmed = renameDraft(panel).trim()

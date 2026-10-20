@@ -8,7 +8,11 @@ import type { Repertoire, SongStatus } from '@/types/database'
 /** The two Server Actions the finish flow needs, injected by the Fast View page (F21). */
 export interface PracticeFinishActions {
   getRepertoire(bandId?: string | null): Promise<Repertoire[]>
-  recordPractice(items: { versionId: string; status?: SongStatus }[], bandId?: string | null): Promise<void>
+  recordPractice(
+    items: { versionId: string; status?: SongStatus }[],
+    bandId?: string | null,
+    presentUserIds?: string[],
+  ): Promise<void>
 }
 
 export interface UsePracticeFinishOptions {

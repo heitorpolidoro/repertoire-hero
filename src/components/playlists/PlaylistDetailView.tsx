@@ -8,6 +8,7 @@ import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
 import { OfflineDownloadButton } from "@/components/playlists/OfflineDownloadButton";
 import { PracticeStart } from "@/components/songs/PracticeStart";
 import type { PracticeActions } from "@/hooks/usePracticeStart";
+import type { PracticePresence } from "@/hooks/usePracticeReview";
 import { PracticeReviewList } from "@/components/ui/PracticeReviewList";
 import { practiceReviewRows } from "@/lib/practiceReviewRows";
 import { SongPicker } from "@/components/playlists/SongPicker";
@@ -36,6 +37,8 @@ export interface PlaylistDetailViewProps {
    * non-admin regardless. A plain member sees the list exactly as before.
    */
   canReorder: boolean;
+  /** RH-119 — the band's members, supplied by the page only for a band admin. */
+  presence?: PracticePresence;
   actions: PlaylistDetailActions;
   pickerActions: SongPickerActions;
   /** Injected by the page (F21) — the three reads one offline copy is made of. */
@@ -65,6 +68,7 @@ export function PlaylistDetailView({
   repertoire,
   currentUserId,
   canReorder,
+  presence,
   actions,
   pickerActions,
   offlineActions,
@@ -78,6 +82,7 @@ export function PlaylistDetailView({
     repertoire,
     actions,
     pickerActions,
+    presence,
     onRefresh: () => router.refresh(),
     onDeleted: () => router.replace("/playlists"),
   });

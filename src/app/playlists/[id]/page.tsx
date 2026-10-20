@@ -17,7 +17,7 @@ import { SONG_PICKER_ACTIONS } from "@/app/songPickerActions";
 import { PlaylistDetailView } from "@/components/playlists/PlaylistDetailView";
 import type { PlaylistDetailActions } from "@/hooks/usePlaylistDetail";
 import { getSession } from "@/lib/auth-session";
-import { assertBandMember } from "@/lib/bands";
+import { assertBandMember, getBandMembers, getBandWithMembers } from "@/lib/bands";
 import { getPlaylistWithSongs } from "@/lib/playlists";
 import { getRepertoire } from "@/lib/ownerSongs";
 
@@ -66,7 +66,21 @@ export default async function PlaylistDetailPage(props: {
   // proved membership, so `assertBandMember` cannot refuse; what it adds is the
   // role. A plain member is offered nothing, and `reorderPlaylistSongs` refuses
   // them again at the write.
-  const canReorder = bandId ? (await assertBandMember(bandId, userId)) === "admin" : true;
+  const isBandAdmin = bandId ? (await assertBandMember(bandId, userId)) === "admin" : false;
+  const canReorder = bandId ? isBandAdmin : true;
+
+  // RH-119: only a band admin may mark who was at the rehearsal, so only they
+  // are handed the members; everyone else gets the review list as before.
+  const band = bandId && isBandAdmin ? await getBandWithMembers(bandId, userId) : null;
+  const presence = band
+    ? {
+        selfId: userId,
+        members: getBandMembers(band).map((m) => ({
+          userId: m.user_id,
+          name: m.profile?.full_name ?? m.profile?.email ?? "Member",
+        })),
+      }
+    : undefined;
 
   return (
     <PlaylistDetailView
@@ -74,6 +88,7 @@ export default async function PlaylistDetailPage(props: {
       repertoire={repertoire}
       currentUserId={userId}
       canReorder={canReorder}
+      presence={presence}
       actions={PLAYLIST_DETAIL_ACTIONS}
       pickerActions={SONG_PICKER_ACTIONS}
       offlineActions={OFFLINE_DOWNLOAD_ACTIONS}

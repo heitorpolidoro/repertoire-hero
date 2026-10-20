@@ -77,6 +77,33 @@ export function PracticeReviewList({
             );
           })}
         </ul>
+        {review.presence && (
+          <section className="border-t border-gray-100 px-4 py-2">
+            <h3 className="text-xs font-semibold text-gray-900">Who was there</h3>
+            <p className="mb-1 text-xs text-gray-500">
+              Ticked members get today&apos;s date as last practised on the ticked songs. Nothing else changes for them.
+            </p>
+            {review.presence.members.map((member) => {
+              const self = member.userId === review.presence?.selfId;
+              return (
+                <label
+                  key={member.userId}
+                  className={`flex items-center gap-2 py-0.5 text-sm text-gray-900 ${self ? "opacity-70" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={self || review.present.has(member.userId)}
+                    disabled={self}
+                    onChange={() => review.togglePresent(member.userId)}
+                    className="h-4 w-4 shrink-0 accent-emerald-600"
+                  />
+                  {member.name}
+                  {self && <span className="text-xs text-gray-400">(always included)</span>}
+                </label>
+              );
+            })}
+          </section>
+        )}
         <div className="flex justify-end gap-2 border-t border-gray-100 px-4 py-3">
           <button
             type="button"
@@ -93,7 +120,7 @@ export function PracticeReviewList({
             }}
             className="rounded bg-emerald-600 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
           >
-            Confirm
+            {review.presence ? `Confirm (${review.present.size + 1} present)` : "Confirm"}
           </button>
         </div>
       </div>

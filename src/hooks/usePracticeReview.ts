@@ -12,11 +12,19 @@ export interface PracticeReviewRow {
 /** What the list reads a row's current level from; absent means unassessed. */
 export type PracticeReviewLevels = ReadonlyMap<string, { status: SongStatus }>
 
+/** RH-119 — who can be marked present: only supplied for a band admin on a band review. */
+export interface PracticePresence {
+  /** The admin themself: always included, never sent. */
+  selfId: string
+  members: Array<{ userId: string; name: string }>
+}
+
 export interface UsePracticeReviewOptions {
   /** Every row of the review — all of them, never a filtered subset. */
   rows: PracticeReviewRow[]
   recordPractice: PractiseActions['recordPractice']
   bandId: string | null
+  presence?: PracticePresence
   /** The page's shared error banner. */
   setError: (message: string | null) => void
   onRefresh: () => void
@@ -29,6 +37,10 @@ export interface PracticeReviewController {
   ticked: ReadonlySet<string>
   /** Levels the user explicitly changed; absent rows keep their current status. */
   levels: ReadonlyMap<string, SongStatus>
+  presence: PracticePresence | null
+  /** Other members currently marked present (never the admin). */
+  present: ReadonlySet<string>
+  togglePresent: (userId: string) => void
   allTicked: boolean
   submitting: boolean
   toggle: (versionId: string) => void
@@ -49,10 +61,12 @@ export function usePracticeReview({
   rows,
   recordPractice,
   bandId,
+  presence,
   setError,
   onRefresh,
   onClose,
 }: UsePracticeReviewOptions): PracticeReviewController {
+  const [present, setPresent] = useState<ReadonlySet<string>>(new Set())
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set())
   const [levels, setLevels] = useState<ReadonlyMap<string, SongStatus>>(new Map())
   const [submitting, setSubmitting] = useState(false)
@@ -71,7 +85,15 @@ export function usePracticeReview({
   const setLevel = (versionId: string, status: SongStatus) =>
     setLevels(prev => new Map(prev).set(versionId, status))
 
+  const togglePresent = (userId: string) =>
+    setPresent(prev => {
+      const next = new Set(prev)
+      if (!next.delete(userId)) next.add(userId)
+      return next
+    })
+
   const reset = () => {
+    setPresent(new Set())
     setTicked(new Set())
     setLevels(new Map())
   }
@@ -87,7 +109,8 @@ export function usePracticeReview({
     setError(null)
     setSubmitting(true)
     try {
-      await recordPractice(items, bandId)
+      if (presence && present.size > 0) await recordPractice(items, bandId, [...present])
+      else await recordPractice(items, bandId)
       onRefresh()
       onClose?.()
     } catch (err) {
@@ -97,5 +120,5 @@ export function usePracticeReview({
     }
   }
 
-  return { ticked, levels, allTicked, submitting, toggle, toggleAll, setLevel, reset, confirm }
+  return { ticked, levels, presence: presence ?? null, present, togglePresent, allTicked, submitting, toggle, toggleAll, setLevel, reset, confirm }
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-119 mock — Who was there</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-100 p-6 text-slate-800">
+<h1 class="text-xl font-bold mb-1">RH-119 — "Who was there" in Review practice</h1>
+<p class="text-sm text-slate-500 mb-4">Switch the viewer to see each state. Ticks are interactive.</p>
+<div class="flex gap-2 mb-6" id="tabs"></div>
+<div id="screen" class="max-w-md bg-white rounded-xl shadow p-4"></div>
+<script>
+const members=[{id:1,name:"Heitor (you)"},{id:2,name:"Ana"},{id:3,name:"Bruno"},{id:4,name:"Carla"}];
+const songs=["Garota de Ipanema","Wave","Corcovado","Desafinado"];
+const views={
+ "Band admin":{checklist:true,title:"Band playlist · admin"},
+ "Plain member":{checklist:false,title:"Band playlist · plain member"},
+ "Personal playlist":{checklist:false,title:"Personal playlist · owner"}};
+let cur="Band admin";const present=new Set([1]);
+const tabs=document.getElementById("tabs"),screen=document.getElementById("screen");
+function render(){
+ tabs.innerHTML=Object.keys(views).map(k=>`<button onclick="cur='${k}';render()" class="px-3 py-1 rounded border ${k===cur?'bg-slate-800 text-white':'bg-white'}">${k}</button>`).join("");
+ const v=views[cur];
+ screen.innerHTML=`<div class="text-xs text-slate-500 mb-2">${v.title}</div>
+ <h2 class="font-semibold mb-2">Review practice</h2>
+ <ul class="divide-y mb-4">${songs.map(s=>`<li class="py-2 flex items-center gap-2"><input type="checkbox" checked> <span>${s}</span></li>`).join("")}</ul>
+ ${v.checklist?`<section class="border rounded-lg p-3 mb-4 bg-slate-50">
+  <h3 class="text-sm font-semibold mb-1">Who was there</h3>
+  <p class="text-xs text-slate-500 mb-2">Ticked members get today's date as last practiced on the ticked songs. Nothing else changes for them.</p>
+  ${members.map(m=>`<label class="flex items-center gap-2 py-1 text-sm ${m.id===1?'opacity-70':''}">
+   <input type="checkbox" ${present.has(m.id)?'checked':''} ${m.id===1?'disabled':''} onchange="t(${m.id})">
+   ${m.name}${m.id===1?' <span class="text-xs text-slate-400">(always included)</span>':''}</label>`).join("")}
+ </section>`:''}
+ <button class="w-full bg-emerald-600 text-white rounded py-2">Confirm${v.checklist?` (${present.size} present)`:''}</button>
+ ${v.checklist?'':'<p class="text-xs text-slate-400 mt-2">No checklist: behaves exactly as today.</p>'}`;
+}
+function t(id){present.has(id)?present.delete(id):present.add(id);render()}
+render();
+</script></body></html>

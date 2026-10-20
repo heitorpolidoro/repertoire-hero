@@ -27,6 +27,7 @@ import {
   type PracticeItem,
   type PracticeStatusItem,
 } from '@/lib/practiceWrite'
+import { assertPresentAreMembers } from '@/lib/practicePresence'
 import { getSongWindow } from '@/lib/songWindowData'
 import type { SongWindowRecord } from '@/lib/songWindow'
 import { validateSongMapPayload } from '@/lib/songMap'
@@ -155,10 +156,21 @@ async function resolvePracticeBand(userId: string, bandId?: string | null): Prom
  * presser's own row (created `unknown` when absent), and on the band's existing
  * row too when the presser is its admin. List-shaped for the later review list.
  */
-export async function recordPracticeAction(items: PracticeItem[], bandId?: string | null) {
+export async function recordPracticeAction(
+  items: PracticeItem[],
+  bandId?: string | null,
+  presentUserIds?: string[],
+) {
   const userId = await getRequiredUserId()
+  const present = presentUserIds ?? []
+  if (present.length > 0) {
+    // RH-119: naming other members is an admin act on a band, and only members.
+    if (!bandId) throw new Error('Access denied: present members need a band')
+    await assertBandAdmin(bandId, userId)
+    await assertPresentAreMembers(bandId, present)
+  }
   const band = await resolvePracticeBand(userId, bandId)
-  await recordPractice(userId, band, items)
+  await recordPractice(userId, band, items, present)
   revalidatePath('/')
 }
 

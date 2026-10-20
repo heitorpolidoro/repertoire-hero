@@ -478,24 +478,28 @@ removes any accidental-confirm risk, so closing the list needs no special handli
 **Decided**
 - Editing assigns; the buttons set today. Different operations on one column, and
   conflating them makes one of the two useless.
-- Nothing propagates to other members. Whoever taps records their own practice and
-  nobody else's — the app never credits a musician who was not there. Each member taps
-  for themselves.
+- Nothing propagates to other members, except what a band admin deliberately marks as
+  present (below). Whoever taps records their own practice; the app never credits a
+  musician on its own initiative. Each member taps for themselves.
 - On a band playlist the band's own row is written too: that the band played the song is
   a fact about the band, and `band_songs` authors its own values already.
 - Assessing the level belongs to the two buttons and not to the panel, because it is the
   act of playing that produces the knowledge.
-- No `GREATEST`. It existed to stop a band rehearsal from overwriting a more recent solo
-  session, and with no propagation there is nothing to overwrite. It comes back only if
-  propagation does.
-
+- No `GREATEST` on the presser's own row or the band's row: there is nothing to overwrite
+  there. It applies only to the presence writes below.
 - Trigger 3's list is also how a practice session ends — see *Start a practice session*.
+- Marking who is present (RH-119). In the review list of a **band** playlist, a band admin
+  sees a "Who was there" checklist of the band's members (themself always included).
+  Confirming advances `last_practiced` on each ticked song for every present member's own
+  `user_songs` row, as `GREATEST(existing, now())`, so a later date a member set themselves
+  is never moved backwards; a member with no row at that version gets one, `unknown`. Only
+  `last_practiced` is written to another member's row — never status, key or tags. Only an
+  admin can name members, and only current members of that band. Presence is not stored: no
+  attendance table or history. Personal playlists, Fast View's "Finish practice" and the
+  single-song button have no presence control.
 
 **Open**
-- Marking who is present. It would let one tap credit several musicians truthfully,
-  bringing propagation — and `GREATEST` — back with it. Note that this is no longer what
-  "rehearsal mode" means: that became the session in *Start a practice session*, which
-  deliberately writes nothing new. Presence is a separate idea, deferred and not rejected.
+- None.
 
 ---
 
