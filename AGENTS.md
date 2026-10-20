@@ -235,6 +235,8 @@ spec.md, SDS.md, plan.md, tasks.md
                                  Product requirements, software design spec, implementation plan, task breakdown
 ```
 
+`docs/behavior.md` is the registry of current observable behavior, one line per behavior with a code pointer; read it with `node scripts/behavior.js area [name]`. A change to observable behavior must update it in the same change.
+
 # Domain Concepts
 
 - **Song (`songs`)** — A song definition (title, artist, key, cover, lyrics, map) shared across all users, wiki-style: any user can contribute a song. Its identity is **primary artist plus split title** — `(lower(btrim(artist)), lower(btrim(title)))`, the index `uq_songs_artist_title` (RH-95) — where the title is the *left half* of the `" - "` split and the artist is `artists[0]`, not the joined credit list. **The album is not in the key**: a release and a recording are `albums` and `song_versions` (RH-122), so two takes of one song by one artist are one `songs` row with two versions rather than two catalog rows. `src/lib/songIdentity.ts` is the only place under `src/` that resolves or inserts one. The table was called `global_songs` until RH-121 renamed it, dropping a `global_` prefix that distinguished it from a per-user song table that never existed — `repertoire` has always been the per-owner side. RH-121 also dropped its `contributor_id` column: it recorded only who happened to insert the row first, nothing authorized against it, no screen read it, and the moderation queue records authorship properly and per proposed field (`catalog_suggestions.requested_by`, RH-107).

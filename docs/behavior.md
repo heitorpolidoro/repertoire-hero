@@ -1,0 +1,144 @@
+# Behavior
+
+Registry of what the system does today, one `##` section per functional area and one line per observable behavior. Each line ends with a pointer to the code or tests that show it. Read it with `node scripts/behavior.js area [name]`; when a change alters observable behavior, edit the matching line in the same change.
+
+## Repertoire and overrides
+- A screen's key and tuning resolve from the owner's row, then the song version; lyrics and map resolve owner row, version, then song. (src/lib/songResolution.ts, src/lib/__tests__/songResolution.test.ts)
+- A missing repertoire row resolves like a row whose overrides are all null; only status has no fallback. (src/lib/songResolution.ts, src/lib/ownerSongs.ts)
+- Adding a song creates the owner's row with status unknown and refuses a version already held by that owner. (src/lib/ownerVersionAdd.ts, src/lib/__tests__/ownerVersionAdd.db.test.ts)
+- A write reaches exactly one owner: personal context writes the user's row, band context writes the band's row. (src/lib/ownerSongs.ts, src/lib/__tests__/oneOwnerPerWrite.db.test.ts)
+- Every write to a band's repertoire requires a band admin; members can only read it. (src/app/actions/repertoire.ts, src/lib/bands.ts)
+- Clearing an override writes null so resolution goes back up the chain. (src/lib/ownerSongs.ts, src/lib/sqlUpdate.ts)
+- Tuning is edited from Fast View and writes the addressed owner's override, never the version's tuning. (src/components/fastview/SongTuningControl.tsx, src/hooks/useSongTuning.ts, src/lib/songTuning.ts)
+- Tags are edited per owner row from Fast View. (src/components/fastview/SongTagsSection.tsx, src/lib/tagEditor.ts)
+- The song map is a list of sections with name, bars and note, edited in Fast View. (src/lib/songMap.ts, src/components/fastview/SongMapSection.tsx)
+- Saving lyrics in band context asks whether they go to the band's row or the user's own. (src/components/fastview/LyricsDestinationModal.tsx, src/hooks/useLyricsEditor.ts)
+- Removing a song from a repertoire keeps playlist entries and shows what the removal destroys. (src/app/actions/repertoire.ts, src/lib/ownerSongs.ts)
+
+## Practice and status
+- A song's status is one of unknown, learning, practicing, polishing or mastered, held per owner with no aggregation. (src/lib/statusConfig.ts, src/lib/songStatus.ts)
+- The status control is four notes; tapping a note sets that level and tapping the current one drops a level. (src/components/ui/StatusNotes.tsx, src/lib/statusNotes.ts)
+- Practice order is days since last practised divided by the level's interval, highest first. (src/lib/practiceOrder.ts, src/lib/__tests__/practiceOrder.test.ts)
+- Intervals are learning 1 day, practicing 3, polishing 14, mastered 21; unassessed and never-practised songs are always due. (src/lib/practiceOrder.ts)
+- Exact ties in practice order are broken at random. (src/lib/practiceOrder.ts, src/lib/__tests__/practiceOrder.test.ts)
+- Tapping "practised it" sets last_practiced to the database's now() on the presser's own row, creating it as unknown when absent. (src/lib/practiceWrite.ts, src/lib/__tests__/practiceWrite.db.test.ts)
+- A band admin's practice tap also updates the band's existing row; a plain member's tap writes only their own row. (src/app/actions/practice.ts, src/lib/practiceWrite.ts)
+- Reviewing practice for a whole playlist writes only the ticked rows, in one transaction. (src/hooks/usePracticeReview.ts, src/components/ui/PracticeReviewList.tsx)
+- Starting a practice session builds a queue from a playlist, the whole repertoire or a hand-picked selection, ordered by practice need. (src/lib/practiceSession.ts, src/hooks/usePracticeStart.ts, src/lib/pickedSelection.ts)
+- Fast View offers "Finish practice" on the last queue entry, opening the same review list over every queue entry. (src/hooks/usePracticeFinish.ts, src/components/fastview/PracticeFinishButton.tsx)
+
+## Playlists
+- A playlist belongs to exactly one owner, a user or a band, taken from the current context. (src/lib/playlists.ts, src/lib/playlistSql.ts)
+- Creating, renaming, reordering and deleting a band playlist requires a band admin. (src/app/actions/playlists.ts, src/lib/playlists.ts)
+- Adding a song to a playlist also puts its version in the owner's repertoire as unknown. (src/lib/playlists.ts, src/lib/__tests__/playlists.test.ts)
+- Removing a song from a playlist leaves the repertoire row untouched. (src/lib/playlists.ts)
+- Reordering rewrites the positions of the whole list in a single statement. (src/lib/playlists.ts, src/lib/__tests__/playlistReorder.db.test.ts)
+- A playlist can be empty and stays when its last song is removed. (src/lib/playlists.ts, src/components/playlists/PlaylistDetailView.tsx)
+- Deleting a playlist removes its entries and no repertoire row. (src/lib/playlists.ts, src/components/playlists/PlaylistDeleteModal.tsx)
+- A playlist entry stores a version, so the same version resolves per the playlist owner's row. (src/lib/playlistDetail.ts, src/lib/__tests__/playlistVersionReads.db.test.ts)
+- The playlist summary shows a progress bar of statuses, with unknown as the unfilled remainder. (src/lib/playlistSummary.ts, src/components/playlists/PlaylistSummary.tsx)
+- Playlists are listed grouped by owner, personal and per band. (src/lib/playlistList.ts, src/components/playlists/PlaylistGroupList.tsx)
+
+## Files and annotations
+- Uploads accept PDF, JPEG, PNG and WebP, identified by their leading bytes. (src/lib/fileIngest.ts, src/lib/__tests__/fileIngest.test.ts)
+- Uploaded images are downscaled, rotated upright and stored without metadata, within a 2 MB limit. (src/lib/fileIngest.ts, src/lib/imageCompressor.ts)
+- A file belongs to the uploader and the song, keyed by user and song, never by version or band. (src/lib/tabs.ts, src/lib/__tests__/tabs.test.ts)
+- Uploading a file creates the uploader's own repertoire row as unknown, even in band context. (src/app/actions/tabs.ts, src/lib/tabs.ts)
+- One chart per user and song is primary; the first upload becomes primary and a new upload never takes it. (src/lib/tabs.ts, src/lib/__tests__/tabsPrimary.test.ts, src/lib/__tests__/songFilePrimary.db.test.ts)
+- Deleting the primary chart promotes the oldest remaining one. (src/lib/tabs.ts, src/lib/__tests__/tabsPrimary.test.ts)
+- Deleting a file removes the database row first and then the stored object. (src/lib/tabs.ts, src/components/fastview/TabDeleteConfirm.tsx)
+- Annotation strokes are stored per page as normalized coordinates on the file. (src/lib/annotationMath.ts, src/lib/tabs.ts)
+- Strokes autosave after an 800 ms debounce, and immediately when the page changes. (src/components/tabs/TabDrawingStage.tsx)
+- The stage shows its toolbar only while drawing is on; with drawing off, tapping the page edges turns pages. (src/components/tabs/StagePageSurface.tsx, src/lib/stageInteraction.ts)
+- Audio uploads accept MP3 and M4A by byte sniffing, up to 10 MB per file and 100 MB per user. (src/lib/audioIngest.ts, src/lib/audioLibrary.ts, src/app/actions/audio.ts)
+- Audio is private to the uploader and appears in its own list, never in the chart list. (src/lib/tabs.ts, src/components/fastview/AudioLibrarySection.tsx)
+
+## Fast View and queue
+- A song opens at an address keyed by its version id. (src/app/songs/[versionId]/fast-view/page.tsx)
+- The queue holds only version id, title and artist per entry, plus an owner and an origin, in sessionStorage. (src/lib/songQueue.ts, src/lib/__tests__/songQueue.test.ts)
+- The current queue position is derived by matching the route's version id against the stored entries. (src/lib/songQueue.ts, src/lib/playlistNav.ts)
+- A stored queue that does not list the song on screen is ignored, so a song opened alone shows no setlist chrome. (src/lib/songQueue.ts, src/components/fastview/SetlistPanel.tsx)
+- A bandId in the URL decides the owner context; a queue's owner applies only when the URL has none. (src/lib/songQueue.ts, src/app/songs/[versionId]/fast-view/page.tsx)
+- Users move through the queue by swipe, arrow keys or the setlist list, and arrow keys are off while a stage is open. (src/hooks/usePlaylistNav.ts, src/components/fastview/SwipeHint.tsx, src/lib/playlistNav.ts)
+- Content is fetched as a window of the current song and its neighbours, and a write invalidates that song's cached copy. (src/lib/songWindow.ts, src/hooks/useSongWindow.ts, src/lib/__tests__/songWindow.test.ts)
+- Fast View keeps the screen awake through a wake lock. (src/hooks/useWakeLock.ts, src/app/songs/[versionId]/fast-view/page.tsx)
+- Fast View embeds the song's first YouTube link as a no-autoplay youtube-nocookie iframe. (src/lib/youtubeEmbed.ts, src/components/fastview/YoutubeEmbed.tsx, src/lib/__tests__/youtubeEmbed.test.ts)
+- The setlist player plays the queue in order from uploaded audio, then Spotify, then YouTube, and stops at the end. (src/lib/setlistPlayer.ts, src/hooks/useSetlistPlayer.ts, src/components/layout/SetlistPlayer.tsx)
+- The Content-Security-Policy frame-src allows only YouTube nocookie, Google Docs and the Spotify SDK origin. (next.config.ts, src/lib/__tests__/nextConfigCsp.test.ts)
+
+## Search
+- Catalog search is a case-insensitive substring match on title or artist, ranked exact title, then prefix, then similarity. (src/lib/songs.ts, src/lib/__tests__/songsSearchQuery.test.ts, src/lib/__tests__/catalogSearch.db.test.ts)
+- Catalog search returns at most 20 songs, counting songs rather than versions. (src/lib/songs.ts, src/lib/__tests__/catalogSearch.db.test.ts)
+- Catalog and Spotify results are merged into one list grouped by lowercase title and artist, one card per song. (src/lib/songSearchMerge.ts, src/lib/__tests__/songSearchMerge.test.ts)
+- A card's representative version prefers album type, then the earliest release date, and is computed live. (src/lib/songSearchMerge.ts)
+- Candidates from both sources collapse when their lowercase trimmed album name and label are equal, with no fuzzy matching. (src/lib/songSearchMerge.ts, src/lib/__tests__/songSearchMergeGuards.test.ts)
+- A version already in the repertoire is not offered again, but an unheld sibling version is. (src/lib/songSearchMerge.ts, src/lib/songSearchFetch.ts)
+- Spotify search returns an empty list on any failure, so the catalog results still appear. (src/lib/spotify.ts, src/app/api/spotify/search/route.ts, src/lib/__tests__/spotifySearchRoute.test.ts)
+- Manual entry is offered below results for queries of two or more characters, and an existing title and artist offers "Add as new version" instead of writing. (src/components/songs/ManualEntryPanel.tsx, src/hooks/useManualEntry.ts, src/lib/manualEntry.ts)
+- The dashboard filters the user's repertoire by text and by status. (src/lib/filterSongs.ts, src/lib/repertoireSearchFilter.ts, src/components/songs/StatusFilterPills.tsx)
+
+## Catalog suggestions and moderation
+- Shared catalog values are never written directly by users; a correction is stored as one pending suggestion per changed field. (src/lib/moderation.ts, src/lib/catalogSuggestionPayload.ts)
+- Only columns in a closed table and column allowlist can be suggested. (src/lib/catalogSuggestionPayload.ts, src/lib/__tests__/catalogSuggestionPayload.test.ts)
+- The review screen folds pending fields into song cards and tells the admin the outcome per field. (src/lib/pendingFields.ts, src/lib/__tests__/pendingFields.test.ts)
+- A link correction names one song_links row and is decided on its own. (src/lib/songLinkSuggestions.ts, src/lib/__tests__/linkRowSuggestions.db.test.ts)
+- The moderation queue groups pending suggestions by song and field, collapsing identical values with a count and requesters. (src/lib/moderationFields.ts, src/components/admin/PendingFieldSection.tsx, src/components/admin/PendingOptionRow.tsx)
+- Approving one value for a field closes the competing suggestions for it as superseded. (src/lib/moderation.ts, src/lib/__tests__/moderationFields.db.test.ts)
+- Only system admins can review suggestions or use catalog admin; others get an access-denied panel. (src/lib/moderation.ts, src/app/admin/moderation/page.tsx, src/components/admin/AccessDeniedPanel.tsx)
+- A requester sees a dismissible banner of approved, refused and replaced fields, and dismissing it acknowledges those rows. (src/lib/moderation.ts, src/components/songs/SuggestionOutcomeBanner.tsx, src/lib/__tests__/suggestionOutcomes.test.ts)
+- Catalog admin can merge, split and delete songs and versions after showing the blast radius. (src/lib/catalogAdmin.ts, src/components/admin/CatalogAdmin.tsx, src/app/admin/catalog/page.tsx)
+
+## Offline
+- Marking a playlist or a single song available offline stores a snapshot of everything readable about it. (src/lib/offlineStore.ts, src/lib/offlineCapture.ts, src/lib/offlineSnapshot.ts)
+- The snapshot holds the reader's own files for every song, whether the playlist is personal or a band's. (src/lib/offlineCapture.ts, src/lib/__tests__/offlineSnapshot.test.ts)
+- Offline is read-only: reads answer from the snapshot and writes are refused with a message. (src/lib/offlineFirst.ts, src/lib/__tests__/offlineFirst.test.ts)
+- A method the offline layer does not know is refused rather than served. (src/lib/offlineFirst.ts)
+- Snapshot data is served only when the browser is offline or a reader failed on the network, never in place of another error. (src/lib/offlineFirst.ts, src/lib/__tests__/offlineFirst.test.ts)
+- Controls that write across the network are disabled offline, including uploads, links, lyrics saving and drawing. (src/hooks/useOfflineStatus.ts, src/components/fastview/OfflineBanner.tsx)
+- Audio, video and the setlist player are unavailable offline and show a message instead. (src/components/fastview/OfflineUnavailable.tsx, src/components/layout/SetlistPlayer.tsx)
+- Settings lists the stored offline copies and lets the user remove them. (src/components/settings/OfflineStorageSection.tsx, src/hooks/useOfflineLibrary.ts)
+- A service worker caches the app shell and offline chart files. (src/app/sw.ts, src/lib/offlineCacheNames.ts, src/lib/__tests__/pwaShell.test.ts)
+- A single-song offline copy is stored under a record id made of the version id and band context. (src/lib/offlineSongRecord.ts, src/lib/__tests__/offlineSongRecord.test.ts)
+
+## Auth and profile
+- Sign-up and sign-in use email and password through Better Auth, with no email verification required. (src/lib/auth.ts, src/lib/auth-client.ts, e2e/auth.spec.ts)
+- Password verification accepts both scrypt hashes and bcrypt hashes migrated from the earlier auth system. (src/lib/auth.ts)
+- Forgot-password mails a reset link, and a mail failure is logged without failing the request. (src/lib/auth.ts, src/lib/authEmail.ts, src/app/forgot-password/page.tsx)
+- A visitor without a session cookie on a private route is redirected to /login with a redirect parameter that is honoured after login. (src/proxy.ts, src/lib/__tests__/proxy.test.ts, e2e/auth.spec.ts)
+- A visitor with a session cookie on an auth page is redirected home. (src/proxy.ts, src/lib/__tests__/proxy.test.ts)
+- The proxy only checks cookie presence; every action and route handler resolves its own session. (src/proxy.ts, src/lib/auth-session.ts)
+- The profile holds name, avatar, instruments and a primary instrument. (src/lib/profile.ts, src/app/actions/profile.ts, src/components/profile/InstrumentPicker.tsx)
+- Changing the email mails a verification link and the login email moves only when it is opened. (src/lib/emailChange.ts, src/components/profile/EmailChangeSection.tsx, src/lib/__tests__/emailChange.test.ts)
+- Spotify can be connected and disconnected from the account, and a Spotify route requires a connected, signed-in user. (src/lib/spotifyConnection.ts, src/lib/spotifyRouteAuth.ts, src/app/api/auth/spotify/callback/route.ts)
+- The dev profiles endpoint answers 404 outside development. (src/app/api/dev/profiles/route.ts, src/lib/devProfiles.ts)
+
+## Bands and admin
+- Creating a band makes its creator an admin; members have the admin or member role. (src/lib/bands.ts, src/lib/__tests__/bands.test.ts)
+- Every band-scoped action checks membership server-side and fails with "Access denied: not a member of this band". (src/lib/bands.ts, src/lib/__tests__/bands.test.ts)
+- Admin-only band actions fail with "Access denied: band admin required" for plain members. (src/lib/bands.ts, src/lib/__tests__/bands.test.ts)
+- Joining a band by invite code works from a /join link and shows band info to anonymous visitors. (src/app/join/[code]/page.tsx, src/lib/bands.server.ts, src/lib/__tests__/joinBandByInvite.test.ts)
+- Only a band admin can regenerate the invite code, which is a new 12-character code. (src/lib/bands.ts, src/lib/__tests__/bands.test.ts)
+- A band's name, color and cover are edited by admins. (src/lib/bands.ts, src/hooks/useBandEdit.ts, src/components/bands/BandColorPicker.tsx)
+- A member can leave a band and an admin can remove a member, and the band's repertoire is unchanged. (src/lib/bands.ts, src/hooks/useBandAdmin.ts)
+- The selected band context is kept in local storage and reconciled against the user's bands. (src/store/bandContextStore.ts, src/lib/bandContext.ts, src/lib/__tests__/bandContext.test.ts)
+- Band status is authored by a band admin and is not derived from members' statuses. (src/lib/ownerSongs.ts, src/lib/__tests__/bandStatusAuthoring.db.test.ts)
+
+## Internationalisation
+- The supported locales are pt-BR and en, with pt-BR as the default. (src/lib/i18n.ts, src/lib/__tests__/i18n.test.ts)
+- The locale comes from the NEXT_LOCALE cookie when supported, otherwise from the Accept-Language header. (src/lib/i18n.ts, src/lib/__tests__/i18n.test.ts)
+- The language selector writes the NEXT_LOCALE cookie for a year. (src/components/layout/LanguageSelector.tsx)
+- The landing page and privacy page have copy in both locales. (src/components/landing/LandingPage.tsx, src/app/privacy/page.tsx, src/lib/__tests__/landingCopy.test.ts)
+- Dictionaries live in one JSON file per locale. (src/i18n/dictionaries/en.json, src/i18n/dictionaries/pt-BR.json)
+
+## Spotify integration
+- Spotify playlists can be listed, previewed, imported and synced through authenticated API routes. (src/app/api/spotify/playlists/route.ts, src/app/api/spotify/playlists/[id]/import/route.ts, src/app/api/spotify/playlists/[id]/sync/route.ts)
+- Import and sync create only the target owner's repertoire row, never a member's. (src/lib/spotifyPlaylistSync.ts, src/lib/__tests__/oneOwnerPerWrite.db.test.ts)
+- Writing to a band playlist through Spotify routes requires band ownership. (src/lib/spotifyRouteAuth.ts, src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts)
+- Spotify short links are resolved when added as song links. (src/lib/spotifyShortLink.ts, src/lib/__tests__/songLinksShortLink.db.test.ts)
+- The playback token route serves the Web Playback SDK for a connected user. (src/app/api/spotify/playback-token/route.ts, src/lib/spotifyWebPlayback.ts)
+
+## Song links
+- A song's links are rows in song_links addressed by id, and Spotify and YouTube links display grouped by provider. (src/lib/songLinks.ts, src/lib/songLinksSql.ts, src/lib/__tests__/songLinksTable.db.test.ts)
+- Link updates dedupe links by url so a duplicate url never reaches the unique constraint. (src/lib/songs.ts, src/lib/songLinksSql.ts, src/lib/__tests__/songLinkUpdate.test.ts)
+- A link's title is fetched from YouTube or Spotify oEmbed, or the page's HTML title tag. (src/lib/linkFetcher.ts, src/lib/__tests__/linkFetcher.test.ts)
+- Links controls are disabled offline and a refused write is shown as an error toast. (src/hooks/useSongLinks.ts, src/components/fastview/LinksSection.tsx)
