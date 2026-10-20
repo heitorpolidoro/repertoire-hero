@@ -18,9 +18,9 @@ Registry of what the system does today, one `##` section per functional area and
 ## Practice and status
 - A song's status is one of unknown, learning, practicing, polishing or mastered, held per owner with no aggregation. (src/lib/statusConfig.ts, src/lib/songStatus.ts)
 - The status control is four notes; tapping a note sets that level and tapping the current one drops a level. (src/components/ui/StatusNotes.tsx, src/lib/statusNotes.ts)
-- Practice order is days since last practised divided by the level's interval, highest first. (src/lib/practiceOrder.ts, src/lib/__tests__/practiceOrder.test.ts)
+- Practice order is days since last practised divided by the level's interval, capped at twice overdue, highest first. (RH-177) (src/lib/practiceOrder.ts, src/lib/__tests__/practiceOrder.test.ts)
 - Intervals are learning 1 day, practicing 3, polishing 14, mastered 21; unassessed and never-practised songs are always due. (src/lib/practiceOrder.ts)
-- Exact ties in practice order are broken at random. (src/lib/practiceOrder.ts, src/lib/__tests__/practiceOrder.test.ts)
+- Exact ties in practice order, including every song at the cap, are broken at random. (RH-177) (src/lib/practiceOrder.ts, src/lib/__tests__/practiceOrder.test.ts)
 - Tapping "practised it" sets last_practiced to the database's now() on the presser's own row, creating it as unknown when absent. (src/lib/practiceWrite.ts, src/lib/__tests__/practiceWrite.db.test.ts)
 - A band admin's practice tap also updates the band's existing row; a plain member's tap writes only their own row. (src/app/actions/practice.ts, src/lib/practiceWrite.ts)
 - Reviewing practice for a whole playlist writes only the ticked rows, in one transaction. (src/hooks/usePracticeReview.ts, src/components/ui/PracticeReviewList.tsx)

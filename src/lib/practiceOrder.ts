@@ -3,7 +3,8 @@
  *
  * `docs/use-cases.md` § *Start a practice session* decides it; this module is
  * only its implementation. A song's urgency is
- * `days since last practised / the interval for its level`, highest first.
+ * `days since last practised / the interval for its level`, capped at
+ * `MAX_DUE_RATIO`, highest first.
  *
  * - **Unassessed is always due.** `unknown` and an absent owner row (`status`
  *   `null`) have no interval; a song never practised (`lastPracticed` null) has
@@ -26,6 +27,13 @@ export const PRACTICE_INTERVAL_DAYS: Record<SongStatus, number | null> = {
   polishing: 14,
   mastered: 21,
 }
+
+/**
+ * RH-177 - the urgency ceiling: twice overdue is as urgent as it gets. Without
+ * it a learning song (1-day interval) scores ~7 after a weekly gap and always
+ * leads. Every song at the ceiling ties exactly and is shuffled together.
+ */
+export const MAX_DUE_RATIO = 2
 
 const DAY_MS = 86_400_000
 
@@ -53,7 +61,7 @@ function dueRatio(song: PracticeCandidate, now: number): number {
   if (interval === null || song.lastPracticed === null) return Infinity
   const last = Date.parse(song.lastPracticed)
   if (Number.isNaN(last)) return Infinity
-  return (now - last) / DAY_MS / interval
+  return Math.min((now - last) / DAY_MS / interval, MAX_DUE_RATIO)
 }
 
 /** In-place uniform shuffle. */

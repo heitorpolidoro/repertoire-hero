@@ -3,7 +3,7 @@
  * highest first; exact ties shuffled through the injected source.
  */
 import { describe, it, expect } from 'vitest'
-import { orderForPractice, PRACTICE_INTERVAL_DAYS, type PracticeCandidate } from '../practiceOrder'
+import { orderForPractice, MAX_DUE_RATIO, PRACTICE_INTERVAL_DAYS, type PracticeCandidate } from '../practiceOrder'
 
 const NOW = Date.parse('2026-06-30T12:00:00.000Z')
 const DAY = 86_400_000
@@ -85,6 +85,46 @@ describe('orderForPractice', () => {
       { now: NOW },
     )
     expect(ids(result)).toEqual(['learning-2d', 'mastered-30d', 'practicing-3d', 'polishing-7d'])
+  })
+
+  it('exports the ceiling as twice overdue', () => {
+    expect(MAX_DUE_RATIO).toBe(2)
+  })
+
+  it('ties a capped learning and a capped practicing song and mixes them across seeds', () => {
+    const firsts = new Set<string>()
+    for (let seed = 1; seed <= 25; seed++) {
+      const result = orderForPractice([song('learn', 'learning', 7), song('prac', 'practicing', 7)], {
+        now: NOW,
+        random: seeded(seed),
+      })
+      firsts.add(ids(result)[0])
+    }
+    expect(firsts).toEqual(new Set(['learn', 'prac']))
+  })
+
+  it('keeps capped songs above polishing and mastered, which stay in ratio order', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const result = orderForPractice(
+        [
+          song('mastered', 'mastered', 7),
+          song('learn', 'learning', 7),
+          song('polish', 'polishing', 7),
+          song('prac', 'practicing', 7),
+        ],
+        { now: NOW, random: seeded(seed) },
+      )
+      expect(ids(result).slice(0, 2).sort()).toEqual(['learn', 'prac'])
+      expect(ids(result).slice(2)).toEqual(['polish', 'mastered'])
+    }
+  })
+
+  it('keeps ratio order below the cap regardless of level', () => {
+    const result = orderForPractice([song('learn', 'learning', 0.5), song('prac', 'practicing', 3)], {
+      now: NOW,
+      random: () => 0,
+    })
+    expect(ids(result)).toEqual(['prac', 'learn'])
   })
 
   it('uses fractional days', () => {

@@ -577,7 +577,9 @@ outranks one being learned that was played yesterday. Dividing makes the level s
 urgent the song is and the gap say how much of that urgency has accrued.
 
 What falls out without being designed: a song never practised divides by nothing and goes
-top; mastered songs surface rarely; anything being learned returns almost every session.
+top; mastered songs surface rarely. The ratio is capped at 2 (twice overdue), so a song
+being learned cannot crowd out the other levels: every song at the cap ties exactly and
+is shuffled together, whatever its level.
 
 Read in weekly rehearsals the table is coarser than it looks — learning and practicing
 both mean "every time", polishing every second, mastered every third. The finer
