@@ -10426,3 +10426,9 @@ Non-blocking suggestions from QA round 1:
 - (spec-review) Round 2: the Approach says nine cards fill the `lg:grid-cols-3` grid evenly. Confirm this in the implementation.
 - (code-review) Round 1: add an explicit key-set equality assertion for `landing.*` between en and pt-BR (ER7); the new test only iterates en keys.
 - (code-review) Round 1: EN uses British "practise"/"practised" while other cards use "Practice"; confirm that is intended.
+
+## [RH-178] Fill a blank duration when a Spotify import meets an existing song — 2026-10-20
+- ER5 bundles four checks (guard count = 5, `npm run lint`, `npm run lint:dup`, full unit + db suites). It is mechanically verifiable and is the usual "green build" gate, so not blocking, but strictly it asserts more than one thing; consider splitting the guard-count assertion from the build gate in future specs.
+- ER7 / Scope "Not covered": "run the backfill noted in the report" relies on a report the spec never tells the implementer to write. State explicitly that the implementation report must include the one-off backfill SQL (e.g. `UPDATE songs s SET duration_seconds = v.duration_seconds, updated_at = now() FROM song_versions v WHERE ...`), or drop the alternative and keep re-import only. Note: any such SQL must not live under `src/` or `scripts/*.mjs`, or it changes the `EXPECTED_CATALOG_WRITERS` count.
+- `src/lib/__tests__/songIdentity.test.ts` "returns a found row untouched — one statement, no write" will need its title and call count revisited when its `INPUT` carries a duration; the spec allows this ("adjust mocked query sequences"), but the test name also asserts the old rule and should be renamed, not just re-counted.
+- The registry line is filed under `## Spotify integration` while it also covers the manual add; acceptable, but "Repertoire and overrides" or a cross-reference would make it findable from the manual-add side.
