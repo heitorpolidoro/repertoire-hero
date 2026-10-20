@@ -132,13 +132,15 @@ describe('findOrCreateSong', () => {
         rows: [{ id: 'song-1', links: [{ label: 'Chords', url: 'http://chords' }] }],
         rowCount: 1,
       })
-      // 2 — the album upsert, 3 — the version upsert (RH-122), which answers
+      // 2 — the blank-duration fill on the found row (RH-178)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      // 3 — the album upsert, 4 — the version upsert (RH-122), which answers
       // its own id since RH-125
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
-      // 4 — the `version_albums` link (RH-120)
+      // 5 — the `version_albums` link (RH-120)
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
-      // 5 — the link append, 6 — the catalog timestamp bump (RH-137: the append
+      // 6 — the link append, 7 — the catalog timestamp bump (RH-137: the append
       // is a `song_links` row, so the timestamp is no longer a side effect of
       // rewriting `songs.links`)
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
@@ -147,9 +149,9 @@ describe('findOrCreateSong', () => {
     const resolved = await findOrCreateSong(rawTrack)
 
     expect(resolved).toEqual({ songId: 'song-1', versionId: 'version-1' })
-    expect(mockedQuery).toHaveBeenCalledTimes(6)
+    expect(mockedQuery).toHaveBeenCalledTimes(7)
 
-    const [insertSql, insertValues] = mockedQuery.mock.calls[4]
+    const [insertSql, insertValues] = mockedQuery.mock.calls[5]
     expect(insertSql).toContain('INSERT INTO song_links (song_id, url, label, position)')
     // Appended at the end of the song's existing rows, never renumbered from 1:
     // the import adds one link and has no authority over the order of the rest.
@@ -170,7 +172,7 @@ describe('findOrCreateSong', () => {
 
     // The column itself is not written any more — RH-143 drops it — but the
     // catalog timestamp still moves, which is RH-101's semantics.
-    const [bumpSql, bumpValues] = mockedQuery.mock.calls[5]
+    const [bumpSql, bumpValues] = mockedQuery.mock.calls[6]
     expect(bumpSql).toBe('UPDATE songs SET updated_at = now() WHERE id = $1')
     expect(bumpValues).toEqual(['song-1'])
 
@@ -186,6 +188,7 @@ describe('findOrCreateSong', () => {
         ],
         rowCount: 1,
       })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // RH-178 duration fill
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
@@ -194,10 +197,12 @@ describe('findOrCreateSong', () => {
       songId: 'song-1',
       versionId: 'version-1',
     })
-    // The lookup plus the two upserts and the album link, and no `UPDATE songs`.
-    expect(mockedQuery).toHaveBeenCalledTimes(4)
+    // The lookup, the duration fill, the two upserts and the album link, and no
+    // links write or timestamp bump.
+    expect(mockedQuery).toHaveBeenCalledTimes(5)
     const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
-    expect(statements.some((sql) => /UPDATE\s+songs/i.test(sql))).toBe(false)
+    expect(statements.some((sql) => /UPDATE\s+songs\s+SET\s+updated_at/i.test(sql))).toBe(false)
+    expect(statements.some((sql) => /INSERT INTO song_links/i.test(sql))).toBe(false)
   })
 
   it('inserts the split title and trimmed artist for a new song', async () => {

@@ -155,6 +155,7 @@ describe('upsertAlbumAndVersion', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'album-2' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-existing' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // RH-178 duration fill
 
     const versionId = await upsertAlbumAndVersion(SONG, INPUT)
 
@@ -164,7 +165,10 @@ describe('upsertAlbumAndVersion', () => {
     expect(lookupSql).toContain('label IS NOT DISTINCT FROM $2')
     expect(lookupValues).toEqual(['song-1', '2011 Remaster'])
     expect(versionId).toBe('version-existing')
-    expect(mockedQuery.mock.calls[3][1]).toEqual(['version-existing', 'album-2'])
+    const [fillSql, fillValues] = mockedQuery.mock.calls[3]
+    expect(fillSql).toContain('duration_seconds IS NULL')
+    expect(fillValues).toEqual(['version-existing', 294])
+    expect(mockedQuery.mock.calls[4][1]).toEqual(['version-existing', 'album-2'])
   })
 
   it('throws rather than answering an id it could not resolve', async () => {

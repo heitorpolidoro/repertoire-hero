@@ -75,7 +75,8 @@ const ALBUM_LOOKUP_SQL = `
  * import's caller needs the id rather than re-deriving it from the song. Empty
  * exactly when the version already exists (an earlier import, or a concurrent
  * caller), which {@link VERSION_LOOKUP_SQL} then reads. An existing version's
- * `duration_seconds` and `key` are never overwritten.
+ * `key` is never overwritten, and neither is a set `duration_seconds`; a blank
+ * duration is filled by {@link VERSION_DURATION_FILL_SQL} (RH-178).
  */
 const VERSION_INSERT_SQL = `
     INSERT INTO song_versions (song_id, label, duration_seconds, key)
@@ -95,6 +96,12 @@ const VERSION_LOOKUP_SQL = `
     WHERE song_id = $1
       AND label IS NOT DISTINCT FROM $2
     LIMIT 1
+  `
+
+/** RH-178 — fills a blank duration only; `IS NULL` keeps it idempotent and race-safe. */
+const VERSION_DURATION_FILL_SQL = `
+    UPDATE song_versions SET duration_seconds = $2
+    WHERE id = $1 AND duration_seconds IS NULL
   `
 
 /** Links a version to an album it appears on; a repeat is a no-op. */
@@ -155,6 +162,9 @@ export async function upsertAlbumAndVersion(
     // at a real recording.
     const found = await db.query<{ id: string }>(VERSION_LOOKUP_SQL, params.slice(0, 2))
     versionId = found.rows[0]?.id
+    if (versionId && typeof input.duration_seconds === 'number') {
+      await db.query<never>(VERSION_DURATION_FILL_SQL, [versionId, input.duration_seconds])
+    }
   }
   if (!versionId) throw new Error('Failed to resolve the song version just written')
 

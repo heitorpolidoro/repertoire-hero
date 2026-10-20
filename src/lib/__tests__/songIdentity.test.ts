@@ -134,9 +134,11 @@ describe('resolveOrCreateSongIdentity', () => {
     expect(values).toEqual(['Song X', 'Michael Jackson'])
   })
 
-  it('returns a found row untouched — one statement, no write', async () => {
+  it('returns a found row as is, writing only a guarded blank-duration fill (RH-178)', async () => {
     const links = [{ label: 'Chords', url: 'http://chords' }]
-    mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'song-1', links }], rowCount: 1 })
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'song-1', links }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
 
     expect(await resolveOrCreateSongIdentity(INPUT)).toEqual({
       id: 'song-1',
@@ -144,6 +146,18 @@ describe('resolveOrCreateSongIdentity', () => {
       created: false,
       label: '2011 Remaster',
     })
+    expect(mockedQuery).toHaveBeenCalledTimes(2)
+    const [fillSql, fillValues] = mockedQuery.mock.calls[1]
+    expect(fillSql).toContain('duration_seconds IS NULL')
+    expect(fillSql).toContain('updated_at = now()')
+    expect(fillValues).toEqual(['song-1', 294])
+  })
+
+  it('writes nothing to a found row when the input carries no duration', async () => {
+    mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'song-1', links: [] }], rowCount: 1 })
+
+    await resolveOrCreateSongIdentity({ ...INPUT, duration_seconds: null })
+
     expect(mockedQuery).toHaveBeenCalledTimes(1)
   })
 
@@ -244,6 +258,7 @@ describe('resolveOrCreateSongIdentity', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'song-winner', links: [] }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // RH-178 duration fill
 
     expect(await resolveOrCreateSongIdentity(INPUT)).toEqual({
       id: 'song-winner',
@@ -251,7 +266,7 @@ describe('resolveOrCreateSongIdentity', () => {
       created: false,
       label: '2011 Remaster',
     })
-    expect(mockedQuery).toHaveBeenCalledTimes(3)
+    expect(mockedQuery).toHaveBeenCalledTimes(4)
   })
 
   it('throws when neither the insert nor the follow-up lookup yields a row', async () => {
@@ -267,7 +282,7 @@ describe('resolveOrCreateSongIdentity', () => {
 
     await resolveOrCreateSongIdentity(INPUT, client)
 
-    expect(client.query).toHaveBeenCalledTimes(1)
+    expect(client.query).toHaveBeenCalledTimes(2)
     expect(mockedQuery).not.toHaveBeenCalled()
   })
 })

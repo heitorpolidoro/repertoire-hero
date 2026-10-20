@@ -56,7 +56,8 @@ const REPO_ROOT = path.resolve(__dirname, '../../..')
 /**
  * The exact number of `UPDATE songs` statements production source is
  * expected to hold: two in `src/lib/songs.ts`, one in
- * `src/lib/spotifyPlaylistSync.ts` and one in `src/lib/moderation.ts`.
+ * `src/lib/spotifyPlaylistSync.ts`, one in `src/lib/moderation.ts` and one in
+ * `src/lib/songIdentity.ts` (RH-178, the blank-duration fill).
  * Asserted exactly, not as "at least one": an exact count also fails when a new
  * writer is added without being reviewed against this rule, which is the point
  * of the guard.
@@ -71,7 +72,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../..')
  * afterwards. No `UPDATE songs` statement moved anywhere: the count fell
  * purely because the file holding three of them is gone.
  */
-const EXPECTED_CATALOG_WRITERS = 4
+const EXPECTED_CATALOG_WRITERS = 5
 
 /** Start of a catalog write. Any case, any run of whitespace. */
 const CATALOG_UPDATE = /UPDATE\s+songs\b/gi

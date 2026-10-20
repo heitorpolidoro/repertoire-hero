@@ -14,8 +14,10 @@
  * Album deliberately stays out of the key, and now that `song_versions` exists
  * (RH-122) that is no longer a compromise: two takes of the same song by the
  * same artist are one catalog row with two versions. `resolveOrCreateSongIdentity`
- * still never writes to a row it merely found — the first-entered album, cover
- * and duration represent the song for everyone until reads move onto versions.
+ * writes to a row it merely found in exactly one case (RH-178): it fills a blank
+ * `duration_seconds` from an incoming one. The first-entered album and cover
+ * represent the song for everyone until reads move onto versions, and a set
+ * duration is never overwritten.
  *
  * RH-122 changed exactly one thing in here: the title normaliser. The identity
  * pair, the album-less key and the primary-artist rule are untouched, but the
@@ -173,6 +175,24 @@ async function insertCreatedSongLinks(
   return deduped
 }
 
+/**
+ * RH-178 — fill a blank duration on a found row. The `IS NULL` guard makes it
+ * idempotent and race-safe (the first committed value wins) and leaves a row
+ * with a set duration entirely untouched, `updated_at` included.
+ */
+async function fillBlankDuration(
+  songId: string,
+  duration: number | null | undefined,
+  db: Queryable,
+): Promise<void> {
+  if (typeof duration !== 'number') return
+  await db.query<never>(
+    `UPDATE songs SET duration_seconds = $2, updated_at = now()
+      WHERE id = $1 AND duration_seconds IS NULL`,
+    [songId, duration],
+  )
+}
+
 async function lookupSongIdentity(
   identity: SongIdentity,
   db: Queryable,
@@ -211,7 +231,9 @@ export async function findSongByIdentity(
  * part of the caller's transaction (which is what `createAndAddSong` does, so a
  * later failure cannot leave an orphan catalog row behind).
  *
- * Found rows are returned untouched: no write to an already-set field, ever.
+ * Found rows are returned as they are, except that a blank `duration_seconds`
+ * is filled from `input.duration_seconds` (RH-178). A set field is never
+ * overwritten; a conflicting duration is not written at all.
  */
 export async function resolveOrCreateSongIdentity(
   input: SongIdentityInput,
@@ -220,7 +242,10 @@ export async function resolveOrCreateSongIdentity(
   const identity = songIdentityOf(input.title, input.artist)
 
   const existing = await lookupSongIdentity(identity, db)
-  if (existing) return existing
+  if (existing) {
+    await fillBlankDuration(existing.id, input.duration_seconds, db)
+    return existing
+  }
 
   const inserted = await db.query<{ id: string }>(INSERT_SQL, [
     identity.title,
@@ -247,5 +272,6 @@ export async function resolveOrCreateSongIdentity(
   // instead of a 23505. Their row is committed by the time the wait ends.
   const raced = await lookupSongIdentity(identity, db)
   if (!raced) throw new Error('Failed to resolve song identity: the catalog row vanished mid-insert')
+  await fillBlankDuration(raced.id, input.duration_seconds, db)
   return raced
 }
