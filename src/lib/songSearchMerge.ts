@@ -333,8 +333,8 @@ function buildRow(group: SongGroup): SongSearchRow {
     title: group.catalogTitle ?? first?.rawTitle ?? '',
     artist: group.catalogArtist ?? '',
     // The fallback to `songs.cover_url` is not decoration: a candidate's cover
-    // comes from `albums.cover_url` and `song_versions.album_id` is nullable,
-    // so a catalog song whose every version is album-less has no candidate
+    // comes from `albums.cover_url` and a version may have no `version_albums`
+    // link, so a catalog song whose every version is album-less has no candidate
     // cover at all — while the panel renders `songs.cover_url` for it at HEAD.
     coverUrl: versions.find((c) => c.coverUrl !== null)?.coverUrl ?? group.songCoverUrl ?? null,
     album: first?.albumName ?? group.songAlbum ?? null,

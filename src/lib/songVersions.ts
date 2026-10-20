@@ -37,6 +37,7 @@
  */
 
 import { pool, type Queryable } from '@/lib/db'
+import { primaryAlbumJoin } from '@/lib/primaryAlbum'
 import {
   primaryArtistName,
   type ResolvedSongIdentity,
@@ -65,33 +66,42 @@ const ALBUM_LOOKUP_SQL = `
 /**
  * The version's own `ON CONFLICT DO NOTHING` arbitrates against
  * `uq_song_versions_identity`, which is declared `UNIQUE NULLS NOT DISTINCT
- * (song_id, album_id, label)` — a null label is the common case, and a plain
- * unique would let two unlabelled versions of one album both insert.
+ * (song_id, label)` since RH-120 — a null label is the common case, and a plain
+ * unique would let two unlabelled versions of one song both insert. The album
+ * is not part of identity: the same recording on a second album is the same
+ * version, linked to both through `version_albums`.
  *
  * `RETURNING id` since RH-125: `playlist_songs` names a version, so the Spotify
  * import's caller needs the id rather than re-deriving it from the song. Empty
- * exactly when a concurrent caller won the index, which {@link lookupVersion}
- * then reads — the same pair of statements the album above uses.
+ * exactly when the version already exists (an earlier import, or a concurrent
+ * caller), which {@link VERSION_LOOKUP_SQL} then reads. An existing version's
+ * `duration_seconds` and `key` are never overwritten.
  */
 const VERSION_INSERT_SQL = `
-    INSERT INTO song_versions (song_id, album_id, label, duration_seconds, key)
-    VALUES ($1, $2, $3, $4, $5)
+    INSERT INTO song_versions (song_id, label, duration_seconds, key)
+    VALUES ($1, $2, $3, $4)
     ON CONFLICT DO NOTHING
     RETURNING id
   `
 
 /**
- * Mirrors `uq_song_versions_identity` exactly. Both nullable columns are
- * compared with `IS NOT DISTINCT FROM`, because that index is declared
- * `NULLS NOT DISTINCT`: plain `=` would never match the common unlabelled,
- * album-less row that the insert above had just refused as a duplicate.
+ * Mirrors `uq_song_versions_identity` exactly. `label` is compared with `IS NOT
+ * DISTINCT FROM`, because that index is declared `NULLS NOT DISTINCT`: plain
+ * `=` would never match the common unlabelled row that the insert above had
+ * just refused as a duplicate.
  */
 const VERSION_LOOKUP_SQL = `
     SELECT id FROM song_versions
     WHERE song_id = $1
-      AND album_id IS NOT DISTINCT FROM $2
-      AND label IS NOT DISTINCT FROM $3
+      AND label IS NOT DISTINCT FROM $2
     LIMIT 1
+  `
+
+/** Links a version to an album it appears on; a repeat is a no-op. */
+const VERSION_ALBUM_LINK_SQL = `
+    INSERT INTO version_albums (version_id, album_id)
+    VALUES ($1, $2)
+    ON CONFLICT DO NOTHING
   `
 
 /** The `albums` row for `input`, or null when it carries no album name. */
@@ -111,7 +121,7 @@ async function upsertAlbum(input: SongIdentityInput, db: Queryable): Promise<str
   // The insert was a no-op, so a concurrent caller owns the row. Reading it
   // back is what keeps the version pointed at a real release instead of at
   // null; if even that finds nothing the version is written album-less, which
-  // the nullable `album_id` allows.
+  // a version without a `version_albums` link allows.
   const found = await db.query<{ id: string }>(ALBUM_LOOKUP_SQL, [artist, name])
   return found.rows[0]?.id ?? null
 }
@@ -134,19 +144,22 @@ export async function upsertAlbumAndVersion(
   db: Queryable = pool,
 ): Promise<string> {
   const albumId = await upsertAlbum(input, db)
-  const params = [song.id, albumId, song.label, input.duration_seconds ?? null, input.standard_key ?? null]
+  const params = [song.id, song.label, input.duration_seconds ?? null, input.standard_key ?? null]
 
   const inserted = await db.query<{ id: string }>(VERSION_INSERT_SQL, params)
-  const row = inserted.rows[0]
-  if (row) return row.id
+  let versionId = inserted.rows[0]?.id
+  if (!versionId) {
+    // The insert was a no-op, so the row was already there — either from an
+    // earlier import of the same track (possibly off another album) or from a
+    // concurrent caller. Reading it back is what lets the playlist entry point
+    // at a real recording.
+    const found = await db.query<{ id: string }>(VERSION_LOOKUP_SQL, params.slice(0, 2))
+    versionId = found.rows[0]?.id
+  }
+  if (!versionId) throw new Error('Failed to resolve the song version just written')
 
-  // The insert was a no-op, so the row was already there — either from an
-  // earlier import of the same track or from a concurrent caller. Reading it
-  // back is what lets the playlist entry point at a real recording.
-  const found = await db.query<{ id: string }>(VERSION_LOOKUP_SQL, params.slice(0, 3))
-  const existing = found.rows[0]
-  if (!existing) throw new Error('Failed to resolve the song version just written')
-  return existing.id
+  if (albumId) await db.query(VERSION_ALBUM_LINK_SQL, [versionId, albumId])
+  return versionId
 }
 
 /**
@@ -162,10 +175,11 @@ export async function upsertAlbumAndVersion(
  * then `id`. The last two make it **total**, so two runs cannot disagree —
  * which is the whole point. It is a sort, never a stored column.
  *
- * Nulls sort last at every level, and the join onto `albums` must be a
- * `LEFT JOIN` wherever this ordering is used: `song_versions.album_id` is
- * nullable on purpose, so an inner join would silently drop every album-less
- * version. The two version-level tiebreakers keep the pick total even for a
+ * Nulls sort last at every level. Since RH-120 `album` is the version's
+ * **primary album** (`primaryAlbumJoin`, one album per version out of
+ * `version_albums`), and the join must stay a `LEFT JOIN` wherever this ordering
+ * is used: a version may have no album link, and an inner join would silently
+ * drop it. The two version-level tiebreakers keep the pick total even for a
  * song whose every version is album-less.
  *
  * `migrations/0016_split_repertoire_owner_songs.sql` carries the same ordering
@@ -191,7 +205,7 @@ export function representativeVersionOrder(version = 'v', album = 'a'): string {
 export function representativeVersionSubquery(songIdSql: string): string {
   return `(SELECT rv.id
              FROM song_versions rv
-             LEFT JOIN albums ra ON ra.id = rv.album_id
+             ${primaryAlbumJoin('rv', 'ra')}
             WHERE rv.song_id = ${songIdSql}
             ORDER BY ${representativeVersionOrder('rv', 'ra')}
             LIMIT 1)`
@@ -219,14 +233,21 @@ export function representativeVersionSubquery(songIdSql: string): string {
  */
 export async function ensureSongHasVersion(songId: string, db: Queryable = pool): Promise<void> {
   await db.query<never>(
-    `INSERT INTO song_versions (song_id, album_id, label, duration_seconds, key)
-     SELECT s.id, a.id, song_title_label(s.title), s.duration_seconds, s.standard_key
-       FROM songs s
-       LEFT JOIN albums a
-         ON s.album IS NOT NULL AND btrim(s.album) <> ''
+    `WITH ins AS (
+       INSERT INTO song_versions (song_id, label, duration_seconds, key)
+       SELECT s.id, song_title_label(s.title), s.duration_seconds, s.standard_key
+         FROM songs s
+        WHERE s.id = $1
+          AND NOT EXISTS (SELECT 1 FROM song_versions v WHERE v.song_id = s.id)
+       ON CONFLICT DO NOTHING
+       RETURNING id, song_id
+     )
+     INSERT INTO version_albums (version_id, album_id)
+     SELECT ins.id, a.id
+       FROM ins, songs s, albums a
+      WHERE s.id = ins.song_id
+        AND s.album IS NOT NULL AND btrim(s.album) <> ''
         AND LOWER(a.artist) = LOWER(s.artist) AND LOWER(a.name) = LOWER(s.album)
-      WHERE s.id = $1
-        AND NOT EXISTS (SELECT 1 FROM song_versions v WHERE v.song_id = s.id)
      ON CONFLICT DO NOTHING`,
     [songId],
   )

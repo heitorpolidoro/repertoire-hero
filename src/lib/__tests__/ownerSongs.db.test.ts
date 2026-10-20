@@ -23,7 +23,7 @@ import {
   updateSongOverrides,
 } from '@/lib/ownerSongs'
 import { representativeVersionSubquery } from '@/lib/songVersions'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser, linkVersionAlbum } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 /** Syntactically valid, matches nothing. */
@@ -71,15 +71,21 @@ describe.skipIf(!RUN_DB_TESTS)('owner-song reads and writes (real database)', ()
        VALUES ($1, $2, 'album', '1991-01-01') RETURNING id`,
       [`RH-124 Read Artist ${suffix}`, `RH-124 Album ${suffix}`],
     )
-    singleVersionId = await insertId(
-      `INSERT INTO song_versions (song_id, album_id, label, key, tuning)
-       VALUES ($1, $2, 'Single', 'A', 'Drop D') RETURNING id`,
-      [songId, singleAlbumId],
+    singleVersionId = await linkVersionAlbum(
+      await insertId(
+        `INSERT INTO song_versions (song_id, label, key, tuning)
+         VALUES ($1, 'Single', 'A', 'Drop D') RETURNING id`,
+        [songId],
+      ),
+      singleAlbumId,
     )
-    albumVersionId = await insertId(
-      `INSERT INTO song_versions (song_id, album_id, label, key, tuning)
-       VALUES ($1, $2, 'Album', 'G', 'Standard') RETURNING id`,
-      [songId, albumAlbumId],
+    albumVersionId = await linkVersionAlbum(
+      await insertId(
+        `INSERT INTO song_versions (song_id, label, key, tuning)
+         VALUES ($1, 'Album', 'G', 'Standard') RETURNING id`,
+        [songId],
+      ),
+      albumAlbumId,
     )
 
     albumlessSongId = await insertId(
@@ -88,7 +94,7 @@ describe.skipIf(!RUN_DB_TESTS)('owner-song reads and writes (real database)', ()
     )
     createdSongIds.push(albumlessSongId)
     albumlessVersionId = await insertId(
-      'INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, NULL, $2) RETURNING id',
+      'INSERT INTO song_versions (song_id, label) VALUES ($1, $2) RETURNING id',
       [albumlessSongId, 'No Release'],
     )
   })
@@ -352,7 +358,7 @@ describe.skipIf(!RUN_DB_TESTS)('owner-song reads and writes (real database)', ()
       expect(albumVersionId).not.toBe(singleVersionId)
     })
 
-    it('still returns a version whose album_id is null (ER4)', async () => {
+    it('still returns a version with no album link (ER4)', async () => {
       const res = await query<{ id: string }>(
         `SELECT ${representativeVersionSubquery('$1')} AS id`,
         [albumlessSongId],

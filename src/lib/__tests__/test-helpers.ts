@@ -428,6 +428,22 @@ export const OWNER_SONG_FROM = {
 export const SONG_LINKS_CANONICAL_ORDER = 'ORDER BY position, created_at, id'
 
 /**
+ * Links `versionId` to `albumId` in `version_albums` (RH-120) and answers the
+ * version id, so a suite seeding a version by hand can wrap its insert:
+ * `await linkVersionAlbum(await insertId('INSERT INTO song_versions ...'), albumId)`.
+ * A null album is a no-op — a version with no release is a legal recording.
+ */
+export async function linkVersionAlbum(versionId: string, albumId: string | null): Promise<string> {
+  if (albumId) {
+    await query('INSERT INTO version_albums (version_id, album_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
+      versionId,
+      albumId,
+    ])
+  }
+  return versionId
+}
+
+/**
  * The representative version of `songId`, ensuring the song has one first —
  * what a suite that holds only a song id needs since RH-125 made the playlist
  * entry and both playlist writes version-keyed.

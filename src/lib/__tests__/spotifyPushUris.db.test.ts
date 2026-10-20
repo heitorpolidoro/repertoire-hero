@@ -229,7 +229,7 @@ describe.skipIf(!RUN_DB_TESTS)('the Spotify push (real database, real write path
       await query(
         `DELETE FROM albums a
           WHERE a.name LIKE $1
-            AND NOT EXISTS (SELECT 1 FROM song_versions v WHERE v.album_id = a.id)`,
+            AND NOT EXISTS (SELECT 1 FROM version_albums va WHERE va.album_id = a.id)`,
         [`RH-135 Album%`],
       )
     }

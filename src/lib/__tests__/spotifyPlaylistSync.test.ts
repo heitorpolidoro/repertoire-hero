@@ -136,7 +136,9 @@ describe('findOrCreateSong', () => {
       // its own id since RH-125
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
-      // 4 — the link append, 5 — the catalog timestamp bump (RH-137: the append
+      // 4 — the `version_albums` link (RH-120)
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      // 5 — the link append, 6 — the catalog timestamp bump (RH-137: the append
       // is a `song_links` row, so the timestamp is no longer a side effect of
       // rewriting `songs.links`)
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
@@ -145,9 +147,9 @@ describe('findOrCreateSong', () => {
     const resolved = await findOrCreateSong(rawTrack)
 
     expect(resolved).toEqual({ songId: 'song-1', versionId: 'version-1' })
-    expect(mockedQuery).toHaveBeenCalledTimes(5)
+    expect(mockedQuery).toHaveBeenCalledTimes(6)
 
-    const [insertSql, insertValues] = mockedQuery.mock.calls[3]
+    const [insertSql, insertValues] = mockedQuery.mock.calls[4]
     expect(insertSql).toContain('INSERT INTO song_links (song_id, url, label, position)')
     // Appended at the end of the song's existing rows, never renumbered from 1:
     // the import adds one link and has no authority over the order of the rest.
@@ -168,7 +170,7 @@ describe('findOrCreateSong', () => {
 
     // The column itself is not written any more — RH-143 drops it — but the
     // catalog timestamp still moves, which is RH-101's semantics.
-    const [bumpSql, bumpValues] = mockedQuery.mock.calls[4]
+    const [bumpSql, bumpValues] = mockedQuery.mock.calls[5]
     expect(bumpSql).toBe('UPDATE songs SET updated_at = now() WHERE id = $1')
     expect(bumpValues).toEqual(['song-1'])
 
@@ -186,13 +188,14 @@ describe('findOrCreateSong', () => {
       })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     expect(await findOrCreateSong(rawTrack)).toEqual({
       songId: 'song-1',
       versionId: 'version-1',
     })
-    // The lookup plus the two upserts, and no `UPDATE songs`.
-    expect(mockedQuery).toHaveBeenCalledTimes(3)
+    // The lookup plus the two upserts and the album link, and no `UPDATE songs`.
+    expect(mockedQuery).toHaveBeenCalledTimes(4)
     const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
     expect(statements.some((sql) => /UPDATE\s+songs/i.test(sql))).toBe(false)
   })
@@ -253,7 +256,7 @@ describe('findOrCreateSong', () => {
 
     const [versionSql, versionValues] = mockedQuery.mock.calls[4]
     expect(versionSql).toContain('INSERT INTO song_versions')
-    expect(versionValues).toEqual(['song-new', 'album-1', '2018 Remaster', 185, null])
+    expect(versionValues).toEqual(['song-new', '2018 Remaster', 185, null])
   })
 
   it('does not append the Spotify link to a row it just created', async () => {
@@ -265,12 +268,13 @@ describe('findOrCreateSong', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
 
     await findOrCreateSong(rawTrack)
 
-    // The lookup, the `songs` insert, the `song_links` insert and the two
-    // upserts — no link `UPDATE songs`.
-    expect(mockedQuery).toHaveBeenCalledTimes(5)
+    // The lookup, the `songs` insert, the `song_links` insert, the two
+    // upserts and the album link — no link `UPDATE songs`.
+    expect(mockedQuery).toHaveBeenCalledTimes(6)
     const statements = mockedQuery.mock.calls.map(([sql]) => String(sql))
     expect(statements.some((sql) => /UPDATE\s+songs/i.test(sql))).toBe(false)
   })
@@ -374,7 +378,7 @@ describe('buildPlaylistSongsInsert', () => {
    * song_id)` refused the second one outright, so importing a Spotify playlist
    * holding the album take and the remaster of a song used to fail the whole
    * import. The two tracks resolve to two versions under RH-122's
-   * `(song_id, album_id, label)` identity, and both get a row.
+   * `(song_id, label)` identity, and both get a row.
    */
   it('keeps two versions of one song, in playlist order (ER15)', () => {
     const { sql, values } = buildPlaylistSongsInsert('pl-1', ['v-studio', 'v-remaster'])

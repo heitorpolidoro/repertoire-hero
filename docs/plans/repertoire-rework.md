@@ -22,8 +22,9 @@ albums        (id, artist, name, album_type, cover_url, release_date)
 songs         (id, title, artist, lyrics, map)
   unique (lower(artist), lower(title))
 
-song_versions (id, song_id, album_id, label, duration_seconds,
-               key, tuning, lyrics, map)
+song_versions (id, song_id, label, duration_seconds,
+               key, tuning, lyrics, map)      -- RH-120: album_id moved out
+version_albums (version_id, album_id, created_at)   -- pk (version_id, album_id)
 
 song_files    (id, user_id, song_id, title, file_url, annotations jsonb)
 
@@ -150,7 +151,14 @@ does not change what you practise alone in C.
   the key. Primary artist means `artists[0]`, not the joined list: Spotify returns
   "Michael Jackson" on one track and "Michael Jackson, Akon" on another, and joining
   makes those two different artists.
-- **Version identity** is `(song_id, album_id, label)`, with `NULLS NOT DISTINCT` —
+- **Version identity** is `(song_id, label)`, with `NULLS NOT DISTINCT` (RH-120
+  supersedes the original `(song_id, album_id, label)`, text kept below as history).
+  A version is one recording with many releases: `version_albums (version_id,
+  album_id)` records every album it appears on, and `song_versions.album_id` is gone.
+  Trade-off: two different recordings sharing a label across albums merge into one
+  version; the admin split is the way back. The original rule follows.
+
+- *Superseded —* **Version identity** was `(song_id, album_id, label)`, with `NULLS NOT DISTINCT` —
   Postgres treats nulls as distinct otherwise, and a null label is the common case, so
   two unlabelled versions of one album would both insert.
 

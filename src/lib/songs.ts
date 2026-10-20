@@ -11,6 +11,7 @@
 
 import { query, withTransaction, type Queryable } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { primaryAlbumJoin } from '@/lib/primaryAlbum'
 import { fetchUrlTitle } from '@/lib/linkFetcher'
 import { submitCatalogSuggestion } from '@/lib/moderation'
 import { resolveOrCreateSongIdentity } from '@/lib/songIdentity'
@@ -43,7 +44,7 @@ const SONG_VERSIONS_AGGREGATE = `COALESCE((
                       'releaseDate', to_char(a.release_date, 'YYYY-MM-DD')
                     ) ORDER BY ${representativeVersionOrder('v', 'a')})
                FROM song_versions v
-               LEFT JOIN albums a ON a.id = v.album_id
+               ${primaryAlbumJoin('v', 'a')}
               WHERE v.song_id = s.id
            ), '[]'::json)`
 
@@ -63,9 +64,9 @@ const SONG_VERSIONS_AGGREGATE = `COALESCE((
  * `version_id` stays, so nothing outside the picker has to change.
  *
  * Three things about the aggregate are load-bearing. The join onto `albums` is
- * a `LEFT JOIN` — `song_versions.album_id` is nullable on purpose, and an
- * inner join would silently drop every album-less version
- * (`ownerSongsGuards.test.ts`). `release_date` is rendered as `YYYY-MM-DD`
+ * a `LEFT JOIN LATERAL` onto the version's primary album (`primaryAlbumJoin`;
+ * a version may have no `version_albums` link, and an inner join would
+ * silently drop every album-less version) — see `ownerSongsGuards.test.ts`. `release_date` is rendered as `YYYY-MM-DD`
  * text rather than left to the driver's date handling, because the picker's
  * candidate ordering compares it as a string against Spotify's shorter `YYYY`
  * and `YYYY-MM` prefixes. And the `LIMIT 20` still counts **songs**: limiting

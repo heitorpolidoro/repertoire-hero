@@ -4,7 +4,7 @@
  *
  * What a mock can prove is pinned here: which statements are issued, that the
  * album is keyed case-insensitively on `(artist, name)` and the version on
- * `(song_id, album_id, label)`, that both absorb a duplicate with
+ * `(song_id, label)` and linked to its album through `version_albums`, that all absorb a duplicate with
  * `ON CONFLICT DO NOTHING` rather than a caught `23505`, and that the album
  * name reaches the catalog **raw** — the album-name stripper is gone, so
  * `"Nevermind (30th Anniversary Super Deluxe Edition)"` is a release of its own
@@ -79,8 +79,16 @@ describe('upsertAlbumAndVersion', () => {
     // RH-125: the insert returns the id, because the playlist entry is written
     // with it and no caller may re-derive it from the song.
     expect(versionSql).toContain('RETURNING id')
-    expect(versionValues).toEqual(['song-1', 'album-1', '2011 Remaster', 294, 'Bm'])
+    // RH-120: the album is not part of the version's identity.
+    expect(versionSql).not.toContain('album_id')
+    expect(versionValues).toEqual(['song-1', '2011 Remaster', 294, 'Bm'])
     expect(versionId).toBe('version-1')
+
+    // ...it is linked after the fact, and a repeat is absorbed.
+    const [linkSql, linkValues] = mockedQuery.mock.calls[2]
+    expect(linkSql).toContain('INSERT INTO version_albums')
+    expect(linkSql).toContain('ON CONFLICT DO NOTHING')
+    expect(linkValues).toEqual(['version-1', 'album-1'])
   })
 
   it('reads back the album a concurrent caller inserted when the insert does nothing', async () => {
@@ -96,16 +104,10 @@ describe('upsertAlbumAndVersion', () => {
     expect(lookupSql).toContain('LOWER(artist) = LOWER($1)')
     expect(lookupSql).toContain('LOWER(name) = LOWER($2)')
     expect(lookupValues).toEqual(['Michael Jackson', 'Thriller (25th Anniversary Edition)'])
-    expect(mockedQuery.mock.calls[2][1]).toEqual([
-      'song-1',
-      'album-raced',
-      '2011 Remaster',
-      294,
-      'Bm',
-    ])
+    expect(mockedQuery.mock.calls[3][1]).toEqual(['version-1', 'album-raced'])
   })
 
-  it('writes a version with a null album_id when the track carries no album', async () => {
+  it('writes a version and no link when the track carries no album', async () => {
     mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion({ ...SONG, label: null }, { title: 'Bare', artist: 'Nobody' })
@@ -113,7 +115,7 @@ describe('upsertAlbumAndVersion', () => {
     expect(mockedQuery).toHaveBeenCalledTimes(1)
     const [versionSql, versionValues] = mockedQuery.mock.calls[0]
     expect(versionSql).toContain('INSERT INTO song_versions')
-    expect(versionValues).toEqual(['song-1', null, null, null, null])
+    expect(versionValues).toEqual(['song-1', null, null, null])
   })
 
   it('treats a blank album name as no album at all', async () => {
@@ -122,10 +124,9 @@ describe('upsertAlbumAndVersion', () => {
     await upsertAlbumAndVersion(SONG, { ...INPUT, album: '   ' })
 
     expect(mockedQuery).toHaveBeenCalledTimes(1)
-    expect(mockedQuery.mock.calls[0][1][1]).toBeNull()
   })
 
-  it('leaves the version album-less when the album can be neither inserted nor found', async () => {
+  it('leaves the version unlinked when the album can be neither inserted nor found', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
@@ -133,7 +134,7 @@ describe('upsertAlbumAndVersion', () => {
 
     await upsertAlbumAndVersion(SONG, INPUT)
 
-    expect(mockedQuery.mock.calls[2][1][1]).toBeNull()
+    expect(mockedQuery).toHaveBeenCalledTimes(3)
   })
 
   /**
@@ -142,13 +143,16 @@ describe('upsertAlbumAndVersion', () => {
    * `ON CONFLICT DO NOTHING` returns no row when the version is already there,
    * which is the common case on a re-import. The id still has to be answered,
    * because `playlist_songs` is written with it — so the lookup runs, and it
-   * compares both nullable columns with `IS NOT DISTINCT FROM`, because
+   * compares `label` with `IS NOT DISTINCT FROM`, because
    * `uq_song_versions_identity` is declared `NULLS NOT DISTINCT` and plain `=`
-   * would never match the common unlabelled, album-less row.
+   * would never match the common unlabelled row.
+   *
+   * RH-120: the same recording off a second album lands here, and is linked to
+   * that album under the existing version's id.
    */
   it('reads the version back when the insert was a no-op, matching nulls as equal', async () => {
     mockedQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'album-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'album-2' }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-existing' }], rowCount: 1 })
 
@@ -156,10 +160,11 @@ describe('upsertAlbumAndVersion', () => {
 
     const [lookupSql, lookupValues] = mockedQuery.mock.calls[2]
     expect(lookupSql).toContain('FROM song_versions')
-    expect(lookupSql).toContain('album_id IS NOT DISTINCT FROM $2')
-    expect(lookupSql).toContain('label IS NOT DISTINCT FROM $3')
-    expect(lookupValues).toEqual(['song-1', 'album-1', '2011 Remaster'])
+    expect(lookupSql).not.toContain('album_id')
+    expect(lookupSql).toContain('label IS NOT DISTINCT FROM $2')
+    expect(lookupValues).toEqual(['song-1', '2011 Remaster'])
     expect(versionId).toBe('version-existing')
+    expect(mockedQuery.mock.calls[3][1]).toEqual(['version-existing', 'album-2'])
   })
 
   it('throws rather than answering an id it could not resolve', async () => {
@@ -175,11 +180,11 @@ describe('upsertAlbumAndVersion', () => {
 
   it('runs on the client it is given, so it joins the caller transaction', async () => {
     const client = { query: vi.fn().mockResolvedValue({ rows: [{ id: 'album-1' }], rowCount: 1 }) }
-    // Both statements answer a row, so neither read-back runs.
+    // Every statement answers a row, so neither read-back runs.
 
     await upsertAlbumAndVersion(SONG, INPUT, client)
 
-    expect(client.query).toHaveBeenCalledTimes(2)
+    expect(client.query).toHaveBeenCalledTimes(3)
     expect(mockedQuery).not.toHaveBeenCalled()
   })
 

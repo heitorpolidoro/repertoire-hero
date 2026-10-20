@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { query } from '@/lib/db'
 import { createBand } from '@/lib/bands'
 import { addVersionToRepertoire } from '@/lib/ownerVersionAdd'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser, linkVersionAlbum } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 const MISSING_ID = '00000000-0000-0000-0000-000000000000'
@@ -41,13 +41,19 @@ describe.skipIf(!RUN_DB_TESTS)('addVersionToRepertoire (real database)', () => {
       `INSERT INTO albums (artist, name, album_type, release_date) VALUES ($1, $2, 'album', '1991-01-01') RETURNING id`,
       [`RH-151 Artist ${suffix}`, `RH-151 Album ${suffix}`],
     )
-    otherVersionId = await insertId(
-      `INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, $2, 'Single') RETURNING id`,
-      [songId, single],
+    otherVersionId = await linkVersionAlbum(
+      await insertId(
+        `INSERT INTO song_versions (song_id, label) VALUES ($1, 'Single') RETURNING id`,
+        [songId],
+      ),
+      single,
     )
-    representativeId = await insertId(
-      `INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, $2, 'Album') RETURNING id`,
-      [songId, album],
+    representativeId = await linkVersionAlbum(
+      await insertId(
+        `INSERT INTO song_versions (song_id, label) VALUES ($1, 'Album') RETURNING id`,
+        [songId],
+      ),
+      album,
     )
   })
 

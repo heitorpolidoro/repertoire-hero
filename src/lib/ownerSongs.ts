@@ -26,6 +26,7 @@
 
 import { query, withTransaction, type Queryable } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { primaryAlbumJoin } from '@/lib/primaryAlbum'
 // prettier-ignore
 import { LEVELS, OWNER_SONG_COLUMNS, entryFrom, ownerColumn, ownerId, ownerPatchFromUpdate, ownerTable, toEntry, toResolvedEntry, type OwnerSongPatch, type RepertoireOwner } from '@/lib/ownerSongRows'
 import { buildUpdateSet } from '@/lib/sqlUpdate'
@@ -300,7 +301,7 @@ export async function getPersonalEntryForSong(songId: string, userId: string): P
     JOIN LATERAL (
       SELECT uo.* FROM user_songs uo
       JOIN song_versions uv ON uv.id = uo.version_id
-      LEFT JOIN albums ua ON ua.id = uv.album_id
+      ${primaryAlbumJoin('uv', 'ua')}
       WHERE uo.user_id = $2 AND uv.song_id = s.id
       ORDER BY ${representativeVersionOrder('uv', 'ua')}
       LIMIT 1

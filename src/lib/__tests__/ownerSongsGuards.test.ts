@@ -8,7 +8,8 @@
  *    this guard stops is a statement growing back later, and a trigger name the
  *    restructure retired being reintroduced by a copy-paste.
  *  - **ER4** — every join onto `albums` in the representative-version ordering
- *    is a `LEFT JOIN`. `song_versions.album_id` is nullable on purpose, so an
+ *    is a `LEFT JOIN` (since RH-120, the `LEFT JOIN LATERAL` of
+ *    `primaryAlbumJoin`). A version may have no `version_albums` link, so an
  *    inner join silently drops every album-less version. In the migration that
  *    cost a row; here it costs a version a musician holds.
  *  - **ER8** — the cascade is never written in SQL. One `COALESCE` across
@@ -20,6 +21,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { primaryAlbumJoin } from '@/lib/primaryAlbum'
 import { representativeVersionSubquery } from '@/lib/songVersions'
 import { findViolations, formatViolations } from './test-helpers'
 
@@ -92,18 +94,33 @@ describe('RH-124 ER4 — every join onto albums is a LEFT JOIN', () => {
     // matches is an inner join. `__tests__` is excluded: a test asserting a row
     // it has just created may inner-join deliberately, and only production
     // source carries the representative-version ordering.
-    const violations = findViolations(/(?<!LEFT\s)\bJOIN\s+albums\b/i).filter(
-      (v) => !v.file.includes('__tests__'),
-    )
+    //
+    // RH-120: `primaryAlbum.ts` is the one exemption. Its `JOIN albums` sits
+    // *inside* the lateral subquery that picks a version's primary album, and
+    // the lateral itself is a `LEFT JOIN ... ON true` — asserted below — so a
+    // version with no `version_albums` link is never dropped.
+    const violations = findViolations(/(?<!LEFT\s)\bJOIN\s+albums\b/i, {
+      skip: 'src/lib/primaryAlbum.ts',
+    }).filter((v) => !v.file.includes('__tests__'))
 
     expect(formatViolations(violations)).toEqual([])
+  })
+
+  it('reaches albums only through the LEFT JOIN LATERAL primary-album join (RH-120)', () => {
+    const join = primaryAlbumJoin('v', 'a')
+
+    expect(join).toMatch(/^LEFT JOIN LATERAL \(/)
+    expect(join).toMatch(/\) a ON true$/)
+    // The lateral is the sole place `version_albums` meets `albums`.
+    expect(join).toContain('JOIN albums pal ON pal.id = pvl.album_id')
   })
 
   it('spells the ordering itself with a LEFT JOIN, in the one place it exists', () => {
     const subquery = representativeVersionSubquery('$1')
 
-    expect(subquery).toContain('LEFT JOIN albums')
-    expect(subquery).not.toMatch(/(?<!LEFT\s)\bJOIN\s+albums\b/)
+    expect(subquery).toContain('LEFT JOIN LATERAL')
+    expect(subquery).toContain('ON true')
+    expect(subquery).not.toContain('rv.album_id')
     // Nulls last at both album levels, and the two version-level tiebreakers
     // that make the pick total for a song whose every version is album-less.
     expect(subquery).toContain("album_type = 'album') DESC NULLS LAST")

@@ -199,6 +199,39 @@ describe.skipIf(!RUN_DB_TESTS)('admin catalog data layer (real database)', () =>
       ])
     })
 
+    it('unions the album links of A onto B, ignoring a shared album (RH-120)', async () => {
+      const s = randomUUID().slice(0, 8)
+      const albums: string[] = []
+      for (const n of ['one', 'two', 'three']) {
+        albums.push(
+          (await one('INSERT INTO albums (artist, name) VALUES ($1, $2) RETURNING id', [
+            `RH-120 Artist ${s}`,
+            `RH-120 ${n} ${s}`,
+          ])).id as string,
+        )
+      }
+      const link = (version: string, album: string) =>
+        query('INSERT INTO version_albums (version_id, album_id) VALUES ($1, $2)', [version, album])
+      await link(f.vA, albums[0])
+      await link(f.vA, albums[1])
+      await link(f.vB, albums[1])
+      await link(f.vB, albums[2])
+
+      try {
+        await mergeSongVersions(f.admin, f.vA, f.vB)
+
+        const linked = await query<{ album_id: string }>(
+          'SELECT album_id FROM version_albums WHERE version_id = $1',
+          [f.vB],
+        )
+        expect(linked.rows.map((r) => r.album_id).sort()).toEqual([...albums].sort())
+        const orphaned = await query('SELECT 1 FROM version_albums WHERE version_id = $1', [f.vA])
+        expect(orphaned.rows).toHaveLength(0)
+      } finally {
+        await query('DELETE FROM albums WHERE id = ANY($1::uuid[])', [albums])
+      }
+    })
+
     it('keeps B and drops A on a collision, with contiguous playlist positions', async () => {
       const userA = await ownerRow('user_songs', f.u1, f.vA, 'learning')
       const userB = await ownerRow('user_songs', f.u1, f.vB, 'mastered')

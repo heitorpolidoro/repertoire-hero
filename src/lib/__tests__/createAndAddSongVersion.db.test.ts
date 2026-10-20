@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { query } from '@/lib/db'
 import { addSongToRepertoire, createAndAddSong, getPersonalEntryForSong, getRepertoire } from '@/lib/ownerSongs'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser, linkVersionAlbum } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
@@ -43,9 +43,10 @@ describe.skipIf(!RUN_DB_TESTS)('createAndAddSong holds the resolved version (rea
       [artist, `RH-144 Original ${title}`],
     )
     const version = await query<{ id: string }>(
-      'INSERT INTO song_versions (song_id, album_id) VALUES ($1, $2) RETURNING id',
-      [songId, album.rows[0].id],
+      'INSERT INTO song_versions (song_id) VALUES ($1) RETURNING id',
+      [songId],
     )
+    await linkVersionAlbum(version.rows[0].id, album.rows[0].id)
     return { songId, representativeId: version.rows[0].id }
   }
 
@@ -59,25 +60,36 @@ describe.skipIf(!RUN_DB_TESTS)('createAndAddSong holds the resolved version (rea
     for (const id of createdSongIds) await query('DELETE FROM songs WHERE id = $1', [id])
   })
 
-  it('a first add with a new album holds that album version, not the representative one', async () => {
+  it('a first add off a new album holds the same recording, now linked to both albums (RH-120)', async () => {
     const title = `First ${suffix}`
     const { songId, representativeId } = await seedSong(title)
     const entry = await createAndAddSong({ userId }, { title, artist, album: `RH-144 Remaster ${suffix}` })
     expect(entry.song_id).toBe(songId)
-    expect(entry.version_id).not.toBe(representativeId)
-    const albumVersion = await query<{ id: string }>(
-      `SELECT v.id FROM song_versions v JOIN albums a ON a.id = v.album_id
-       WHERE v.song_id = $1 AND a.name = $2`,
-      [songId, `RH-144 Remaster ${suffix}`],
+    expect(entry.version_id).toBe(representativeId)
+    const versions = await query<{ n: string }>('SELECT count(*)::text AS n FROM song_versions WHERE song_id = $1', [
+      songId,
+    ])
+    expect(versions.rows[0].n).toBe('1')
+    const links = await query<{ name: string }>(
+      `SELECT a.name FROM version_albums va JOIN albums a ON a.id = va.album_id
+        WHERE va.version_id = $1 ORDER BY a.name`,
+      [representativeId],
     )
-    expect(await rowsFor(userId, songId)).toEqual([albumVersion.rows[0].id])
+    expect(links.rows.map((r) => r.name)).toEqual([`RH-144 Original ${title}`, `RH-144 Remaster ${suffix}`])
+    expect(await rowsFor(userId, songId)).toEqual([representativeId])
   })
 
   it('holds a second version of the same song, lists both, and probes exactly one', async () => {
     const title = `Both ${suffix}`
     const { songId, representativeId } = await seedSong(title)
-    const first = await createAndAddSong({ userId: secondUserId }, { title, artist, album: `RH-144 Live ${suffix}` })
-    const second = await createAndAddSong({ userId: secondUserId }, { title, artist, album: `RH-144 Deluxe ${suffix}` })
+    const first = await createAndAddSong(
+      { userId: secondUserId },
+      { title: `${title} - Live`, artist, album: `RH-144 Live ${suffix}` },
+    )
+    const second = await createAndAddSong(
+      { userId: secondUserId },
+      { title: `${title} - Deluxe`, artist, album: `RH-144 Deluxe ${suffix}` },
+    )
     expect(second.version_id).not.toBe(first.version_id)
     expect((await rowsFor(secondUserId, songId)).sort()).toEqual([first.version_id, second.version_id].sort())
 

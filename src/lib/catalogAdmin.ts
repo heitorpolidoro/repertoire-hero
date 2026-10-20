@@ -80,6 +80,11 @@ const DELETE_COLLIDING_PLAYLIST_ROWS = `
      AND EXISTS (SELECT 1 FROM playlist_songs b WHERE b.playlist_id = a.playlist_id AND b.version_id = $2)
   RETURNING a.playlist_id`
 
+const UNION_ALBUM_LINKS = `
+  INSERT INTO version_albums (version_id, album_id, created_at)
+  SELECT $2, album_id, created_at FROM version_albums WHERE version_id = $1
+  ON CONFLICT DO NOTHING`
+
 const RENUMBER_PLAYLISTS = `
   UPDATE playlist_songs p SET position = r.rn
     FROM (SELECT id, row_number() OVER (PARTITION BY playlist_id ORDER BY position, id)::int AS rn
@@ -112,6 +117,7 @@ async function mergeVersionsInTransaction(
   await client.query(REPOINT_OWNER_ROWS('playlist_songs'), ids)
   await client.query(RENUMBER_PLAYLISTS, [collided.rows.map((row) => row.playlist_id)])
   await client.query('UPDATE catalog_suggestions SET target_id = $2 WHERE target_id = $1', ids)
+  await client.query(UNION_ALBUM_LINKS, ids)
   await client.query('DELETE FROM song_versions WHERE id = $1', [fromVersionId])
 }
 
@@ -188,7 +194,6 @@ async function lockVersionIds(client: Queryable, songId: string): Promise<string
 const COLLIDING_VERSION = `
   SELECT t.id FROM song_versions m
     JOIN song_versions t ON t.song_id = $2
-     AND t.album_id IS NOT DISTINCT FROM m.album_id
      AND t.label IS NOT DISTINCT FROM m.label
    WHERE m.id = $1`
 

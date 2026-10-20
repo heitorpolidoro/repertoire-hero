@@ -155,37 +155,53 @@ describe.skipIf(!RUN_DB_TESTS)('the catalog version schema (RH-122)', () => {
           WHERE schemaname = 'public' AND indexname = 'uq_song_versions_identity'`,
       )
       expect(index.rows[0].indexdef).toContain('CREATE UNIQUE INDEX')
-      expect(index.rows[0].indexdef).toContain('(song_id, album_id, label)')
+      expect(index.rows[0].indexdef).toContain('(song_id, label)')
+      expect(index.rows[0].indexdef).not.toContain('album_id')
       expect(index.rows[0].indexdef).toContain('NULLS NOT DISTINCT')
     })
 
-    it('refuses a second (song_id, album_id, null) row', async () => {
-      await query('INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, $2, NULL)', [
-        songId,
+    it('refuses a second (song_id, null) row with 23505, whatever the album', async () => {
+      const inserted = await query<{ id: string }>(
+        'INSERT INTO song_versions (song_id, label) VALUES ($1, NULL) RETURNING id',
+        [songId],
+      )
+      await query('INSERT INTO version_albums (version_id, album_id) VALUES ($1, $2)', [
+        inserted.rows[0].id,
         albumId,
       ])
 
       // A plain unique would treat the two nulls as distinct and insert both.
       await expect(
-        query('INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, $2, NULL)', [
-          songId,
-          albumId,
-        ]),
-      ).rejects.toThrow(/duplicate key value|unique/i)
+        query('INSERT INTO song_versions (song_id, label) VALUES ($1, NULL)', [songId]),
+      ).rejects.toMatchObject({ code: '23505' })
     })
 
-    it('accepts a row with a null album_id — a recording of an unknown release', async () => {
+    it('accepts a version with no album link — a recording of an unknown release', async () => {
       const inserted = await query<{ id: string }>(
-        'INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, NULL, $2) RETURNING id',
+        'INSERT INTO song_versions (song_id, label) VALUES ($1, $2) RETURNING id',
         [songId, `Live ${sfx}`],
       )
       expect(inserted.rows[0].id).toBeTruthy()
 
-      const nullable = await query<{ is_nullable: string }>(
-        `SELECT is_nullable FROM information_schema.columns
-          WHERE table_schema = 'public' AND table_name = 'song_versions' AND column_name = 'album_id'`,
+      const links = await query<{ n: string }>(
+        'SELECT count(*)::text AS n FROM version_albums WHERE version_id = $1',
+        [inserted.rows[0].id],
       )
-      expect(nullable.rows[0].is_nullable).toBe('YES')
+      expect(links.rows[0].n).toBe('0')
+    })
+
+    it('has no album_id column, and version_albums is keyed on (version_id, album_id)', async () => {
+      const columns = await query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'song_versions'`,
+      )
+      expect(columns.rows.map((r) => r.column_name)).not.toContain('album_id')
+
+      const key = await query<{ def: string }>(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+          WHERE conrelid = 'public.version_albums'::regclass AND contype = 'p'`,
+      )
+      expect(key.rows[0].def).toBe('PRIMARY KEY (version_id, album_id)')
     })
 
     it('carries every column the restructured catalog needs (ER1)', async () => {
@@ -197,7 +213,6 @@ describe.skipIf(!RUN_DB_TESTS)('the catalog version schema (RH-122)', () => {
       for (const column of [
         'id',
         'song_id',
-        'album_id',
         'label',
         'duration_seconds',
         'key',
@@ -431,7 +446,8 @@ describe.skipIf(!RUN_DB_TESTS)('the catalog write paths (RH-122)', () => {
       `SELECT s.title, v.label, a.name
          FROM songs s
          JOIN song_versions v ON v.song_id = s.id
-         JOIN albums a ON a.id = v.album_id
+         JOIN version_albums va ON va.version_id = v.id
+         JOIN albums a ON a.id = va.album_id
         WHERE s.id = $1`,
       [firstId],
     )
@@ -594,9 +610,15 @@ describe.skipIf(!RUN_DB_TESTS)('searchSongs — the version aggregate (RH-108 ER
     label: string | null,
   ): Promise<string> {
     const res = await query<{ id: string }>(
-      'INSERT INTO song_versions (song_id, album_id, label) VALUES ($1, $2, $3) RETURNING id',
-      [songId, albumId, label],
+      'INSERT INTO song_versions (song_id, label) VALUES ($1, $2) RETURNING id',
+      [songId, label],
     )
+    if (albumId) {
+      await query('INSERT INTO version_albums (version_id, album_id) VALUES ($1, $2)', [
+        res.rows[0].id,
+        albumId,
+      ])
+    }
     return res.rows[0].id
   }
 

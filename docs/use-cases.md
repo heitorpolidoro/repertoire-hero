@@ -699,7 +699,7 @@ is right there in the response and wins.
   the row's group key — one parse, both keys.
 
   This was recorded as an unverified assumption, and it is now the rule. The catalog holds
-  an `album_id` while Spotify hands back the album's **name** as text, so the comparison
+  an album (a `version_albums` link since RH-120) while Spotify hands back the album's **name** as text, so the comparison
   is name-based and names vary in spelling — "Bad" against "Bad (Remastered)". When they
   differ the two candidates do not collapse. **That costs one extra candidate and loses
   nothing:** the row keeps every candidate both sources offered, each still pressable,

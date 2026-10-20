@@ -33,7 +33,7 @@ import {
   getUserPlaylists,
 } from '@/lib/playlists'
 import type { PlaylistSong } from '@/types/database'
-import { createTestUser, deleteTestUser } from './test-helpers'
+import { createTestUser, deleteTestUser, linkVersionAlbum } from './test-helpers'
 
 const RUN_DB_TESTS = process.env.RUN_DB_TESTS ?? ''
 
@@ -74,14 +74,17 @@ describe.skipIf(!RUN_DB_TESTS)('the version-keyed playlist reads (RH-125 ER9, ER
     )
     // `duration_seconds` null on purpose: the read has to fall back to the
     // song's 240 rather than leave the mastery summary's total time blank.
-    heldVersionId = await insertId(
-      `INSERT INTO song_versions (song_id, album_id, label, duration_seconds)
-       VALUES ($1, $2, 'Studio Take', NULL) RETURNING id`,
-      [songId, albumId],
+    heldVersionId = await linkVersionAlbum(
+      await insertId(
+        `INSERT INTO song_versions (song_id, label, duration_seconds)
+         VALUES ($1, 'Studio Take', NULL) RETURNING id`,
+        [songId],
+      ),
+      albumId,
     )
     unheldVersionId = await insertId(
-      `INSERT INTO song_versions (song_id, album_id, label, duration_seconds)
-       VALUES ($1, NULL, 'Live at the Bar', 311) RETURNING id`,
+      `INSERT INTO song_versions (song_id, label, duration_seconds)
+       VALUES ($1, 'Live at the Bar', 311) RETURNING id`,
       [songId],
     )
 
