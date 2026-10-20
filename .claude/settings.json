@@ -29,7 +29,16 @@
       "Bash(git rebase:*)",
       "Bash(gh:*)",
       "Bash(npm run dev)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_resize",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "Bash(node scripts/qa-serve.js:*)",
+      "Bash(rtk node scripts/qa-serve.js:*)"
     ],
     "deny": [
       "Bash(git push --mirror:*)",
