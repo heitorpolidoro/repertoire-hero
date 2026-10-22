@@ -9,8 +9,10 @@
  * - **Unassessed is always due.** `unknown` and an absent owner row (`status`
  *   `null`) have no interval; a song never practised (`lastPracticed` null) has
  *   no days. Both rank above every finite ratio and form one tie group.
- * - **Days are fractional** (milliseconds over 86 400 000), so an exact tie is
- *   a shared timestamp at a shared level, or the always-due group.
+ * - **Days are whole calendar days** in `PRACTICE_TIME_ZONE` (RH-182): the
+ *   dates of `now` and of the last practice, read there, subtracted. The hour
+ *   does not count, so songs at one level practised on one local date tie
+ *   exactly, as does the always-due group.
  * - **Only exact ties are shuffled**, uniformly (Fisher-Yates per group)
  *   through an injected `random`. Near-ties (7 days against 8) keep ratio order.
  *
@@ -35,7 +37,23 @@ export const PRACTICE_INTERVAL_DAYS: Record<SongStatus, number | null> = {
  */
 export const MAX_DUE_RATIO = 2
 
+/** RH-182 - the zone a practice date is read in; the boundary is its midnight. */
+export const PRACTICE_TIME_ZONE = 'America/Sao_Paulo'
+
 const DAY_MS = 86_400_000
+
+// en-CA formats as YYYY-MM-DD.
+const localDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: PRACTICE_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/** The local calendar date of an instant, as a day number since the epoch. */
+function dayNumber(instant: number): number {
+  return Date.parse(`${localDate.format(instant)}T00:00:00Z`) / DAY_MS
+}
 
 /** What the ordering needs of a song; extra fields travel through untouched. */
 export interface PracticeCandidate {
@@ -61,7 +79,7 @@ function dueRatio(song: PracticeCandidate, now: number): number {
   if (interval === null || song.lastPracticed === null) return Infinity
   const last = Date.parse(song.lastPracticed)
   if (Number.isNaN(last)) return Infinity
-  return Math.min((now - last) / DAY_MS / interval, MAX_DUE_RATIO)
+  return Math.min((dayNumber(now) - dayNumber(last)) / interval, MAX_DUE_RATIO)
 }
 
 /** In-place uniform shuffle. */

@@ -561,7 +561,9 @@ removes any accidental-confirm risk, so closing the list needs no special handli
    practiced*, trigger 3)
 
 **The order** is `days since last practised ÷ the interval for its level`, highest first.
-A ratio above 1 is overdue.
+A ratio above 1 is overdue. Days are whole calendar days in São Paulo time
+(`America/Sao_Paulo`): practised today is 0, yesterday 1, whatever the hour, so a
+rehearsal's songs at one level tie however late each was marked.
 
 | Level | Interval |
 |---|---|

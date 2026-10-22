@@ -1,9 +1,15 @@
 /**
  * RH-168 - the due order: days since last practised / the level's interval,
- * highest first; exact ties shuffled through the injected source.
+ * highest first; RH-182 - days are whole Sao Paulo calendar days; exact ties shuffled through the injected source.
  */
 import { describe, it, expect } from 'vitest'
-import { orderForPractice, MAX_DUE_RATIO, PRACTICE_INTERVAL_DAYS, type PracticeCandidate } from '../practiceOrder'
+import {
+  orderForPractice,
+  MAX_DUE_RATIO,
+  PRACTICE_INTERVAL_DAYS,
+  PRACTICE_TIME_ZONE,
+  type PracticeCandidate,
+} from '../practiceOrder'
 
 const NOW = Date.parse('2026-06-30T12:00:00.000Z')
 const DAY = 86_400_000
@@ -16,6 +22,12 @@ function song(id: string, status: PracticeCandidate['status'], daysAgo: number |
     status,
     lastPracticed: daysAgo === null ? null : new Date(NOW - daysAgo * DAY).toISOString(),
   }
+}
+
+const NOW_ISO = new Date(NOW).toISOString()
+
+function at(id: string, status: PracticeCandidate['status'], lastPracticed: string): PracticeCandidate {
+  return { versionId: id, title: id, artist: null, status, lastPracticed }
 }
 
 const ids = (list: PracticeCandidate[]) => list.map((s) => s.versionId)
@@ -53,7 +65,7 @@ describe('orderForPractice', () => {
     // At exactly one interval the ratio is 1: it ties with a learning song 1 day old
     // and outranks the same level half an interval ago.
     const result = orderForPractice(
-      [song('below', status, interval / 2), song('tie', status, interval), song('ref', 'learning', 1)],
+      [song('below', status, Math.floor(interval / 2)), song('tie', status, interval), song('ref', 'learning', 1)],
       { now: NOW, random: () => 0 },
     )
     expect(ids(result).slice(0, 2).sort()).toEqual(['ref', 'tie'])
@@ -120,16 +132,51 @@ describe('orderForPractice', () => {
   })
 
   it('keeps ratio order below the cap regardless of level', () => {
-    const result = orderForPractice([song('learn', 'learning', 0.5), song('prac', 'practicing', 3)], {
+    const result = orderForPractice([song('learn', 'learning', 0), song('prac', 'practicing', 3)], {
       now: NOW,
       random: () => 0,
     })
     expect(ids(result)).toEqual(['prac', 'learn'])
   })
 
-  it('uses fractional days', () => {
-    const result = orderForPractice([song('a', 'learning', 1.5), song('b', 'learning', 1.6)], { now: NOW })
-    expect(ids(result)).toEqual(['b', 'a'])
+  it('exports the time zone days are counted in', () => {
+    expect(PRACTICE_TIME_ZONE).toBe('America/Sao_Paulo')
+  })
+
+  it('ties songs practised on the same Sao Paulo date at different hours', () => {
+    // NOW is 09:00 in Sao Paulo (UTC-3); both are on 2026-06-28 there.
+    const morning = at('a', 'learning', '2026-06-28T11:00:00.000Z') // 08:00
+    const night = at('b', 'learning', '2026-06-29T01:00:00.000Z') // 22:00
+    const firsts = new Set<string>()
+    for (let seed = 1; seed <= 25; seed++) {
+      firsts.add(ids(orderForPractice([morning, night, at('c', 'polishing', NOW_ISO)], { now: NOW, random: seeded(seed) }))[0])
+    }
+    expect(firsts).toEqual(new Set(['a', 'b']))
+  })
+
+  it('counts one day across Sao Paulo midnight, minutes apart', () => {
+    const older = at('older', 'polishing', '2026-06-29T02:59:00.000Z') // 23:59 on the 28th
+    const newer = at('newer', 'polishing', '2026-06-29T03:01:00.000Z') // 00:01 on the 29th
+    const result = orderForPractice([newer, older], { now: NOW, random: () => 0 })
+    expect(ids(result)).toEqual(['older', 'newer'])
+  })
+
+  it('reads the date in Sao Paulo, not UTC', () => {
+    // 22:00 on the 29th in Sao Paulo is 01:00 UTC on the 30th: 1 day ago, not today.
+    const lateNight = at('late', 'learning', '2026-06-30T01:00:00.000Z')
+    const yesterday = at('yesterday', 'learning', '2026-06-29T15:00:00.000Z')
+    const today = at('today', 'learning', '2026-06-30T11:00:00.000Z')
+    const result = orderForPractice([today, lateNight, yesterday], { now: NOW, random: () => 0 })
+    expect(ids(result)[2]).toBe('today')
+    expect(ids(result).slice(0, 2).sort()).toEqual(['late', 'yesterday'])
+  })
+
+  it('gives a song practised earlier today ratio 0, below yesterday', () => {
+    const result = orderForPractice(
+      [at('today', 'learning', '2026-06-30T10:00:00.000Z'), at('yesterday', 'learning', '2026-06-29T20:00:00.000Z')],
+      { now: NOW },
+    )
+    expect(ids(result)).toEqual(['yesterday', 'today'])
   })
 
   it('does not mutate its input', () => {
