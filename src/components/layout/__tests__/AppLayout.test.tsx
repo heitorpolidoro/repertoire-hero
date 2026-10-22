@@ -11,8 +11,9 @@
  * third test prove a context switch reloads the song list).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 import type { BandOption } from '@/types/database'
+import { getBandIndicatorCopies } from '@/lib/i18n'
 
 const { loadSongsSpy, pushSpy, useSessionSpy, signOutSpy, signOutSteps } = vi.hoisted(() => {
   const signOutSteps: string[] = []
@@ -68,6 +69,8 @@ const BANDS: BandOption[] = [
   { id: 'band-beta', name: 'Beta Ensemble', color: null },
 ]
 
+const COPIES = getBandIndicatorCopies()
+
 const SESSION = {
   data: { user: { id: 'user-1', name: 'Ada', email: 'ada@example.com' } },
   isPending: false,
@@ -92,7 +95,7 @@ async function openContextSwitcher() {
 describe('AppLayout renders from props (RH-46)', () => {
   it('renders its children and both navigation landmarks from props alone', () => {
     render(
-      <AppLayout bands={[]}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={[]}>
         <p>page body</p>
       </AppLayout>,
     )
@@ -103,7 +106,7 @@ describe('AppLayout renders from props (RH-46)', () => {
 
   it('lists every band in the bands prop inside the context switcher', async () => {
     render(
-      <AppLayout bands={BANDS}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>
         <p>page body</p>
       </AppLayout>,
     )
@@ -116,7 +119,7 @@ describe('AppLayout renders from props (RH-46)', () => {
 
   it('switches the band context to the band the user picks', async () => {
     render(
-      <AppLayout bands={BANDS}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>
         <p>page body</p>
       </AppLayout>,
     )
@@ -137,7 +140,7 @@ describe('AppLayout renders from props (RH-46)', () => {
     useSessionSpy.mockReturnValue(SIGNED_OUT)
 
     render(
-      <AppLayout bands={BANDS}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>
         <p>page body</p>
       </AppLayout>,
     )
@@ -159,12 +162,12 @@ describe('AppLayout keeps one stable tree across session resolution (RH-73)', ()
 
   it('keeps the very same child DOM node when the session resolves to a user', () => {
     useSessionSpy.mockReturnValue(PENDING)
-    const { rerender } = render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    const { rerender } = render(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
 
     const pendingNode = screen.getByRole('button', { name: 'Route control' })
 
     useSessionSpy.mockReturnValue(SESSION)
-    rerender(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    rerender(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
 
     const resolvedNode = screen.getByRole('button', { name: 'Route control' })
     expect(resolvedNode).toBe(pendingNode)
@@ -174,21 +177,21 @@ describe('AppLayout keeps one stable tree across session resolution (RH-73)', ()
 
   it('never renders two copies of a route control in any session phase', () => {
     useSessionSpy.mockReturnValue(PENDING)
-    const { rerender } = render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    const { rerender } = render(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
     expect(screen.getAllByText('Route control')).toHaveLength(1)
 
     useSessionSpy.mockReturnValue(SESSION)
-    rerender(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    rerender(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
     expect(screen.getAllByText('Route control')).toHaveLength(1)
 
     useSessionSpy.mockReturnValue(SIGNED_OUT)
-    rerender(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    rerender(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
     expect(screen.getAllByText('Route control')).toHaveLength(1)
   })
 
   it('renders the chrome, including the main landmark, while the session is still pending', () => {
     useSessionSpy.mockReturnValue(PENDING)
-    render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    render(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
 
     expect(screen.getAllByRole('navigation')).toHaveLength(2)
     expect(screen.queryByRole('main')).not.toBeNull()
@@ -196,7 +199,7 @@ describe('AppLayout keeps one stable tree across session resolution (RH-73)', ()
 
   it('drops every chrome landmark and layout class once the session resolves to no user', () => {
     useSessionSpy.mockReturnValue(SIGNED_OUT)
-    const { container } = render(<AppLayout bands={BANDS}>{routeControl}</AppLayout>)
+    const { container } = render(<AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>{routeControl}</AppLayout>)
 
     expect(screen.getByText('Route control')).toBeDefined()
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
@@ -217,7 +220,7 @@ describe('AppLayout keeps one stable tree across session resolution (RH-73)', ()
 describe('AppLayout signs the device out as well as the session (RH-79)', () => {
   it('awaits the offline purge before signing out, because the cache bypasses the proxy', async () => {
     render(
-      <AppLayout bands={BANDS}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>
         <p>page body</p>
       </AppLayout>,
     )
@@ -230,6 +233,102 @@ describe('AppLayout signs the device out as well as the session (RH-79)', () => 
   })
 })
 
+describe('AppLayout band-mode indicator (RH-180)', () => {
+  const ALPHA = BANDS[0]
+
+  function enterBand() {
+    act(() => {
+      useBandContextStore.getState().setBandContext(ALPHA.id, ALPHA.name, ALPHA.color ?? undefined)
+    })
+  }
+
+  function renderLayout() {
+    return render(
+      <AppLayout bandIndicatorCopies={COPIES} bands={BANDS}>
+        <p>page body</p>
+      </AppLayout>,
+    )
+  }
+
+  afterEach(() => {
+    document.cookie = 'NEXT_LOCALE=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  })
+
+  it('shows the band name and the localized label in band context', () => {
+    document.cookie = 'NEXT_LOCALE=en'
+    enterBand()
+    renderLayout()
+
+    const indicator = screen.getByTestId('band-indicator')
+    expect(indicator.textContent).toContain('Alpha Quartet')
+    expect(indicator.textContent).toContain('Band mode')
+    expect(indicator.textContent).toContain('Exit')
+  })
+
+  it('shows the Portuguese label when the locale cookie is pt-BR', () => {
+    document.cookie = 'NEXT_LOCALE=pt-BR'
+    enterBand()
+    renderLayout()
+
+    const indicator = screen.getByTestId('band-indicator')
+    expect(indicator.textContent).toContain('Modo banda')
+    expect(indicator.textContent).toContain('Sair')
+  })
+
+  it('carries a band icon and the band colour as its background', () => {
+    enterBand()
+    renderLayout()
+
+    const indicator = screen.getByTestId('band-indicator')
+    expect(indicator.querySelector('[data-testid="band-indicator-icon"]')?.textContent).toBe('🎸')
+    expect(indicator.style.backgroundColor).toBe('rgb(29, 78, 216)')
+  })
+
+  it('renders nothing in personal context', () => {
+    renderLayout()
+
+    expect(screen.queryByTestId('band-indicator')).toBeNull()
+  })
+
+  it('is removed and restored in place by setUserContext then setBandContext', () => {
+    enterBand()
+    renderLayout()
+    const body = screen.getByText('page body')
+    expect(screen.getByTestId('band-indicator')).toBeDefined()
+
+    act(() => {
+      useBandContextStore.getState().setUserContext()
+    })
+    expect(screen.queryByTestId('band-indicator')).toBeNull()
+
+    enterBand()
+    expect(screen.getByTestId('band-indicator').textContent).toContain('Alpha Quartet')
+    expect(screen.getByText('page body')).toBe(body)
+  })
+
+  it('keeps the bottom navigation free of any band strip', () => {
+    enterBand()
+    renderLayout()
+
+    const [, bottomNav] = screen.getAllByRole('navigation')
+    expect(bottomNav.textContent).not.toContain('Alpha Quartet')
+    expect(bottomNav.textContent).not.toContain('Exit')
+    expect(screen.getAllByTestId('band-indicator')).toHaveLength(1)
+  })
+
+  it('exits band mode from the indicator', () => {
+    enterBand()
+    renderLayout()
+
+    fireEvent.click(screen.getByRole('button', { name: /Exit|Sair/ }))
+
+    expect(useBandContextStore.getState().context).toEqual({ type: 'user' })
+    expect(loadSongsSpy).toHaveBeenCalled()
+    expect(pushSpy).toHaveBeenCalledWith('/')
+    expect(screen.queryByTestId('band-indicator')).toBeNull()
+  })
+})
+
 describe('AppLayout Catalog nav entry (RH-156)', () => {
   function catalogLinks() {
     return screen.queryAllByRole('link').filter((a) => a.getAttribute('href') === '/admin/catalog')
@@ -237,7 +336,7 @@ describe('AppLayout Catalog nav entry (RH-156)', () => {
 
   it('renders a Catalog link in both navs for a system admin', () => {
     render(
-      <AppLayout bands={[]} isSystemAdmin>
+      <AppLayout bandIndicatorCopies={COPIES} bands={[]} isSystemAdmin>
         <p>page body</p>
       </AppLayout>,
     )
@@ -250,14 +349,14 @@ describe('AppLayout Catalog nav entry (RH-156)', () => {
 
   it('renders no Catalog link when the flag is false or omitted', () => {
     const { rerender } = render(
-      <AppLayout bands={[]} isSystemAdmin={false}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={[]} isSystemAdmin={false}>
         <p>page body</p>
       </AppLayout>,
     )
     expect(catalogLinks()).toHaveLength(0)
 
     rerender(
-      <AppLayout bands={[]}>
+      <AppLayout bandIndicatorCopies={COPIES} bands={[]}>
         <p>page body</p>
       </AppLayout>,
     )

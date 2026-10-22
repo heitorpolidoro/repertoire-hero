@@ -13,6 +13,7 @@ import { useBandContextStore } from '@/store/bandContextStore'
 import { useRepertoireStore } from '@/store/repertoireStore'
 import { reconcileBandContext } from '@/lib/bandContext'
 import { logger } from '@/lib/logger'
+import type { BandIndicatorCopy, Locale } from '@/lib/i18n'
 import type { BandOption } from '@/types/database'
 
 /**
@@ -25,7 +26,13 @@ import type { BandOption } from '@/types/database'
  *
  * `AppShell` is not a reserved App Router filename, so it declares no route.
  */
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  bandIndicatorCopies,
+}: {
+  children: React.ReactNode
+  bandIndicatorCopies: Record<Locale, BandIndicatorCopy>
+}) {
   const { data: session } = authClient.useSession()
   const userId = session?.user?.id ?? null
   const [bands, setBands] = useState<BandOption[]>([])
@@ -80,7 +87,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <ConditionalLayout bands={bands} isSystemAdmin={!!userId && isSystemAdmin}>
+      <ConditionalLayout
+        bands={bands}
+        isSystemAdmin={!!userId && isSystemAdmin}
+        bandIndicatorCopies={bandIndicatorCopies}
+      >
         {children}
       </ConditionalLayout>
       <SetlistPlayer {...setlistPlayer} />

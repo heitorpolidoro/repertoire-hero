@@ -75,6 +75,38 @@ export function getPrivacyCopy(locale: Locale): typeof enDict.privacy {
   return (dictionaries[locale] || dictionaries[DEFAULT_LOCALE]).privacy
 }
 
+/** The band-mode indicator copy (RH-180). */
+export type BandIndicatorCopy = typeof enDict.bandIndicator
+
+/** The band-mode indicator's label and Exit text; same server-resolved exception as above. */
+export function getBandIndicatorCopy(locale: Locale): BandIndicatorCopy {
+  return (dictionaries[locale] || dictionaries[DEFAULT_LOCALE]).bandIndicator
+}
+
+/**
+ * Every locale's indicator copy, built by the static root layout (RH-180).
+ *
+ * The root layout cannot read `cookies()` or `headers()`: that would make every
+ * route dynamic, and `/offline` must stay prerendered for the service worker's
+ * precache (RH-78). So the server hands down both locales' copy - two short
+ * strings each - and the client picks one with `resolveBrowserLocale`.
+ */
+export function getBandIndicatorCopies(): Record<Locale, BandIndicatorCopy> {
+  return { 'pt-BR': getBandIndicatorCopy('pt-BR'), en: getBandIndicatorCopy('en') }
+}
+
+/**
+ * The browser-side twin of `resolveLocale`: the `NEXT_LOCALE` cookie read out of
+ * a `document.cookie` string, then `navigator.languages`, then the default.
+ */
+export function resolveBrowserLocale(cookieString: string, languages: readonly string[]): Locale {
+  const cookieValue = cookieString
+    .split(';')
+    .map((pair) => pair.trim().split('='))
+    .find(([name]) => name === COOKIE_NAME)?.[1]
+  return resolveLocale({ cookieValue, acceptLanguage: languages.join(',') })
+}
+
 export function getDictionary(locale: Locale) {
   return dictionaries[locale] || dictionaries[DEFAULT_LOCALE]
 }

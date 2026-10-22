@@ -6,6 +6,9 @@ import {
   parseAcceptLanguage,
   resolveLocale,
   getDictionary,
+  getBandIndicatorCopy,
+  getBandIndicatorCopies,
+  resolveBrowserLocale,
 } from '../i18n'
 
 describe('i18n module', () => {
@@ -50,6 +53,40 @@ describe('i18n module', () => {
     it('should fallback to DEFAULT_LOCALE if neither cookie nor acceptLanguage matches', () => {
       expect(resolveLocale({ cookieValue: null, acceptLanguage: null })).toBe('pt-BR')
       expect(resolveLocale({ cookieValue: undefined, acceptLanguage: 'de-DE' })).toBe('pt-BR')
+    })
+  })
+
+  describe('getBandIndicatorCopy (RH-180)', () => {
+    it('returns the Portuguese band-mode copy for pt-BR', () => {
+      expect(getBandIndicatorCopy('pt-BR')).toEqual({ label: 'Modo banda', exit: 'Sair' })
+    })
+
+    it('returns the English band-mode copy for en', () => {
+      expect(getBandIndicatorCopy('en')).toEqual({ label: 'Band mode', exit: 'Exit' })
+    })
+
+    it('hands every supported locale its copy in one map', () => {
+      expect(getBandIndicatorCopies()).toEqual({
+        'pt-BR': getBandIndicatorCopy('pt-BR'),
+        en: getBandIndicatorCopy('en'),
+      })
+    })
+  })
+
+  describe('resolveBrowserLocale (RH-180)', () => {
+    it('reads the NEXT_LOCALE cookie out of a document.cookie string', () => {
+      expect(resolveBrowserLocale('a=1; NEXT_LOCALE=en; b=2', ['pt-BR'])).toBe('en')
+      expect(resolveBrowserLocale('NEXT_LOCALE=pt-BR', ['en-US'])).toBe('pt-BR')
+    })
+
+    it('falls back to the browser languages when the cookie is absent or invalid', () => {
+      expect(resolveBrowserLocale('', ['en-US', 'pt-BR'])).toBe('en')
+      expect(resolveBrowserLocale('NEXT_LOCALE=fr', ['pt-PT'])).toBe('pt-BR')
+    })
+
+    it('falls back to the default locale when nothing matches', () => {
+      expect(resolveBrowserLocale('', [])).toBe('pt-BR')
+      expect(resolveBrowserLocale('other=x', ['de-DE'])).toBe('pt-BR')
     })
   })
 

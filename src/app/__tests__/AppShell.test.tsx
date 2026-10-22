@@ -23,6 +23,7 @@ import { render, cleanup, waitFor } from '@testing-library/react'
 import AppShell from '@/app/AppShell'
 import { useBandContextStore } from '@/store/bandContextStore'
 import { DEFAULT_BAND_COLOR } from '@/lib/bandColors'
+import { getBandIndicatorCopies } from '@/lib/i18n'
 import type { BandOption } from '@/types/database'
 
 const { getBandsSpy, getProfileSpy, loadSongsSpy, pushSpy, loggerErrorSpy } = vi.hoisted(() => ({
@@ -78,7 +79,7 @@ const BANDS: BandOption[] = [
 ]
 
 function renderShell() {
-  return render(<AppShell>content</AppShell>)
+  return render(<AppShell bandIndicatorCopies={getBandIndicatorCopies()}>content</AppShell>)
 }
 
 describe('AppShell band-context reconciliation', () => {

@@ -52,6 +52,10 @@
     "setPrimary": "Set as primary file",
     "primaryBadge": "Primary"
   },
+  "bandIndicator": {
+    "label": "Band mode",
+    "exit": "Exit"
+  },
   "landing": {
     "badge": "Built for Musicians & Bands",
     "title": "Master Your Setlist.",

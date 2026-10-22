@@ -2,19 +2,26 @@
 
 import { usePathname } from 'next/navigation';
 import AppLayout from './AppLayout';
+import type { BandIndicatorCopy, Locale } from '@/lib/i18n';
 import type { BandOption } from '@/types/database';
 
 interface ConditionalLayoutProps {
   children: React.ReactNode;
   bands: BandOption[];
   isSystemAdmin?: boolean;
+  bandIndicatorCopies: Record<Locale, BandIndicatorCopy>;
 }
 
 /**
  * Renders AppLayout for all authenticated routes.
  * Routes that start with /login bypass the app shell entirely.
  */
-export default function ConditionalLayout({ children, bands, isSystemAdmin }: ConditionalLayoutProps) {
+export default function ConditionalLayout({
+  children,
+  bands,
+  isSystemAdmin,
+  bandIndicatorCopies,
+}: ConditionalLayoutProps) {
   const pathname = usePathname();
 
   if (
@@ -27,5 +34,9 @@ export default function ConditionalLayout({ children, bands, isSystemAdmin }: Co
     return children;
   }
 
-  return <AppLayout bands={bands} isSystemAdmin={isSystemAdmin}>{children}</AppLayout>;
+  return (
+    <AppLayout bands={bands} isSystemAdmin={isSystemAdmin} bandIndicatorCopies={bandIndicatorCopies}>
+      {children}
+    </AppLayout>
+  );
 }

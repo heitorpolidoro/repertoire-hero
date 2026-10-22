@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RH-180 mock — band mode indicator (390px)</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-200 p-6">
+<div class="flex gap-6 items-start justify-center flex-wrap">
+  <div>
+    <p class="text-sm font-semibold mb-2">Band mode (Alpha Quartet, blue)</p>
+    <div id="phone" class="w-[390px] h-[640px] bg-gray-50 border-4 border-gray-800 rounded-2xl overflow-hidden flex flex-col relative">
+      <div id="bar" class="sticky top-0 z-20 flex items-center gap-2 px-4 py-2 text-sm text-white" style="background:#1d4ed8" data-testid="band-indicator">
+        <span aria-hidden="true">🎸</span><span class="font-bold" id="lbl">Band mode</span>
+        <span class="opacity-50">·</span><span class="font-semibold truncate">Alpha Quartet</span>
+        <button id="exit" class="ml-auto text-xs bg-white/20 border border-white/30 px-2.5 py-1 rounded-md font-semibold">✕ Exit</button>
+      </div>
+      <div class="flex-1 p-4 space-y-2 overflow-y-auto">
+        <div class="bg-white rounded p-3 shadow">Wonderwall — Oasis</div>
+        <div class="bg-white rounded p-3 shadow">Seven Nation Army — The White Stripes</div>
+        <div class="bg-white rounded p-3 shadow">Mr. Brightside — The Killers</div>
+      </div>
+      <nav id="nav" class="bg-gray-900 text-gray-400 text-xs flex border-t border-gray-700" style="background:#1d4ed8;color:#fff">
+        <span class="flex-1 text-center py-2">🎵<br>Repertoire</span><span class="flex-1 text-center py-2">🎶<br>Playlists</span>
+        <span class="flex-1 text-center py-2">🎸<br>Bands</span><span class="flex-1 text-center py-2">👤<br>Profile</span>
+        <span class="flex-1 text-center py-2">⚙️<br>Settings</span><span class="flex-1 text-center py-2">↪<br>Sign out</span>
+      </nav>
+    </div>
+  </div>
+  <div>
+    <p class="text-sm font-semibold mb-2">Personal mode (no indicator in the DOM)</p>
+    <div class="w-[390px] h-[640px] bg-gray-50 border-4 border-gray-800 rounded-2xl overflow-hidden flex flex-col">
+      <div class="flex-1 p-4 space-y-2">
+        <div class="bg-white rounded p-3 shadow">Wonderwall — Oasis</div>
+        <div class="bg-white rounded p-3 shadow">Seven Nation Army — The White Stripes</div>
+      </div>
+      <nav class="bg-gray-900 text-gray-400 text-xs flex border-t border-gray-700">
+        <span class="flex-1 text-center py-2 text-emerald-400">🎵<br>Repertoire</span><span class="flex-1 text-center py-2">🎶<br>Playlists</span>
+        <span class="flex-1 text-center py-2">🎸<br>Bands</span><span class="flex-1 text-center py-2">👤<br>Profile</span>
+        <span class="flex-1 text-center py-2">⚙️<br>Settings</span><span class="flex-1 text-center py-2">↪<br>Sign out</span>
+      </nav>
+    </div>
+  </div>
+</div>
+<p class="text-center mt-4 text-sm"><button id="lang" class="px-3 py-1 bg-white rounded border">Toggle EN / PT-BR label</button></p>
+<script>
+  var pt = false;
+  document.getElementById('lang').addEventListener('click', function () {
+    pt = !pt;
+    document.getElementById('lbl').textContent = pt ? 'Modo banda' : 'Band mode';
+    document.getElementById('exit').textContent = pt ? '✕ Sair' : '✕ Exit';
+  });
+  document.getElementById('exit').addEventListener('click', function () {
+    document.getElementById('bar').style.display = 'none';
+    document.getElementById('nav').style.background = '';
+  });
+</script>
+</body></html>

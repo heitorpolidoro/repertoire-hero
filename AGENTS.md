@@ -518,6 +518,15 @@ called by the Server Component `src/app/page.tsx` and passed to the banner as a
 prop, so no component calls `getDictionary` and the guard above still holds. Do not
 widen it into app-wide i18n as a side effect.
 
+A second spec-mandated exception (RH-180) is the band-mode indicator's label and
+Exit text (`bandIndicator.*`). The root layout must stay static - reading
+`cookies()` there would make every route dynamic and drop the prerendered
+`/offline` shell from the service worker's precache - so it builds both locales'
+copy with `getBandIndicatorCopies()` and threads it through `AppShell` and
+`ConditionalLayout` to `AppLayout`, which picks one with `resolveBrowserLocale`
+(the `NEXT_LOCALE` cookie, then `navigator.languages`) once hydrated. Again no
+component calls `getDictionary`.
+
 Two consequences are deliberate, and are not bugs to fix in passing:
 
 - A `pt-BR` visitor sees a Portuguese landing page and an English application.

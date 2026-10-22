@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/next';
 import "./globals.css";
 import AppShell from "@/app/AppShell";
 import ServiceWorkerRegistrar from "@/components/layout/ServiceWorkerRegistrar";
+import { getBandIndicatorCopies } from "@/lib/i18n";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,7 +31,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AppShell>
+        {/* RH-180: both locales' copy, so this layout stays static (see getBandIndicatorCopies). */}
+        <AppShell bandIndicatorCopies={getBandIndicatorCopies()}>
           {children}
         </AppShell>
         <ServiceWorkerRegistrar />

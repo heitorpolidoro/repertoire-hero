@@ -9,7 +9,9 @@ import { useHydrated } from '@/hooks/useHydrated';
 import { useBandContextStore } from '@/store/bandContextStore';
 import { useRepertoireStore } from '@/store/repertoireStore';
 import { SignOutButton } from '@/components/layout/SignOutButton';
+import { BandModeIndicator } from '@/components/layout/BandModeIndicator';
 import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
+import { resolveBrowserLocale, type BandIndicatorCopy, type Locale } from '@/lib/i18n';
 import type { BandOption } from '@/types/database';
 
 interface NavItem {
@@ -37,6 +39,8 @@ interface AppLayoutProps {
   bands: BandOption[];
   /** Adds the Catalog entry (RH-156). Cosmetic: /admin/catalog gates itself. */
   isSystemAdmin?: boolean;
+  /** RH-180: every locale's band-indicator copy, built by the root layout. */
+  bandIndicatorCopies: Record<Locale, BandIndicatorCopy>;
 }
 
 interface ContextSwitcherProps {
@@ -164,7 +168,7 @@ const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent),
  * `useEffect(() => setMounted(true), [])` pair it replaced, which was a
  * `react-hooks/set-state-in-effect` error (RH-129).
  */
-export default function AppLayout({ children, bands, isSystemAdmin }: AppLayoutProps) {
+export default function AppLayout({ children, bands, isSystemAdmin, bandIndicatorCopies }: AppLayoutProps) {
   const navItems = navItemsFor(isSystemAdmin);
   const pathname = usePathname();
   const router = useRouter();
@@ -266,24 +270,14 @@ export default function AppLayout({ children, bands, isSystemAdmin }: AppLayoutP
       {/* Content wrapper — the same element in every session phase */}
       <div className={chrome.content} role={chrome.role}>
         {isBandMode && (
-          <div
-            className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5 border-b text-sm shadow-sm transition-colors"
-            style={theme.style}
-          >
-            <span aria-hidden="true">🎸</span>
-            <span className="font-bold">Band Mode</span>
-            <span className="opacity-50" aria-hidden="true">·</span>
-            <span className="font-semibold truncate">{band.name}</span>
-            <button
-              type="button"
-              onClick={handleExitBandMode}
-              className="ml-auto flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 border border-white/30 px-2.5 py-1 rounded-md transition-colors shrink-0 font-semibold"
-              style={{ color: theme.textColor }}
-            >
-              <span aria-hidden="true">✕</span>
-              <span>Exit</span>
-            </button>
-          </div>
+          <BandModeIndicator
+            band={band}
+            theme={theme}
+            // Only rendered once hydrated, so reading the browser locale here
+            // can never disagree with the server HTML.
+            copy={bandIndicatorCopies[resolveBrowserLocale(document.cookie, navigator.languages)]}
+            onExit={handleExitBandMode}
+          />
         )}
         {children}
       </div>
@@ -297,24 +291,6 @@ export default function AppLayout({ children, bands, isSystemAdmin }: AppLayoutP
           }`}
           style={chromeStyle}
         >
-          {isBandMode && (
-            <div
-              className="flex items-center justify-between px-3 py-1.5 border-b text-xs font-semibold"
-              style={{ borderColor: theme.borderStyle.borderColor }}
-            >
-              <span className="flex items-center gap-1">
-                <span aria-hidden="true">🎸</span>
-                <span>Band Mode · {band.name}</span>
-              </span>
-              <button
-                type="button"
-                onClick={handleExitBandMode}
-                className="opacity-80 hover:opacity-100 transition-opacity"
-              >
-                ✕ Exit
-              </button>
-            </div>
-          )}
           <ul className="flex" role="list">
             {navItems.map((item) => (
               <li key={item.href} className="flex-1">

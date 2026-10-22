@@ -122,6 +122,7 @@ Registry of what the system does today, one `##` section per functional area and
 - A member can leave a band and an admin can remove a member, and the band's repertoire is unchanged. (src/lib/bands.ts, src/hooks/useBandAdmin.ts)
 - The selected band context is kept in local storage and reconciled against the user's bands. (src/store/bandContextStore.ts, src/lib/bandContext.ts, src/lib/__tests__/bandContext.test.ts)
 - Band status is authored by a band admin and is not derived from members' statuses. (src/lib/ownerSongs.ts, src/lib/__tests__/bandStatusAuthoring.db.test.ts)
+- In band context a persistent top bar with a band icon, the localized "Band mode" label, the band name and an Exit control is shown on every screen below the md breakpoint, and is absent in personal context. (src/components/layout/BandModeIndicator.tsx, src/components/layout/AppLayout.tsx, e2e/band-indicator-mobile.spec.ts) (RH-180)
 
 ## Internationalisation
 - The supported locales are pt-BR and en, with pt-BR as the default. (src/lib/i18n.ts, src/lib/__tests__/i18n.test.ts)
@@ -129,6 +130,7 @@ Registry of what the system does today, one `##` section per functional area and
 - The language selector writes the NEXT_LOCALE cookie for a year. (src/components/layout/LanguageSelector.tsx)
 - The landing page and privacy page have copy in both locales. (src/components/landing/LandingPage.tsx, src/app/privacy/page.tsx, src/lib/__tests__/landingCopy.test.ts)
 - Dictionaries live in one JSON file per locale. (src/i18n/dictionaries/en.json, src/i18n/dictionaries/pt-BR.json)
+- The band-mode indicator copy has pt-BR and en entries, built on the server and passed down as a prop; the browser picks the locale from the NEXT_LOCALE cookie, then its languages. (src/lib/i18n.ts, src/i18n/dictionaries/en.json) (RH-180)
 
 ## Spotify integration
 - Spotify playlists can be listed, previewed, imported and synced through authenticated API routes. (src/app/api/spotify/playlists/route.ts, src/app/api/spotify/playlists/[id]/import/route.ts, src/app/api/spotify/playlists/[id]/sync/route.ts)
