@@ -66,6 +66,19 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
  * it is no longer a dead identity line. The `entry` prop stays: `StatusNotes`
  * and the tag row still read it, and its absence is still "not in this
  * repertoire", which they render as `unknown` and no tags.
+ *
+ * RH-183 — the width budget. At a 375px phone the row's content box is 317px
+ * (375 − the list's `px-4` − the row's border and `px-3`). The fixed controls
+ * take ~309px of it: duration ~28, `StatusNotes` ~139, "Practised" ~70, remove
+ * 24, plus four 12px gaps — which left the title 0px once RH-158 added
+ * "Practised". So below `sm` the line wraps: line 1 is the Fast View link,
+ * the duration and the remove button; line 2 is the controls wrapper (status
+ * notes + "Practised"), full width and indented to the text column (the same
+ * 52px the tag row uses), and itself wrapping, so the revealed level control
+ * drops onto its own line instead of overflowing. At `sm` and wider the row is
+ * the single line it always was, in the same order. Every control is rendered
+ * once — `order-last` moves the wrapper, nothing is duplicated and hidden — so
+ * each accessible name still resolves to one element per row.
  */
 export function PlaylistSongRow({
   playlistSong: ps,
@@ -81,7 +94,7 @@ export function PlaylistSongRow({
 
   return (
     <li className="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm hover:border-emerald-200 hover:shadow transition-all group">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:flex-nowrap">
         <Link
           href={`/songs/${ps.version_id}/fast-view${bandId ? `?bandId=${bandId}` : ''}`}
           onClick={onOpenFastView}
@@ -94,27 +107,32 @@ export function PlaylistSongRow({
             {formatPlaylistDuration(ps.song.duration_seconds)}
           </span>
         )}
-        {/* RH-102: the four notes and the stage name, replacing the pill badge.
-            The predicate is the one this call site already had — read-only on a
-            band playlist, writable on a personal one. Making a band row
-            writable here stays RH-71's named follow-up; this task changes what
-            the control is, not who may write it. */}
-        <StatusNotes
-          status={entry?.status ?? "unknown"}
-          readOnly={Boolean(bandId)}
-          onChange={(next) => {
-            onStatusChange(ps.version_id, next).catch(console.error);
-          }}
-        />
-        <PractiseButton
-          title={ps.song?.title ?? "song"}
-          status={entry?.status ?? "unknown"}
-          readOnly={Boolean(bandId)}
-          onPractise={() => onPractise(ps.version_id)}
-          onLevel={(next) => {
-            onPractiseStatus(ps.version_id, next).catch(console.error);
-          }}
-        />
+        {/* RH-183: the controls wrapper — a second, indented, wrapping line
+            below `sm` (after the remove button, by `order-last`), an inline
+            part of the single line at `sm` and wider. */}
+        <div className="order-last basis-full flex flex-wrap items-center gap-x-3 gap-y-1 pl-[52px] sm:order-none sm:basis-auto sm:shrink-0 sm:flex-nowrap sm:pl-0">
+          {/* RH-102: the four notes and the stage name, replacing the pill badge.
+              The predicate is the one this call site already had — read-only on a
+              band playlist, writable on a personal one. Making a band row
+              writable here stays RH-71's named follow-up; this task changes what
+              the control is, not who may write it. */}
+          <StatusNotes
+            status={entry?.status ?? "unknown"}
+            readOnly={Boolean(bandId)}
+            onChange={(next) => {
+              onStatusChange(ps.version_id, next).catch(console.error);
+            }}
+          />
+          <PractiseButton
+            title={ps.song?.title ?? "song"}
+            status={entry?.status ?? "unknown"}
+            readOnly={Boolean(bandId)}
+            onPractise={() => onPractise(ps.version_id)}
+            onLevel={(next) => {
+              onPractiseStatus(ps.version_id, next).catch(console.error);
+            }}
+          />
+        </div>
         {/* Remove */}
         <button
           type="button"

@@ -36,13 +36,21 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: ['**/fast-view-mobile.spec.ts', '**/band-indicator-mobile.spec.ts'],
+      testIgnore: [
+        '**/fast-view-mobile.spec.ts',
+        '**/band-indicator-mobile.spec.ts',
+        '**/playlist-row-mobile.spec.ts',
+      ],
     },
-    /* Mobile — emulate Pixel 5 (T4.6 Fast View tests, RH-180 band indicator) */
+    /* Mobile — emulate Pixel 5 (T4.6 Fast View tests, RH-180 band indicator, RH-183 playlist row) */
     {
       name: 'mobile',
       use: { ...devices['Pixel 5'] },
-      testMatch: ['**/fast-view-mobile.spec.ts', '**/band-indicator-mobile.spec.ts'],
+      testMatch: [
+        '**/fast-view-mobile.spec.ts',
+        '**/band-indicator-mobile.spec.ts',
+        '**/playlist-row-mobile.spec.ts',
+      ],
     },
   ],
 

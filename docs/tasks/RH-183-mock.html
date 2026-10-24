@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-183 — Playlist song row on mobile</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-6">
+  <h1 class="text-xl font-semibold">RH-183 — Song names in the playlist list on mobile</h1>
+  <p class="text-sm text-gray-600 mt-1 max-w-3xl">
+    The two phones are 375px wide. Today the status notes, "Practised", duration and remove button
+    take the whole row and the title gets 0px. The fix moves the status notes and "Practised" to a
+    second line below 640px; desktop keeps the single line.
+  </p>
+
+  <div class="mt-4 flex flex-wrap gap-3 text-sm">
+    <label class="flex items-center gap-2 bg-white rounded border px-3 py-1.5">
+      <input type="checkbox" id="opt-band" /> Band context (status read-only)
+    </label>
+    <label class="flex items-center gap-2 bg-white rounded border px-3 py-1.5">
+      <input type="checkbox" id="opt-long" checked /> Include a 100-character title
+    </label>
+    <span class="text-gray-500 self-center">Tap "Practised" on the fixed phone to see the level control wrap.</span>
+  </div>
+
+  <div class="mt-6 flex flex-wrap gap-8 items-start">
+    <section>
+      <h2 class="text-sm font-semibold text-red-700 mb-2">Today — 375px (broken)</h2>
+      <div class="w-[375px] h-[640px] bg-gray-50 rounded-2xl border-4 border-gray-800 overflow-hidden flex flex-col">
+        <div class="px-4 py-3 bg-white border-b"><p class="font-semibold">Friday gig</p></div>
+        <ul id="list-before" class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2"></ul>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-sm font-semibold text-emerald-700 mb-2">Fixed — 375px</h2>
+      <div class="w-[375px] h-[640px] bg-gray-50 rounded-2xl border-4 border-gray-800 overflow-hidden flex flex-col">
+        <div class="px-4 py-3 bg-white border-b"><p class="font-semibold">Friday gig</p></div>
+        <ul id="list-after" class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2"></ul>
+      </div>
+    </section>
+  </div>
+
+  <section class="mt-8">
+    <h2 class="text-sm font-semibold text-gray-700 mb-2">Desktop — 1280px content area (unchanged)</h2>
+    <div class="w-[880px] max-w-full bg-gray-50 rounded-lg border p-4">
+      <ul id="list-desktop" class="flex flex-col gap-2"></ul>
+    </div>
+  </section>
+
+<script>
+  const SONGS = [
+    { title: "Wonderwall", artist: "Oasis", label: "Remastered", duration: "4:18", status: 3 },
+    { title: "Sweet Child O' Mine (2022 Remastered) — extended live rehearsal take recorded at the warehouse",
+      artist: "Guns N' Roses", label: null, duration: "5:56", status: 1, long: true },
+    { title: "Hotel California", artist: "Eagles", label: "Live 1976", duration: "6:30", status: 0 },
+  ];
+  const STAGES = ["Unknown", "Learning", "Practicing", "Polishing", "Mastered"];
+  const revealed = new Set();
+
+  function notes(status, readOnly) {
+    let html = '<div role="group" aria-label="Mastery status" class="flex shrink-0 items-center gap-px">';
+    for (let i = 0; i < 4; i++) {
+      const filled = i < status;
+      html += `<button type="button" ${readOnly ? "disabled" : ""} class="p-0.5 rounded ${filled ? "text-gray-900" : "text-gray-400"}">
+        <svg viewBox="0 0 12 20" height="17" width="10"><path d="M8.1 2.2h1.3v12.2H8.1z" fill="currentColor"/>
+        <ellipse cx="4.9" cy="14.6" rx="4.3" ry="3.1" transform="rotate(-20 4.9 14.6)" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${filled ? 0 : 1.4}"/></svg></button>`;
+    }
+    html += `<span class="w-[4.75rem] text-[11px] ml-1 shrink-0 truncate font-medium ${status === 0 ? "text-gray-400" : "text-gray-700"}">${STAGES[status]}</span></div>`;
+    return html;
+  }
+
+  function practised(i, status, readOnly, interactive) {
+    if (interactive && revealed.has(i)) {
+      return `<div class="flex shrink-0 items-center gap-1">${notes(status, readOnly)}
+        <button type="button" data-done="${i}" class="shrink-0 rounded px-1 text-xs text-gray-400">Done</button></div>`;
+    }
+    return `<button type="button" ${interactive ? `data-practise="${i}"` : ""} class="shrink-0 rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600">Practised</button>`;
+  }
+
+  const removeBtn = `<button type="button" aria-label="Remove" class="shrink-0 p-1 rounded text-gray-300"><i data-lucide="x" class="h-4 w-4"></i></button>`;
+
+  function identity(s) {
+    return `<div class="h-10 w-10 rounded bg-emerald-100 shrink-0"></div>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium text-gray-900 truncate" title="${s.title}">${s.title}</p>
+        <p class="text-xs text-gray-500 truncate">${s.artist}</p>
+        ${s.label ? `<p class="text-xs text-emerald-700 truncate">${s.label}</p>` : ""}
+      </div>`;
+  }
+  const tagRow = (inset) => `<div class="flex flex-wrap items-center gap-1.5 mt-2 ${inset}"><button class="text-xs text-gray-400">+ Add tag</button></div>`;
+
+  // Today: one flex line, everything shrink-0 except the link.
+  function rowBefore(s, i, ro) {
+    return `<li class="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm">
+      <div class="flex items-center gap-3">
+        <a class="flex-1 flex items-center gap-3 min-w-0">${identity(s)}</a>
+        <span class="text-xs text-gray-400 shrink-0 tabular-nums">${s.duration}</span>
+        ${notes(s.status, ro)}${practised(i, s.status, ro, false)}${removeBtn}
+      </div>${tagRow("ml-[52px]")}</li>`;
+  }
+
+  // Fixed, below 640px: line 1 = link + duration + remove; line 2 = controls (wrapping).
+  function rowAfter(s, i, ro) {
+    return `<li class="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <a class="flex-1 flex items-center gap-3 min-w-0">${identity(s)}</a>
+        <span class="text-xs text-gray-400 shrink-0 tabular-nums">${s.duration}</span>
+        ${removeBtn}
+        <div class="basis-full flex flex-wrap items-center gap-x-3 gap-y-1 pl-[52px]">
+          ${notes(s.status, ro)}${practised(i, s.status, ro, true)}
+        </div>
+      </div>${tagRow("ml-[52px]")}</li>`;
+  }
+
+  function render() {
+    const ro = document.getElementById("opt-band").checked;
+    const showLong = document.getElementById("opt-long").checked;
+    const songs = SONGS.map((s, i) => ({ s, i })).filter(({ s }) => showLong || !s.long);
+    document.getElementById("list-before").innerHTML = songs.map(({ s, i }) => rowBefore(s, i, ro)).join("");
+    document.getElementById("list-after").innerHTML = songs.map(({ s, i }) => rowAfter(s, i, ro)).join("");
+    document.getElementById("list-desktop").innerHTML = songs.map(({ s, i }) => rowBefore(s, i, ro)).join("");
+    lucide.createIcons();
+  }
+
+  document.addEventListener("click", (e) => {
+    const p = e.target.closest("[data-practise]");
+    const d = e.target.closest("[data-done]");
+    if (p) { revealed.add(Number(p.dataset.practise)); render(); }
+    if (d) { revealed.delete(Number(d.dataset.done)); render(); }
+  });
+  document.getElementById("opt-band").addEventListener("change", render);
+  document.getElementById("opt-long").addEventListener("change", render);
+  render();
+</script>
+</body>
+</html>

@@ -251,14 +251,15 @@ export async function createPlaylist(page: Page, name: string) {
  * event handler is attached: a click is then simply swallowed, and a `fill`
  * doubly so, because React never re-runs the handler.
  *
- * The probe is the `Add songs` toggle, which a freshly loaded detail page
- * always renders: its `aria-pressed` can only flip because the panel reducer
- * ran, which is what proves hydration. Toggling that panel is pure client
- * state — nothing is written, no request is issued, and opening it twice closes
- * it again — so the second click restores the closed panel every test starts
- * from. Both clicks share one retry wrapper on purpose: React can replay a
- * discrete click queued during hydration, so a bare final assertion could be
- * raced into leaving the panel open.
+ * The probe is the header's `More actions` button, which a freshly loaded detail
+ * page always renders at every width (RH-172 moved `Add songs`, `Rename
+ * playlist` and `Delete playlist` into that menu): its `aria-expanded` can only
+ * flip because the menu's state ran, which is what proves hydration. Opening
+ * the menu is pure client state — nothing is written, no request is issued, and
+ * a second click closes it again — so the second click restores the closed
+ * menu every test starts from. Both clicks share one retry wrapper on purpose:
+ * React can replay a discrete click queued during hydration, so a bare final
+ * assertion could be raced into leaving the menu open.
  *
  * There is no quiet-network wait here any more. One used to be needed because
  * `AppLayout` returned a bare `<>{children}</>` for the one render between its
@@ -272,15 +273,26 @@ export async function createPlaylist(page: Page, name: string) {
  * mounted and the count assertion below is sufficient on its own.
  */
 export async function waitForPlaylistDetailHydrated(page: Page) {
-  const toggle = page.getByRole('button', { name: 'Add songs' })
+  const toggle = page.getByRole('button', { name: 'More actions' })
   await expect(toggle).toBeVisible({ timeout: 30_000 })
   await expect(async () => {
     await expect(toggle).toHaveCount(1, { timeout: 2_000 })
     await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 2_000 })
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 })
     await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false', { timeout: 2_000 })
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false', { timeout: 2_000 })
   }).toPass({ timeout: 30_000 })
+}
+
+/**
+ * Runs one item of the playlist header's `More actions` menu (RH-172): `Add
+ * songs` (which toggles the picker open or shut), `Rename playlist`, `Delete
+ * playlist`, `Reorder` or `Review practice`. The menu closes on the item click.
+ * Call it on a page `waitForPlaylistDetailHydrated` has already proved hydrated.
+ */
+export async function runPlaylistMenuAction(page: Page, item: string) {
+  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('menu', { name: 'Playlist actions' }).getByRole('menuitem', { name: item, exact: true }).click()
 }
 
 /**
@@ -301,11 +313,15 @@ export async function openPlaylist(page: Page, name: string): Promise<string> {
 }
 
 /**
- * Deletes the playlist whose detail page is open, through the inline
- * `Sure? / Yes` affordance, and waits for the redirect back to `/playlists`.
+ * Deletes the playlist whose detail page is open, through the header menu's
+ * `Delete playlist` item and the RH-172 confirmation modal, and waits for the
+ * redirect back to `/playlists`.
  */
 export async function deletePlaylistFromDetail(page: Page) {
-  await page.getByRole('button', { name: 'Delete playlist' }).click()
-  await page.getByRole('button', { name: 'Yes', exact: true }).click()
+  await runPlaylistMenuAction(page, 'Delete playlist')
+  await page
+    .getByRole('dialog', { name: 'Delete playlist' })
+    .getByRole('button', { name: 'Yes, delete', exact: true })
+    .click()
   await page.waitForURL(/\/playlists$/, { timeout: 15_000 })
 }

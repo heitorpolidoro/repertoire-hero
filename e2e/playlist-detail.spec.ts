@@ -34,6 +34,7 @@ import {
   deleteSong,
   goHome,
   openPlaylist,
+  runPlaylistMenuAction,
   uniqueFixtureName,
   waitForPlaylistDetailHydrated,
 } from './helpers'
@@ -155,10 +156,10 @@ test('creates a playlist and opens it from the playlists page', async ({ page })
 test('adds two catalog songs to the playlist through the picker', async ({ page }) => {
   await reopenPlaylist(page)
 
-  const pickerToggle = page.getByRole('button', { name: 'Add songs' })
+  // RH-172 moved the picker toggle into the header's `More actions` menu.
   const pickerInput = page.getByPlaceholder('Search catalog and Spotify')
 
-  await pickerToggle.click()
+  await runPlaylistMenuAction(page, 'Add songs')
   await expect(pickerInput).toBeVisible()
 
   for (const title of [songOneTitle, songTwoTitle]) {
@@ -171,13 +172,23 @@ test('adds two catalog songs to the playlist through the picker', async ({ page 
     await expect(songRow(page, title)).toBeVisible({ timeout: 15_000 })
   }
 
-  await pickerToggle.click()
+  await runPlaylistMenuAction(page, 'Add songs')
   await expect(pickerInput).toHaveCount(0)
   await expect(songList(page).getByRole('listitem')).toHaveCount(2)
 
   // ...and the adds were persisted, not just applied to local state.
   await page.reload()
   await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
+
+  // RH-183: at this desktop width every title still renders with a real box.
+  for (const title of [songOneTitle, songTwoTitle]) {
+    const titleText = songRow(page, title).getByText(title, { exact: true })
+    await expect(titleText).toBeVisible()
+    const box = await titleText.boundingBox()
+    expect(box, `title box of ${title}`).not.toBeNull()
+    expect(box!.width, `title width of ${title}`).toBeGreaterThan(0)
+    expect(box!.height, `title height of ${title}`).toBeGreaterThan(0)
+  }
 })
 
 test('sets and drops the mastery status of a playlist song', async ({ page }) => {
@@ -349,7 +360,7 @@ test('renames the playlist inline', async ({ page }) => {
 
   const renamedPlaylist = `${playlistName} Renamed`
 
-  await page.getByRole('button', { name: 'Rename playlist' }).click()
+  await runPlaylistMenuAction(page, 'Rename playlist')
   const nameBox = page.getByRole('textbox', { name: 'Playlist name' })
   await expect(nameBox).toBeVisible()
   await nameBox.fill(renamedPlaylist)
@@ -368,12 +379,17 @@ test('removes a song from the playlist', async ({ page }) => {
   await reopenPlaylist(page)
   await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
 
+  // The row leaves the list before the remove's Server Action has landed, so
+  // the reload below waits for the write, not the UI — the same race the status
+  // and tag tests above guard against.
+  const removeWrite = serverActionResponse(page)
   await songList(page)
     .getByRole('button', { name: `Remove ${songTwoTitle} from playlist` })
     .click()
 
   await expect(songList(page).getByRole('listitem')).toHaveCount(1)
 
+  await removeWrite
   await page.reload()
   await expect(songList(page).getByRole('listitem')).toHaveCount(1, { timeout: 15_000 })
   await expect(songRow(page, songTwoTitle)).toHaveCount(0)

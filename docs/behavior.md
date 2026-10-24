@@ -38,6 +38,7 @@ Registry of what the system does today, one `##` section per functional area and
 - A playlist entry stores a version, so the same version resolves per the playlist owner's row. (src/lib/playlistDetail.ts, src/lib/__tests__/playlistVersionReads.db.test.ts)
 - The playlist summary shows a progress bar of statuses, with unknown as the unfilled remainder. (src/lib/playlistSummary.ts, src/components/playlists/PlaylistSummary.tsx)
 - Playlists are listed grouped by owner, personal and per band. (src/lib/playlistList.ts, src/components/playlists/PlaylistGroupList.tsx)
+- At phone width a playlist song row puts its status notes and Practised button on a second line, so the title always keeps its own width. (src/components/playlists/PlaylistSongRow.tsx, e2e/playlist-row-mobile.spec.ts) (RH-183)
 
 ## Files and annotations
 - Uploads accept PDF, JPEG, PNG and WebP, identified by their leading bytes. (src/lib/fileIngest.ts, src/lib/__tests__/fileIngest.test.ts)
