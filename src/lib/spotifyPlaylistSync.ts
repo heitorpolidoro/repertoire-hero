@@ -88,8 +88,9 @@ export async function fetchAllSpotifyTracks(
 // `createAndAddSong` uses, so the two paths converge on one row instead of
 // disagreeing about what makes a song unique. What stays here is the only
 // Spotify-specific part: appending the track's Spotify link to a row that was
-// already in the catalog, deduplicated by exact URL. A found row's own fields
-// are never rewritten.
+// already in the catalog, deduplicated by exact URL. A found row's set fields
+// are never rewritten; only its blank album, cover and duration are filled
+// (RH-178, RH-179), by the shared helpers.
 //
 // RH-122: the resolver splits the track name at its `" - "` and hands the right
 // half back as `label`, so the same single parse feeds both keys —

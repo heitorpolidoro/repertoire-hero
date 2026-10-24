@@ -95,6 +95,7 @@ describe('upsertAlbumAndVersion', () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'album-raced' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: 'version-1' }], rowCount: 1 })
 
     await upsertAlbumAndVersion(SONG, INPUT)
@@ -104,7 +105,12 @@ describe('upsertAlbumAndVersion', () => {
     expect(lookupSql).toContain('LOWER(artist) = LOWER($1)')
     expect(lookupSql).toContain('LOWER(name) = LOWER($2)')
     expect(lookupValues).toEqual(['Michael Jackson', 'Thriller (25th Anniversary Edition)'])
-    expect(mockedQuery.mock.calls[3][1]).toEqual(['version-1', 'album-raced'])
+    // RH-179: a blank cover on the found album is filled, guarded on blank.
+    const [coverSql, coverValues] = mockedQuery.mock.calls[2]
+    expect(coverSql).toContain('UPDATE albums SET cover_url')
+    expect(coverSql).toContain("COALESCE(cover_url, '') = ''")
+    expect(coverValues).toEqual(['album-raced', INPUT.cover_url])
+    expect(mockedQuery.mock.calls[4][1]).toEqual(['version-1', 'album-raced'])
   })
 
   it('writes a version and no link when the track carries no album', async () => {

@@ -138,7 +138,7 @@ Registry of what the system does today, one `##` section per functional area and
 - Writing to a band playlist through Spotify routes requires band ownership. (src/lib/spotifyRouteAuth.ts, src/lib/__tests__/spotifyPlaylistRouteAuthz.db.test.ts)
 - Spotify short links are resolved when added as song links. (src/lib/spotifyShortLink.ts, src/lib/__tests__/songLinksShortLink.db.test.ts)
 - The playback token route serves the Web Playback SDK for a connected user. (src/app/api/spotify/playback-token/route.ts, src/lib/spotifyWebPlayback.ts)
-- An import or manual add that meets an existing song or version with a blank duration fills it from the incoming track, and never overwrites a set duration. (src/lib/songIdentity.ts, src/lib/songVersions.ts, src/lib/__tests__/durationFill.db.test.ts) (RH-178)
+- An import or manual add that meets an existing song, version or album fills each blank album, cover or duration from the incoming track, and never overwrites a set value. (src/lib/songIdentity.ts, src/lib/songVersions.ts, src/lib/__tests__/catalogBlankFill.db.test.ts) (RH-179)
 
 ## Song links
 - A song's links are rows in song_links addressed by id, and Spotify and YouTube links display grouped by provider. (src/lib/songLinks.ts, src/lib/songLinksSql.ts, src/lib/__tests__/songLinksTable.db.test.ts)

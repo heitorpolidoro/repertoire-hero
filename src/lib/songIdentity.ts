@@ -14,10 +14,10 @@
  * Album deliberately stays out of the key, and now that `song_versions` exists
  * (RH-122) that is no longer a compromise: two takes of the same song by the
  * same artist are one catalog row with two versions. `resolveOrCreateSongIdentity`
- * writes to a row it merely found in exactly one case (RH-178): it fills a blank
- * `duration_seconds` from an incoming one. The first-entered album and cover
- * represent the song for everyone until reads move onto versions, and a set
- * duration is never overwritten.
+ * writes to a row it merely found in exactly one case (RH-178, RH-179): it fills
+ * a blank `album`, `cover_url` or `duration_seconds` from the incoming one. The
+ * first-entered album and cover represent the song for everyone until reads move
+ * onto versions, and a set value is never overwritten.
  *
  * RH-122 changed exactly one thing in here: the title normaliser. The identity
  * pair, the album-less key and the primary-artist rule are untouched, but the
@@ -176,20 +176,33 @@ async function insertCreatedSongLinks(
 }
 
 /**
- * RH-178 — fill a blank duration on a found row. The `IS NULL` guard makes it
- * idempotent and race-safe (the first committed value wins) and leaves a row
- * with a set duration entirely untouched, `updated_at` included.
+ * RH-178 / RH-179 — fill every blank `album`, `cover_url` and `duration_seconds`
+ * on a found row from the incoming input, in one statement. Blank is `NULL` (or
+ * `''` for the text columns); an incoming value is usable when non-null and, for
+ * text, non-empty after trimming. The per-column guards make it idempotent and
+ * race-safe (the first committed value wins), and the final `WHERE` leaves a row
+ * where nothing is filled entirely untouched, `updated_at` included.
  */
-async function fillBlankDuration(
+async function fillBlankFields(
   songId: string,
-  duration: number | null | undefined,
+  input: SongIdentityInput,
   db: Queryable,
 ): Promise<void> {
-  if (typeof duration !== 'number') return
+  const album = input.album?.trim() || null
+  const cover = input.cover_url?.trim() || null
+  const duration = typeof input.duration_seconds === 'number' ? input.duration_seconds : null
+  if (album === null && cover === null && duration === null) return
   await db.query<never>(
-    `UPDATE songs SET duration_seconds = $2, updated_at = now()
-      WHERE id = $1 AND duration_seconds IS NULL`,
-    [songId, duration],
+    `UPDATE songs SET
+       album = CASE WHEN COALESCE(album, '') = '' THEN COALESCE($2::text, album) ELSE album END,
+       cover_url = CASE WHEN COALESCE(cover_url, '') = '' THEN COALESCE($3::text, cover_url) ELSE cover_url END,
+       duration_seconds = COALESCE(duration_seconds, $4::int),
+       updated_at = now()
+     WHERE id = $1
+       AND (   (COALESCE(album, '') = '' AND $2::text IS NOT NULL)
+            OR (COALESCE(cover_url, '') = '' AND $3::text IS NOT NULL)
+            OR (duration_seconds IS NULL AND $4::int IS NOT NULL))`,
+    [songId, album, cover, duration],
   )
 }
 
@@ -231,9 +244,10 @@ export async function findSongByIdentity(
  * part of the caller's transaction (which is what `createAndAddSong` does, so a
  * later failure cannot leave an orphan catalog row behind).
  *
- * Found rows are returned as they are, except that a blank `duration_seconds`
- * is filled from `input.duration_seconds` (RH-178). A set field is never
- * overwritten; a conflicting duration is not written at all.
+ * Found rows are returned as they are, except that a blank `album`, `cover_url`
+ * or `duration_seconds` is filled from the matching input field (RH-178,
+ * RH-179). A set field is never overwritten; a conflicting value is not written
+ * at all.
  */
 export async function resolveOrCreateSongIdentity(
   input: SongIdentityInput,
@@ -243,7 +257,7 @@ export async function resolveOrCreateSongIdentity(
 
   const existing = await lookupSongIdentity(identity, db)
   if (existing) {
-    await fillBlankDuration(existing.id, input.duration_seconds, db)
+    await fillBlankFields(existing.id, input, db)
     return existing
   }
 
@@ -272,6 +286,6 @@ export async function resolveOrCreateSongIdentity(
   // instead of a 23505. Their row is committed by the time the wait ends.
   const raced = await lookupSongIdentity(identity, db)
   if (!raced) throw new Error('Failed to resolve song identity: the catalog row vanished mid-insert')
-  await fillBlankDuration(raced.id, input.duration_seconds, db)
+  await fillBlankFields(raced.id, input, db)
   return raced
 }

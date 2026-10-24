@@ -104,6 +104,12 @@ const VERSION_DURATION_FILL_SQL = `
     WHERE id = $1 AND duration_seconds IS NULL
   `
 
+/** RH-179 — fills a blank album cover only; the guard keeps it idempotent and race-safe. */
+const ALBUM_COVER_FILL_SQL = `
+    UPDATE albums SET cover_url = $2
+    WHERE id = $1 AND COALESCE(cover_url, '') = ''
+  `
+
 /** Links a version to an album it appears on; a repeat is a no-op. */
 const VERSION_ALBUM_LINK_SQL = `
     INSERT INTO version_albums (version_id, album_id)
@@ -125,12 +131,16 @@ async function upsertAlbum(input: SongIdentityInput, db: Queryable): Promise<str
   const row = inserted.rows[0]
   if (row) return row.id
 
-  // The insert was a no-op, so a concurrent caller owns the row. Reading it
-  // back is what keeps the version pointed at a real release instead of at
-  // null; if even that finds nothing the version is written album-less, which
-  // a version without a `version_albums` link allows.
+  // The insert was a no-op, so the album already exists (an earlier import or a
+  // concurrent caller). Reading it back is what keeps the version pointed at a
+  // real release instead of at null; if even that finds nothing the version is
+  // written album-less, which a version without a `version_albums` link allows.
+  // RH-179: a blank cover on the found album is filled; a set one never is.
   const found = await db.query<{ id: string }>(ALBUM_LOOKUP_SQL, [artist, name])
-  return found.rows[0]?.id ?? null
+  const albumId = found.rows[0]?.id ?? null
+  const cover = input.cover_url?.trim()
+  if (albumId && cover) await db.query<never>(ALBUM_COVER_FILL_SQL, [albumId, cover])
+  return albumId
 }
 
 /**

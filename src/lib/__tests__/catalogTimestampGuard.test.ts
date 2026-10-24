@@ -57,7 +57,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../..')
  * The exact number of `UPDATE songs` statements production source is
  * expected to hold: two in `src/lib/songs.ts`, one in
  * `src/lib/spotifyPlaylistSync.ts`, one in `src/lib/moderation.ts` and one in
- * `src/lib/songIdentity.ts` (RH-178, the blank-duration fill).
+ * `src/lib/songIdentity.ts` (RH-178/RH-179, the blank album, cover and duration fill).
  * Asserted exactly, not as "at least one": an exact count also fails when a new
  * writer is added without being reviewed against this rule, which is the point
  * of the guard.

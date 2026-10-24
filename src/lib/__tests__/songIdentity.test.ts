@@ -134,7 +134,7 @@ describe('resolveOrCreateSongIdentity', () => {
     expect(values).toEqual(['Song X', 'Michael Jackson'])
   })
 
-  it('returns a found row as is, writing only a guarded blank-duration fill (RH-178)', async () => {
+  it('returns a found row as is, writing only a guarded blank-field fill (RH-178, RH-179)', async () => {
     const links = [{ label: 'Chords', url: 'http://chords' }]
     mockedQuery
       .mockResolvedValueOnce({ rows: [{ id: 'song-1', links }], rowCount: 1 })
@@ -149,14 +149,16 @@ describe('resolveOrCreateSongIdentity', () => {
     expect(mockedQuery).toHaveBeenCalledTimes(2)
     const [fillSql, fillValues] = mockedQuery.mock.calls[1]
     expect(fillSql).toContain('duration_seconds IS NULL')
+    expect(fillSql).toContain("COALESCE(album, '') = ''")
+    expect(fillSql).toContain("COALESCE(cover_url, '') = ''")
     expect(fillSql).toContain('updated_at = now()')
-    expect(fillValues).toEqual(['song-1', 294])
+    expect(fillValues).toEqual(['song-1', 'Thriller (25th Anniversary Edition)', 'http://art', 294])
   })
 
-  it('writes nothing to a found row when the input carries no duration', async () => {
+  it('writes nothing to a found row when the input carries no fillable field', async () => {
     mockedQuery.mockResolvedValueOnce({ rows: [{ id: 'song-1', links: [] }], rowCount: 1 })
 
-    await resolveOrCreateSongIdentity({ ...INPUT, duration_seconds: null })
+    await resolveOrCreateSongIdentity({ ...INPUT, album: ' ', cover_url: null, duration_seconds: null })
 
     expect(mockedQuery).toHaveBeenCalledTimes(1)
   })
