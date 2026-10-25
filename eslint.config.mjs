@@ -98,7 +98,9 @@ const eslintConfig = defineConfig([
   { name: "complexity-budget/override", files: ["src/app/profile/page.tsx"], rules: { complexity: ["error", 22], "max-lines-per-function": ["error", 365], "max-lines": ["error", 615] } },
   // RH-180: the band-mode bar moved into `BandModeIndicator.tsx` and the
   // bottom-nav band strip was dropped, so AppLayout's worst complexity fell from 21.
-  { name: "complexity-budget/override", files: ["src/components/layout/AppLayout.tsx"], rules: { complexity: ["error", 20] } },
+  // RH-181: the sidebar class ternaries became one lookup and the mobile switch
+  // wiring moved into `useMobileSwitch`, so it fell again from 20 to 18.
+  { name: "complexity-budget/override", files: ["src/components/layout/AppLayout.tsx"], rules: { complexity: ["error", 18] } },
   // RH-96: the status badge moved into `SongStatusBadge.tsx` and the band-role
   // read into `useBandRole.ts`, so the row's worst complexity fell from 18 to
   // 17 and the component function from 530 lines to 526. RH-102 deleted

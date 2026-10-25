@@ -2,14 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { authClient } from '@/lib/auth-client';
 import { useHydrated } from '@/hooks/useHydrated';
+import { useContextSwitch, type ContextTarget } from '@/hooks/useContextSwitch';
 import { useBandContextStore } from '@/store/bandContextStore';
-import { useRepertoireStore } from '@/store/repertoireStore';
 import { SignOutButton } from '@/components/layout/SignOutButton';
 import { BandModeIndicator } from '@/components/layout/BandModeIndicator';
+import { MobileContextSwitcher } from '@/components/layout/MobileContextSwitcher';
 import { getBandThemeStyles, DEFAULT_BAND_COLOR } from '@/lib/bandColors';
 import { resolveBrowserLocale, type BandIndicatorCopy, type Locale } from '@/lib/i18n';
 import type { BandOption } from '@/types/database';
@@ -48,12 +49,65 @@ interface ContextSwitcherProps {
   bands: BandOption[];
 }
 
+interface SessionUser {
+  name?: string | null;
+  email?: string | null;
+}
+
+function displayName(user: SessionUser): string {
+  return user.name ?? user.email?.split('@')[0] ?? 'Personal';
+}
+
+const FAST_VIEW_PATH = /^\/songs\/[^/]+\/fast-view(\/|$)/;
+
+/**
+ * RH-181: the name the mobile mode switch shows under Personal, or null when
+ * there is no mobile switch: signed out, no band to switch to, or on Fast View,
+ * which is addressed for one owner by its URL.
+ */
+function mobileSwitchUserName(user: SessionUser | null | undefined, bands: BandOption[], pathname: string): string | null {
+  if (!user || bands.length === 0 || FAST_VIEW_PATH.test(pathname)) return null;
+  return displayName(user);
+}
+
+/**
+ * RH-181: the mobile switch sheet's open state, owned here because two
+ * triggers open it: the personal bar inside `MobileContextSwitcher` and the
+ * band name in `BandModeIndicator`. Only once hydrated, because the persisted
+ * context store can disagree with the SSR default.
+ */
+function useMobileSwitch(
+  session: { user?: SessionUser | null } | null | undefined,
+  bands: BandOption[],
+  pathname: string,
+) {
+  const hydrated = useHydrated();
+  const [open, setOpen] = useState(false);
+  const userName = hydrated ? mobileSwitchUserName(session?.user, bands, pathname) : null;
+  const onSwitch = userName === null ? undefined : () => setOpen(true);
+  return { userName, open, setOpen, onSwitch };
+}
+
+const SIDEBAR_CLASSES = {
+  band: {
+    activeNav: 'bg-white/20 font-bold',
+    inactiveNav: 'opacity-80 hover:opacity-100 hover:bg-white/10',
+    sidebar: '',
+    border: 'border-white/15',
+  },
+  personal: {
+    activeNav: 'bg-emerald-600 text-white font-bold',
+    inactiveNav: 'text-gray-300 hover:bg-gray-700 hover:text-white',
+    sidebar: 'bg-gray-900 text-white',
+    border: 'border-gray-700',
+  },
+};
+
 function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
-  const router = useRouter();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
-  const { context, setUserContext, setBandContext } = useBandContextStore();
-  const loadSongs = useRepertoireStore((s) => s.loadSongs);
+  const context = useBandContextStore((s) => s.context);
+  const { switchTo } = useContextSwitch();
 
   const hydrated = useHydrated();
   const [open, setOpen] = useState(false);
@@ -67,19 +121,14 @@ function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const switchContext = (next: { type: 'user' } | { type: 'band'; id: string; name: string; color?: string }) => {
-    if (next.type === 'user') setUserContext();
-    else setBandContext(next.id, next.name, next.color);
+  const switchContext = (next: ContextTarget) => {
     setOpen(false);
-    loadSongs();
-    router.push('/');
+    switchTo(next);
   };
 
   if (!hydrated || !user) return null;
 
-  const label = context.type === 'band'
-    ? context.name
-    : (user.name ?? user.email?.split('@')[0] ?? 'Personal');
+  const label = context.type === 'band' ? context.name : displayName(user);
 
   return (
     <div className="px-3 py-3 border-b border-white/10" ref={ref}>
@@ -112,7 +161,7 @@ function ContextSwitcherComponent({ isBandMode, bands }: ContextSwitcherProps) {
             }`}
           >
             <span>👤</span>
-            <span className="truncate">{user.name ?? user.email?.split('@')[0]}</span>
+            <span className="truncate">{displayName(user)}</span>
             {context.type === 'user' && <span className="ml-auto text-xs">✓</span>}
           </button>
 
@@ -171,13 +220,12 @@ const ContextSwitcher = dynamic(() => Promise.resolve(ContextSwitcherComponent),
 export default function AppLayout({ children, bands, isSystemAdmin, bandIndicatorCopies }: AppLayoutProps) {
   const navItems = navItemsFor(isSystemAdmin);
   const pathname = usePathname();
-  const router = useRouter();
   const context = useBandContextStore((s) => s.context);
-  const { setUserContext } = useBandContextStore();
-  const loadSongs = useRepertoireStore((s) => s.loadSongs);
+  const { switchTo } = useContextSwitch();
 
   const { data: session, isPending } = authClient.useSession();
   const hydrated = useHydrated();
+  const mobileSwitch = useMobileSwitch(session, bands, pathname);
 
   const showChrome = isPending || !!session?.user;
   const chrome = showChrome
@@ -194,22 +242,14 @@ export default function AppLayout({ children, bands, isSystemAdmin, bandIndicato
     return pathname.startsWith(href);
   };
 
-  const handleExitBandMode = () => {
-    setUserContext();
-    loadSongs();
-    router.push('/');
-  };
+  const handleExitBandMode = () => switchTo({ type: 'user' });
 
-  const activeNavClass = isBandMode
-    ? 'bg-white/20 font-bold'
-    : 'bg-emerald-600 text-white font-bold';
-
-  const inactiveNavClass = isBandMode
-    ? 'opacity-80 hover:opacity-100 hover:bg-white/10'
-    : 'text-gray-300 hover:bg-gray-700 hover:text-white';
-
-  const sidebarTheme = isBandMode ? '' : 'bg-gray-900 text-white';
-  const borderColor = isBandMode ? 'border-white/15' : 'border-gray-700';
+  const {
+    activeNav: activeNavClass,
+    inactiveNav: inactiveNavClass,
+    sidebar: sidebarTheme,
+    border: borderColor,
+  } = SIDEBAR_CLASSES[isBandMode ? 'band' : 'personal'];
 
   return (
     <div className={chrome.outer}>
@@ -277,6 +317,16 @@ export default function AppLayout({ children, bands, isSystemAdmin, bandIndicato
             // can never disagree with the server HTML.
             copy={bandIndicatorCopies[resolveBrowserLocale(document.cookie, navigator.languages)]}
             onExit={handleExitBandMode}
+            onSwitch={mobileSwitch.onSwitch}
+          />
+        )}
+        {mobileSwitch.userName !== null && (
+          <MobileContextSwitcher
+            bands={bands}
+            context={context}
+            userName={mobileSwitch.userName}
+            open={mobileSwitch.open}
+            onOpenChange={mobileSwitch.setOpen}
           />
         )}
         {children}

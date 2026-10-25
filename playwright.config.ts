@@ -40,9 +40,10 @@ export default defineConfig({
         '**/fast-view-mobile.spec.ts',
         '**/band-indicator-mobile.spec.ts',
         '**/playlist-row-mobile.spec.ts',
+        '**/context-switch-mobile.spec.ts',
       ],
     },
-    /* Mobile — emulate Pixel 5 (T4.6 Fast View tests, RH-180 band indicator, RH-183 playlist row) */
+    /* Mobile — emulate Pixel 5 (T4.6 Fast View tests, RH-180 band indicator, RH-183 playlist row, RH-181 mode switch) */
     {
       name: 'mobile',
       use: { ...devices['Pixel 5'] },
@@ -50,6 +51,7 @@ export default defineConfig({
         '**/fast-view-mobile.spec.ts',
         '**/band-indicator-mobile.spec.ts',
         '**/playlist-row-mobile.spec.ts',
+        '**/context-switch-mobile.spec.ts',
       ],
     },
   ],

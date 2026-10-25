@@ -124,6 +124,7 @@ Registry of what the system does today, one `##` section per functional area and
 - The selected band context is kept in local storage and reconciled against the user's bands. (src/store/bandContextStore.ts, src/lib/bandContext.ts, src/lib/__tests__/bandContext.test.ts)
 - Band status is authored by a band admin and is not derived from members' statuses. (src/lib/ownerSongs.ts, src/lib/__tests__/bandStatusAuthoring.db.test.ts)
 - In band context a persistent top bar with a band icon, the localized "Band mode" label, the band name and an Exit control is shown on every screen below the md breakpoint, and is absent in personal context. (src/components/layout/BandModeIndicator.tsx, src/components/layout/AppLayout.tsx, e2e/band-indicator-mobile.spec.ts) (RH-180)
+- Below the md breakpoint, outside Fast View, a user in at least one band has a "Switch mode" control (a personal bar, or the band name in the band-mode bar) that opens a sheet listing Personal and each band; choosing one writes the same persisted context as the desktop switcher and returns to the repertoire home. (src/components/layout/MobileContextSwitcher.tsx, src/hooks/useContextSwitch.ts, e2e/context-switch-mobile.spec.ts) (RH-181)
 
 ## Internationalisation
 - The supported locales are pt-BR and en, with pt-BR as the default. (src/lib/i18n.ts, src/lib/__tests__/i18n.test.ts)

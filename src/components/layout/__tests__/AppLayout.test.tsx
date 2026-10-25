@@ -11,13 +11,14 @@
  * third test prove a context switch reloads the song list).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act, within } from '@testing-library/react'
 import type { BandOption } from '@/types/database'
 import { getBandIndicatorCopies } from '@/lib/i18n'
 
-const { loadSongsSpy, pushSpy, useSessionSpy, signOutSpy, signOutSteps } = vi.hoisted(() => {
+const { loadSongsSpy, pushSpy, useSessionSpy, signOutSpy, signOutSteps, nav } = vi.hoisted(() => {
   const signOutSteps: string[] = []
   return {
+    nav: { pathname: '/' },
     loadSongsSpy: vi.fn(),
     pushSpy: vi.fn(),
     useSessionSpy: vi.fn(),
@@ -50,7 +51,7 @@ vi.mock('@/lib/auth-client', () => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/',
+  usePathname: () => nav.pathname,
   useRouter: () => ({ push: pushSpy }),
 }))
 
@@ -82,6 +83,7 @@ const SIGNED_OUT = { data: null, isPending: false }
 beforeEach(() => {
   vi.clearAllMocks()
   signOutSteps.length = 0
+  nav.pathname = '/'
   useSessionSpy.mockReturnValue(SESSION)
   useBandContextStore.getState().setUserContext()
 })
@@ -326,6 +328,130 @@ describe('AppLayout band-mode indicator (RH-180)', () => {
     expect(loadSongsSpy).toHaveBeenCalled()
     expect(pushSpy).toHaveBeenCalledWith('/')
     expect(screen.queryByTestId('band-indicator')).toBeNull()
+  })
+
+  it('gives Exit its own test id', () => {
+    enterBand()
+    renderLayout()
+
+    expect(screen.getByTestId('band-indicator-exit').textContent).toMatch(/Exit|Sair/)
+  })
+})
+
+describe('AppLayout mobile context switch (RH-181)', () => {
+  const ALPHA = BANDS[0]
+  const FAST_VIEW = '/songs/version-1/fast-view'
+
+  function enterBand() {
+    act(() => {
+      useBandContextStore.getState().setBandContext(ALPHA.id, ALPHA.name, ALPHA.color ?? undefined)
+    })
+  }
+
+  function renderLayout(bands: BandOption[] = BANDS) {
+    return render(
+      <AppLayout bandIndicatorCopies={COPIES} bands={bands}>
+        <p>page body</p>
+      </AppLayout>,
+    )
+  }
+
+  it('renders the personal bar in personal context with bands', () => {
+    renderLayout()
+
+    expect(screen.getByTestId('mobile-context-bar').textContent).toContain('Personal')
+    expect(screen.getAllByTestId('mobile-context-trigger')).toHaveLength(1)
+  })
+
+  it('renders no personal bar with zero bands', () => {
+    renderLayout([])
+
+    expect(screen.queryByTestId('mobile-context-bar')).toBeNull()
+  })
+
+  it('renders no personal bar on a Fast View pathname', () => {
+    nav.pathname = FAST_VIEW
+    renderLayout()
+
+    expect(screen.queryByTestId('mobile-context-bar')).toBeNull()
+    expect(screen.queryByTestId('mobile-context-trigger')).toBeNull()
+  })
+
+  it('renders no personal bar once the session resolves to no user', () => {
+    useSessionSpy.mockReturnValue(SIGNED_OUT)
+    renderLayout()
+
+    expect(screen.queryByTestId('mobile-context-bar')).toBeNull()
+  })
+
+  it('opens the sheet from the personal bar and switches to a band', () => {
+    renderLayout()
+
+    fireEvent.click(screen.getByTestId('mobile-context-trigger'))
+    const sheet = screen.getByTestId('mobile-context-sheet')
+    fireEvent.click(within(sheet).getByRole('button', { name: /Beta Ensemble/ }))
+
+    expect(useBandContextStore.getState().context).toEqual({
+      type: 'band',
+      id: 'band-beta',
+      name: 'Beta Ensemble',
+      color: undefined,
+    })
+    expect(loadSongsSpy).toHaveBeenCalled()
+    expect(pushSpy).toHaveBeenCalledWith('/')
+    expect(screen.queryByTestId('mobile-context-sheet')).toBeNull()
+    expect(screen.getByTestId('band-indicator').textContent).toContain('Beta Ensemble')
+  })
+
+  it('makes the band name a Switch mode button inside the band bar', () => {
+    enterBand()
+    renderLayout()
+
+    const indicator = screen.getByTestId('band-indicator')
+    const trigger = within(indicator).getByTestId('mobile-context-trigger')
+    expect(trigger.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(within(indicator).getByRole('button', { name: 'Switch mode' })).toBe(trigger)
+    expect(trigger.textContent).toContain('Alpha Quartet')
+    expect(screen.queryByTestId('mobile-context-bar')).toBeNull()
+  })
+
+  it('switches back to Personal from the band bar', () => {
+    enterBand()
+    renderLayout()
+
+    fireEvent.click(screen.getByTestId('mobile-context-trigger'))
+    fireEvent.click(within(screen.getByTestId('mobile-context-sheet')).getByRole('button', { name: /Personal/ }))
+
+    expect(useBandContextStore.getState().context).toEqual({ type: 'user' })
+    expect(screen.queryByTestId('band-indicator')).toBeNull()
+    expect(screen.getByTestId('mobile-context-bar')).toBeDefined()
+  })
+
+  it('keeps only Exit in the band bar on Fast View', () => {
+    nav.pathname = FAST_VIEW
+    enterBand()
+    renderLayout()
+
+    const indicator = screen.getByTestId('band-indicator')
+    expect(within(indicator).queryByTestId('mobile-context-trigger')).toBeNull()
+    expect(within(indicator).getAllByRole('button')).toHaveLength(1)
+    expect(indicator.textContent).toContain('Alpha Quartet')
+  })
+
+  it('lets the desktop switcher go home through the shared routine', async () => {
+    renderLayout()
+
+    await openContextSwitcher()
+    const sidebar = screen.getAllByRole('navigation')[0]
+    fireEvent.click(within(sidebar).getByText('Alpha Quartet'))
+
+    expect(useBandContextStore.getState().context).toEqual({
+      type: 'band',
+      id: 'band-alpha',
+      name: 'Alpha Quartet',
+      color: '#1d4ed8',
+    })
+    expect(pushSpy).toHaveBeenCalledWith('/')
   })
 })
 

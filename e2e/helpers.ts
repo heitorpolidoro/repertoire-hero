@@ -212,6 +212,72 @@ export function songCard(page: Page, title: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Band and chrome helpers (RH-180, RH-181)
+// ---------------------------------------------------------------------------
+
+export interface CreatedBand {
+  id: string
+  name: string
+  url: string
+}
+
+/** Creates a band through the `/bands` UI and returns its id, name and detail URL. */
+export async function createBand(page: Page, prefix: string): Promise<CreatedBand> {
+  const name = uniqueFixtureName(prefix)
+  await page.goto('/bands')
+
+  const newBandButton = page.getByRole('button', { name: '+ New Band' })
+  const nameInput = page.getByPlaceholder('The Rolling Stones')
+  await expect(newBandButton).toBeVisible({ timeout: 30_000 })
+  await expect(async () => {
+    await newBandButton.click()
+    await expect(nameInput).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+
+  await nameInput.fill(name)
+  await page.getByRole('button', { name: 'Create Band' }).click()
+  await page.waitForURL(/\/bands\/[^/]+$/, { timeout: 15_000 })
+
+  const url = page.url()
+  return { id: url.split('/').pop() ?? '', name, url }
+}
+
+/** Deletes a band from its detail page through the confirm dialog. */
+export async function deleteBand(page: Page, url: string) {
+  await page.goto(url)
+  await page.getByTitle('Delete band').click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
+  await page.waitForURL(/\/bands$/, { timeout: 15_000 })
+}
+
+/** The one visible "Main navigation" landmark: the bottom nav below md, the sidebar at md+. */
+export function visibleMainNav(page: Page) {
+  return page.getByRole('navigation', { name: 'Main navigation' }).filter({ visible: true })
+}
+
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export function boxesIntersect(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+/**
+ * Hides Next's dev overlay (`<nextjs-portal>`: the dev-tools button and the
+ * issue badge) for the current document. Under `npm run dev` it floats over
+ * the bottom-left of the viewport, on top of the bottom nav at a phone width,
+ * and would make clicks there fail on a dev-only element that never ships.
+ * Only that framework element is hidden; every app element stays as rendered.
+ */
+export async function hideNextDevOverlay(page: Page) {
+  await page.addStyleTag({ content: 'nextjs-portal { display: none !important; }' })
+}
+
+// ---------------------------------------------------------------------------
 // Playlist helpers
 // ---------------------------------------------------------------------------
 

@@ -145,7 +145,8 @@ src/
 │   ├── bands/                  BandsView island, BandColorPicker
 │   ├── fastview/               The 31 Fast View pieces (setlist, tabs, lyrics, PDF stage)
 │   ├── landing/                LandingPage — the only dictionary-driven component
-│   ├── layout/                 AppLayout, ConditionalLayout, LanguageSelector
+│   ├── layout/                 AppLayout, ConditionalLayout, LanguageSelector, BandModeIndicator,
+│   │                           MobileContextSwitcher (RH-181 mobile mode bar + sheet)
 │   ├── playlists/              PlaylistsView island, cards, Spotify import panel
 │   ├── profile/                InstrumentPicker, EmailChangeSection
 │   ├── songs/                  SongForm, CorrectionModal
@@ -154,6 +155,7 @@ src/
 ├── hooks/                      Client controller hooks, one use<Name>.ts per subject
 │   ├── useBandAdmin.ts         Band-detail controller shared by /bands/[id] and the /profile band tab
 │   ├── useCatalogAdmin.ts      /admin/catalog controller: per-version blast radius, the one open flow, confirm-then-run
+│   ├── useContextSwitch.ts     The one personal/band switch (store write, loadSongs, push /), desktop and mobile
 │   ├── useBandEdit.ts          Band edit modal state, delegated to by useBandAdmin
 │   ├── useBandPendingAction.ts Confirm-then-run state for the destructive band actions
 │   ├── useLyricsEditor.ts      Fast View lyrics: draft, save, version switch, Stage Mode
