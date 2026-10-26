@@ -17,6 +17,8 @@ import {
   withoutTab,
   tabUploadTitle,
   validateTabFile,
+  readTabFileIntoMemory,
+  UNREADABLE_TAB_FILE_MESSAGE,
 } from '../tabLibrary'
 import type { SongFile } from '@/types/database'
 
@@ -152,5 +154,31 @@ describe('validateTabFile', () => {
     const picked = { size: 1024, name: 'chart', type: 'application/octet-stream' }
 
     expect(validateTabFile(picked)).toEqual({ ok: true })
+  })
+})
+
+describe('readTabFileIntoMemory (RH-171)', () => {
+  it('returns an in-memory copy with the same name, type and bytes', async () => {
+    const picked = new File([new Uint8Array([1, 2, 3, 4])], 'Rosanna.pdf', { type: 'application/pdf' })
+    const result = await readTabFileIntoMemory(picked)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.file).not.toBe(picked)
+    expect(result.file.name).toBe('Rosanna.pdf')
+    expect(result.file.type).toBe('application/pdf')
+    expect(new Uint8Array(await result.file.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+  })
+
+  it('reports the unreadable-file message when the bytes cannot be read', async () => {
+    const picked = new File(['x'], 'Drive.pdf', { type: 'application/pdf' })
+    picked.arrayBuffer = () => Promise.reject(new DOMException('gone', 'NotReadableError'))
+
+    expect(await readTabFileIntoMemory(picked)).toEqual({ ok: false, message: UNREADABLE_TAB_FILE_MESSAGE })
+  })
+
+  it('tells the musician to download the file first and never says "Failed to fetch"', () => {
+    expect(UNREADABLE_TAB_FILE_MESSAGE).toMatch(/download/i)
+    expect(UNREADABLE_TAB_FILE_MESSAGE).not.toContain('Failed to fetch')
   })
 })

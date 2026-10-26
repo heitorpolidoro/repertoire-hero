@@ -66,6 +66,32 @@ export function validateTabFile(file: TabFileDescriptor): TabFileValidation {
   return { ok: true }
 }
 
+/**
+ * Shown when the phone cannot hand over the picked file's bytes (RH-171) - a
+ * Google Drive file that is not downloaded is the usual cause. Deliberately
+ * plain: the browser's own "Failed to fetch" tells the musician nothing.
+ */
+export const UNREADABLE_TAB_FILE_MESSAGE =
+  'Your phone could not read this file. Download it to the phone first (for Google Drive: open the file, tap Download, then pick it from Downloads) or try again.'
+
+export type TabFileRead = { ok: true; file: File } | { ok: false; message: string }
+
+/**
+ * Reads the picked file's bytes into memory once and returns an in-memory copy
+ * (same name, type and bytes), so the upload request no longer depends on the
+ * phone's lazily-resolved `content://` stream. Any read failure
+ * (`NotReadableError`, `NotFoundError`, `SecurityError`, ...) becomes the
+ * unreadable-file message, and the caller sends nothing.
+ */
+export async function readTabFileIntoMemory(picked: File): Promise<TabFileRead> {
+  try {
+    const bytes = await picked.arrayBuffer()
+    return { ok: true, file: new File([bytes], picked.name, { type: picked.type }) }
+  } catch {
+    return { ok: false, message: UNREADABLE_TAB_FILE_MESSAGE }
+  }
+}
+
 /** Oldest first by `created_at` (compared as instants), the id breaking a tie: a total, order-independent ranking. */
 function olderFirst(a: SongFile, b: SongFile): number {
   const at = Date.parse(a.created_at)

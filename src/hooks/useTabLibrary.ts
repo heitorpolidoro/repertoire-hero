@@ -5,6 +5,7 @@ import {
   defaultTitleFromFileName,
   tabUploadTitle,
   markPrimaryTab,
+  readTabFileIntoMemory,
   validateTabFile,
   withoutTab,
   type PendingTabDelete,
@@ -160,10 +161,16 @@ export function useTabLibrary({
         setUploading(true)
         setUploadError(null)
 
+        const read = await readTabFileIntoMemory(file)
+        if (!read.ok) {
+          setUploadError(read.message)
+          return
+        }
+
         const formData = new FormData()
         formData.append('songId', songId)
         formData.append('title', tabUploadTitle(uploadTitle, file.name))
-        formData.append('file', file)
+        formData.append('file', read.file)
 
         const res = await actions.uploadTab(formData)
         if (res.error) {

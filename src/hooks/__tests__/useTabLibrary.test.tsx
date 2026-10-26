@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, renderHook, cleanup } from '@testing-library/react'
 import { useTabLibrary, type TabLibraryActions, type UseTabLibraryOptions } from '@/hooks/useTabLibrary'
-import { MAX_TAB_FILE_BYTES } from '@/lib/tabLibrary'
+import { MAX_TAB_FILE_BYTES, UNREADABLE_TAB_FILE_MESSAGE } from '@/lib/tabLibrary'
 import type { Repertoire, SongFile } from '@/types/database'
 
 afterEach(cleanup)
@@ -265,6 +265,46 @@ describe('the upload', () => {
     expect(result.current.uploadError).toBe('File size exceeds the 10MB limit')
     expect(actions.uploadTab).not.toHaveBeenCalled()
     expect(result.current.uploadFile).not.toBeNull()
+  })
+
+  // RH-171. A Drive file that is not on the phone has a name and a size but no
+  // readable bytes; sending it makes the browser reject with "Failed to fetch".
+  it('never calls the upload action when the picked file cannot be read, and asks for a local download', async () => {
+    const { result, actions } = setup()
+    await flush()
+
+    const unreadable = pdf()
+    unreadable.arrayBuffer = () => Promise.reject(new DOMException('gone', 'NotReadableError'))
+    act(() => result.current.pickFile(unreadable))
+    await act(async () => {
+      result.current.submitUpload()
+    })
+    await flush()
+
+    expect(actions.uploadTab).not.toHaveBeenCalled()
+    expect(result.current.uploadError).toBe(UNREADABLE_TAB_FILE_MESSAGE)
+    expect(result.current.uploadError).toMatch(/download/i)
+    expect(result.current.uploadError).not.toContain('Failed to fetch')
+    expect(result.current.uploading).toBe(false)
+    expect(result.current.uploadFile).not.toBeNull()
+  })
+
+  it('sends an in-memory copy of a readable file: same name, type and bytes', async () => {
+    const { result, actions } = setup()
+    await flush()
+
+    const picked = new File([new Uint8Array([9, 8, 7])], 'Africa.pdf', { type: 'application/pdf' })
+    act(() => result.current.pickFile(picked))
+    await act(async () => {
+      result.current.submitUpload()
+    })
+    await flush()
+
+    const sent = (actions.uploadTab.mock.calls[0][0] as FormData).get('file') as File
+    expect(sent).not.toBe(picked)
+    expect(sent.name).toBe('Africa.pdf')
+    expect(sent.type).toBe('application/pdf')
+    expect(new Uint8Array(await sent.arrayBuffer())).toEqual(new Uint8Array([9, 8, 7]))
   })
 
   it('shows the error returned by the upload action and keeps the file selected', async () => {

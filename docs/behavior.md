@@ -53,6 +53,8 @@ Registry of what the system does today, one `##` section per functional area and
 - The stage shows its toolbar only while drawing is on; with drawing off, tapping the page edges turns pages. (src/components/tabs/StagePageSurface.tsx, src/lib/stageInteraction.ts)
 - Audio uploads accept MP3 and M4A by byte sniffing, up to 10 MB per file and 100 MB per user. (src/lib/audioIngest.ts, src/lib/audioLibrary.ts, src/app/actions/audio.ts)
 - Audio is private to the uploader and appears in its own list, never in the chart list. (src/lib/tabs.ts, src/components/fastview/AudioLibrarySection.tsx)
+- A picked file whose bytes the browser cannot read is never uploaded; the form asks the musician to download it to the phone first. (src/lib/tabLibrary.ts, src/hooks/useTabLibrary.ts, src/hooks/__tests__/useTabLibrary.test.tsx)
+- A readable picked file is uploaded as an in-memory copy with the same name, type and bytes. (src/lib/tabLibrary.ts, src/hooks/useTabLibrary.ts, src/lib/__tests__/tabLibrary.test.ts)
 
 ## Fast View and queue
 - A song opens at an address keyed by its version id. (src/app/songs/[versionId]/fast-view/page.tsx)

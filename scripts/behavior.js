@@ -4,8 +4,9 @@
 //   node scripts/behavior.js area <name>    -> that area's heading and bullets
 // Built-ins only. Exit codes: 0 ok, 1 unknown area or missing file, 2 bad usage.
 // CommonJS on purpose: package.json has no "type", so a plain .js runs as CJS.
-/* eslint-disable @typescript-eslint/no-require-imports */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- plain .js script run by node without flags
 const fs = require("node:fs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- plain .js script run by node without flags
 const path = require("node:path");
 
 const REGISTRY = path.join(__dirname, "..", "docs", "behavior.md");
