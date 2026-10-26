@@ -13,6 +13,8 @@ import type { Playlist } from "@/types/database";
  */
 export interface PlaylistsViewActions {
   createPlaylist(data: { name: string; description?: string }): Promise<Playlist>;
+  /** The band page's create, reused for `+ New Playlist` in band context (RH-184). */
+  createBandPlaylist(bandId: string, name: string): Promise<string>;
   updatePlaylist(id: string, data: { name?: string }): Promise<void>;
   deletePlaylist(id: string): Promise<void>;
 }
@@ -75,8 +77,15 @@ export function PlaylistsView({
     }
   };
 
-  const handleCreatePlaylist = async (name: string) => {
-    await actions.createPlaylist({ name });
+  // The owner comes from the active context, which only the modal reads: a band
+  // id creates the band's playlist, `null` a personal one (RH-184). A refusal
+  // propagates to the modal, which shows it inline and skips the refresh.
+  const handleCreatePlaylist = async (name: string, bandId: string | null) => {
+    if (bandId) {
+      await actions.createBandPlaylist(bandId, name);
+    } else {
+      await actions.createPlaylist({ name });
+    }
     router.refresh();
   };
 

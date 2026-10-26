@@ -282,6 +282,26 @@ export async function hideNextDevOverlay(page: Page) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Opens the `+ New Playlist` modal on the `/playlists` page already loaded and
+ * returns its dialog locator.
+ *
+ * The header paints before React hydrates, so a click can be swallowed on a
+ * cold route. The click is retried until the modal actually appears.
+ */
+export async function openNewPlaylistModal(page: Page) {
+  const newPlaylistButton = page.getByRole('button', { name: '+ New Playlist' })
+  const modal = page.getByRole('dialog', { name: 'New Playlist' })
+
+  await expect(newPlaylistButton).toBeVisible({ timeout: 30_000 })
+  await expect(async () => {
+    await newPlaylistButton.click()
+    await expect(modal).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+
+  return modal
+}
+
+/**
  * Creates a playlist through the `+ New Playlist` modal on `/playlists` and
  * waits until its card is on the page.
  *
@@ -291,17 +311,7 @@ export async function hideNextDevOverlay(page: Page) {
 export async function createPlaylist(page: Page, name: string) {
   await page.goto('/playlists')
 
-  const newPlaylistButton = page.getByRole('button', { name: '+ New Playlist' })
-  const modal = page.getByRole('dialog', { name: 'New Playlist' })
-
-  // The header paints before React hydrates, so a click can be swallowed on a
-  // cold route. Retry opening the modal until it actually appears.
-  await expect(newPlaylistButton).toBeVisible({ timeout: 30_000 })
-  await expect(async () => {
-    await newPlaylistButton.click()
-    await expect(modal).toBeVisible({ timeout: 2_000 })
-  }).toPass({ timeout: 30_000 })
-
+  const modal = await openNewPlaylistModal(page)
   await modal.locator('#modal-playlist-name').fill(name)
   await modal.getByRole('button', { name: 'Create' }).click()
 

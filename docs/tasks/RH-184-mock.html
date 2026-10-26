@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-184 mock — New Playlist in the active band context</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-200 text-gray-900 min-h-screen">
+<div class="max-w-[1440px] mx-auto p-6">
+  <header class="mb-4">
+    <h1 class="text-xl font-bold">RH-184 — Create a playlist in the active band context</h1>
+    <p class="text-sm text-slate-600 mt-1">
+      Interactive mock of <code>/playlists</code>. Pick a context, press <b>+ New Playlist</b>, type a name and press <b>Create</b>.
+    </p>
+  </header>
+
+  <section aria-label="Mock controls" class="bg-white rounded-xl border border-slate-300 p-4 mb-5 flex flex-wrap gap-x-8 gap-y-3 items-center">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Behaviour</span>
+      <button type="button" data-set="mode:today">Today</button>
+      <button type="button" data-set="mode:after">After RH-184</button>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Active context</span>
+      <button type="button" data-set="ctx:user">👤 Personal</button>
+      <button type="button" data-set="ctx:band">🎸 The Rockers</button>
+      <button type="button" data-set="ctx:stale">🎸 Old Quartet (you left it)</button>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Width</span>
+      <button type="button" data-set="width:desktop">Desktop</button>
+      <button type="button" data-set="width:phone">Phone 375px</button>
+    </div>
+    <button type="button" data-set="reset">Reset playlists</button>
+  </section>
+
+  <div class="flex gap-6 items-start flex-wrap">
+    <div>
+      <p id="rh-frame-label" class="text-sm font-semibold mb-2"></p>
+      <div id="rh-frame"></div>
+    </div>
+
+    <aside class="w-80 shrink-0 bg-white rounded-xl border border-slate-300 p-4 text-sm leading-relaxed space-y-3">
+      <h2 class="font-semibold">What to try</h2>
+      <ol class="list-decimal pl-5 space-y-2">
+        <li><b>Band mode (The Rockers)</b>, then <b>+ New Playlist</b>. Under its title the dialog says <i>🎸 Band playlist for The Rockers</i>, on both tabs.</li>
+        <li>Type a name and press <b>Create</b>. The card appears under <b>🎸 The Rockers</b>.</li>
+        <li>Switch <b>Behaviour</b> to <b>Today</b> and repeat. The same steps put it under <b>My playlists</b>, with no owner line. This is what the task fixes.</li>
+        <li><b>Personal</b>: the dialog is exactly as it is today, and the playlist goes to <b>My playlists</b>.</li>
+        <li><b>Old Quartet (you left it)</b>: this browser still has the band saved as the active context. The app normally resets that a moment after loading. If Create runs first, the dialog stays open and shows <i>Access denied: not a member of this band</i>.</li>
+        <li><b>Exit</b> in the band bar returns to personal mode.</li>
+      </ol>
+      <h2 class="font-semibold pt-1">Unchanged</h2>
+      <ul class="list-disc pl-5 space-y-1">
+        <li>Importing from Spotify already lands in the active band and needs a band admin. This mock skips its confirmation step.</li>
+        <li>The list still shows every group, personal and per band, in either mode.</li>
+      </ul>
+      <p class="text-xs text-slate-500">Mock only: the amber "just created" highlight does not exist in the app. Who may create band playlists (any member, or admins only) is asked on the card in words, not here.</p>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function () {
+  var USER_NAME = 'Heitor';
+  var BANDS = {
+    b1: { id: 'b1', name: 'The Rockers', color: '#7c3aed' },
+    b9: { id: 'b9', name: 'Old Quartet', color: '#0f766e' }
+  };
+  // The user is still a member of The Rockers only; Old Quartet is a band they left.
+  var MEMBER_OF = ['b1'];
+  var CONTEXTS = {
+    user: { type: 'user' },
+    band: { type: 'band', id: 'b1', name: 'The Rockers', color: '#7c3aed' },
+    stale: { type: 'band', id: 'b9', name: 'Old Quartet', color: '#0f766e' }
+  };
+  var SPOTIFY_PLAYLISTS = [
+    { id: 'sp1', name: 'Road trip', tracks: 12 },
+    { id: 'sp2', name: 'Wedding set', tracks: 31 }
+  ];
+  var NAV = [['🎵', 'Repertoire'], ['🎶', 'Playlists'], ['🎸', 'Bands'], ['👤', 'Profile'], ['⚙️', 'Settings']];
+
+  function initialPlaylists() {
+    return [
+      { id: 'p1', name: 'Practice warm-ups', bandId: null, songs: 6, duration: '24:10' },
+      { id: 'p2', name: 'Acoustic covers', bandId: null, songs: 9, duration: '38:45' },
+      { id: 'p3', name: 'Friday gig', bandId: 'b1', songs: 14, duration: '58:02' }
+    ];
+  }
+
+  var state = {
+    mode: 'after',
+    ctx: 'band',
+    width: 'desktop',
+    modalOpen: false,
+    tab: 'new',
+    draft: '',
+    error: null,
+    importError: null,
+    lastCreatedId: null,
+    playlists: initialPlaylists(),
+    seq: 10
+  };
+
+  function esc(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  function ctx() { return CONTEXTS[state.ctx]; }
+  function showsCue() { return state.mode === 'after' && ctx().type === 'band'; }
+
+  // Same grouping as buildPlaylistGroups: personal first, then one section per band, by name.
+  function groups() {
+    var personal = state.playlists.filter(function (p) { return p.bandId === null; });
+    var bandIds = [];
+    state.playlists.forEach(function (p) {
+      if (p.bandId && MEMBER_OF.indexOf(p.bandId) !== -1 && bandIds.indexOf(p.bandId) === -1) bandIds.push(p.bandId);
+    });
+    bandIds.sort(function (a, b) { return BANDS[a].name.localeCompare(BANDS[b].name); });
+    return {
+      personal: personal,
+      bands: bandIds.map(function (id) {
+        return { band: BANDS[id], playlists: state.playlists.filter(function (p) { return p.bandId === id; }) };
+      })
+    };
+  }
+
+  function card(p) {
+    var isNew = p.id === state.lastCreatedId;
+    var meta = p.songs + (p.songs === 1 ? ' song' : ' songs') +
+      (p.duration ? ' <span class="tabular-nums">' + p.duration + '</span>' : '');
+    return '<li class="rounded-lg border ' + (isNew ? 'border-amber-400 ring-2 ring-amber-300' : 'border-gray-100') +
+      ' bg-white shadow-sm px-4 py-3 flex items-center gap-3" role="button" aria-label="Open ' + esc(p.name) + '">' +
+      '<div class="h-12 w-12 rounded bg-emerald-100 shrink-0 flex items-center justify-center text-xl" aria-hidden="true">🎵</div>' +
+      '<div class="flex-1 min-w-0"><p class="text-sm font-semibold text-gray-900 truncate">' + esc(p.name) + '</p>' +
+      '<div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">' + meta + '</div></div>' +
+      (isNew ? '<span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">just created</span>' : '') +
+      '<div class="shrink-0 flex items-center text-gray-400"><i data-lucide="pencil" class="w-4 h-4 m-1.5"></i><i data-lucide="trash-2" class="w-4 h-4 m-1.5"></i></div>' +
+      '</li>';
+  }
+
+  function list() {
+    var g = groups();
+    var html = '<div class="flex flex-col gap-6">';
+    html += '<section aria-label="My playlists"><div class="flex items-center justify-between mb-2">' +
+      '<p class="text-xs font-semibold uppercase tracking-wide text-gray-400">My playlists</p></div>';
+    html += g.personal.length
+      ? '<ul class="flex flex-col gap-3">' + g.personal.map(card).join('') + '</ul>'
+      : '<p class="text-sm text-gray-400 text-center py-4">No personal playlists yet.</p>';
+    html += '</section>';
+    g.bands.forEach(function (bandGroup) {
+      html += '<section aria-label="Band: ' + esc(bandGroup.band.name) + '"><div class="flex items-center gap-2 mb-2">' +
+        '<span class="text-sm font-semibold text-emerald-700">🎸 ' + esc(bandGroup.band.name) + '</span></div>' +
+        '<ul class="flex flex-col gap-3">' + bandGroup.playlists.map(card).join('') + '</ul></section>';
+    });
+    return html + '</div>';
+  }
+
+  function page() {
+    var pad = state.width === 'desktop' ? 'px-6' : 'px-4';
+    return '<div class="flex flex-col">' +
+      '<header class="bg-white border-b border-gray-100 ' + pad + ' py-4 flex items-center justify-between gap-4">' +
+      '<h1 class="text-xl font-bold text-gray-900">Playlists</h1>' +
+      '<button type="button" data-action="open" class="shrink-0 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700">+ New Playlist</button>' +
+      '</header>' +
+      '<section class="' + pad + ' py-4 flex flex-col gap-4">' + list() + '</section></div>';
+  }
+
+  // RH-180's band bar: present in band context only.
+  function indicator() {
+    var c = ctx();
+    if (c.type !== 'band') return '';
+    return '<div data-testid="band-indicator" class="sticky top-0 z-20 flex items-center gap-2 px-4 py-2.5 border-b border-white/20 text-sm shadow-sm text-white" style="background:' + c.color + '">' +
+      '<span aria-hidden="true">🎸</span><span class="font-bold shrink-0">Band mode</span><span class="opacity-50" aria-hidden="true">·</span>' +
+      '<span class="font-semibold truncate min-w-0">' + esc(c.name) + '</span>' +
+      '<button type="button" data-action="exit" class="ml-auto text-xs bg-white/20 hover:bg-white/30 border border-white/30 px-2.5 py-1 rounded-md font-semibold shrink-0">✕ Exit</button></div>';
+  }
+
+  function sidebar() {
+    var c = ctx();
+    var band = c.type === 'band';
+    var style = band ? ' style="background:' + c.color + ';color:#fff"' : '';
+    var border = band ? 'border-white/15' : 'border-gray-700';
+    var items = NAV.map(function (n) {
+      var active = n[1] === 'Playlists';
+      var cls = active
+        ? (band ? 'bg-white/20 font-bold' : 'bg-emerald-600 text-white font-bold')
+        : (band ? 'opacity-80' : 'text-gray-300');
+      return '<li><span class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium ' + cls + '">' +
+        '<span aria-hidden="true">' + n[0] + '</span>' + n[1] + '</span></li>';
+    }).join('');
+    return '<nav aria-label="Main navigation" class="flex flex-col w-60 shrink-0' + (band ? '' : ' bg-gray-900 text-white') + '"' + style + '>' +
+      '<div class="px-6 py-5 border-b ' + border + '"><span class="text-lg font-semibold tracking-tight">Repertoire Hero</span>' +
+      (band ? '<div class="mt-2"><span class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-bold border border-white/40 bg-white/15"><span aria-hidden="true">🎸</span>Band Mode</span></div>' : '') +
+      '</div>' +
+      '<div class="px-3 py-3 border-b ' + border + '">' +
+      '<div class="flex w-full items-center gap-2 px-3 py-2 rounded-md ' + (band ? 'bg-white/15 ring-1 ring-white/20' : 'bg-gray-800') + '">' +
+      '<span>' + (band ? '🎸' : '👤') + '</span><span class="flex-1 text-sm font-medium truncate">' + esc(band ? c.name : USER_NAME) + '</span><span class="text-xs opacity-80">▾</span></div>' +
+      '<p class="text-[10px] mt-1 opacity-70 px-1">Context switcher. Use the mock controls above.</p></div>' +
+      '<ul class="flex-1 flex flex-col gap-1 px-3 py-4">' + items + '</ul>' +
+      '<div class="px-3 py-4 border-t ' + border + '"><span class="flex items-center gap-3 px-3 py-2 text-sm ' + (band ? 'opacity-80' : 'text-gray-300') + '">↪ Sign out</span></div>' +
+      '</nav>';
+  }
+
+  function bottomNav() {
+    var c = ctx();
+    var band = c.type === 'band';
+    var style = band ? ' style="background:' + c.color + '"' : '';
+    var items = NAV.concat([['↪', 'Sign out']]).map(function (n) {
+      var active = n[1] === 'Playlists';
+      var col = active ? (band ? 'text-white font-bold' : 'text-emerald-400') : (band ? 'text-white/70' : 'text-gray-400');
+      return '<li class="flex-1"><span class="flex flex-col items-center gap-0.5 py-2 text-xs font-medium ' + col + '">' +
+        '<span class="text-xl leading-none" aria-hidden="true">' + n[0] + '</span>' + n[1] + '</span></li>';
+    }).join('');
+    return '<nav aria-label="Main navigation" class="absolute bottom-0 inset-x-0 border-t z-10 ' + (band ? 'border-white/20' : 'bg-gray-900 border-gray-700') + '"' + style + '>' +
+      '<ul class="flex">' + items + '</ul></nav>';
+  }
+
+  function tabClass(active) {
+    return 'flex-1 py-2.5 text-sm font-medium ' + (active ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-gray-500 hover:text-gray-700');
+  }
+
+  function modal() {
+    if (!state.modalOpen) return '';
+    var c = ctx();
+    var cue = showsCue()
+      ? '<p id="rh-owner-cue" data-testid="new-playlist-owner" class="mt-1 flex items-center gap-1.5 text-xs text-gray-600">' +
+        '<span aria-hidden="true">🎸</span><span>Band playlist for <span class="font-semibold text-gray-900">' + esc(c.name) + '</span></span></p>'
+      : '';
+    var tabs = '<div class="flex border-b border-gray-100">' +
+      '<button type="button" data-action="tab-new" class="' + tabClass(state.tab === 'new') + '">New playlist</button>' +
+      '<button type="button" data-action="tab-spotify" class="' + tabClass(state.tab === 'spotify') + '">From Spotify</button></div>';
+    var body;
+    if (state.tab === 'new') {
+      body = '<div class="flex flex-col gap-3">' +
+        '<label for="rh-playlist-name" class="text-sm font-medium text-gray-700">Playlist name</label>' +
+        '<input id="rh-playlist-name" type="text" value="' + esc(state.draft) + '" placeholder="e.g. Gig setlist" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500">' +
+        (state.error ? '<p class="text-xs text-red-500">' + esc(state.error) + '</p>' : '') +
+        '</div>';
+    } else {
+      body = '<ul class="flex flex-col gap-2">' + SPOTIFY_PLAYLISTS.map(function (sp) {
+        return '<li class="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2">' +
+          '<div class="h-10 w-10 rounded bg-green-100 flex items-center justify-center" aria-hidden="true">🎧</div>' +
+          '<div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">' + esc(sp.name) + '</p><p class="text-xs text-gray-400">' + sp.tracks + ' tracks</p></div>' +
+          '<button type="button" data-action="import" data-sp="' + sp.id + '" class="text-xs px-2.5 py-1 rounded-md border border-emerald-600 text-emerald-700 font-medium hover:bg-emerald-50">Import</button></li>';
+      }).join('') + '</ul>' +
+        (state.importError ? '<p class="text-xs text-red-500 mt-2">' + esc(state.importError) + '</p>' : '');
+    }
+    var footer = state.tab === 'new'
+      ? '<div class="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">' +
+        '<button type="button" data-action="close" class="px-3 py-1.5 rounded-md border border-gray-200 text-sm text-gray-600 bg-white hover:bg-gray-50">Cancel</button>' +
+        '<button type="button" id="rh-create-btn" data-action="create" class="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"' +
+        (state.draft.trim() ? '' : ' disabled') + '>Create</button></div>'
+      : '';
+    return '<div class="absolute inset-0 z-30 flex items-center justify-center bg-black/40" data-action="backdrop" role="dialog" aria-modal="true" aria-label="New Playlist"' +
+      (showsCue() ? ' aria-describedby="rh-owner-cue"' : '') + '>' +
+      '<div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 flex flex-col max-h-[85%]">' +
+      '<div class="px-5 py-4 border-b border-gray-100">' +
+      '<div class="flex items-center justify-between"><h2 class="text-base font-semibold text-gray-900">New Playlist</h2>' +
+      '<button type="button" data-action="close" aria-label="Close modal" class="text-gray-400 hover:text-gray-600 rounded"><i data-lucide="x" class="w-5 h-5"></i></button></div>' +
+      cue + '</div>' +
+      tabs +
+      '<div class="flex-1 overflow-y-auto px-5 py-4">' + body + '</div>' +
+      footer + '</div></div>';
+  }
+
+  function paintControls() {
+    var buttons = document.querySelectorAll('[data-set]');
+    for (var i = 0; i < buttons.length; i += 1) {
+      var parts = buttons[i].getAttribute('data-set').split(':');
+      var on = parts.length === 2 && state[parts[0]] === parts[1];
+      buttons[i].className = 'px-3 py-1.5 rounded-md text-sm border ' +
+        (on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50');
+    }
+  }
+
+  function render() {
+    var frame = document.getElementById('rh-frame');
+    var label = document.getElementById('rh-frame-label');
+    var c = ctx();
+    var ctxText = c.type === 'band'
+      ? 'band mode, ' + c.name + (state.ctx === 'stale' ? ' (a band you have left)' : '')
+      : 'personal mode';
+    label.textContent = (state.width === 'desktop' ? 'Desktop' : 'Phone, 375px') + ' · /playlists · ' + ctxText + ' · ' +
+      (state.mode === 'after' ? 'after RH-184' : 'today');
+
+    if (state.width === 'desktop') {
+      frame.className = 'w-[1024px] h-[640px] bg-gray-50 border-4 border-gray-800 rounded-xl overflow-hidden flex relative';
+      frame.innerHTML = sidebar() + '<div class="flex-1 overflow-y-auto bg-gray-50">' + indicator() + page() + '</div>' + modal();
+    } else {
+      frame.className = 'w-[375px] h-[720px] bg-gray-50 border-4 border-gray-800 rounded-2xl overflow-hidden flex flex-col relative';
+      frame.innerHTML = '<div class="flex-1 overflow-y-auto bg-gray-50 pb-16">' + indicator() + page() + '</div>' + bottomNav() + modal();
+    }
+
+    paintControls();
+    if (window.lucide) window.lucide.createIcons();
+    if (state.modalOpen && state.tab === 'new') {
+      var input = document.getElementById('rh-playlist-name');
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
+  }
+
+  function addPlaylist(entry) {
+    state.seq += 1;
+    entry.id = 'p' + state.seq;
+    // Newest first, like getUserPlaylists (ORDER BY created_at DESC).
+    state.playlists.unshift(entry);
+    state.lastCreatedId = entry.id;
+    state.modalOpen = false;
+    state.draft = '';
+    state.error = null;
+    state.importError = null;
+  }
+
+  function create() {
+    var playlistName = state.draft.trim();
+    if (!playlistName) return;
+    var c = ctx();
+    // Today the owner is always the user; after RH-184 it is the active band.
+    var bandId = state.mode === 'after' && c.type === 'band' ? c.id : null;
+    if (bandId && MEMBER_OF.indexOf(bandId) === -1) {
+      state.error = 'Access denied: not a member of this band';
+      render();
+      return;
+    }
+    addPlaylist({ name: playlistName, bandId: bandId, songs: 0, duration: null });
+    render();
+  }
+
+  function importSpotify(spotifyId) {
+    var sp = SPOTIFY_PLAYLISTS.filter(function (s) { return s.id === spotifyId; })[0];
+    var c = ctx();
+    // The import already sent the active band before RH-184, in both behaviours.
+    var bandId = c.type === 'band' ? c.id : null;
+    if (bandId && MEMBER_OF.indexOf(bandId) === -1) {
+      state.importError = 'Band not found';
+      render();
+      return;
+    }
+    addPlaylist({ name: sp.name, bandId: bandId, songs: sp.tracks, duration: null });
+    render();
+  }
+
+  document.addEventListener('click', function (ev) {
+    var setter = ev.target.closest('[data-set]');
+    if (setter) {
+      var value = setter.getAttribute('data-set');
+      if (value === 'reset') {
+        state.playlists = initialPlaylists();
+        state.lastCreatedId = null;
+      } else {
+        var parts = value.split(':');
+        state[parts[0]] = parts[1];
+        state.error = null;
+        state.importError = null;
+      }
+      render();
+      return;
+    }
+
+    var el = ev.target.closest('#rh-frame [data-action]');
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    if (action === 'backdrop' && ev.target !== el) return;
+
+    if (action === 'open') {
+      state.modalOpen = true;
+      state.tab = 'new';
+      state.draft = '';
+      state.error = null;
+      state.importError = null;
+    } else if (action === 'close' || action === 'backdrop') {
+      state.modalOpen = false;
+    } else if (action === 'tab-new') {
+      state.tab = 'new';
+    } else if (action === 'tab-spotify') {
+      state.tab = 'spotify';
+    } else if (action === 'create') {
+      create();
+      return;
+    } else if (action === 'import') {
+      importSpotify(el.getAttribute('data-sp'));
+      return;
+    } else if (action === 'exit') {
+      state.ctx = 'user';
+    }
+    render();
+  });
+
+  document.addEventListener('input', function (ev) {
+    if (ev.target && ev.target.id === 'rh-playlist-name') {
+      state.draft = ev.target.value;
+      var btn = document.getElementById('rh-create-btn');
+      if (btn) btn.disabled = !state.draft.trim();
+    }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (!state.modalOpen) return;
+    if (ev.key === 'Escape') {
+      state.modalOpen = false;
+      render();
+    } else if (ev.key === 'Enter' && ev.target && ev.target.id === 'rh-playlist-name') {
+      create();
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

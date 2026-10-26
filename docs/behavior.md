@@ -28,7 +28,7 @@ Registry of what the system does today, one `##` section per functional area and
 - Fast View offers "Finish practice" on the last queue entry, opening the same review list over every queue entry. (src/hooks/usePracticeFinish.ts, src/components/fastview/PracticeFinishButton.tsx)
 
 ## Playlists
-- A playlist belongs to exactly one owner, a user or a band, taken from the current context. (src/lib/playlists.ts, src/lib/playlistSql.ts)
+- A playlist belongs to exactly one owner, a user or a band; on /playlists both + New Playlist and the Spotify import take it from the active context, and in band context the dialog reads "Band playlist for <band name>". (src/components/playlists/CreatePlaylistModal.tsx, src/components/playlists/PlaylistsView.tsx, e2e/playlist-band-context.spec.ts) (RH-184)
 - Creating, renaming, reordering and deleting a band playlist requires a band admin. (src/app/actions/playlists.ts, src/lib/playlists.ts)
 - Adding a song to a playlist also puts its version in the owner's repertoire as unknown. (src/lib/playlists.ts, src/lib/__tests__/playlists.test.ts)
 - Removing a song from a playlist leaves the repertoire row untouched. (src/lib/playlists.ts)

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-// The only island that reads the band context: it is the destination of a
-// Spotify import and nothing else on this route depends on it (RH-63).
+// The only island that reads the band context: it decides the owner of what
+// the dialog creates (a new playlist or a Spotify import) and nothing else on
+// this route depends on it (RH-63, RH-184).
 import { useBandContextStore } from "@/store/bandContextStore";
 import {
   CreatePlaylistTabs,
@@ -46,15 +47,21 @@ interface CreatePlaylistModalProps {
   /** Resolved on the server by `hasSpotifyConnection(userId)` — never `null`. */
   spotifyConnected: boolean;
   onClose: () => void;
-  onCreate: (name: string) => Promise<void>;
+  /** `bandId` is the active band, or `null` in personal context (RH-184). */
+  onCreate: (name: string, bandId: string | null) => Promise<void>;
   onImported: () => Promise<void>;
 }
+
+/** `id` of the owner cue, the dialog's `aria-describedby` target in band context. */
+const OWNER_CUE_ID = "new-playlist-owner";
 
 /**
  * The one island that reads the band context. It is mounted only after a click
  * on `+ New Playlist`, never during hydration, so no server-rendered markup
  * depends on the localStorage-backed store and there is no mismatch to guard.
- * The context has exactly one destination: the `band_id` of a Spotify import.
+ * The context is the owner of whatever the dialog creates: the band id handed
+ * to `onCreate` with the name, and the `band_id` of a Spotify import. In band
+ * context the header names that band, on both tabs.
  */
 export const CreatePlaylistModal = ({
   spotifyConnected,
@@ -62,7 +69,9 @@ export const CreatePlaylistModal = ({
   onCreate,
   onImported,
 }: CreatePlaylistModalProps) => {
-  const bandId = useBandContextStore((s) => s.bandId());
+  const context = useBandContextStore((s) => s.context);
+  const band = context.type === "band" ? context : null;
+  const bandId = band?.id ?? null;
   const [activeTab, setActiveTab] = useState<CreatePlaylistTab>("new");
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -125,7 +134,7 @@ export const CreatePlaylistModal = ({
     setIsCreating(true);
     setCreateError(null);
     try {
-      await onCreate(name);
+      await onCreate(name, bandId);
       onClose();
     } catch (err) {
       setCreateError(
@@ -142,15 +151,31 @@ export const CreatePlaylistModal = ({
       role="dialog"
       aria-modal="true"
       aria-label="New Playlist"
+      aria-describedby={band ? OWNER_CUE_ID : undefined}
       onClick={(ev) => {
         if (ev.target === ev.currentTarget) onClose();
       }}
     >
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">New Playlist</h2>
-          <ModalCloseButton onClose={onClose} />
+        <div className="px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-900">New Playlist</h2>
+            <ModalCloseButton onClose={onClose} />
+          </div>
+          {band && (
+            <p
+              id={OWNER_CUE_ID}
+              data-testid={OWNER_CUE_ID}
+              className="mt-1 flex items-center gap-1.5 text-xs text-gray-600"
+            >
+              <span aria-hidden="true">🎸</span>
+              <span>
+                Band playlist for{" "}
+                <span className="font-semibold text-gray-900">{band.name}</span>
+              </span>
+            </p>
+          )}
         </div>
 
         {/* Tabs */}

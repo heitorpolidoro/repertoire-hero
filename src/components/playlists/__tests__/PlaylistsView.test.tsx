@@ -5,6 +5,11 @@
  * supplies the list as a prop, none of them waits for a load, and the last one
  * proves mechanically that no network request is issued while rendering — the
  * mount-effect read of `/api/spotify/playlists` is gone, not relocated.
+ *
+ * RH-184 — `+ New Playlist` creates for the active context. The create tests go
+ * through the real `CreatePlaylistModal`, set the zustand band context, and pin
+ * which injected action runs: `createBandPlaylist(bandId, name)` in band
+ * context, `createPlaylist({ name })` in personal context.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -14,6 +19,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }))
 const { push, refresh } = router
 
 import { PlaylistsView, type PlaylistsViewActions } from '../PlaylistsView'
+import { useBandContextStore } from '@/store/bandContextStore'
 import type { Playlist } from '@/types/database'
 
 afterEach(cleanup)
@@ -21,7 +27,15 @@ afterEach(cleanup)
 beforeEach(() => {
   push.mockClear()
   refresh.mockClear()
+  useBandContextStore.setState({ context: { type: 'user' } })
 })
+
+/** Opens `+ New Playlist`, types `name` and presses Create. */
+function createThroughModal(name: string) {
+  fireEvent.click(screen.getByRole('button', { name: '+ New Playlist' }))
+  fireEvent.change(screen.getByLabelText('Playlist name'), { target: { value: name } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+}
 
 const PLAYLISTS = [
   { id: 'p1', name: 'Setlist A', band_id: null, songs: [], tags: [] },
@@ -39,11 +53,13 @@ const PLAYLISTS = [
 function makeActions(overrides: Partial<PlaylistsViewActions> = {}) {
   return {
     createPlaylist: vi.fn().mockResolvedValue({ id: 'p9' }),
+    createBandPlaylist: vi.fn().mockResolvedValue('p10'),
     updatePlaylist: vi.fn().mockResolvedValue(undefined),
     deletePlaylist: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as PlaylistsViewActions & {
     createPlaylist: ReturnType<typeof vi.fn>
+    createBandPlaylist: ReturnType<typeof vi.fn>
     updatePlaylist: ReturnType<typeof vi.fn>
     deletePlaylist: ReturnType<typeof vi.fn>
   }
@@ -139,6 +155,56 @@ describe('PlaylistsView', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Access denied'))
     expect(screen.getByText('Setlist A')).toBeDefined()
     expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('creates the playlist for the active band when a band context is set (RH-184)', async () => {
+    useBandContextStore.setState({
+      context: { type: 'band', id: 'band-1', name: 'The Rolling Stones' },
+    })
+    const { actions } = setup()
+
+    createThroughModal('Encore')
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(actions.createBandPlaylist).toHaveBeenCalledTimes(1)
+    expect(actions.createBandPlaylist).toHaveBeenCalledWith('band-1', 'Encore')
+    expect(actions.createPlaylist).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('creates a personal playlist when the personal context is set', async () => {
+    const { actions } = setup()
+
+    createThroughModal('Encore')
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(actions.createPlaylist).toHaveBeenCalledTimes(1)
+    expect(actions.createPlaylist).toHaveBeenCalledWith({ name: 'Encore' })
+    expect(actions.createBandPlaylist).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('keeps the dialog open with the refusal and does not refresh when a band create is refused', async () => {
+    useBandContextStore.setState({
+      context: { type: 'band', id: 'band-1', name: 'The Rolling Stones' },
+    })
+    const actions = makeActions({
+      createBandPlaylist: vi
+        .fn()
+        .mockRejectedValue(new Error('Access denied: not a member of this band')),
+    })
+    setup({ actions })
+
+    createThroughModal('Encore')
+
+    const dialog = screen.getByRole('dialog', { name: 'New Playlist' })
+    await waitFor(() =>
+      expect(dialog.textContent).toContain('Access denied: not a member of this band'),
+    )
+    expect(screen.getByRole('dialog', { name: 'New Playlist' })).toBe(dialog)
+    expect(refresh).not.toHaveBeenCalled()
+    expect(actions.createPlaylist).not.toHaveBeenCalled()
   })
 
   it('issues no network request while rendering the list', () => {

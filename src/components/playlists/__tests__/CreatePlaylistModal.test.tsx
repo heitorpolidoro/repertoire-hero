@@ -6,9 +6,12 @@
  * Two things are pinned mechanically here. First, the Spotify playlist list is
  * requested from the `From Spotify` tab button's handler and nowhere else — no
  * mount effect, on the page or on the modal. Second, the active band context
- * still reaches its single destination, the `band_id` of the import request,
- * without ever being transported to the server: the two import tests set the
- * zustand store and read the field back out of the parsed request body.
+ * reaches both of its destinations without the server render ever reading it:
+ * the `band_id` of the import request (the import tests set the zustand store
+ * and read the field back out of the parsed request body), and, since RH-184,
+ * the owner handed to `onCreate` alongside the name, which the page turns into
+ * a band or a personal create. In band context the dialog also names that
+ * owner in its `#new-playlist-owner` description.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
@@ -97,17 +100,79 @@ beforeEach(() => {
   useBandContextStore.setState({ context: { type: 'user' } })
 })
 
+/** Types a padded name and presses Create. */
+function submitName(name = '  Gig setlist  ') {
+  fireEvent.change(screen.getByLabelText('Playlist name'), { target: { value: name } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+}
+
+function enterBandContext() {
+  useBandContextStore.setState({
+    context: { type: 'band', id: 'band-7', name: 'The Rolling Stones' },
+  })
+}
+
 describe('CreatePlaylistModal', () => {
   it('creates a playlist through the injected action and closes the modal', async () => {
     const { onCreate, onClose } = setup()
 
-    fireEvent.change(screen.getByLabelText('Playlist name'), {
-      target: { value: '  Gig setlist  ' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    submitName()
 
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Gig setlist'))
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Gig setlist', null))
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('passes the active band id to onCreate when the context is a band (RH-184)', async () => {
+    enterBandContext()
+    const { onCreate, onClose } = setup()
+
+    submitName()
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Gig setlist', 'band-7'))
+    expect(onCreate).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('names the active band in the owner cue, as the dialog description, on both tabs', async () => {
+    stubFetch()
+    enterBandContext()
+    setup()
+
+    const dialog = screen.getByRole('dialog', { name: 'New Playlist' })
+    const cue = screen.getByTestId('new-playlist-owner')
+    expect(cue.id).toBe('new-playlist-owner')
+    expect(cue.textContent).toContain('Band playlist for The Rolling Stones')
+    expect(dialog.getAttribute('aria-describedby')).toBe('new-playlist-owner')
+    expect(screen.getByRole('dialog', { description: 'Band playlist for The Rolling Stones' })).toBe(dialog)
+
+    await openSpotifyTab()
+
+    expect(screen.getByTestId('new-playlist-owner').textContent).toContain(
+      'Band playlist for The Rolling Stones',
+    )
+    expect(dialog.getAttribute('aria-describedby')).toBe('new-playlist-owner')
+  })
+
+  it('renders no owner cue and no description in personal context', () => {
+    setup()
+
+    expect(screen.queryByTestId('new-playlist-owner')).toBeNull()
+    expect(document.getElementById('new-playlist-owner')).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'New Playlist' }).hasAttribute('aria-describedby')).toBe(false)
+  })
+
+  it('keeps the dialog open and shows the message when onCreate rejects', async () => {
+    enterBandContext()
+    const onCreate = vi.fn().mockRejectedValue(new Error('Access denied: not a member of this band'))
+    const { onClose } = setup({ onCreate })
+
+    submitName()
+
+    await waitFor(() =>
+      expect(screen.getByText('Access denied: not a member of this band')).toBeDefined(),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'New Playlist' })).toBeDefined()
   })
 
   it('does not request the Spotify playlist list until the From Spotify tab is opened', () => {

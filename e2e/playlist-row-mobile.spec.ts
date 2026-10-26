@@ -175,14 +175,12 @@ const DATABASE_URL =
  * Inserts a playlist owned by `bandId`, holding the one version of each of
  * `titles` in that order, and returns its id.
  *
- * This is the one fixture the UI cannot make today, for two reasons outside
- * RH-183's scope:
- * - `+ New Playlist` always creates a personal playlist
- *   (`createPlaylistAction` inserts `user_id` only); the only path that writes
- *   a `band_id` is a Spotify import, which no e2e run can reach.
- * - On a band playlist, the picker's catalog add calls `addToRepertoire`
- *   (`addSongAction(songId)`), which writes the *user's* repertoire, so a song
- *   the user already holds fails on `uq_user_songs_user_version`.
+ * This is the one fixture the UI cannot make today. Since RH-184 the empty
+ * band playlist could come from `+ New Playlist` in band context, but its
+ * entries still cannot, for a reason outside RH-183's scope: on a band
+ * playlist, the picker's catalog add calls `addToRepertoire`
+ * (`addSongAction(songId)`), which writes the *user's* repertoire, so a song
+ * the user already holds fails on `uq_user_songs_user_version`.
  * So the rows are seeded here; reading them and deleting the playlist go
  * through the UI as a band admin. The band holds no repertoire row for either
  * version, which the page renders as `unknown` — a normal band playlist entry.
