@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-187 — Settings · AI access (mock)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+<div class="max-w-3xl mx-auto p-4">
+  <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+    Mock for RH-187. Use the state switcher to see every state of the new
+    <b>AI access</b> section. Spotify, Offline storage and Custom fields are shown collapsed for context.
+  </div>
+
+  <div class="mb-4 flex flex-wrap gap-2" id="state-switcher">
+    <button data-state="list" class="state-btn px-3 py-1 rounded-full text-xs border">Token list</button>
+    <button data-state="empty" class="state-btn px-3 py-1 rounded-full text-xs border">Empty list</button>
+    <button data-state="create" class="state-btn px-3 py-1 rounded-full text-xs border">Create form</button>
+    <button data-state="error" class="state-btn px-3 py-1 rounded-full text-xs border">Validation error</button>
+    <button data-state="reveal" class="state-btn px-3 py-1 rounded-full text-xs border">One-time reveal</button>
+    <button data-state="revoke" class="state-btn px-3 py-1 rounded-full text-xs border">Revoke confirmation</button>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+    <header class="border-b border-gray-100 px-4 py-4 md:px-6">
+      <h1 class="text-xl font-bold text-gray-900">Settings</h1>
+    </header>
+    <div class="px-4 py-6 md:px-6 flex flex-col gap-6">
+      <section class="flex flex-col gap-2 opacity-60">
+        <h2 class="text-sm font-semibold text-gray-700">Spotify</h2>
+        <div class="rounded-lg border border-gray-100 px-4 py-3 text-xs text-gray-400">Connected to Spotify</div>
+      </section>
+      <section class="flex flex-col gap-2 border-t border-gray-100 pt-6 opacity-60">
+        <h2 class="text-sm font-semibold text-gray-700">Offline storage</h2>
+        <div class="rounded-lg border border-gray-100 px-4 py-3 text-xs text-gray-400">…</div>
+      </section>
+      <section class="flex flex-col gap-2 border-t border-gray-100 pt-6 opacity-60">
+        <h2 class="text-sm font-semibold text-gray-700">Custom fields</h2>
+        <div class="rounded-lg border border-gray-100 px-4 py-3 text-xs text-gray-400">Preset</div>
+      </section>
+
+      <!-- NEW: AI access -->
+      <section class="flex flex-col gap-3 border-t border-gray-100 pt-6" aria-label="AI access">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-700">AI access</h2>
+            <p class="text-xs text-gray-500 mt-0.5">
+              Personal access tokens let an AI agent read your songs, set tunings and custom fields, and upload tabs.
+              <a href="#" class="text-emerald-700 underline">Agent skill</a>
+            </p>
+          </div>
+          <button id="open-create" class="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> New token
+          </button>
+        </div>
+        <div id="ai-body"></div>
+      </section>
+
+      <section class="flex flex-col gap-1 border-t border-gray-100 pt-6 mt-2">
+        <p class="text-xs text-gray-400">Repertoire Hero • Version v0.x</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+  var MOCK = {
+    origin: 'https://repertoire-hero.vercel.app',
+    newToken: 'rh_pat_Q3vK9mZt2LbX8sN1cW4yR7aD0fH6jP5uE2gT9kVxYzA',
+    tokens: [
+      { id: 't1', name: 'Claude Code', prefix: 'rh_pat_Q3vK', scopes: ['read', 'write:songs', 'write:tabs'], created: 'Oct 27, 2026', lastUsed: '2 hours ago', expires: 'Jan 25, 2027' },
+      { id: 't2', name: 'Codex laptop', prefix: 'rh_pat_m8Lw', scopes: ['read'], created: 'Oct 20, 2026', lastUsed: null, expires: null }
+    ]
+  };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function scopeChips(scopes) {
+    return scopes.map(function (s) {
+      return '<span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[11px] font-mono">' + esc(s) + '</span>';
+    }).join(' ');
+  }
+
+  function tokenRow(t, confirming) {
+    var row =
+      '<li class="px-4 py-3 flex flex-col gap-2">' +
+        '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<div class="min-w-0">' +
+            '<p class="text-sm font-medium text-gray-800">' + esc(t.name) + ' <span class="ml-1 font-mono text-xs text-gray-400">' + esc(t.prefix) + '…</span></p>' +
+            '<div class="mt-1 flex flex-wrap gap-1">' + scopeChips(t.scopes) + '</div>' +
+            '<p class="mt-1 text-xs text-gray-500">Created ' + esc(t.created) + ' · ' +
+              (t.lastUsed ? 'Last used ' + esc(t.lastUsed) : 'Never used') + ' · ' +
+              (t.expires ? 'Expires ' + esc(t.expires) : 'Never expires') + '</p>' +
+          '</div>' +
+          '<button data-revoke="' + t.id + '" class="text-xs text-red-600 hover:text-red-700 border border-red-200 rounded-md px-2.5 py-1">Revoke</button>' +
+        '</div>';
+    if (confirming) {
+      row +=
+        '<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2" role="alertdialog">' +
+          '<p class="text-sm text-red-800">Revoke "' + esc(t.name) + '"? Agents using it stop working immediately.</p>' +
+          '<div class="flex gap-2">' +
+            '<button data-cancel="1" class="px-3 py-1 rounded-md border border-gray-200 bg-white text-xs text-gray-700">Cancel</button>' +
+            '<button data-confirm="' + t.id + '" class="px-3 py-1 rounded-md bg-red-600 text-white text-xs">Revoke</button>' +
+          '</div>' +
+        '</div>';
+    }
+    return row + '</li>';
+  }
+
+  function listHtml(tokens, confirmId) {
+    if (tokens.length === 0) {
+      return '<div class="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500">' +
+        'No tokens yet. Create one to let an AI agent work on your songs.</div>';
+    }
+    return '<ul class="rounded-lg border border-gray-100 bg-white shadow-sm divide-y divide-gray-100">' +
+      tokens.map(function (t) { return tokenRow(t, t.id === confirmId); }).join('') + '</ul>';
+  }
+
+  function createFormHtml(error, nameValue) {
+    return '<form id="create-form" class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-4 flex flex-col gap-3">' +
+      '<label class="flex flex-col gap-1 text-xs font-medium text-gray-700">Name' +
+        '<input id="token-name-input" value="' + esc(nameValue || '') + '" maxlength="60" placeholder="e.g. Claude Code" class="rounded-md border ' + (error ? 'border-red-300' : 'border-gray-200') + ' px-3 py-2 text-sm font-normal"></label>' +
+      '<fieldset class="flex flex-col gap-1"><legend class="text-xs font-medium text-gray-700 mb-1">Scopes</legend>' +
+        '<label class="text-sm text-gray-700 flex items-center gap-2"><input type="checkbox" checked> <span class="font-mono text-xs">read</span> — search and read your songs and custom fields</label>' +
+        '<label class="text-sm text-gray-700 flex items-center gap-2"><input type="checkbox"> <span class="font-mono text-xs">write:songs</span> — set tunings and custom-field values</label>' +
+        '<label class="text-sm text-gray-700 flex items-center gap-2"><input type="checkbox"> <span class="font-mono text-xs">write:tabs</span> — upload tab files</label>' +
+      '</fieldset>' +
+      '<label class="flex flex-col gap-1 text-xs font-medium text-gray-700 w-48">Expires' +
+        '<select class="rounded-md border border-gray-200 px-2 py-2 text-sm font-normal"><option>30 days</option><option selected>90 days</option><option>1 year</option><option>Never</option></select></label>' +
+      (error ? '<p class="text-xs text-red-600" role="alert">' + esc(error) + '</p>' : '') +
+      '<div class="flex gap-2">' +
+        '<button type="submit" class="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium">Create token</button>' +
+        '<button type="button" id="cancel-create" class="px-3 py-1.5 rounded-md border border-gray-200 bg-white text-xs text-gray-700">Cancel</button>' +
+      '</div></form>';
+  }
+
+  function revealHtml() {
+    var exportLines = 'export REPERTOIRE_HERO_URL=' + MOCK.origin + '\nexport REPERTOIRE_HERO_TOKEN=' + MOCK.newToken;
+    return '<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4 flex flex-col gap-3">' +
+      '<p class="text-sm font-semibold text-emerald-900">Token "Claude Code" created</p>' +
+      '<div class="flex items-center gap-2">' +
+        '<code id="reveal-token" class="flex-1 min-w-0 break-all rounded-md bg-white border border-emerald-200 px-3 py-2 text-xs font-mono">' + esc(MOCK.newToken) + '</code>' +
+        '<button id="copy-token" class="shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-md bg-emerald-600 text-white text-xs"><i data-lucide="copy" class="w-3.5 h-3.5"></i> <span id="copy-label">Copy</span></button>' +
+      '</div>' +
+      '<p class="text-xs font-medium text-amber-800 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> You will not see this token again.</p>' +
+      '<div><p class="text-xs text-gray-600 mb-1">Set these in the shell your agent runs in:</p>' +
+        '<pre class="rounded-md bg-gray-900 text-gray-100 text-xs px-3 py-2 overflow-x-auto">' + esc(exportLines) + '</pre></div>' +
+      '<p class="text-xs text-gray-600">Then point your agent at the skill: <a href="#" class="text-emerald-700 underline font-mono">' + esc(MOCK.origin) + '/agent-skill/repertoire-hero/SKILL.md</a></p>' +
+      '<div><button id="reveal-done" class="px-3 py-1.5 rounded-md border border-gray-200 bg-white text-xs text-gray-700">Done</button></div>' +
+    '</div>';
+  }
+
+  var state = { view: 'list', tokens: MOCK.tokens.slice(), confirmId: null, error: null };
+
+  function render() {
+    var body = document.getElementById('ai-body');
+    var html = '';
+    if (state.view === 'create') html = createFormHtml(state.error, state.error ? '' : '') + listHtml(state.tokens, null);
+    else if (state.view === 'reveal') html = revealHtml();
+    else html = listHtml(state.tokens, state.confirmId);
+    body.innerHTML = '<div class="flex flex-col gap-3">' + html + '</div>';
+    document.getElementById('open-create').disabled = state.view === 'reveal';
+    var btns = document.querySelectorAll('.state-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].className = 'state-btn px-3 py-1 rounded-full text-xs border ' + (btns[i].getAttribute('data-active') === '1' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700 border-gray-200');
+    if (window.lucide) window.lucide.createIcons();
+    wire();
+  }
+
+  function setActive(name) {
+    var btns = document.querySelectorAll('.state-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].setAttribute('data-active', btns[i].getAttribute('data-state') === name ? '1' : '0');
+  }
+
+  function wire() {
+    var form = document.getElementById('create-form');
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var input = document.getElementById('token-name-input');
+        if (!input.value.trim()) { state.error = 'Give the token a name.'; setActive('error'); render(); return; }
+        state.view = 'reveal'; state.error = null; setActive('reveal'); render();
+      });
+      document.getElementById('cancel-create').addEventListener('click', function () { state.view = 'list'; state.error = null; setActive('list'); render(); });
+    }
+    var copy = document.getElementById('copy-token');
+    if (copy) copy.addEventListener('click', function () { document.getElementById('copy-label').textContent = 'Copied'; });
+    var done = document.getElementById('reveal-done');
+    if (done) done.addEventListener('click', function () {
+      if (!state.tokens.some(function (t) { return t.id === 'new'; })) {
+        state.tokens.unshift({ id: 'new', name: 'Claude Code', prefix: 'rh_pat_Q3vK', scopes: ['read', 'write:songs', 'write:tabs'], created: 'Oct 27, 2026', lastUsed: null, expires: 'Jan 25, 2027' });
+      }
+      state.view = 'list'; setActive('list'); render();
+    });
+    var revokes = document.querySelectorAll('[data-revoke]');
+    for (var i = 0; i < revokes.length; i++) revokes[i].addEventListener('click', function (e) { state.confirmId = e.currentTarget.getAttribute('data-revoke'); setActive('revoke'); render(); });
+    var cancel = document.querySelector('[data-cancel]');
+    if (cancel) cancel.addEventListener('click', function () { state.confirmId = null; setActive('list'); render(); });
+    var confirm = document.querySelector('[data-confirm]');
+    if (confirm) confirm.addEventListener('click', function (e) {
+      var id = e.currentTarget.getAttribute('data-confirm');
+      state.tokens = state.tokens.filter(function (t) { return t.id !== id; });
+      state.confirmId = null; setActive(state.tokens.length ? 'list' : 'empty'); render();
+    });
+  }
+
+  function show(name) {
+    setActive(name);
+    state.error = null; state.confirmId = null;
+    if (name === 'list') { state.view = 'list'; state.tokens = MOCK.tokens.slice(); }
+    if (name === 'empty') { state.view = 'list'; state.tokens = []; }
+    if (name === 'create') { state.view = 'create'; state.tokens = MOCK.tokens.slice(); }
+    if (name === 'error') { state.view = 'create'; state.tokens = MOCK.tokens.slice(); state.error = 'Give the token a name.'; }
+    if (name === 'reveal') { state.view = 'reveal'; }
+    if (name === 'revoke') { state.view = 'list'; state.tokens = MOCK.tokens.slice(); state.confirmId = 't2'; }
+    render();
+  }
+
+  document.getElementById('state-switcher').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-state]');
+    if (b) show(b.getAttribute('data-state'));
+  });
+  document.getElementById('open-create').addEventListener('click', function () { show('create'); });
+  show('list');
+</script>
+</body>
+</html>

@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import { OfflineStorageSection } from '@/components/settings/OfflineStorageSection';
 import { CustomFieldsSettingsSection } from '@/components/settings/CustomFieldsSettingsSection';
+import { AiAccessSettingsSection } from '@/components/settings/AiAccessSettingsSection';
 import { Spinner } from '@/components/ui/Spinner';
 import { CUSTOM_FIELD_SETTINGS_ACTIONS } from '@/app/customFieldActions';
+import { API_TOKEN_SETTINGS_ACTIONS } from '@/app/apiTokenActions';
 import { useOfflineStatus } from '@/hooks/useOfflineStatus';
 import type { SpotifyPlaylist } from '@/types/database';
 
@@ -174,6 +176,9 @@ const SettingsPage = () => {
 
         {/* The user's own custom fields (RH-186), shown in Fast View */}
         <CustomFieldsSettingsSection actions={CUSTOM_FIELD_SETTINGS_ACTIONS} offline={offline} />
+
+        {/* AI agent access personal access tokens (RH-187) */}
+        <AiAccessSettingsSection actions={API_TOKEN_SETTINGS_ACTIONS} offline={offline} />
 
         {/* Offline storage — what this device keeps, and how to give it back */}
         <OfflineStorageSection />

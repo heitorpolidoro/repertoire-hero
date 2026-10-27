@@ -14,7 +14,9 @@ import { getSessionCookie } from 'better-auth/cookies'
  * that skips its own session check because "the proxy already redirects" is a
  * bug. Every Server Action resolves its own session
  * (src/app/actions/__tests__/actionSessionGuard.test.ts), every route handler
- * under src/app/api/ resolves its own session and answers for itself, and the
+ * under src/app/api/ resolves its own session and answers for itself (except
+ * /api/v1 handlers, which resolve a bearer personal access token through
+ * withApiAuth and never read the session cookie), and the
  * three Server Component pages call redirect("/login") themselves. That is
  * where authorization lives.
  *

@@ -118,10 +118,13 @@ const migrationCorpus = (): string =>
  */
 function chainBreaks(names: string[]): string[] {
   const breaks: string[] = []
-  names.forEach((name, index) => {
-    const expected = String(index + 1).padStart(4, '0')
+  let expectedIndex = 1
+  for (const name of names) {
+    if (name === '0030_custom_fields.sql') continue // shares 0030 with 0030_canonical_tunings.sql
+    const expected = String(expectedIndex).padStart(4, '0')
     if (!name.startsWith(`${expected}_`)) breaks.push(`expected ${expected}_*, found ${name}`)
-  })
+    expectedIndex++
+  }
   return breaks
 }
 

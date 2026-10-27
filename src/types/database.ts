@@ -96,8 +96,8 @@ export interface Repertoire {
   user_id: string | null;
   band_id: string | null;
   song_id: string;
-  /** `song_versions.id` — half of the owner row's unique key. */
-  version_id: string;
+  version_id: string; // song_versions.id — half of the owner row's unique key
+  version_label?: string | null;
   key: string | null;
   tuning: string | null;
   status: SongStatus;
@@ -119,9 +119,9 @@ export interface Repertoire {
  * not an error.
  */
 export interface ResolvedSongEntry {
-  /** The `user_songs` / `band_songs` row's id, or `null` when there is none. */
-  ownerRowId: string | null;
+  ownerRowId: string | null; // The user_songs / band_songs row's id, or null when there is none
   version_id: string;
+  version_label?: string | null;
   song_id: string;
   status: SongStatus | null;
   key: string | null;

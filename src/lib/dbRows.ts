@@ -126,6 +126,7 @@ export interface OwnerSongLevelsRow {
   owner_last_practiced: string | null
   version_id: string
   song_id: string
+  version_label: string | null
   version_key: string | null
   version_tuning: string | null
   version_lyrics: string | null

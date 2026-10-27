@@ -5,12 +5,14 @@
     "kysely",
     "webpack",
     "@sentry/browser",
-    "@better-auth/utils",
-    "esbuild",
-    "@serwist/cli"
+    "@better-auth/utils"
+  ],
+  "ignore": [
+    "src/lib/offlineCacheNames.ts"
   ],
   "entry": [
     "serwist.config.js",
-    "src/app/sw.ts"
+    "src/app/sw.ts",
+    "scripts/behavior.js"
   ]
 }

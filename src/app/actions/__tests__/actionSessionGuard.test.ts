@@ -141,6 +141,11 @@ import {
   getCustomFieldValuesAction,
   setCustomFieldValueAction,
 } from '../customFields'
+import {
+  listApiTokensAction,
+  createApiTokenAction,
+  revokeApiTokenAction,
+} from '../apiTokens'
 import type { Repertoire } from '@/types/database'
 
 const BAND_ID = 'band-1'
@@ -278,6 +283,11 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   deleteCustomFieldAction: { run: () => deleteCustomFieldAction('field-1'), mode: 'throws' },
   getCustomFieldValuesAction: { run: () => getCustomFieldValuesAction(VERSION_ID), mode: 'throws' },
   setCustomFieldValueAction: { run: () => setCustomFieldValueAction('field-1', VERSION_ID, 'Lead 3B'), mode: 'throws' },
+
+  // --- apiTokens.ts (RH-187) ---
+  listApiTokensAction: { run: () => listApiTokensAction(), mode: 'envelope' },
+  createApiTokenAction: { run: () => createApiTokenAction({ name: 'Agent', scopes: ['read'] }), mode: 'envelope' },
+  revokeApiTokenAction: { run: () => revokeApiTokenAction('token-1'), mode: 'envelope' },
 }
 
 beforeEach(() => {

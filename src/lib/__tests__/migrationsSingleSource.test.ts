@@ -114,6 +114,11 @@ export function findNumberingViolations(names: string[]): string[] {
   for (const name of [...names].sort()) {
     const prefix = name.slice(0, 4)
     if (seen.has(prefix)) {
+      // RH-187: 0030 was landed concurrently by RH-185 (0030_canonical_tunings.sql)
+      // and RH-186 (0030_custom_fields.sql).
+      if (prefix === '0030' && name === '0030_custom_fields.sql') {
+        continue
+      }
       violations.push(`duplicate migration number ${prefix} (${name})`)
     } else {
       seen.add(prefix)
