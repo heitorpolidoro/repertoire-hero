@@ -103,10 +103,10 @@ Everything else — status, key, tuning, map, tags, and the lyrics when you pick
 band's version — exists at both levels and writes the band's row. Your repertoire is
 untouched and the song does not appear in it.
 
-Tuning is edited in Fast View only (RH-146): the "Tuning" line of the Song details
-header offers preset buttons and a custom box, writes the addressed owner's override and
-never `song_versions.tuning`, and an empty value clears the override back to the
-version's. The key stays read-only there.
+Tuning is edited in Fast View only (RH-146, RH-185): the "Tuning" line of the Song details
+header offers 8 half-step positions with a Drop option (stored as canonical text) and a
+custom box, writes the addressed owner's override and never `song_versions.tuning`, and an
+empty value clears the override back to the version's. The key stays read-only there.
 
 This does not bend the one-owner rule. Each of the three has exactly one owner and it is
 the musician; the row that appears is theirs, born `unknown` like any other.

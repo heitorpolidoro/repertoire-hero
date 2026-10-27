@@ -10,6 +10,8 @@ Registry of what the system does today, one `##` section per functional area and
 - Every write to a band's repertoire requires a band admin; members can only read it. (src/app/actions/repertoire.ts, src/lib/bands.ts)
 - Clearing an override writes null so resolution goes back up the chain. (src/lib/ownerSongs.ts, src/lib/sqlUpdate.ts)
 - Tuning is edited from Fast View and writes the addressed owner's override, never the version's tuning. (src/components/fastview/SongTuningControl.tsx, src/hooks/useSongTuning.ts, src/lib/songTuning.ts)
+- Fast View offers a song's tuning as 8 half-step positions named by the 6th-string note with the offset in tones (F (+0.5) to Bb (-3)), each with its 6-string reference, plus a Drop option that lowers only the 6th string one more whole step; anything else goes in the custom box. (src/components/fastview/TuningPositionList.tsx, src/lib/songTuning.ts) (RH-185)
+- A tuning picked from the list is stored as canonical text ("Eb", "Drop Db"); its label with the offset and its reference line are worked out on display, and any other stored text is shown as written. (src/lib/songTuning.ts, src/components/fastview/SongTuningControl.tsx) (RH-185)
 - Tags are edited per owner row from Fast View. (src/components/fastview/SongTagsSection.tsx, src/lib/tagEditor.ts)
 - The song map is a list of sections with name, bars and note, edited in Fast View. (src/lib/songMap.ts, src/components/fastview/SongMapSection.tsx)
 - Saving lyrics in band context asks whether they go to the band's row or the user's own. (src/components/fastview/LyricsDestinationModal.tsx, src/hooks/useLyricsEditor.ts)

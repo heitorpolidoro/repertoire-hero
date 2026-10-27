@@ -1,7 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { TUNING_PRESETS, type SongTuningController } from '@/lib/songTuning'
+import {
+  formatTuningDisplay,
+  parseCanonicalTuning,
+  type SongTuningController,
+} from '@/lib/songTuning'
+import { TuningPositionList } from './TuningPositionList'
 
 export interface SongTuningControlProps {
   tuning: SongTuningController
@@ -12,10 +17,15 @@ export interface SongTuningControlProps {
 const BUTTON =
   'rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent'
 
+function initialCustomDraft(current: string | null): string {
+  if (current === null || parseCanonicalTuning(current) !== null) return ''
+  return current
+}
+
 /**
- * The "Tuning:" line of the Song details header and its editor (RH-146,
- * mock option B): preset buttons that save in one tap, plus a custom box.
- * Presentational only; the write belongs to `useSongTuning`. When nothing
+ * The "Tuning:" line of the Song details header and its editor (RH-146, RH-185):
+ * 8 half-step positions with a Drop option that save in one tap, plus a custom
+ * box. Presentational only; the write belongs to `useSongTuning`. When nothing
  * resolves and the page is read-only there is nothing to show, so it renders
  * nothing.
  */
@@ -39,7 +49,7 @@ export function SongTuningControl({ tuning, readOnly = false }: SongTuningContro
         {tuning.tuning && (
           <>
             <span className="font-medium">Tuning:</span>
-            <span>{tuning.tuning}</span>
+            <span>{formatTuningDisplay(tuning.tuning)}</span>
           </>
         )}
         <button
@@ -48,7 +58,7 @@ export function SongTuningControl({ tuning, readOnly = false }: SongTuningContro
           disabled={readOnly || busy}
           aria-label={tuning.tuning ? 'Edit tuning' : 'Set tuning'}
           onClick={() => {
-            setDraft(tuning.tuning ?? '')
+            setDraft(initialCustomDraft(tuning.tuning))
             setEditing(true)
           }}
         >
@@ -58,19 +68,13 @@ export function SongTuningControl({ tuning, readOnly = false }: SongTuningContro
 
       {open && (
         <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            {TUNING_PRESETS.map((preset) => (
-              <button key={preset} type="button" className={BUTTON} disabled={busy} onClick={() => commit(preset)}>
-                {preset}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <TuningPositionList currentTuning={tuning.tuning} disabled={busy} onSelect={commit} />
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200">
             <input
               aria-label="Custom tuning"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="e.g. Eb Ab Db Gb Bb Eb"
+              placeholder="e.g. DADGAD"
               className="rounded-md border border-gray-300 px-2 py-1 text-sm"
             />
             <button type="button" className={BUTTON} disabled={busy} onClick={() => commit(draft)}>
@@ -88,3 +92,4 @@ export function SongTuningControl({ tuning, readOnly = false }: SongTuningContro
     </div>
   )
 }
+

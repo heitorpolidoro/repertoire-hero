@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-185 mock — Tuning list with Drop</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-200 text-gray-900 min-h-screen">
+<div class="max-w-md mx-auto p-4">
+  <header class="mb-4">
+    <h1 class="text-xl font-bold">RH-185 — Tuning list with Drop</h1>
+    <p class="text-sm text-slate-600 mt-1">Fast View "Song details" header. Pick a starting state, press <b>Edit</b> (or <b>Set tuning</b>), toggle <b>Drop</b>, tap a position.</p>
+    <div class="flex flex-wrap gap-2 mt-3 text-xs" role="group" aria-label="Starting state">
+      <button type="button" data-start="DADGAD" class="start rounded-full border border-slate-400 px-3 py-1 bg-white">Custom: DADGAD</button>
+      <button type="button" data-start="Eb" class="start rounded-full border border-slate-400 px-3 py-1 bg-white">Canonical: Eb</button>
+      <button type="button" data-start="Drop D" class="start rounded-full border border-slate-400 px-3 py-1 bg-white">Canonical: Drop D</button>
+      <button type="button" data-start="" class="start rounded-full border border-slate-400 px-3 py-1 bg-white">No tuning</button>
+    </div>
+  </header>
+
+  <div class="bg-white rounded-xl border border-slate-300 p-4 flex flex-col gap-3">
+    <p class="text-sm text-gray-600 flex items-center gap-2">
+      <span id="currentWrap" class="contents">
+        <span class="font-medium">Tuning:</span>
+        <span id="current"></span>
+      </span>
+      <button id="edit" type="button" class="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-700 hover:bg-gray-100"></button>
+    </p>
+
+    <div id="editor" class="hidden flex flex-col gap-2">
+      <label class="flex items-center gap-2 text-sm">
+        <input id="drop" type="checkbox"> Drop (6th string one more whole step down)
+      </label>
+      <div id="list" class="flex flex-col gap-1"></div>
+      <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200">
+        <input id="custom" aria-label="Custom tuning" placeholder="e.g. DADGAD" class="rounded-md border border-gray-300 px-2 py-1 text-sm">
+        <button id="save" type="button" class="rounded-md border border-gray-300 px-2 py-1 text-sm">Save</button>
+        <button id="clear" type="button" class="rounded-md border border-gray-300 px-2 py-1 text-sm">Clear</button>
+        <button id="cancel" type="button" class="rounded-md border border-gray-300 px-2 py-1 text-sm">Cancel</button>
+      </div>
+    </div>
+    <p id="toast" class="text-xs text-emerald-700"></p>
+  </div>
+  <p class="text-xs text-slate-500 mt-3">Stored value (canonical text, never the label): <code id="stored"></code></p>
+</div>
+
+<script>
+const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
+const STANDARD = [4, 9, 2, 7, 11, 4] // E A D G B E as indexes into NOTES
+const OFFSETS = [1, 0, -1, -2, -3, -4, -5, -6] // half-steps from E standard
+
+const note = (i) => NOTES[((i % 12) + 12) % 12]
+const strings = (offset, drop) => STANDARD.map((s, i) => note(s + offset - (drop && i === 0 ? 2 : 0)))
+const canonical = (offset, drop) => (drop ? 'Drop ' : '') + strings(offset, drop)[0]
+const suffix = (offset) => offset === 0 ? '' : ` (${offset > 0 ? '+' : ''}${offset / 2})`
+const label = (offset, drop) => canonical(offset, drop) + suffix(offset)
+function parse(value) {
+  for (const drop of [false, true]) for (const o of OFFSETS) if (canonical(o, drop) === value) return { offset: o, drop }
+  return null
+}
+const display = (value) => { const p = parse(value); return p ? label(p.offset, p.drop) : value }
+
+let stored = 'DADGAD'
+const $ = (id) => document.getElementById(id)
+
+function renderHeader() {
+  $('currentWrap').classList.toggle('hidden', stored === null)
+  $('current').textContent = stored === null ? '' : display(stored)
+  $('edit').textContent = stored === null ? 'Set tuning' : 'Edit'
+  $('edit').setAttribute('aria-label', stored === null ? 'Set tuning' : 'Edit tuning')
+  $('stored').textContent = stored === null ? 'null' : JSON.stringify(stored)
+}
+function renderList() {
+  const drop = $('drop').checked
+  const list = $('list')
+  list.innerHTML = ''
+  for (const o of OFFSETS) {
+    const value = canonical(o, drop)
+    const selected = value === stored
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.setAttribute('aria-label', label(o, drop))
+    btn.setAttribute('aria-pressed', String(selected))
+    btn.className = `w-full flex justify-between items-center rounded-md border px-3 py-2 text-sm ${selected ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:bg-gray-100'}`
+    btn.innerHTML = `<span class="font-medium">${label(o, drop)}</span><span class="font-mono text-xs text-gray-500">${strings(o, drop).join(' ')}</span>`
+    btn.onclick = () => commit(value)
+    list.appendChild(btn)
+  }
+}
+function render() { renderHeader(); renderList() }
+function commit(value) {
+  const v = value.trim() === '' ? null : value.trim()
+  stored = v
+  $('toast').textContent = v === null ? 'Tuning cleared' : `Tuning set to ${display(v)}`
+  $('editor').classList.add('hidden')
+  render()
+}
+$('edit').onclick = () => {
+  const p = stored && parse(stored)
+  $('drop').checked = !!(p && p.drop)
+  $('custom').value = stored !== null && !p ? stored : ''
+  $('editor').classList.remove('hidden')
+  render()
+}
+$('drop').onchange = renderList
+$('save').onclick = () => commit($('custom').value)
+$('clear').onclick = () => commit('')
+$('cancel').onclick = () => $('editor').classList.add('hidden')
+for (const b of document.querySelectorAll('.start')) {
+  b.onclick = () => {
+    stored = b.dataset.start === '' ? null : b.dataset.start
+    $('toast').textContent = ''
+    $('editor').classList.add('hidden')
+    render()
+  }
+}
+render()
+</script>
+</body>
+</html>
