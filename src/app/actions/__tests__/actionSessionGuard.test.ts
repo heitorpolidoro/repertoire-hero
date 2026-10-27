@@ -132,6 +132,15 @@ import {
   getTabsAction,
 } from '../tabs'
 import { uploadAudioAction, getAudioAction, getQueueSourcesAction } from '../audio'
+import {
+  listCustomFieldsAction,
+  createCustomFieldAction,
+  renameCustomFieldAction,
+  moveCustomFieldAction,
+  deleteCustomFieldAction,
+  getCustomFieldValuesAction,
+  setCustomFieldValueAction,
+} from '../customFields'
 import type { Repertoire } from '@/types/database'
 
 const BAND_ID = 'band-1'
@@ -260,6 +269,15 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   // --- practice.ts (RH-168) ---
   getPracticeCandidatesAction: { run: () => getPracticeCandidatesAction({ kind: 'repertoire' }, BAND_ID), mode: 'throws' },
   getPracticePlaylistsAction: { run: () => getPracticePlaylistsAction(BAND_ID), mode: 'throws' },
+
+  // --- customFields.ts (RH-186) ---
+  listCustomFieldsAction: { run: () => listCustomFieldsAction(), mode: 'throws' },
+  createCustomFieldAction: { run: () => createCustomFieldAction('Preset'), mode: 'throws' },
+  renameCustomFieldAction: { run: () => renameCustomFieldAction('field-1', 'Pedal'), mode: 'throws' },
+  moveCustomFieldAction: { run: () => moveCustomFieldAction('field-1', 'up'), mode: 'throws' },
+  deleteCustomFieldAction: { run: () => deleteCustomFieldAction('field-1'), mode: 'throws' },
+  getCustomFieldValuesAction: { run: () => getCustomFieldValuesAction(VERSION_ID), mode: 'throws' },
+  setCustomFieldValueAction: { run: () => setCustomFieldValueAction('field-1', VERSION_ID, 'Lead 3B'), mode: 'throws' },
 }
 
 beforeEach(() => {

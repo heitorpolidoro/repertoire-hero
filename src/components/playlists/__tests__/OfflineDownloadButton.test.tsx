@@ -68,6 +68,8 @@ function makeActions(hold?: Promise<void>): OfflineDownloadActions {
     }),
     // RH-83: the download captures the member's own row in band context.
     getPersonalEntryForSong: vi.fn(() => Promise.resolve(null)),
+    // RH-186: and the reader's own custom field values on each version.
+    getCustomFieldValues: vi.fn(() => Promise.resolve([])),
   }
 }
 

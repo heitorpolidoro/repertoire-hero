@@ -174,7 +174,7 @@ async function findSongBySongId(
 type OfflineReader = (ports: OfflineFirstPorts, args: unknown[]) => Promise<unknown>
 
 /**
- * The four reads Fast View makes, answered from the snapshot.
+ * The five reads Fast View makes, answered from the snapshot.
  *
  * The snapshot is resolved from the action's own arguments and never from page
  * state — that is what lets the wrapping happen once, at module scope, with the
@@ -219,6 +219,13 @@ const OFFLINE_READERS: Record<string, OfflineReader> = {
   // An empty annotation set, not an error envelope: Stage Mode then renders the
   // PDF with no strokes and no failure panel.
   getAnnotations: () => Promise.resolve({ data: {} }),
+
+  // RH-186: the reader's own custom field values, as captured. `[]` for a song
+  // captured before RH-186 or in no downloaded playlist. The write,
+  // `setCustomFieldValue`, stays unclassified and is refused offline.
+  getCustomFieldValues: async (ports, [versionId]) => {
+    return (await findSong(ports, String(versionId)))?.customFields ?? []
+  },
 }
 
 /** Writes whose declared return type is a result envelope their hook inspects. */

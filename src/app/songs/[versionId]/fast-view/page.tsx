@@ -19,6 +19,7 @@ import {
   OFFLINE_FIRST_SONG_MAP_ACTIONS,
   OFFLINE_FIRST_SONG_WINDOW_ACTIONS,
   OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
+  OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS,
 } from '@/app/fastViewOfflineActions'
 import { slideOutClassName } from '@/lib/playlistNav'
 import { usePlaylistNav } from '@/hooks/usePlaylistNav'
@@ -42,6 +43,7 @@ import { useSongMap } from '@/hooks/useSongMap'
 import { SongMapSection } from '@/components/fastview/SongMapSection'
 import { useSongLinks } from '@/hooks/useSongLinks'
 import { SongIdentityHeader } from '@/components/fastview/SongIdentityHeader'
+import { CustomFieldsSection } from '@/components/fastview/CustomFieldsSection'
 import { SpotifyPlayer } from '@/components/fastview/SpotifyPlayer'
 import { YoutubeEmbed } from '@/components/fastview/YoutubeEmbed'
 import { LinksSection } from '@/components/fastview/LinksSection'
@@ -95,6 +97,10 @@ import { PracticeReviewList } from '@/components/ui/PracticeReviewList'
  * below. Nothing may be created from here either — creating an owner row from
  * Fast View is deliberately out of scope — so the refusal lives behind each
  * disabled control as a guard in its hook, not as a silent no-op (§3c).
+ *
+ * The custom-fields section (RH-186) is the one exception to that expression:
+ * it takes `isOffline` alone, because a value is the reader's own, keyed by the
+ * version, and needs neither an owner row nor a band role.
  */
 export default function FastViewPage() {
   const { versionId } = useParams<{ versionId: string }>()
@@ -227,9 +233,9 @@ export default function FastViewPage() {
 
             {/* Song identity */}
             <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} tuning={tuning} />
+            <CustomFieldsSection versionId={versionId} actions={OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS} readOnly={isOffline} notify={showToast} />
             <OfflineSongButton versionId={versionId} bandId={queryBandId} actions={OFFLINE_DOWNLOAD_ACTIONS} offline={isOffline} />
 
-            {/* Tabs Section */}
             <TabLibrarySection
               library={tabLibrary}
               loadingPersonal={song.loadingPersonal}

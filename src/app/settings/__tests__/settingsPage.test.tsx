@@ -21,6 +21,18 @@ vi.mock('@/components/settings/OfflineStorageSection', () => ({
   OfflineStorageSection: () => null,
 }))
 
+// RH-186: a stub bundle keeps the Server Action graph out of jsdom; the
+// section itself is exercised in its own suite.
+vi.mock('@/app/customFieldActions', () => ({
+  CUSTOM_FIELD_SETTINGS_ACTIONS: {
+    listCustomFields: () => Promise.resolve([]),
+    createCustomField: () => Promise.reject(new Error('not in this suite')),
+    renameCustomField: () => Promise.reject(new Error('not in this suite')),
+    moveCustomField: () => Promise.reject(new Error('not in this suite')),
+    deleteCustomField: () => Promise.reject(new Error('not in this suite')),
+  },
+}))
+
 import SettingsPage from '../page'
 
 const SPINNER = 'Checking Spotify connection...'

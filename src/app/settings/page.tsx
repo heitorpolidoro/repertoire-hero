@@ -2,13 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { OfflineStorageSection } from '@/components/settings/OfflineStorageSection';
+import { CustomFieldsSettingsSection } from '@/components/settings/CustomFieldsSettingsSection';
 import { Spinner } from '@/components/ui/Spinner';
+import { CUSTOM_FIELD_SETTINGS_ACTIONS } from '@/app/customFieldActions';
+import { useOfflineStatus } from '@/hooks/useOfflineStatus';
 import type { SpotifyPlaylist } from '@/types/database';
 
 const SettingsPage = () => {
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const offline = useOfflineStatus();
 
   // The load is defined inside the effect rather than wrapped in a
   // `useCallback` the effect then calls: `react-hooks/set-state-in-effect`
@@ -167,6 +171,9 @@ const SettingsPage = () => {
             </div>
           )}
         </section>
+
+        {/* The user's own custom fields (RH-186), shown in Fast View */}
+        <CustomFieldsSettingsSection actions={CUSTOM_FIELD_SETTINGS_ACTIONS} offline={offline} />
 
         {/* Offline storage — what this device keeps, and how to give it back */}
         <OfflineStorageSection />

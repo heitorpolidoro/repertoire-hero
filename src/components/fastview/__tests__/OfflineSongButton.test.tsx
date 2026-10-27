@@ -31,6 +31,7 @@ function makeActions(): OfflineCaptureActions {
     ),
     getTabs: vi.fn(() => Promise.resolve([])),
     getPersonalEntryForSong: vi.fn(() => Promise.resolve(null)),
+    getCustomFieldValues: vi.fn(() => Promise.resolve([])),
   }
 }
 

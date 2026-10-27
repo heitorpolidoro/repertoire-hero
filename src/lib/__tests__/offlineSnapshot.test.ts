@@ -113,6 +113,7 @@ function buildOne(): OfflineSnapshot {
         entry: { repertoireId: 'rep-1', versionId: 'version-of-rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
         repertoire: repertoire('rep-1'),
         personalRepertoire: personalRow('personal-1'),
+        customFields: [],
         tabs: [
           { tab: tabRow('tab-old', '2026-01-01T00:00:00Z'), bytes: 100 },
           { tab: tabRow('tab-new', '2026-06-01T00:00:00Z'), bytes: 200 },
@@ -122,6 +123,7 @@ function buildOne(): OfflineSnapshot {
         entry: { repertoireId: 'rep-2', versionId: 'version-of-rep-2', songId: 'song-of-rep-2', title: 'Faroeste', artist: null },
         repertoire: repertoire('rep-2'),
         personalRepertoire: null,
+        customFields: [],
         tabs: [],
       },
     ],
@@ -459,6 +461,7 @@ describe('the content type round trip (RH-128 ER7)', () => {
           entry: { repertoireId: 'rep-1', versionId: 'version-of-rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: null },
           repertoire: repertoire('rep-1'),
           personalRepertoire: null,
+          customFields: [],
           tabs: [
             { tab: { ...tabRow('tab-img', '2026-01-01T00:00:00Z'), content_type: 'image/jpeg' }, bytes: 100 },
           ],
@@ -518,6 +521,7 @@ describe('the primary file round trip (RH-147)', () => {
           entry: { repertoireId: 'rep-1', versionId: 'version-of-rep-1', songId: 'song-of-rep-1', title: 'Tempo Perdido', artist: null },
           repertoire: repertoire('rep-1'),
           personalRepertoire: null,
+          customFields: [],
           tabs: [
             { tab: { ...tabRow('tab-first', '2026-01-01T00:00:00Z'), is_primary: false }, bytes: 100 },
             { tab: { ...tabRow('tab-second', '2026-02-01T00:00:00Z'), is_primary: true }, bytes: 100 },

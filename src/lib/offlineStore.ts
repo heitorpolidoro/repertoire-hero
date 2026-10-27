@@ -33,6 +33,7 @@ import {
 } from '@/lib/offlineSnapshot'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
+import type { CustomFieldEntry } from '@/types/customField'
 
 /**
  * The Cache Storage cache the tab PDFs live in.
@@ -93,6 +94,8 @@ export interface OfflineSongInput {
   /** The member's own row for the song; `null` outside a band (RH-83 ER10). */
   personalRepertoire: Repertoire | null
   tabs: SongFile[]
+  /** The reader's own custom field values on this version (RH-186). */
+  customFields: CustomFieldEntry[]
 }
 
 export interface SaveOfflinePlaylistInput {
@@ -204,6 +207,7 @@ export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
         repertoire: song.repertoire,
         personalRepertoire: song.personalRepertoire,
         tabs,
+        customFields: song.customFields,
       })
       input.onProgress?.(songs.length, input.songs.length)
     }

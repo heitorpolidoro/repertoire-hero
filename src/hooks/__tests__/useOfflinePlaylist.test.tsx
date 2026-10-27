@@ -90,6 +90,9 @@ function makeActions(): OfflineDownloadActions {
     ),
     getTabs: vi.fn((songId: string) => Promise.resolve([tabRow(`tab-${songId}`, songId)])),
     getPersonalEntryForSong: vi.fn((songId: string) => Promise.resolve(personalRow(songId))),
+    getCustomFieldValues: vi.fn((versionId: string) =>
+      Promise.resolve([{ fieldId: 'f-preset', name: 'Preset', value: `Preset of ${versionId}` }]),
+    ),
   }
 }
 
@@ -203,6 +206,21 @@ describe('useOfflinePlaylist — the happy path', () => {
       'personal-song-rep-1',
       'personal-song-rep-2',
     ])
+  })
+
+  // RH-186 — each stored song carries the reader's own values on its version.
+  it('stores each song with its custom field values, read by version id', async () => {
+    const actions = makeActions()
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(vi.mocked(actions.getCustomFieldValues).mock.calls).toEqual([['v-rep-1'], ['v-rep-2']])
+    const songs = ports.records.rows.get('pl-1')?.snapshot.songs ?? []
+    expect(songs.map((song) => song.customFields?.[0].value)).toEqual(['Preset of v-rep-1', 'Preset of v-rep-2'])
   })
 
   it('never reads the personal row outside a band context', async () => {

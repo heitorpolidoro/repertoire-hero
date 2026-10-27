@@ -46,6 +46,7 @@
 import { isSnapshotV5, upgradeSnapshotV5ToV6 } from '@/lib/offlineSnapshotV5'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
+import type { CustomFieldEntry } from '@/types/customField'
 import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
 
 /**
@@ -101,6 +102,9 @@ import { DEFAULT_TAB_CONTENT_TYPE } from '@/lib/tabRenderer'
  * downloaded playlist and its cached PDF bytes on first launch, recoverable
  * only with a network connection. The `cacheKey`s are untouched by the
  * reshape, which is what keeps those bytes valid.
+ *
+ * RH-186 added `customFields` to a song without a bump: it is optional, for the
+ * reason given on the field.
  */
 export const OFFLINE_SCHEMA_VERSION = 6
 
@@ -174,6 +178,17 @@ export interface OfflineSongSnapshot {
    */
   personalRepertoire: Repertoire | null
   tabs: OfflineTabSnapshot[]
+  /**
+   * The reader's own custom field values on this version (RH-186).
+   *
+   * **Optional, and absent reads as none** - which is why
+   * `OFFLINE_SCHEMA_VERSION` is *not* bumped for it. Absent is a fact: the song
+   * was downloaded before RH-186. A bump would discard every downloaded
+   * playlist and its cached PDF bytes to avoid showing *nothing* where a value
+   * exists, and nothing is not a wrong value. The snapshot is a photograph: a
+   * value saved after the download is not in it either.
+   */
+  customFields?: CustomFieldEntry[]
 }
 
 /** One playlist, captured whole. */
@@ -199,6 +214,7 @@ export interface OfflineSongMaterial {
   repertoire: ResolvedSongEntry
   personalRepertoire: Repertoire | null
   tabs: OfflineTabMaterial[]
+  customFields: CustomFieldEntry[]
 }
 
 export interface BuildOfflineSnapshotInput {
@@ -252,6 +268,7 @@ export function buildOfflineSnapshot(input: BuildOfflineSnapshotInput): OfflineS
       repertoire: song.repertoire,
       personalRepertoire: song.personalRepertoire,
       tabs: song.tabs.map((tab) => toTabSnapshot(input.playlistId, tab)),
+      customFields: song.customFields,
     })),
   }
 }
@@ -297,6 +314,14 @@ function isTabSnapshot(value: unknown): boolean {
   return value.isPrimary === undefined || typeof value.isPrimary === 'boolean'
 }
 
+/** Optional (RH-186): absent is a song captured before custom fields. */
+function areCustomFields(value: unknown): boolean {
+  if (value === undefined) return true
+  const isEntry = (e: unknown) =>
+    isRecord(e) && isString(e.fieldId) && isString(e.name) && (e.value === null || isString(e.value))
+  return Array.isArray(value) && value.every(isEntry)
+}
+
 function isSongSnapshot(value: unknown): boolean {
   if (!isRecord(value)) return false
   if (!isString(value.versionId)) return false
@@ -305,6 +330,7 @@ function isSongSnapshot(value: unknown): boolean {
   // "no personal version" is exactly the wrong answer the bump avoids.
   if (!('personalRepertoire' in value)) return false
   if (value.personalRepertoire !== null && !isRecord(value.personalRepertoire)) return false
+  if (!areCustomFields(value.customFields)) return false
   return Array.isArray(value.tabs) && value.tabs.every(isTabSnapshot)
 }
 

@@ -111,6 +111,12 @@ empty value clears the override back to the version's. The key stays read-only t
 This does not bend the one-owner rule. Each of the three has exactly one owner and it is
 the musician; the row that appears is theirs, born `unknown` like any other.
 
+A custom field value (RH-186, e.g. the pedalboard Preset) is also the musician's own in
+band context, whatever their band role, but it is not a fourth entry here: it creates no
+repertoire row in either table. It lives in `custom_field_values`, keyed by the field, the
+user and the version, so it can be set on a version neither the musician nor the band
+holds. That is why the count stays three.
+
 ---
 
 ## Add a song to the repertoire

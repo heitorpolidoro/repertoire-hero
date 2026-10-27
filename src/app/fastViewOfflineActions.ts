@@ -9,6 +9,7 @@ import {
   SONG_MAP_ACTIONS,
   SONG_WINDOW_ACTIONS,
 } from '@/app/fastViewEntryActions'
+import { SONG_CUSTOM_FIELDS_ACTIONS } from '@/app/customFieldActions'
 
 /**
  * The Fast View's six action bundles, made offline-first (RH-80).
@@ -45,3 +46,5 @@ export const OFFLINE_FIRST_SONG_LINKS_ACTIONS = offlineFirst(SONG_LINKS_ACTIONS)
 // RH-134. Unclassified in `offlineFirst` on purpose: offline the window is
 // refused and never answered from a snapshot.
 export const OFFLINE_FIRST_SONG_WINDOW_ACTIONS = offlineFirst(SONG_WINDOW_ACTIONS)
+// RH-186. Offline the read is answered from the snapshot; the set is refused.
+export const OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS = offlineFirst(SONG_CUSTOM_FIELDS_ACTIONS)

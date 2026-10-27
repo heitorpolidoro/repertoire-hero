@@ -40,7 +40,12 @@ const actions = {
   setPrimaryTab: vi.fn(),
   getAnnotations: vi.fn(),
   saveAnnotations: vi.fn(),
+  getCustomFieldValues: vi.fn(),
+  setCustomFieldValue: vi.fn(),
 }
+
+/** RH-186: the page's one offline signal, switchable per test (default online). */
+const offlineSignal = { offline: false }
 
 /**
  * The six bundles, as spies.
@@ -95,6 +100,11 @@ vi.mock('@/app/fastViewOfflineActions', () => {
     },
     // RH-134: the window read is best-effort; an empty answer is a plain miss.
     OFFLINE_FIRST_SONG_WINDOW_ACTIONS: { getSongWindow: () => Promise.resolve([]) },
+    // RH-186: the user's own custom fields, read and set per version.
+    OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS: {
+      getCustomFieldValues: call('getCustomFieldValues'),
+      setCustomFieldValue: call('setCustomFieldValue'),
+    },
   }
 })
 
@@ -121,9 +131,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push, back }),
 }))
 
-// The page reads the offline signal exactly once; every test here is online, so
-// `readOnly` is driven only by `ownerRowId` — which is the point.
-vi.mock('@/hooks/useOfflineStatus', () => ({ useOfflineStatus: () => false }))
+// The page reads the offline signal exactly once; every test here is online
+// unless it flips `offlineSignal`, so `readOnly` is driven only by `ownerRowId`
+// — which is the point.
+vi.mock('@/hooks/useOfflineStatus', () => ({ useOfflineStatus: () => offlineSignal.offline }))
 vi.mock('@/hooks/useWakeLock', () => ({ useWakeLock: () => undefined }))
 
 import FastViewPage from '../[versionId]/fast-view/page'
@@ -190,6 +201,9 @@ beforeEach(() => {
   actions.updateLinks.mockResolvedValue({ success: true })
   actions.updateLyrics.mockResolvedValue(undefined)
   actions.getAnnotations.mockResolvedValue({ data: {} })
+  // No definitions by default, so every other suite here sees no section.
+  actions.getCustomFieldValues.mockResolvedValue([])
+  offlineSignal.offline = false
   push.mockReset()
   back.mockReset()
 })
@@ -382,6 +396,65 @@ describe('Fast View at a version the band holds (RH-132 ER10)', { timeout: 30_00
     await waitFor(() => expect(actions.getPersonalEntryForSong).toHaveBeenCalled())
     expect(actions.getPersonalEntryForSong).toHaveBeenCalledWith('song-1')
     expect(actions.getPersonalEntryForSong).not.toHaveBeenCalledWith(ROUTE_VERSION_ID)
+  })
+})
+
+/**
+ * RH-186 ER6 — custom fields at a version nobody holds.
+ *
+ * The only suite that renders the page, so the only one that can catch the
+ * wiring regression that matters: the section given the page's `readOnly`
+ * (`isOffline || !song.ownerRowId`) instead of `isOffline` alone. A value needs
+ * no owner row and no band role, so with `ownerRowId: null` the section's
+ * buttons are enabled while the Lyrics Edit is disabled in the same render.
+ */
+describe('Fast View custom fields (RH-186 ER6)', { timeout: 30_000 }, () => {
+  const ENTRIES = [
+    { fieldId: 'f-preset', name: 'Preset', value: 'Lead 3B' },
+    { fieldId: 'f-capo', name: 'Capo', value: null },
+  ]
+
+  beforeEach(() => {
+    actions.getCustomFieldValues.mockResolvedValue(ENTRIES)
+    actions.setCustomFieldValue.mockResolvedValue('2')
+  })
+
+  async function saveCapo() {
+    const set = (await screen.findByRole('button', { name: 'Set Capo' })) as HTMLButtonElement
+    expect(set.disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'Edit Preset' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(sectionButton('Lyrics', /^Edit$/).disabled).toBe(true)
+
+    fireEvent.click(set)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Capo value' }), { target: { value: '2' } })
+    fireEvent.click(within(screen.getByLabelText('Custom fields')).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(actions.setCustomFieldValue).toHaveBeenCalledTimes(1))
+    expect(actions.setCustomFieldValue.mock.calls[0]).toEqual(['f-capo', ROUTE_VERSION_ID, '2'])
+    expect(actions.getCustomFieldValues).toHaveBeenCalledWith(ROUTE_VERSION_ID)
+  }
+
+  it('is editable in personal context at a version with no owner row', async () => {
+    await renderPage()
+    await saveCapo()
+  })
+
+  it('is editable for a band member under ?bandId= at a version the band does not hold, with no band id', async () => {
+    searchParams.set('bandId', BAND_ID)
+    await renderPage()
+    await saveCapo()
+    expect(actions.setCustomFieldValue.mock.calls[0]).not.toContain(BAND_ID)
+    expect(actions.getCustomFieldValues.mock.calls.flat()).not.toContain(BAND_ID)
+  })
+
+  it('offline, shows the filled field with Edit disabled and hides the not-set one (ER8)', async () => {
+    offlineSignal.offline = true
+    await renderPage()
+
+    const edit = (await screen.findByRole('button', { name: 'Edit Preset' })) as HTMLButtonElement
+    expect(edit.disabled).toBe(true)
+    expect(within(screen.getByLabelText('Custom fields')).getByText('Lead 3B')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Set Capo' })).toBeNull()
   })
 })
 

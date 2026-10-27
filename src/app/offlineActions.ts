@@ -4,6 +4,7 @@ import {
   getResolvedEntryForVersionAction,
 } from '@/app/actions/repertoire'
 import { getTabsAction } from '@/app/actions/tabs'
+import { getCustomFieldValuesAction } from '@/app/actions/customFields'
 import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
 
 /**
@@ -20,10 +21,13 @@ import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
  * row for, which used to be skipped and then unreadable offline.
  * `getPersonalEntryForSong` joined them in RH-83, so the snapshot can answer
  * which lyrics version is being read (docs/tasks/RH-83-spec.md §5).
+ * `getCustomFieldValues` joined them in RH-186, so Fast View offline shows the
+ * reader's own custom field values read-only.
  */
 export const OFFLINE_DOWNLOAD_ACTIONS: OfflineDownloadActions = {
   getPlaylistDetailsWithEntries: getPlaylistDetailsWithEntriesAction,
   getResolvedEntryForVersion: getResolvedEntryForVersionAction,
   getTabs: getTabsAction,
   getPersonalEntryForSong: getPersonalEntryForSongAction,
+  getCustomFieldValues: getCustomFieldValuesAction,
 }

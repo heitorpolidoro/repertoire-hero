@@ -76,6 +76,7 @@ function makeActions(overrides: Partial<OfflineCaptureActions> = {}): OfflineCap
     getResolvedEntryForVersion: vi.fn(() => Promise.resolve(resolved())),
     getTabs: vi.fn((songId: string) => Promise.resolve([tabRow('tab-a', songId)])),
     getPersonalEntryForSong: vi.fn((songId: string) => Promise.resolve(personalRow(songId))),
+    getCustomFieldValues: vi.fn(() => Promise.resolve([])),
     ...overrides,
   }
 }
@@ -225,6 +226,37 @@ describe('useOfflineSong — failure (ER4)', () => {
     })
 
     expect(result.current.error).toBe('Access denied')
+  })
+
+  it('captures the custom field values by version id onto the snapshot song (RH-186)', async () => {
+    const preset = { fieldId: 'f-preset', name: 'Preset', value: 'Lead 3B' }
+    const actions = makeActions({ getCustomFieldValues: vi.fn(() => Promise.resolve([preset])) })
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(actions.getCustomFieldValues).toHaveBeenCalledWith('v-7')
+    const record = [...ports.records.rows.values()][0]
+    expect(record.snapshot.songs[0].customFields).toEqual([preset])
+  })
+
+  it('a rejected custom field read fails the download and stores nothing (RH-186)', async () => {
+    const actions = makeActions({
+      getCustomFieldValues: vi.fn(() => Promise.reject(new Error('Failed to load custom field values: boom'))),
+    })
+    const { result, ports } = setup({ actions })
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.error).toBe('Failed to load custom field values: boom')
+    expect(result.current.status).toBe('idle')
+    expect(ports.records.rows.size).toBe(0)
   })
 
   it('names a quota failure and keeps nothing', async () => {

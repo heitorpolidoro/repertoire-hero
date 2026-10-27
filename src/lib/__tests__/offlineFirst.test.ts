@@ -25,6 +25,7 @@ import { songRecordId } from '@/lib/offlineSongRecord'
 import { createFakePorts } from './offlineStoreFakes'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
+import type { CustomFieldEntry } from '@/types/customField'
 
 /** The captured `(owner, version)` pair — a `ResolvedSongEntry` since RH-132. */
 function repertoire(id: string, overrides: Partial<ResolvedSongEntry> = {}): ResolvedSongEntry {
@@ -92,6 +93,8 @@ interface SeededPlaylist {
     personalLyrics?: string
     /** RH-132: the owner holds no row at this version. */
     noOwnerRow?: boolean
+    /** RH-186: absent stands for a song captured before custom fields existed. */
+    customFields?: CustomFieldEntry[]
   }[]
 }
 
@@ -113,6 +116,8 @@ async function seededStore(playlists: SeededPlaylist[]): Promise<OfflineStore> {
           ? personalRow(song.repertoireId, song.personalLyrics)
           : null,
         tabs: song.tabs ?? [],
+        // A pre-RH-186 record carries no such field; the store passes it through as given.
+        customFields: song.customFields as CustomFieldEntry[],
       })),
     })
   }
@@ -443,6 +448,27 @@ describe('offlineFirst — the offline readers', () => {
 
     await expect(wrapped.getAnnotations('tab-1')).resolves.toEqual({ data: {} })
   })
+
+  // RH-186 ER8: the reader's own values, as captured, keyed by the version.
+  it('answers getCustomFieldValues from the snapshot, [] when none were captured', async () => {
+    const preset: CustomFieldEntry = { fieldId: 'f-preset', name: 'Preset', value: 'Lead 3B' }
+    const wrapped = offlineFirst(
+      { getCustomFieldValues: () => Promise.reject(new Error('unreachable')) },
+      await offlinePorts([
+        {
+          playlistId: 'pl-1',
+          playlistName: 'Friday Set',
+          savedAt: '2026-09-20T10:00:00.000Z',
+          songs: [{ repertoireId: 'rep-1', customFields: [preset] }, { repertoireId: 'rep-2' }],
+        },
+      ]),
+    )
+
+    await expect(wrapped.getCustomFieldValues('v-rep-1')).resolves.toEqual([preset])
+    // Captured before RH-186, and in no downloaded playlist at all.
+    await expect(wrapped.getCustomFieldValues('v-rep-2')).resolves.toEqual([])
+    await expect(wrapped.getCustomFieldValues('v-nope')).resolves.toEqual([])
+  })
 })
 
 describe('offlineFirst — the offline writes', () => {
@@ -494,6 +520,22 @@ describe('offlineFirst — the offline writes', () => {
     }
   })
 
+  it('refuses setCustomFieldValue offline without calling the action (RH-186)', async () => {
+    let called = false
+    const wrapped = offlineFirst(
+      {
+        setCustomFieldValue: () => {
+          called = true
+          return Promise.resolve('Lead 3B')
+        },
+      },
+      await offlinePorts(ONE_PLAYLIST),
+    )
+
+    await expect(wrapped.setCustomFieldValue()).rejects.toThrow(OFFLINE_WRITE_MESSAGE)
+    expect(called).toBe(false)
+  })
+
   it('refuses an unknown method offline rather than serving or fetching anything', async () => {
     const wrapped = offlineFirst(
       { someFutureAction: () => Promise.resolve('should never run') },
@@ -529,6 +571,7 @@ describe('offlineFirst — a single-song record (RH-116 ER3)', () => {
           repertoire: repertoire('rep-1'),
           personalRepertoire: personalRow('rep-1', 'my cues'),
           tabs: [tab('tab-1', 'song-rep-1', '2026-01-02T00:00:00.000Z')],
+          customFields: [],
         },
       ],
     })
