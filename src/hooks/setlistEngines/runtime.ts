@@ -23,6 +23,9 @@ export interface RuntimeDeps {
   engines: EngineFactories
   /** How long an engine gets to report playing before the browser is taken to have refused. */
   refusalMs: number
+  /** Duration of the countdown before playback begins. Defaults to 5000. 0 disables countdown. */
+  countdownMs?: number
+  onSongChange?: (versionId: string, bandId: string | null) => void
 }
 
 const store = () => useSetlistPlayerStore.getState()
@@ -56,12 +59,21 @@ export class SetlistRuntime {
   private sources = new Map<string, QueueSources>()
   private facts: Promise<PlaybackFacts | null> | null = null
   private offline = false
+  private countdownTimer: ReturnType<typeof setInterval> | null = null
+  private countdownResolver: (() => void) | null = null
+  private onSongChange?: (versionId: string, bandId: string | null) => void
 
   /** The hoisted nodes, handed over by the bar's callback refs; `null` while unmounted. */
   private nodes: { audio: HTMLAudioElement | null; youtube: HTMLElement | null } = { audio: null, youtube: null }
   private readonly hosts: EngineHosts = { audio: () => this.nodes.audio, youtube: () => this.nodes.youtube }
 
-  constructor(private readonly deps: RuntimeDeps) {}
+  constructor(private readonly deps: RuntimeDeps) {
+    this.onSongChange = deps.onSongChange
+  }
+
+  setOnSongChange(fn?: (versionId: string, bandId: string | null) => void): void {
+    this.onSongChange = fn
+  }
 
   setAudioNode = (node: HTMLAudioElement | null): void => {
     this.nodes.audio = node
@@ -74,6 +86,8 @@ export class SetlistRuntime {
   setOffline(offline: boolean): void {
     this.offline = offline
     if (!offline) return
+    this.clearCountdownTimer()
+    store().patch({ countdown: null })
     // The hoisted nodes unmount while offline: stop and let engines be rebuilt later.
     this.run++
     this.disposeEngines()
@@ -82,6 +96,7 @@ export class SetlistRuntime {
 
   async start({ entries, versionId, bandId }: StartRequest): Promise<void> {
     const index = Math.max(0, entries.findIndex((e) => e.versionId === versionId))
+    this.clearCountdownTimer()
     this.disposeEngines()
     store().begin(entries, index, bandId)
     if (this.offline) {
@@ -100,9 +115,14 @@ export class SetlistRuntime {
   }
 
   async toggle(): Promise<void> {
-    const { status, index } = store()
+    const { status, index, countdown } = store()
     const engine = this.active ? this.engines[this.active] : undefined
     if (this.offline) return
+    if (countdown !== null) {
+      this.clearCountdownTimer()
+      store().patch({ countdown: null, status: 'paused', refused: false })
+      return
+    }
     if (status === 'playing') {
       engine?.pause()
       store().patch({ status: 'paused', refused: false })
@@ -113,13 +133,31 @@ export class SetlistRuntime {
     }
   }
 
+  async skipCountdown(): Promise<void> {
+    if (this.countdownTimer === null && store().countdown === null) return
+    const engine = this.active ? this.engines[this.active] : undefined
+    this.clearCountdownTimer()
+    store().patch({ countdown: null })
+    if (engine) {
+      await this.tryPlay(engine, this.run)
+    }
+  }
+
+  cancelCountdown(): void {
+    this.clearCountdownTimer()
+    store().patch({ countdown: null })
+    this.dismiss()
+  }
+
   dismiss(): void {
+    this.clearCountdownTimer()
     this.run++
     this.disposeEngines()
     store().reset()
   }
 
   dispose(): void {
+    this.clearCountdownTimer()
     this.run++
     this.disposeEngines()
   }
@@ -127,7 +165,21 @@ export class SetlistRuntime {
   private step(direction: 1 | -1): void {
     const { index, entries } = store()
     const target = stepIndex(index, entries.length, direction)
-    if (target !== null && !this.offline) void this.runFrom(target, direction)
+    if (target !== null && !this.offline) {
+      this.clearCountdownTimer()
+      void this.runFrom(target, direction)
+    }
+  }
+
+  private clearCountdownTimer(): void {
+    if (this.countdownTimer !== null) {
+      clearInterval(this.countdownTimer)
+      this.countdownTimer = null
+    }
+    if (this.countdownResolver !== null) {
+      this.countdownResolver()
+      this.countdownResolver = null
+    }
   }
 
   private disposeEngines(): void {
@@ -230,9 +282,16 @@ export class SetlistRuntime {
         return
       }
       store().patch({ index: found.index, kind: found.source.kind })
+      this.onSongChange?.(entries[found.index].versionId, store().bandId)
       const engine = await this.load(found.source)
       if (run !== this.run) return
-      if (engine) return this.tryPlay(engine, run)
+      if (engine) {
+        const countdownMs = this.deps.countdownMs ?? 5000
+        if (countdownMs <= 0) {
+          return this.tryPlay(engine, run)
+        }
+        return this.startCountdown(engine, run, countdownMs)
+      }
       store().patch({ skipped: entries[found.index].title })
       const following = stepIndex(found.index, entries.length, direction)
       if (following === null) {
@@ -241,5 +300,29 @@ export class SetlistRuntime {
       }
       start = following
     }
+  }
+
+  private startCountdown(engine: SetlistEngine, run: number, countdownMs: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.clearCountdownTimer()
+      let remaining = Math.ceil(countdownMs / 1000)
+      store().patch({ countdown: remaining, status: 'paused', refused: false })
+      this.countdownResolver = resolve
+
+      this.countdownTimer = setInterval(() => {
+        if (run !== this.run) {
+          this.clearCountdownTimer()
+          return
+        }
+        remaining--
+        if (remaining > 0) {
+          store().patch({ countdown: remaining })
+        } else {
+          this.clearCountdownTimer()
+          store().patch({ countdown: null })
+          void this.tryPlay(engine, run).finally(resolve)
+        }
+      }, 1000)
+    })
   }
 }

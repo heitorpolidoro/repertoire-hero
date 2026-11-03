@@ -26,6 +26,8 @@ export interface UseSetlistPlayerOptions {
   /** Test seams; the defaults are the real engines. Read once, at mount. */
   engines?: EngineFactories
   refusalMs?: number
+  countdownMs?: number
+  onSongChange?: (versionId: string, bandId: string | null) => void
 }
 
 export interface SetlistPlayerController {
@@ -36,6 +38,7 @@ export interface SetlistPlayerController {
   status: PlayerStatus
   kind: SourceKind | null
   title: string
+  artist: string | null
   versionId: string | null
   bandId: string | null
   nextTitle: string | null
@@ -44,6 +47,9 @@ export interface SetlistPlayerController {
   message: string | null
   hasPrev: boolean
   hasNext: boolean
+  countdown: number | null
+  skipCountdown: () => void
+  cancelCountdown: () => void
   toggle: () => void
   next: () => void
   prev: () => void
@@ -61,9 +67,15 @@ export function useSetlistPlayer({
   enabled,
   engines = DEFAULT_ENGINES,
   refusalMs = REFUSAL_MS,
+  countdownMs,
+  onSongChange,
 }: UseSetlistPlayerOptions) {
-  const [runtime] = useState(() => new SetlistRuntime({ actions, engines, refusalMs }))
+  const [runtime] = useState(() => new SetlistRuntime({ actions, engines, refusalMs, countdownMs, onSongChange }))
   const state = useSetlistPlayerStore()
+
+  useEffect(() => {
+    runtime.setOnSongChange(onSongChange)
+  }, [onSongChange, runtime])
 
   useEffect(() => {
     runtime.setOffline(offline)
@@ -88,6 +100,7 @@ export function useSetlistPlayer({
     status: state.status,
     kind: state.kind,
     title: current?.title ?? '',
+    artist: current?.artist ?? null,
     versionId: current?.versionId ?? null,
     bandId: state.bandId,
     nextTitle: state.entries[state.index + 1]?.title ?? null,
@@ -95,6 +108,9 @@ export function useSetlistPlayer({
     message: messageFor(state, offline, current?.title ?? ''),
     hasPrev: state.index > 0,
     hasNext: state.index < state.entries.length - 1,
+    countdown: state.countdown,
+    skipCountdown: () => void runtime.skipCountdown(),
+    cancelCountdown: () => runtime.cancelCountdown(),
     toggle: () => void runtime.toggle(),
     next: () => runtime.next(),
     prev: () => runtime.prev(),

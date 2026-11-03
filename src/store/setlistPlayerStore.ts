@@ -22,6 +22,7 @@ interface SetlistPlayerState {
   refused: boolean
   /** Title of the last entry passed over for lack of a source. */
   skipped: string | null
+  countdown: number | null
   bandId: string | null
   /** Set by the "Play setlist" tap, consumed by the controller. */
   request: StartRequest | null
@@ -29,7 +30,7 @@ interface SetlistPlayerState {
   consumeRequest: () => StartRequest | null
   begin: (entries: SongQueueEntry[], index: number, bandId: string | null) => void
   patch: (
-    next: Partial<Pick<SetlistPlayerState, 'index' | 'status' | 'kind' | 'refused' | 'skipped'>>,
+    next: Partial<Pick<SetlistPlayerState, 'index' | 'status' | 'kind' | 'refused' | 'skipped' | 'countdown'>>,
   ) => void
   reset: () => void
 }
@@ -41,6 +42,7 @@ const INITIAL = {
   kind: null as SourceKind | null,
   refused: false,
   skipped: null as string | null,
+  countdown: null as number | null,
   bandId: null as string | null,
   request: null as StartRequest | null,
 }
@@ -55,7 +57,7 @@ export const useSetlistPlayerStore = create<SetlistPlayerState>()((set, get) => 
     return request
   },
   begin: (entries, index, bandId) =>
-    set({ entries, index, bandId, status: 'paused', kind: null, refused: false, skipped: null }),
+    set({ entries, index, bandId, status: 'paused', kind: null, refused: false, skipped: null, countdown: null }),
   patch: (next) => set(next),
   reset: () => set({ ...INITIAL }),
 }))

@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 import { getBandsAction } from '@/app/actions/bands'
 import { getProfileAction } from '@/app/actions/profile'
 import ConditionalLayout from '@/components/layout/ConditionalLayout'
 import { SetlistPlayer } from '@/components/layout/SetlistPlayer'
 import { SETLIST_PLAYER_ACTIONS } from '@/app/setlistPlayerActions'
+import { fastViewHref } from '@/lib/playlistNav'
 import { useOfflineStatus } from '@/hooks/useOfflineStatus'
 import { useSetlistPlayer } from '@/hooks/useSetlistPlayer'
 import { useBandContextStore } from '@/store/bandContextStore'
@@ -77,12 +79,20 @@ export default function AppShell({
     }
   }, [userId])
 
+  const pathname = usePathname()
+  const router = useRouter()
+
   // RH-167: the setlist player lives here, above every route, so its audio and
   // YouTube nodes survive navigation. Hidden until a "Play setlist" tap.
   const setlistPlayer = useSetlistPlayer({
     actions: SETLIST_PLAYER_ACTIONS,
     offline: useOfflineStatus(),
     enabled: !!userId,
+    onSongChange: (versionId, bandId) => {
+      if (pathname.includes('/fast-view') && !pathname.includes(`/songs/${versionId}/fast-view`)) {
+        router.replace(fastViewHref(versionId, bandId))
+      }
+    },
   })
 
   return (

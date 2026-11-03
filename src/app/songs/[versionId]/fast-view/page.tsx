@@ -60,6 +60,7 @@ import { PRACTICE_FINISH_ACTIONS } from '@/app/fastViewPracticeActions'
 import { usePracticeFinish } from '@/hooks/usePracticeFinish'
 import { PracticeFinishButton } from '@/components/fastview/PracticeFinishButton'
 import { PracticeReviewList } from '@/components/ui/PracticeReviewList'
+import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
 
 /**
  * Fast View — the stripped-down reading page a musician props on a music stand.
@@ -125,12 +126,7 @@ export default function FastViewPage() {
   const tuning = useSongTuning({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_TUNING_ACTIONS, onSaved: afterWrite(song.applyTuning), notify: showToast })
   const songMap = useSongMap({ entry, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_MAP_ACTIONS, onSaved: afterWrite(song.applyMap), notify: showToast })
   // Links section (RH-52); declared before `useTabLibrary`, which closes its delete confirmation.
-  const links = useSongLinks({
-    entry,
-    actions: OFFLINE_FIRST_SONG_LINKS_ACTIONS,
-    onLinksSaved: afterWrite(song.applyLinks),
-    notify: showToast,
-  })
+  const links = useSongLinks({ entry, actions: OFFLINE_FIRST_SONG_LINKS_ACTIONS, onLinksSaved: afterWrite(song.applyLinks), notify: showToast })
 
   // File library (RH-49), keyed by song id since RH-123.
   const tabLibrary = useTabLibrary({
@@ -161,13 +157,14 @@ export default function FastViewPage() {
     notify: showToast,
   })
 
-  // Setlist navigation over the tab's song queue (RH-48, RH-133); arrows off during Stage Mode.
+  const isCountingDown = useSetlistPlayerStore((s) => s.countdown !== null)
+  // Setlist navigation over the tab's song queue (RH-48, RH-133); arrows off during Stage Mode or countdown.
   const playlist = usePlaylistNav({
     currentVersionId: versionId,
     bandId: queryBandId,
     navigate: (href) => router.push(href),
     navigateBack: () => router.back(),
-    keyboardEnabled: !pdfStage.isOpen && !lyrics.isStageOpen,
+    keyboardEnabled: !pdfStage.isOpen && !lyrics.isStageOpen && !isCountingDown,
   })
 
   // "Finish practice" on the last queue entry (RH-169).

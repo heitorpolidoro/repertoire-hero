@@ -26,12 +26,24 @@ import { DEFAULT_BAND_COLOR } from '@/lib/bandColors'
 import { getBandIndicatorCopies } from '@/lib/i18n'
 import type { BandOption } from '@/types/database'
 
-const { getBandsSpy, getProfileSpy, loadSongsSpy, pushSpy, loggerErrorSpy } = vi.hoisted(() => ({
+const {
+  getBandsSpy,
+  getProfileSpy,
+  loadSongsSpy,
+  pushSpy,
+  replaceSpy,
+  loggerErrorSpy,
+  navState,
+  useSetlistPlayerSpy,
+} = vi.hoisted(() => ({
   getBandsSpy: vi.fn(),
   getProfileSpy: vi.fn(),
   loadSongsSpy: vi.fn(),
   pushSpy: vi.fn(),
+  replaceSpy: vi.fn(),
   loggerErrorSpy: vi.fn(),
+  navState: { pathname: '/' },
+  useSetlistPlayerSpy: vi.fn(),
 }))
 
 vi.mock('@/lib/auth-client', () => ({
@@ -55,9 +67,20 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/',
-  useRouter: () => ({ push: pushSpy }),
+  usePathname: () => navState.pathname,
+  useRouter: () => ({ push: pushSpy, replace: replaceSpy }),
 }))
+
+vi.mock('@/hooks/useSetlistPlayer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useSetlistPlayer')>()
+  return {
+    ...actual,
+    useSetlistPlayer: (opts: import('@/hooks/useSetlistPlayer').UseSetlistPlayerOptions) => {
+      useSetlistPlayerSpy(opts)
+      return actual.useSetlistPlayer(opts)
+    },
+  }
+})
 
 vi.mock('@/app/actions/profile', () => ({
   getProfileAction: getProfileSpy,
@@ -227,5 +250,54 @@ describe('AppShell system-admin flag (RH-156)', () => {
     const second = renderShell()
     await waitFor(() => expect(loggerErrorSpy).toHaveBeenCalledTimes(1))
     expect(second.container.querySelector('[data-system-admin="false"]')).not.toBeNull()
+  })
+})
+
+describe('AppShell setlist player auto-navigation (RH-189)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useBandContextStore.setState({ context: { type: 'user' } })
+    getBandsSpy.mockResolvedValue([])
+    getProfileSpy.mockResolvedValue(null)
+    navState.pathname = '/'
+  })
+
+  afterEach(cleanup)
+
+  it('calls router.replace when on a Fast View route and song changes to a different song', async () => {
+    navState.pathname = '/songs/song-1/fast-view'
+    renderShell()
+
+    await waitFor(() => expect(useSetlistPlayerSpy).toHaveBeenCalled())
+    const latestCall = useSetlistPlayerSpy.mock.calls.at(-1)
+    const onSongChange = latestCall?.[0]?.onSongChange
+    expect(onSongChange).toBeTypeOf('function')
+
+    onSongChange('song-2', null)
+    expect(replaceSpy).toHaveBeenCalledWith('/songs/song-2/fast-view?')
+  })
+
+  it('does not call router.replace when the song is already on screen', async () => {
+    navState.pathname = '/songs/song-1/fast-view'
+    renderShell()
+
+    await waitFor(() => expect(useSetlistPlayerSpy).toHaveBeenCalled())
+    const latestCall = useSetlistPlayerSpy.mock.calls.at(-1)
+    const onSongChange = latestCall?.[0]?.onSongChange
+
+    onSongChange('song-1', null)
+    expect(replaceSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not call router.replace when not on a Fast View route', async () => {
+    navState.pathname = '/playlists/p-1'
+    renderShell()
+
+    await waitFor(() => expect(useSetlistPlayerSpy).toHaveBeenCalled())
+    const latestCall = useSetlistPlayerSpy.mock.calls.at(-1)
+    const onSongChange = latestCall?.[0]?.onSongChange
+
+    onSongChange('song-2', null)
+    expect(replaceSpy).not.toHaveBeenCalled()
   })
 })

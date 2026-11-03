@@ -77,13 +77,24 @@ interface HostProps {
   sources: Record<string, QueueSources>
   offline?: boolean
   refusalMs?: number
+  countdownMs?: number
+  onSongChange?: (versionId: string, bandId: string | null) => void
   facts?: { connected: boolean; scope: string | null; premium: boolean }
   children?: ReactNode
   actions?: SetlistPlayerActions
 }
 
 /** An `AppShell` equivalent: the hook and the bar above whatever route is rendered. */
-function Host({ sources, offline = false, refusalMs = 30, facts, children, actions }: HostProps) {
+function Host({
+  sources,
+  offline = false,
+  refusalMs = 30,
+  countdownMs = 0,
+  onSongChange,
+  facts,
+  children,
+  actions,
+}: HostProps) {
   const player = useSetlistPlayer({
     actions: actions ?? {
       getSources: async (id) => sources[id] ?? {},
@@ -98,6 +109,8 @@ function Host({ sources, offline = false, refusalMs = 30, facts, children, actio
     enabled: true,
     engines: factories(),
     refusalMs,
+    countdownMs,
+    onSongChange,
   })
   return (
     <>
@@ -428,3 +441,215 @@ describe('offline (ER7)', () => {
     expect(useSetlistPlayerStore.getState().index).toBe(0)
   })
 })
+
+describe('countdown overlay (RH-189)', () => {
+  const cdEntries: SongQueueEntry[] = [
+    { versionId: 'one', title: 'Comfortably Numb', artist: 'Pink Floyd' },
+    { versionId: 'two', title: 'Hotel California', artist: 'Eagles' },
+  ]
+  const tapCd = (versionId: string) =>
+    act(() => {
+      useSetlistPlayerStore.getState().requestStart({ entries: cdEntries, versionId, bandId: null })
+    })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders countdown overlay showing 5, title, artist, and does not call play yet', async () => {
+    render(<Host sources={{ one: FILE('one') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const overlay = screen.getByRole('dialog', { name: 'Setlist countdown' })
+    expect(screen.getByTestId('countdown-display').textContent).toBe('5')
+    expect(screen.getByRole('heading', { level: 3, name: 'Comfortably Numb' })).toBeTruthy()
+    expect(screen.getByText('Pink Floyd')).toBeTruthy()
+    expect(overlay).toBeTruthy()
+    expect(mediaPlay).not.toHaveBeenCalled()
+  })
+
+  it('ticks 5 -> 4 -> 3 -> 2 -> 1 at 1000ms intervals, then starts playback at 0 and dismisses overlay', async () => {
+    render(<Host sources={{ one: FILE('one') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('countdown-display').textContent).toBe('5')
+    expect(mediaPlay).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.getByTestId('countdown-display').textContent).toBe('4')
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.getByTestId('countdown-display').textContent).toBe('3')
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.getByTestId('countdown-display').textContent).toBe('2')
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.getByTestId('countdown-display').textContent).toBe('1')
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.queryByTestId('countdown-display')).toBeNull()
+    expect(mediaPlay).toHaveBeenCalledTimes(1)
+  })
+
+  it('transitions to paused with refused: true showing "Tap to play <title>" if play rejects after countdown', async () => {
+    mediaPlay.mockRejectedValueOnce(new Error('NotAllowedError'))
+    render(<Host sources={{ one: FILE('one') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByTestId('countdown-display')).toBeNull()
+    expect(status()).toBe('Tap to play Comfortably Numb')
+    expect(useSetlistPlayerStore.getState().refused).toBe(true)
+    expect(useSetlistPlayerStore.getState().status).toBe('paused')
+  })
+
+  it('clicking "Skip countdown" dismisses the overlay immediately and calls engine play()', async () => {
+    render(<Host sources={{ one: FILE('one') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('countdown-display')).toBeTruthy()
+    const skipBtn = screen.getByRole('button', { name: 'Skip countdown' })
+    fireEvent.click(skipBtn)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByTestId('countdown-display')).toBeNull()
+    expect(mediaPlay).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking "Cancel countdown" clears the timer, leaves countdown null, and does not play', async () => {
+    render(<Host sources={{ one: FILE('one') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel countdown' })
+    fireEvent.click(cancelBtn)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByTestId('countdown-display')).toBeNull()
+    expect(useSetlistPlayerStore.getState().countdown).toBeNull()
+    expect(useSetlistPlayerStore.getState().status).toBe('idle')
+    expect(mediaPlay).not.toHaveBeenCalled()
+  })
+
+  it('calling toggle() during countdown cancels the timer and sets status to paused', async () => {
+    render(<Host sources={{ one: FILE('one') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('countdown-display')).toBeTruthy()
+    // Trigger toggle via controller:
+    const barPlayBtn = screen.getByRole('button', { name: 'Play' })
+    fireEvent.click(barPlayBtn)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByTestId('countdown-display')).toBeNull()
+    expect(useSetlistPlayerStore.getState().countdown).toBeNull()
+    expect(useSetlistPlayerStore.getState().status).toBe('paused')
+    expect(mediaPlay).not.toHaveBeenCalled()
+
+    // Advancing timers further does not call play:
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(mediaPlay).not.toHaveBeenCalled()
+  })
+
+  it('stepping with next() during countdown clears timer and starts a fresh countdown for the next song', async () => {
+    render(<Host sources={{ one: FILE('one'), two: FILE('two') }} countdownMs={5000} />)
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    expect(screen.getByTestId('countdown-display').textContent).toBe('3')
+
+    // Step next
+    const nextBtn = screen.getByRole('button', { name: 'Next' })
+    fireEvent.click(nextBtn)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // Destination song starts fresh countdown at 5
+    expect(screen.getByTestId('countdown-display').textContent).toBe('5')
+    expect(screen.getByRole('heading', { level: 3, name: 'Hotel California' })).toBeTruthy()
+    expect(mediaPlay).not.toHaveBeenCalled()
+
+    // Complete the 5 seconds for song two:
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(screen.queryByTestId('countdown-display')).toBeNull()
+    expect(mediaPlay).toHaveBeenCalledTimes(1)
+  })
+
+  it('notifies onSongChange when advancing or stepping', async () => {
+    const onSongChange = vi.fn()
+    render(
+      <Host
+        sources={{ one: FILE('one'), two: FILE('two') }}
+        countdownMs={0}
+        onSongChange={onSongChange}
+      />,
+    )
+    tapCd('one')
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(onSongChange).toHaveBeenCalledWith('one', null)
+
+    const nextBtn = screen.getByRole('button', { name: 'Next' })
+    fireEvent.click(nextBtn)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(onSongChange).toHaveBeenCalledWith('two', null)
+  })
+})
+

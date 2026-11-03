@@ -22,7 +22,8 @@
  */
 
 import { test, expect, type Page } from '@playwright/test'
-import { AUTH_STATE_PATH } from './global-setup'
+import { Client } from 'pg'
+import { AUTH_STATE_PATH, E2E_USER_EMAIL } from './global-setup'
 import {
   addSong,
   createPlaylist,
@@ -335,3 +336,65 @@ test('?bandId= in the URL wins over the queue owner when the walk pushes', async
     await page.waitForURL(/\/bands$/, { timeout: 15_000 })
   }
 })
+
+test('displays countdown overlay with big typography, upcoming song details, intercepts pointer, and dismisses on skip', async ({
+  page,
+}) => {
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
+  })
+  await client.connect()
+  try {
+    await client.query(
+      `INSERT INTO song_files (song_id, user_id, file_url, file_name, content_type, file_size)
+       SELECT s.id, u.id, 'https://blob.example/rh189.mp3', 'rh189.mp3', 'audio/mpeg', 1024
+         FROM songs s, "user" u
+        WHERE s.title = $1 AND u.email = $2
+        ON CONFLICT DO NOTHING`,
+      [titles[0], E2E_USER_EMAIL],
+    )
+  } finally {
+    await client.end()
+  }
+
+  await reopenPlaylist(page)
+  await openFromPlaylist(page, titles[0])
+  await expect(sidebar(page)).toContainText('1 / 3')
+
+  const playSetlistBtn = page.getByRole('button', { name: /Play setlist/ })
+  if (await playSetlistBtn.isHidden()) {
+    await page.getByRole('button', { name: /^Setlist/ }).click()
+  }
+  await expect(playSetlistBtn).toBeVisible()
+  await playSetlistBtn.click()
+
+  const overlay = page.getByRole('dialog', { name: 'Setlist countdown' })
+  await expect(overlay).toBeVisible({ timeout: 10_000 })
+
+  await expect(overlay.getByRole('heading', { level: 3, name: titles[0] })).toBeVisible()
+  await expect(overlay.getByText('RH109 Artist')).toBeVisible()
+
+  const countdownEl = overlay.locator('[data-testid="countdown-display"]')
+  await expect(countdownEl).toBeVisible()
+  const viewportSize = page.viewportSize()
+  const viewportHeight = viewportSize?.height ?? 720
+  const fontSize = await countdownEl.evaluate((el) => parseFloat(window.getComputedStyle(el).fontSize))
+  expect(fontSize).toBeGreaterThanOrEqual(0.3 * viewportHeight - 1)
+
+  await expect(overlay).toHaveCSS('pointer-events', 'auto')
+  let clickBlocked = false
+  try {
+    await page.getByRole('button', { name: 'Back' }).click({ timeout: 1000 })
+  } catch {
+    clickBlocked = true
+  }
+  expect(clickBlocked).toBe(true)
+
+  const skipBtn = overlay.getByRole('button', { name: 'Skip countdown' })
+  await skipBtn.click()
+  await expect(overlay).toBeHidden()
+
+  await page.getByRole('button', { name: 'Back' }).click()
+  await page.waitForURL(playlistUrl, { timeout: 15_000 })
+})
+

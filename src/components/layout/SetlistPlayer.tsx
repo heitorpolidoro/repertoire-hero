@@ -26,6 +26,7 @@ export function SetlistPlayer({ controller: c, bindAudio, bindYoutube }: Setlist
   return (
     <>
       {!c.offline && <audio ref={bindAudio} preload="none" />}
+      {c.countdown !== null && <CountdownOverlay c={c} />}
       <div
         role="region"
         aria-label="Setlist player"
@@ -39,6 +40,56 @@ export function SetlistPlayer({ controller: c, bindAudio, bindYoutube }: Setlist
         {c.visible && <Bar c={c} />}
       </div>
     </>
+  )
+}
+
+function CountdownOverlay({ c }: { c: SetlistPlayerController }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Setlist countdown"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-black/90 p-8 text-white backdrop-blur-md pointer-events-auto select-none"
+    >
+      <div className="flex w-full max-w-md items-center justify-between">
+        <span className="rounded-full border border-emerald-800/80 bg-emerald-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
+          Starting Song In
+        </span>
+        <button
+          type="button"
+          aria-label="Cancel countdown"
+          onClick={c.cancelCountdown}
+          className="flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          Cancel
+        </button>
+      </div>
+
+      <div className="my-auto flex w-full max-w-md flex-col items-center justify-center text-center">
+        <div
+          data-testid="countdown-display"
+          className="text-[30vh] font-black leading-none tracking-tighter text-white tabular-nums drop-shadow-2xl"
+        >
+          {c.countdown}
+        </div>
+        <div className="mt-4 w-full px-4">
+          <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Up Next</p>
+          <h3 className="mt-1 truncate text-xl font-bold text-white">{c.title}</h3>
+          {c.artist && <p className="truncate text-sm text-gray-300">{c.artist}</p>}
+        </div>
+      </div>
+
+      <div className="flex w-full max-w-xs flex-col items-center gap-2">
+        <button
+          type="button"
+          aria-label="Skip countdown"
+          onClick={c.skipCountdown}
+          className="flex w-full items-center justify-center rounded-full bg-emerald-500 px-6 py-3.5 text-sm font-bold tracking-wide text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400 active:scale-95"
+        >
+          Skip countdown
+        </button>
+      </div>
+    </div>
   )
 }
 
