@@ -36,6 +36,7 @@ import {
   createPlaylist,
   goHome,
   openPlaylist,
+  runPlaylistMenuAction,
   songCard,
   uniqueFixtureName,
   waitForPlaylistDetailHydrated,
@@ -97,10 +98,10 @@ async function fastViewUrlFromCard(page: Page, title: string): Promise<string> {
 
 /** Adds one catalog song to the open playlist through the real picker. */
 async function addSongToOpenPlaylist(page: Page, title: string) {
-  const pickerToggle = page.getByRole('button', { name: 'Add songs' })
+  // RH-172 moved the picker toggle into the header's `More actions` menu.
   const pickerInput = page.getByPlaceholder('Search catalog and Spotify')
 
-  await pickerToggle.click()
+  await runPlaylistMenuAction(page, 'Add songs')
   await expect(pickerInput).toBeVisible()
   await pickerInput.fill(title)
 
@@ -108,13 +109,13 @@ async function addSongToOpenPlaylist(page: Page, title: string) {
   await expect(pickerRow).toBeVisible({ timeout: 20_000 })
   await pickerRow.getByRole('button', { name: 'Add', exact: true }).click()
 
-  await pickerToggle.click()
+  await runPlaylistMenuAction(page, 'Add songs')
   await expect(pickerInput).toHaveCount(0)
 }
 
-/** Clicks the real `Available offline` control and waits for the stored state. */
+/** Clicks the real `Make available offline` control and waits for the stored state. */
 async function downloadPlaylist(page: Page) {
-  await page.getByRole('button', { name: 'Available offline' }).click()
+  await page.getByRole('button', { name: 'Make available offline' }).click()
   // The downloaded state is the only one carrying these two affordances.
   await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeVisible({
     timeout: 60_000,

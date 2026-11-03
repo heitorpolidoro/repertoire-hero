@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-188 — Make available offline</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-6 space-y-10">
+
+<header class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold">RH-188 — Make a whole playlist available offline</h1>
+  <p class="text-sm text-gray-600 mt-1">Section 1 is the interactive control. Section 2 shows today against the new design. Section 3 is the open question.</p>
+</header>
+
+<!-- ============ 1. Interactive ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-2">1. Playlist page: try the control</h2>
+  <div class="flex flex-wrap gap-2 mb-3 text-sm">
+    <label class="flex items-center gap-2 bg-white border rounded px-3 py-1">
+      <input type="checkbox" id="toggleOffline"> Browser offline
+    </label>
+    <label class="flex items-center gap-2 bg-white border rounded px-3 py-1">
+      <input type="checkbox" id="toggleFail"> Next download fails
+    </label>
+    <button id="resetBtn" class="bg-white border rounded px-3 py-1">Reset</button>
+  </div>
+
+  <div class="max-w-md bg-white rounded-2xl shadow overflow-hidden border">
+    <div class="px-4 py-3 border-b flex items-center gap-3">
+      <i data-lucide="chevron-left" class="w-5 h-5 text-gray-500"></i>
+      <div class="w-10 h-10 rounded bg-emerald-200"></div>
+      <div class="flex-1"><p class="font-bold">Friday Gig</p><p class="text-xs text-gray-500">6 songs</p></div>
+      <i data-lucide="plus" class="w-5 h-5 text-gray-500"></i>
+      <i data-lucide="more-vertical" class="w-5 h-5 text-gray-500"></i>
+    </div>
+    <div class="px-4 py-2 border-b flex gap-2 text-xs">
+      <span class="rounded-full bg-gray-100 px-2 py-0.5">live</span><span class="rounded-full bg-gray-100 px-2 py-0.5">acoustic</span>
+    </div>
+    <div id="offlineSlot" class="px-4 py-3 border-b border-gray-100"></div>
+    <div class="px-4 py-3 border-b">
+      <div class="h-2 rounded-full bg-gray-100 overflow-hidden flex"><div class="bg-emerald-500 w-1/2"></div><div class="bg-amber-400 w-1/6"></div></div>
+    </div>
+    <ul id="songs" class="divide-y text-sm"></ul>
+  </div>
+</section>
+
+<!-- ============ 2. Before / after ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-2">2. Idle control: today and after this task</h2>
+  <div class="grid md:grid-cols-2 gap-6">
+    <div>
+      <p class="text-sm font-medium mb-2">Today: reads like a status, not a button</p>
+      <div class="bg-white p-4 rounded-xl border">
+        <button class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
+          <span class="text-gray-400">⤓</span><span class="font-semibold">Available offline</span>
+        </button>
+      </div>
+    </div>
+    <div>
+      <p class="text-sm font-medium mb-2">After: an explicit action</p>
+      <div class="bg-white p-4 rounded-xl border">
+        <button class="w-full rounded-xl bg-emerald-600 text-white px-4 py-3 flex items-center justify-center gap-2 font-semibold">
+          <i data-lucide="download" class="w-5 h-5"></i>Make available offline
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. Question ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">3. Question: Placement</h2>
+  <p class="text-sm text-gray-600 mb-3">Where should the button go? The spec picks <b>A</b>: it stays where the control is today and becomes a full-width green button. A or B is enough.</p>
+  <div class="grid md:grid-cols-2 gap-6">
+    <div>
+      <p class="font-semibold mb-2">A: full-width green bar under the tags (spec's pick)</p>
+      <div class="bg-white rounded-2xl shadow border overflow-hidden max-w-sm">
+        <div class="px-4 py-3 border-b flex items-center gap-3">
+          <i data-lucide="chevron-left" class="w-5 h-5 text-gray-500"></i>
+          <div class="w-10 h-10 rounded bg-emerald-200"></div>
+          <p class="font-bold flex-1">Friday Gig</p>
+          <i data-lucide="plus" class="w-5 h-5 text-gray-500"></i>
+          <i data-lucide="more-vertical" class="w-5 h-5 text-gray-500"></i>
+        </div>
+        <div class="px-4 py-2 border-b text-xs"><span class="rounded-full bg-gray-100 px-2 py-0.5">live</span></div>
+        <div class="px-4 py-3 border-b">
+          <button class="w-full rounded-xl bg-emerald-600 text-white px-4 py-3 flex items-center justify-center gap-2 font-semibold">
+            <i data-lucide="download" class="w-5 h-5"></i>Make available offline</button>
+        </div>
+        <div class="px-4 py-3 text-sm text-gray-400">Song list…</div>
+      </div>
+    </div>
+    <div>
+      <p class="font-semibold mb-2">B: small button in the header, next to the other actions</p>
+      <div class="bg-white rounded-2xl shadow border overflow-hidden max-w-sm">
+        <div class="px-4 py-3 border-b flex items-center gap-3">
+          <i data-lucide="chevron-left" class="w-5 h-5 text-gray-500"></i>
+          <div class="w-10 h-10 rounded bg-emerald-200"></div>
+          <p class="font-bold flex-1">Friday Gig</p>
+          <button class="rounded-lg bg-emerald-600 text-white px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1">
+            <i data-lucide="download" class="w-4 h-4"></i>Offline</button>
+          <i data-lucide="plus" class="w-5 h-5 text-gray-500"></i>
+          <i data-lucide="more-vertical" class="w-5 h-5 text-gray-500"></i>
+        </div>
+        <div class="px-4 py-2 border-b text-xs"><span class="rounded-full bg-gray-100 px-2 py-0.5">live</span></div>
+        <div class="px-4 py-3 text-sm text-gray-400">Song list…</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const SONGS = ["Wonderwall", "Creep", "Zombie", "Black", "Yellow", "Hallelujah"];
+  const state = { status: "idle", done: 0, error: null, timer: null };
+
+  function el(id) { return document.getElementById(id); }
+  function isOffline() { return el("toggleOffline").checked; }
+
+  function render() {
+    const slot = el("offlineSlot");
+    const off = isOffline();
+    let html = "";
+    if (state.status === "idle") {
+      html += `<button id="dlBtn" ${off ? "disabled aria-describedby='offHint'" : ""}
+        class="w-full rounded-xl bg-emerald-600 text-white px-4 py-3 flex items-center justify-center gap-2 font-semibold hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">
+        <i data-lucide="download" class="w-5 h-5"></i>Make available offline</button>`;
+      if (off) html += `<p id="offHint" class="mt-2 text-xs text-gray-500 flex items-center gap-1"><i data-lucide="wifi-off" class="w-3.5 h-3.5"></i>Connect to the internet to download this playlist.</p>`;
+    } else if (state.status === "downloading") {
+      const pct = Math.round(state.done / SONGS.length * 100);
+      html += `<button disabled aria-busy="true" class="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3 text-emerald-800">
+        <span class="font-semibold">Downloading...</span><span class="ml-auto text-sm tabular-nums">${state.done} / ${SONGS.length} songs</span></button>
+        <div class="mt-2 h-1.5 rounded-full bg-emerald-100 overflow-hidden"><div class="h-full bg-emerald-500 transition-all" style="width:${pct}%"></div></div>`;
+    } else {
+      html += `<div class="w-full rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3">
+        <span class="text-emerald-600">✓</span>
+        <div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">2.4 MB · downloaded just now</p></div>
+        <div class="ml-auto flex items-center gap-1">
+          <button id="refreshBtn" ${off ? "disabled" : ""} aria-label="Refresh offline copy" class="rounded-md p-2 text-gray-500 hover:bg-gray-100 disabled:text-gray-300"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+          <span class="h-4 w-px bg-gray-200"></span>
+          <button id="removeBtn" aria-label="Remove offline copy" class="rounded-md p-2 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+        </div></div>`;
+    }
+    if (state.error) {
+      html += `<div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3">
+        <p class="text-sm text-red-700 flex-1">${state.error}</p>
+        <button id="retryBtn" ${off ? "disabled" : ""} class="text-sm font-semibold text-red-700 border border-red-300 rounded-md px-2.5 py-1 hover:bg-red-100 disabled:opacity-40">Try again</button>
+        <button id="dismissBtn" aria-label="Dismiss offline download error" class="text-red-400 hover:text-red-600 text-xs">✕</button></div>`;
+    }
+    slot.innerHTML = html;
+    const bind = (id, fn) => { const b = el(id); if (b) b.addEventListener("click", fn); };
+    bind("dlBtn", download); bind("refreshBtn", download); bind("retryBtn", download);
+    bind("removeBtn", () => { state.status = "idle"; render(); });
+    bind("dismissBtn", () => { state.error = null; render(); });
+    lucide.createIcons();
+  }
+
+  function download() {
+    clearInterval(state.timer);
+    state.error = null; state.status = "downloading"; state.done = 0; render();
+    const fail = el("toggleFail").checked;
+    state.timer = setInterval(() => {
+      state.done++;
+      if (fail && state.done === 3) {
+        clearInterval(state.timer);
+        state.status = "idle";
+        state.error = "Not enough storage. Nothing from this playlist was kept.";
+        el("toggleFail").checked = false;
+      } else if (state.done >= SONGS.length) {
+        clearInterval(state.timer);
+        state.status = "downloaded";
+      }
+      render();
+    }, 450);
+  }
+
+  el("songs").innerHTML = SONGS.map((s, i) =>
+    `<li class="px-4 py-2.5 flex items-center gap-3"><span class="text-gray-400 w-4">${i + 1}</span><span class="flex-1">${s}</span><span class="text-xs rounded-full bg-emerald-50 text-emerald-700 px-2">mastered</span></li>`).join("");
+  el("toggleOffline").addEventListener("change", render);
+  el("resetBtn").addEventListener("click", () => { clearInterval(state.timer); state.status = "idle"; state.error = null; render(); });
+  render();
+</script>
+</body>
+</html>

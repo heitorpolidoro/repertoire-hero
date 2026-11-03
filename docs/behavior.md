@@ -105,6 +105,7 @@ Registry of what the system does today, one `##` section per functional area and
 - Audio, video and the setlist player are unavailable offline and show a message instead. (src/components/fastview/OfflineUnavailable.tsx, src/components/layout/SetlistPlayer.tsx)
 - Settings lists the stored offline copies and lets the user remove them. (src/components/settings/OfflineStorageSection.tsx, src/hooks/useOfflineLibrary.ts)
 - A service worker caches the app shell and offline chart files. (src/app/sw.ts, src/lib/offlineCacheNames.ts, src/lib/__tests__/pwaShell.test.ts)
+- The playlist page's offline control reads "Make available offline" until downloaded; offline it is disabled with "Connect to the internet to download this playlist.", and a failed download offers "Try again". (src/components/playlists/OfflineDownloadButton.tsx, src/components/playlists/__tests__/OfflineDownloadButton.test.tsx, e2e/playlist-detail.spec.ts) (RH-188)
 - A single-song offline copy is stored under a record id made of the version id and band context. (src/lib/offlineSongRecord.ts, src/lib/__tests__/offlineSongRecord.test.ts)
 
 ## Auth and profile

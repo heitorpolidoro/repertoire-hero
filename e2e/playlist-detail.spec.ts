@@ -191,6 +191,52 @@ test('adds two catalog songs to the playlist through the picker', async ({ page 
   }
 })
 
+/**
+ * RH-188 — the whole-playlist offline control is one obvious click: visible
+ * and enabled online, it reaches the downloaded state with no dialog, and with
+ * the network gone it is disabled with a one-line explanation under it. The
+ * copy is removed again before going offline, so the idle control is what the
+ * offline half sees. Reopening the copy offline is `offline-mode.spec.ts`
+ * (production build only, where the service worker exists).
+ */
+test('makes the playlist available offline in one click', async ({ page, context }) => {
+  await reopenPlaylist(page)
+  await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
+
+  const makeAvailable = page.getByRole('button', { name: 'Make available offline' })
+  await expect(makeAvailable).toBeVisible()
+  await expect(makeAvailable).toBeEnabled()
+
+  // One click, no prompt: any dialog the click opens is recorded and fails below.
+  const dialogs: string[] = []
+  page.on('dialog', (dialog) => {
+    dialogs.push(dialog.message())
+    void dialog.dismiss()
+  })
+  await makeAvailable.click()
+
+  await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeVisible({
+    timeout: 60_000,
+  })
+  expect(dialogs).toEqual([])
+  await expect(page.getByRole('button', { name: 'Remove offline copy' })).toBeVisible()
+  await expect(page.getByText('Available offline', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Remove offline copy' }).click()
+  await expect(makeAvailable).toBeVisible()
+
+  const hint = page.getByText('Connect to the internet to download this playlist.')
+  await context.setOffline(true)
+  try {
+    await expect(makeAvailable).toBeDisabled()
+    await expect(hint).toBeVisible()
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect(makeAvailable).toBeEnabled()
+  await expect(hint).toHaveCount(0)
+})
+
 test('sets and drops the mastery status of a playlist song', async ({ page }) => {
   await reopenPlaylist(page)
 

@@ -58,7 +58,7 @@ export interface OfflineDownloadProgress {
 
 export type OfflineDownloadStatus = 'idle' | 'downloading' | 'downloaded'
 
-/** What the "Available offline" control renders. */
+/** What the "Make available offline" control renders (RH-188). */
 export interface OfflinePlaylistController {
   status: OfflineDownloadStatus
   progress: OfflineDownloadProgress
@@ -89,7 +89,7 @@ const NO_PROGRESS: OfflineDownloadProgress = { done: 0, total: 0 }
  */
 function messageOf(error: unknown): string {
   if ((error as { name?: unknown } | null)?.name === 'QuotaExceededError') {
-    return 'Not enough storage. Nothing from this playlist was kept — tap to try again.'
+    return 'Not enough storage. Nothing from this playlist was kept.'
   }
   if (error instanceof Error) return error.message
   return 'Failed to make this playlist available offline'

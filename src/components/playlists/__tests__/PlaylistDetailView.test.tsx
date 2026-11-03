@@ -115,7 +115,7 @@ const PICKER_ACTIONS = {
 }
 
 /**
- * RH-79: the island renders the "Available offline" control, so it needs the
+ * RH-79: the island renders the "Make available offline" control (RH-188), so it needs the
  * download action bundle. Nothing here triggers a download, and the control
  * falls back to the real `OFFLINE_STORE`, whose ports stay unconstructed until
  * a method is called — the store's own suite covers its behaviour.
@@ -311,7 +311,7 @@ describe('PlaylistDetailView (RH-71)', () => {
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     setup()
 
-    const control = await screen.findByRole('button', { name: /available offline/i })
+    const control = await screen.findByRole('button', { name: 'Make available offline' })
     expect(control.hasAttribute('disabled')).toBe(true)
     onLine.mockRestore()
   })
@@ -320,7 +320,7 @@ describe('PlaylistDetailView (RH-71)', () => {
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
     setup()
 
-    const control = await screen.findByRole('button', { name: /available offline/i })
+    const control = await screen.findByRole('button', { name: 'Make available offline' })
     expect(control.hasAttribute('disabled')).toBe(false)
     onLine.mockRestore()
   })

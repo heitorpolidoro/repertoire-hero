@@ -25,7 +25,7 @@ export function OfflineUnavailable({ onBack }: OfflineUnavailableProps) {
       <p className="text-lg font-semibold text-gray-700">This song is not available offline</p>
       <p className="max-w-sm text-sm text-gray-500">
         It is not in any playlist you downloaded. Open the playlist while you have a connection and
-        choose <span className="font-medium">Available offline</span> to keep it on this device.
+        choose <span className="font-medium">Make available offline</span> to keep it on this device.
       </p>
       <button
         type="button"
