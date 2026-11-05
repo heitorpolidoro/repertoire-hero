@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CustomFieldsSection } from '@/components/fastview/CustomFieldsSection'
-import type { SongCustomFieldsActions } from '@/hooks/useSongCustomFields'
+import { useSongCustomFields, type SongCustomFieldsActions } from '@/hooks/useSongCustomFields'
 import type { CustomFieldEntry } from '@/types/customField'
 
 afterEach(cleanup)
@@ -13,12 +13,20 @@ const CAPO: CustomFieldEntry = { fieldId: 'f-capo', name: 'Capo', value: null }
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
 const textOf = (element: HTMLElement) => (element.textContent ?? '').replace(/\s+/g, ' ')
 
+const notify = vi.fn()
+
+/** The page's wiring, reduced: it owns the controller and injects it (RH-190). */
+function Harness({ actions, readOnly }: { actions: SongCustomFieldsActions; readOnly: boolean }) {
+  const controller = useSongCustomFields({ versionId: 'v1', actions, notify })
+  return <CustomFieldsSection controller={controller} readOnly={readOnly} />
+}
+
 function renderSection(entries: CustomFieldEntry[], readOnly = false, saved: string | null = 'Lead 3B') {
   const actions = {
     getCustomFieldValues: vi.fn().mockResolvedValue(entries),
     setCustomFieldValue: vi.fn().mockResolvedValue(saved),
   } satisfies SongCustomFieldsActions
-  const view = render(<CustomFieldsSection versionId="v1" actions={actions} readOnly={readOnly} notify={vi.fn()} />)
+  const view = render(<Harness actions={actions} readOnly={readOnly} />)
   return { ...view, actions }
 }
 

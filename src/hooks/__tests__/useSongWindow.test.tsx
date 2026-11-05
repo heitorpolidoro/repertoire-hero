@@ -32,7 +32,7 @@ function entryOf(versionId: string, lyrics = `lyrics ${versionId}`): ResolvedSon
 }
 
 function recordOf(versionId: string, files: SongFile[] = []): SongWindowRecord {
-  return { versionId, entry: entryOf(versionId), files }
+  return { versionId, entry: entryOf(versionId), files, customFields: [] }
 }
 
 function windowAction() {

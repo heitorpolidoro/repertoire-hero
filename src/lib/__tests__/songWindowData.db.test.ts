@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { query } from '@/lib/db'
 import { createBand } from '@/lib/bands'
 import { createTab } from '@/lib/tabs'
+import { createCustomField, setCustomFieldValue } from '@/lib/customFields'
 import { createTestUser, deleteTestUser, representativeVersionId } from './test-helpers'
 
 const session = vi.hoisted(() => ({ userId: '' }))
@@ -90,8 +91,35 @@ describe.skipIf(!RUN_DB_TESTS)('the song window (real database)', () => {
     const missing = '00000000-0000-4000-8000-000000000134'
     const result = await getSongWindowAction([versionIds[0], missing, versionIds[2]])
     expect(result[0].entry).not.toBeNull()
-    expect(result[1]).toEqual({ versionId: missing, entry: null, files: [] })
+    expect(result[1]).toEqual({ versionId: missing, entry: null, files: [], customFields: [] })
     expect(result[2].entry).not.toBeNull()
+  })
+
+  it('a nonexistent version answers customFields []', async () => {
+    const field = await createCustomField(userId, `RH-190 Missing ${suffix}`)
+    try {
+      const missing = '00000000-0000-4000-8000-000000000190'
+      const [record] = await getSongWindowAction([missing])
+      expect(record.customFields).toEqual([])
+    } finally {
+      await query('DELETE FROM custom_fields WHERE id = $1', [field.id])
+    }
+  })
+
+  it("a record carries the caller's own custom fields in band context", async () => {
+    await query("INSERT INTO band_members (band_id, user_id, role) VALUES ($1, $2, 'member')", [bandId, strangerId])
+    const mine = await createCustomField(userId, 'Preset')
+    const theirs = await createCustomField(strangerId, 'Capo')
+    try {
+      await setCustomFieldValue(userId, mine.id, versionIds[0], 'Clean')
+      await setCustomFieldValue(strangerId, theirs.id, versionIds[0], '2')
+      const result = await getSongWindowAction(versionIds.slice(0, 2), bandId)
+      expect(result[0].customFields).toEqual([{ fieldId: mine.id, name: 'Preset', value: 'Clean' }])
+      expect(result[1].customFields).toEqual([{ fieldId: mine.id, name: 'Preset', value: null }])
+    } finally {
+      await query('DELETE FROM custom_fields WHERE id = ANY($1)', [[mine.id, theirs.id]])
+      await query('DELETE FROM band_members WHERE band_id = $1 AND user_id = $2', [bandId, strangerId])
+    }
   })
 
   it('refuses more than three ids', async () => {

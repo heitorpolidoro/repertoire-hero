@@ -1,14 +1,15 @@
 import { getResolvedEntryForVersion, type RepertoireOwner } from '@/lib/ownerSongs'
 import { listTabs } from '@/lib/tabs'
+import { getCustomFieldValues } from '@/lib/customFields'
 import { WINDOW_SIZE, type SongWindowRecord } from '@/lib/songWindow'
 
 /** The message `getResolvedEntryForVersion` raises for an id that is not a version. */
 const VERSION_NOT_FOUND = 'Song version not found'
 
 /**
- * One record of the window. A version that does not exist answers `entry: null`
- * and `files: []` for itself only; any other failure propagates, because a
- * database error is not "this song is absent".
+ * One record of the window. A version that does not exist answers `entry: null`,
+ * `files: []` and `customFields: []` for itself only; any other failure
+ * propagates, because a database error is not "this song is absent".
  */
 async function songWindowRecord(
   owner: RepertoireOwner,
@@ -17,12 +18,16 @@ async function songWindowRecord(
 ): Promise<SongWindowRecord> {
   try {
     const entry = await getResolvedEntryForVersion(owner, versionId)
-    // The caller's own files: a file belongs to the person, not to the band (RH-123).
-    const files = await listTabs(userId, entry.song_id)
-    return { versionId, entry, files }
+    // The caller's own files and custom field values: a file belongs to the
+    // person, not to the band (RH-123), and so does a value (RH-186, RH-190).
+    const [files, customFields] = await Promise.all([
+      listTabs(userId, entry.song_id),
+      getCustomFieldValues(userId, versionId),
+    ])
+    return { versionId, entry, files, customFields }
   } catch (error) {
     if (error instanceof Error && error.message.includes(VERSION_NOT_FOUND)) {
-      return { versionId, entry: null, files: [] }
+      return { versionId, entry: null, files: [], customFields: [] }
     }
     throw error
   }

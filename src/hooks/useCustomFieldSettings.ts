@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { dropSongWindow } from '@/lib/songWindow'
 import type { CustomField } from '@/types/customField'
 
 /** The five definition Server Actions, injected so `src/hooks` never imports the App Router tree (F21). */
@@ -46,7 +47,9 @@ function messageOf(error: unknown, fallback: string): string {
 /**
  * The Settings "Custom fields" controller (RH-186): the user's definitions, the
  * add form, an inline rename, move up/down and a two-step delete. Every
- * successful write reloads the list, so what is shown is the saved order.
+ * successful write reloads the list, so what is shown is the saved order, and
+ * drops the song window (RH-190): the cache survives client navigation, and a
+ * definition change alters every song's cached copy.
  */
 export function useCustomFieldSettings({ actions }: UseCustomFieldSettingsOptions): CustomFieldSettingsController {
   const [fields, setFields] = useState<CustomField[] | null>(null)
@@ -84,6 +87,7 @@ export function useCustomFieldSettings({ actions }: UseCustomFieldSettingsOption
         setBusy(false)
         return false
       }
+      dropSongWindow()
       try {
         setFields(await actions.listCustomFields())
       } catch {

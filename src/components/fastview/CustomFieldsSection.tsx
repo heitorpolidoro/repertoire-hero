@@ -1,24 +1,17 @@
 'use client'
 
-import type { ToastTone } from '@/lib/uiTones'
 import { CUSTOM_FIELD_VALUE_MAX } from '@/lib/customFieldRules'
-import {
-  useSongCustomFields,
-  type SongCustomFieldsActions,
-  type SongCustomFieldsController,
-} from '@/hooks/useSongCustomFields'
+import type { SongCustomFieldsController } from '@/hooks/useSongCustomFields'
 import type { CustomFieldEntry } from '@/types/customField'
 
 export interface CustomFieldsSectionProps {
-  versionId: string
-  /** Injected by the page (F21); module-level so its identity is stable. */
-  actions: SongCustomFieldsActions
+  /** Owned by the page, after `useSongWindow`: see `useSongCustomFields` (RH-190). */
+  controller: SongCustomFieldsController
   /**
    * Offline only. A value needs no owner row and no band role (RH-186), so the
    * page passes `isOffline` here, never its own `readOnly`.
    */
   readOnly: boolean
-  notify: (message: string, tone: ToastTone) => void
 }
 
 const BUTTON =
@@ -58,13 +51,11 @@ function FieldEditor({ entry, fields }: { entry: CustomFieldEntry; fields: SongC
 }
 
 /**
- * The user's own custom fields under the song header (RH-186), with its
- * controller, as `AudioLibrarySection` does. With no definitions it renders
- * nothing; read-only (offline) it shows only the filled fields, each with its
- * Edit disabled, and nothing when none is filled.
+ * The user's own custom fields under the song header (RH-186). With no
+ * definitions it renders nothing; read-only (offline) it shows only the filled
+ * fields, each with its Edit disabled, and nothing when none is filled.
  */
-export function CustomFieldsSection({ versionId, actions, readOnly, notify }: CustomFieldsSectionProps) {
-  const fields = useSongCustomFields({ versionId, actions, notify })
+export function CustomFieldsSection({ controller: fields, readOnly }: CustomFieldsSectionProps) {
   const visible = readOnly ? fields.entries.filter((entry) => entry.value !== null) : fields.entries
   if (visible.length === 0) return null
 

@@ -12,6 +12,8 @@
  * - **One invalidation rule.** `invalidateSongWindow(versionId)` drops the cached
  *   copy and bumps the version's generation, so a fetch that started before the
  *   write is discarded on arrival and cannot put the old copy back.
+ *   `dropSongWindow()` applies it to every version at once, for a custom field
+ *   definition change (RH-190), which alters every record.
  * - **Per tab, in memory.** The cache dies with a reload, which is correct.
  * - **A file's kind is not decided here.** The records carry each file row as the
  *   database holds it; `isImageTab` (`tabRenderer.ts`) is the only reader of it.
@@ -20,6 +22,7 @@
  */
 
 import type { ResolvedSongEntry, SongFile } from '@/types/database'
+import type { CustomFieldEntry } from '@/types/customField'
 
 /** The previous, the current and the next entry. */
 export const WINDOW_SIZE = 3
@@ -31,6 +34,11 @@ export interface SongWindowRecord {
   entry: ResolvedSongEntry | null
   /** The caller's own files for the song; `[]` for a song with none. */
   files: SongFile[]
+  /**
+   * The signed-in user's own custom field definitions with their value on this
+   * version (RH-190), as `getCustomFieldValues` answers them - never the band's.
+   */
+  customFields: CustomFieldEntry[]
 }
 
 export type SongWindowFetcher = (versionIds: string[]) => Promise<SongWindowRecord[]>
@@ -150,6 +158,21 @@ export function invalidateSongWindow(versionId: string): void {
   // The request in the air will be discarded on arrival, so it must not stop the
   // next window from asking again.
   for (const owner of inflight.values()) owner.delete(versionId)
+}
+
+/**
+ * Drops every cached copy for every owner and makes every fetch in flight stale
+ * (RH-190). For a write that changes what every record carries - a custom field
+ * definition - rather than one song.
+ */
+export function dropSongWindow(): void {
+  const versionIds = new Set<string>()
+  for (const owner of [...cache.values(), ...inflight.values()]) {
+    for (const versionId of owner.keys()) versionIds.add(versionId)
+  }
+  // Every fetch in the air is registered under its ids, so bumping each one's
+  // generation is enough to have all of them discarded on arrival.
+  for (const versionId of versionIds) invalidateSongWindow(versionId)
 }
 
 /** Empties the cache and every counter. Test isolation only. */

@@ -42,10 +42,14 @@ const actions = {
   saveAnnotations: vi.fn(),
   getCustomFieldValues: vi.fn(),
   setCustomFieldValue: vi.fn(),
+  getSongWindow: vi.fn(),
 }
 
 /** RH-186: the page's one offline signal, switchable per test (default online). */
 const offlineSignal = { offline: false }
+
+/** RH-190: the route's version, switchable per test to walk a setlist. */
+const route = { versionId: ROUTE_VERSION_ID }
 
 /**
  * The six bundles, as spies.
@@ -99,7 +103,7 @@ vi.mock('@/app/fastViewOfflineActions', () => {
       saveAnnotations: call('saveAnnotations'),
     },
     // RH-134: the window read is best-effort; an empty answer is a plain miss.
-    OFFLINE_FIRST_SONG_WINDOW_ACTIONS: { getSongWindow: () => Promise.resolve([]) },
+    OFFLINE_FIRST_SONG_WINDOW_ACTIONS: { getSongWindow: call('getSongWindow') },
     // RH-186: the user's own custom fields, read and set per version.
     OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS: {
       getCustomFieldValues: call('getCustomFieldValues'),
@@ -126,7 +130,7 @@ const push = vi.fn()
 const back = vi.fn()
 
 vi.mock('next/navigation', () => ({
-  useParams: () => ({ versionId: ROUTE_VERSION_ID }),
+  useParams: () => ({ versionId: route.versionId }),
   useSearchParams: () => searchParams,
   useRouter: () => ({ push, back }),
 }))
@@ -139,6 +143,7 @@ vi.mock('@/hooks/useWakeLock', () => ({ useWakeLock: () => undefined }))
 
 import FastViewPage from '../[versionId]/fast-view/page'
 import { writeSongQueue } from '@/lib/songQueue'
+import { resetSongWindow, type SongWindowRecord } from '@/lib/songWindow'
 
 afterEach(cleanup)
 
@@ -193,7 +198,11 @@ const TAB: SongFile = {
 beforeEach(() => {
   for (const spy of Object.values(actions)) spy.mockReset()
   sessionStorage.clear()
+  resetSongWindow()
+  route.versionId = ROUTE_VERSION_ID
   searchParams.delete('bandId')
+  // RH-134: the window read is best-effort; an empty answer is a plain miss.
+  actions.getSongWindow.mockResolvedValue([])
   actions.getResolvedEntryForVersion.mockResolvedValue(NO_OWNER_ROW)
   actions.getPersonalEntryForSong.mockResolvedValue(null)
   actions.getTabs.mockResolvedValue([TAB])
@@ -455,6 +464,64 @@ describe('Fast View custom fields (RH-186 ER6)', { timeout: 30_000 }, () => {
     expect(edit.disabled).toBe(true)
     expect(within(screen.getByLabelText('Custom fields')).getByText('Lead 3B')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Set Capo' })).toBeNull()
+  })
+})
+
+/**
+ * RH-190 — the custom fields travel in the window, so they arrive with the song.
+ *
+ * Only the page can show this: the hook has to sit after `useSongWindow`, and a
+ * section owning it would run its effect first and miss the fetch to wait for.
+ */
+describe('Fast View custom fields through the window (RH-190)', { timeout: 30_000 }, () => {
+  function windowRecord(versionId: string): SongWindowRecord {
+    return {
+      versionId,
+      entry: { ...WITH_OWNER_ROW, version_id: versionId },
+      files: [],
+      customFields: [{ fieldId: 'f-preset', name: 'Preset', value: `Preset of ${versionId}` }],
+    }
+  }
+
+  const heading = () => screen.queryByRole('heading', { name: 'Spoonman' })
+
+  it('song and custom fields appear in the same render', async () => {
+    let release!: (records: SongWindowRecord[]) => void
+    actions.getSongWindow.mockReturnValue(new Promise((resolve) => (release = resolve)))
+
+    render(<FastViewPage />)
+    await waitFor(() => expect(actions.getSongWindow).toHaveBeenCalledTimes(1))
+    expect(heading()).toBeNull()
+
+    release([windowRecord(ROUTE_VERSION_ID)])
+    await waitFor(() => expect(heading()).not.toBeNull(), { timeout: 20_000 })
+
+    // No further wait: on the render that shows the title, the field is there.
+    expect(within(screen.getByLabelText('Custom fields')).getByText(`Preset of ${ROUTE_VERSION_ID}`)).toBeDefined()
+  })
+
+  it('opening a song asks for custom fields only through the window', async () => {
+    actions.getSongWindow.mockImplementation(async (ids: string[]) => ids.map(windowRecord))
+
+    await renderPage()
+
+    expect(screen.getByText(`Preset of ${ROUTE_VERSION_ID}`)).toBeDefined()
+    expect(actions.getSongWindow).toHaveBeenCalledTimes(1)
+    expect(actions.getCustomFieldValues).not.toHaveBeenCalled()
+  })
+
+  it('moving to a song outside the window sends one window request and no custom field read', async () => {
+    actions.getSongWindow.mockImplementation(async (ids: string[]) => ids.map(windowRecord))
+    const view = await renderPage()
+    actions.getSongWindow.mockClear()
+
+    route.versionId = 'version-far-away'
+    view.rerender(<FastViewPage />)
+
+    await screen.findByText('Preset of version-far-away', {}, { timeout: 20_000 })
+    expect(actions.getSongWindow).toHaveBeenCalledTimes(1)
+    expect(actions.getSongWindow).toHaveBeenCalledWith(['version-far-away'], null)
+    expect(actions.getCustomFieldValues).not.toHaveBeenCalled()
   })
 })
 

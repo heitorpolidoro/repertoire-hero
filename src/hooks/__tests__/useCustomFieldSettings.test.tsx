@@ -5,8 +5,11 @@ import {
   CUSTOM_FIELDS_LOAD_ERROR,
   useCustomFieldSettings,
   type CustomFieldSettingsActions,
+  type CustomFieldSettingsController,
 } from '@/hooks/useCustomFieldSettings'
+import { cachedSong, fetchSongWindow, resetSongWindow } from '@/lib/songWindow'
 import type { CustomField } from '@/types/customField'
+import type { ResolvedSongEntry } from '@/types/database'
 
 afterEach(cleanup)
 
@@ -165,5 +168,87 @@ describe('useCustomFieldSettings', () => {
     actions.listCustomFields.mockRejectedValueOnce(new Error('down'))
     await act(async () => { await result.current.move(PRESET.id, 'down') })
     expect(result.current.error).toBe(CUSTOM_FIELDS_LOAD_ERROR)
+  })
+})
+
+describe('useCustomFieldSettings and the song window (RH-190)', () => {
+  /** A cached song in each of two owners, so "everything" is really everything. */
+  async function primeWindow() {
+    resetSongWindow()
+    const fetcher = async (ids: string[]) =>
+      ids.map((versionId) => ({
+        versionId,
+        entry: { version_id: versionId } as unknown as ResolvedSongEntry,
+        files: [],
+        customFields: [],
+      }))
+    await fetchSongWindow(null, ['v1'], fetcher)
+    await fetchSongWindow('b1', ['v2'], fetcher)
+  }
+
+  type Controller = { current: CustomFieldSettingsController }
+
+  const WRITES: Array<[string, (result: Controller) => Promise<void>]> = [
+    [
+      'create',
+      async (result) => {
+        act(() => result.current.setNewName('Amp'))
+        await act(async () => { await result.current.add() })
+      },
+    ],
+    [
+      'rename',
+      async (result) => {
+        act(() => result.current.startRename(PRESET.id))
+        act(() => result.current.setRenameDraft('Pedal'))
+        await act(async () => { await result.current.saveRename() })
+      },
+    ],
+    [
+      'move',
+      async (result) => {
+        await act(async () => { await result.current.move(PRESET.id, 'down') })
+      },
+    ],
+    [
+      'delete',
+      async (result) => {
+        act(() => result.current.requestDelete(PRESET.id))
+        await act(async () => { await result.current.confirmDelete() })
+      },
+    ],
+  ]
+
+  it.each(WRITES)('each successful definition write drops the song window: %s', async (_name, write) => {
+    await primeWindow()
+    const actions = fakeActions([PRESET])
+    const { result } = await setup(actions)
+    await waitFor(() => expect(result.current.fields).toHaveLength(1))
+
+    await write(result)
+
+    expect(result.current.error).toBeNull()
+    expect(cachedSong(null, 'v1')).toBeUndefined()
+    expect(cachedSong('b1', 'v2')).toBeUndefined()
+  })
+
+  it.each(WRITES)('a failed definition write does not: %s', async (_name, write) => {
+    await primeWindow()
+    const down = () => vi.fn().mockRejectedValue(new Error('down'))
+    const actions = {
+      ...fakeActions([PRESET]),
+      createCustomField: down(),
+      renameCustomField: down(),
+      moveCustomField: down(),
+      deleteCustomField: down(),
+    }
+    const { result } = await setup(actions)
+    await waitFor(() => expect(result.current.fields).toHaveLength(1))
+
+    await write(result)
+
+    expect(result.current.error).toBe('down')
+    expect(cachedSong(null, 'v1')).toBeDefined()
+    expect(cachedSong('b1', 'v2')).toBeDefined()
   })
 })

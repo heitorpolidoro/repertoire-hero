@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   awaitSongWindow,
   cachedSong,
+  dropSongWindow,
   fetchSongWindow,
   invalidateSongWindow,
   resetSongWindow,
@@ -18,7 +19,7 @@ beforeEach(() => resetSongWindow())
 const queue = ['v1', 'v2', 'v3', 'v4', 'v5'].map((versionId) => ({ versionId }))
 
 function record(versionId: string, lyrics = 'old'): SongWindowRecord {
-  return { versionId, entry: { lyrics } as unknown as ResolvedSongEntry, files: [] }
+  return { versionId, entry: { lyrics } as unknown as ResolvedSongEntry, files: [], customFields: [] }
 }
 
 describe('windowVersionIds', () => {
@@ -67,7 +68,7 @@ describe('the window cache', () => {
   })
 
   it('does not keep a version that does not exist', async () => {
-    await fetchSongWindow(null, ['gone'], async () => [{ versionId: 'gone', entry: null, files: [] }])
+    await fetchSongWindow(null, ['gone'], async () => [{ versionId: 'gone', entry: null, files: [], customFields: [] }])
     expect(cachedSong(null, 'gone')).toBeUndefined()
   })
 
@@ -122,6 +123,33 @@ describe('the window cache', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('dropping everything empties all owners', async () => {
+    const fetcher = vi.fn(async (ids: string[]) => ids.map((id) => record(id)))
+    await fetchSongWindow(null, ['v1', 'v2'], fetcher)
+    await fetchSongWindow('b1', ['v1'], fetcher)
+    dropSongWindow()
+    expect(cachedSong(null, 'v1')).toBeUndefined()
+    expect(cachedSong(null, 'v2')).toBeUndefined()
+    expect(cachedSong('b1', 'v1')).toBeUndefined()
+
+    await fetchSongWindow(null, ['v1', 'v2'], fetcher)
+    expect(fetcher).toHaveBeenLastCalledWith(['v1', 'v2'])
+  })
+
+  it('in-flight fetch discarded after dropping everything', async () => {
+    let resolve!: (records: SongWindowRecord[]) => void
+    const pending = new Promise<SongWindowRecord[]>((r) => (resolve = r))
+    const inFlight = fetchSongWindow('b1', ['v1', 'v2'], () => pending)
+
+    dropSongWindow()
+    expect(uncachedVersionIds('b1', ['v1', 'v2'])).toEqual(['v1', 'v2'])
+    resolve([record('v1', 'OLD'), record('v2', 'OLD')])
+    await inFlight
+
+    expect(cachedSong('b1', 'v1')).toBeUndefined()
+    expect(cachedSong('b1', 'v2')).toBeUndefined()
   })
 })
 

@@ -127,7 +127,7 @@ describe('usePracticeFinish save', () => {
 
   it('invalidates the song window of every submitted version and applies a changed current level', async () => {
     await fetchSongWindow('band-1', ['v1', 'v2'], async ids =>
-      ids.map(versionId => ({ versionId, entry: { version_id: versionId } as never, files: [] })),
+      ids.map(versionId => ({ versionId, entry: { version_id: versionId } as never, files: [], customFields: [] })),
     )
     expect(cachedSong('band-1', 'v1')).toBeDefined()
     const { result, applyStatus } = setup()

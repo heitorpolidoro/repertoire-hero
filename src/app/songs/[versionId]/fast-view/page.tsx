@@ -37,6 +37,7 @@ import { useLyricsEditor } from '@/hooks/useLyricsEditor'
 import { LyricsSection } from '@/components/fastview/LyricsSection'
 import { useSongEntry } from '@/hooks/useSongEntry'
 import { useSongWindow } from '@/hooks/useSongWindow'
+import { useSongCustomFields } from '@/hooks/useSongCustomFields'
 import { useSongStatus } from '@/hooks/useSongStatus'
 import { useSongTuning } from '@/hooks/useSongTuning'
 import { useSongMap } from '@/hooks/useSongMap'
@@ -116,6 +117,8 @@ export default function FastViewPage() {
 
   // The window (RH-134), first; `afterWrite` is the one invalidation seam every write goes through.
   const { afterWrite, invalidateCurrent } = useSongWindow({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_WINDOW_ACTIONS })
+  // Right after the window, so its effect finds the fetch to wait for (RH-190). A save keeps the `invalidateCurrent` of the version it started on.
+  const customFields = useSongCustomFields({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS, notify: showToast, onSaved: invalidateCurrent })
 
   // The route's entry, member-entry reconciliation and write patches (RH-52).
   const song = useSongEntry({ versionId, bandId: queryBandId, actions: OFFLINE_FIRST_SONG_ENTRY_ACTIONS })
@@ -230,7 +233,7 @@ export default function FastViewPage() {
 
             {/* Song identity */}
             <SongIdentityHeader identity={identity} status={status} readOnly={readOnly} tuning={tuning} />
-            <CustomFieldsSection versionId={versionId} actions={OFFLINE_FIRST_SONG_CUSTOM_FIELDS_ACTIONS} readOnly={isOffline} notify={showToast} />
+            <CustomFieldsSection controller={customFields} readOnly={isOffline} />
             <OfflineSongButton versionId={versionId} bandId={queryBandId} actions={OFFLINE_DOWNLOAD_ACTIONS} offline={isOffline} />
 
             <TabLibrarySection

@@ -883,7 +883,7 @@ a catalog correction changing a title mid-queue is cosmetic.
 its content already in hand. Three songs are a few KB; what costs on a bad connection is
 latency, not bytes, so three separate calls would pay the wait three times. Offline the
 question does not arise — a downloaded playlist reads locally, and the snapshot is the
-same gesture at full size.
+same gesture at full size. The reader's own custom field values travel in it too (RH-190).
 
 A prefetched neighbour can go stale too, but only from **someone else's** edit, and within
 seconds. The one case that is yours needs a rule: **writing invalidates that song's cached
