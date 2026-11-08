@@ -42,7 +42,7 @@ import {
   waitForPlaylistDetailHydrated,
 } from './helpers'
 import { OFFLINE_SCHEMA_VERSION } from '../src/lib/offlineSnapshot'
-import type { OfflineSnapshotRecord } from '../src/lib/offlineStore'
+import type { OfflineSnapshotRecord } from '../src/lib/offlineRecords'
 
 test.use({ storageState: AUTH_STATE_PATH })
 

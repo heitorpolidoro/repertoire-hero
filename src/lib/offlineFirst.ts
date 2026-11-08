@@ -62,8 +62,9 @@
  * offered.
  */
 
-import { offlineTabToSongFile, type OfflineSongSnapshot } from '@/lib/offlineSnapshot'
-import { OFFLINE_STORE, type OfflinePlaylistSummary, type OfflineStore } from '@/lib/offlineStore'
+import { offlineTabToSongFile } from '@/lib/offlineSnapshot'
+import { newestFirst, type OfflineSongRecord } from '@/lib/offlineRecords'
+import { OFFLINE_STORE, type OfflineStore } from '@/lib/offlineStore'
 
 /** The single message every refused offline write carries. */
 export const OFFLINE_WRITE_MESSAGE = 'You are offline. This change cannot be saved until you reconnect.'
@@ -75,8 +76,8 @@ export const OFFLINE_WRITE_MESSAGE = 'You are offline. This change cannot be sav
 
 /** The two things the decorator cannot compute for itself. */
 export interface OfflineFirstPorts {
-  /** Only the two RH-79 reads are needed; no new store method exists for this. */
-  store: Pick<OfflineStore, 'listOfflinePlaylists' | 'readOfflineSnapshot'>
+  /** Every read answers from the stored songs (RH-192): one record per song and context. */
+  store: Pick<OfflineStore, 'listOfflineSongs'>
   /** `true` while the browser reports no network. */
   isOffline: () => boolean
 }
@@ -115,60 +116,41 @@ export function isNetworkFailure(error: unknown): boolean {
 }
 
 /**
- * The order snapshots are searched in when only a `versionId` is known: most
- * recently downloaded first, ties broken by `playlistId` ascending.
+ * The stored song for this **version**, preferring the requested owner context
+ * (RH-192).
  *
- * Total and deterministic on purpose — a song in two downloaded playlists must
- * resolve the same way on every call. The two copies hold the same repertoire
- * row for the same owner context, so the choice is about freshness only.
- * Returns a new array; the argument is not mutated.
- */
-export function orderSnapshotCandidates(
-  summaries: OfflinePlaylistSummary[],
-): OfflinePlaylistSummary[] {
-  return [...summaries].sort((left, right) => {
-    if (left.savedAt !== right.savedAt) return left.savedAt < right.savedAt ? 1 : -1
-    return left.playlistId < right.playlistId ? -1 : 1
-  })
-}
-
-/**
- * The first downloaded snapshot that captured this **version**, newest first.
- *
+ * The personal and band-context copies of one version are separate records, so
+ * the one in the context asked for wins; when that context holds none, any other
+ * stored context answers, newest `savedAt` first (ties by record id, so every
+ * call agrees). `null` once no context holds it — after a removal included.
  * Keyed by `versionId` since RH-132, which is what the Fast View route carries.
- * Keying it by the owner row id would answer `null` for every downloaded song
- * and render `OfflineUnavailable` across the whole offline library.
  */
 async function findSong(
   ports: OfflineFirstPorts,
   versionId: string,
-): Promise<OfflineSongSnapshot | null> {
-  for (const summary of orderSnapshotCandidates(await ports.store.listOfflinePlaylists())) {
-    const snapshot = await ports.store.readOfflineSnapshot(summary.playlistId)
-    const song = snapshot?.songs.find((candidate) => candidate.versionId === versionId)
-    if (song) return song
-  }
-  return null
+  bandId?: unknown,
+): Promise<OfflineSongRecord | null> {
+  const candidates = newestFirst(
+    (await ports.store.listOfflineSongs()).filter((song) => song.versionId === versionId),
+  )
+  const context = typeof bandId === 'string' && bandId !== '' ? bandId : null
+  return candidates.find((song) => song.bandId === context) ?? candidates[0] ?? null
 }
 
 /**
- * The first downloaded snapshot that captured this *song*, newest first.
+ * The newest stored song of this *composition*.
  *
- * The scan is over `song.repertoire.song_id` rather than `versionId`, because
- * `getPersonalEntryForSong` is called with the song id and the member's own row
+ * Over `repertoire.song_id` rather than `versionId`, because `getTabs` and
+ * `getPersonalEntryForSong` are called with the song id and the member's own row
  * may be held at a different version from the band row on screen (RH-83,
- * RH-132 §3a). `ResolvedSongEntry` carries `song_id`, so nothing moved here.
+ * RH-132 §3a).
  */
 async function findSongBySongId(
   ports: OfflineFirstPorts,
   songId: string,
-): Promise<OfflineSongSnapshot | null> {
-  for (const summary of orderSnapshotCandidates(await ports.store.listOfflinePlaylists())) {
-    const snapshot = await ports.store.readOfflineSnapshot(summary.playlistId)
-    const song = snapshot?.songs.find((candidate) => candidate.repertoire.song_id === songId)
-    if (song) return song
-  }
-  return null
+): Promise<OfflineSongRecord | null> {
+  const songs = newestFirst(await ports.store.listOfflineSongs())
+  return songs.find((song) => song.repertoire.song_id === songId) ?? null
 }
 
 type OfflineReader = (ports: OfflineFirstPorts, args: unknown[]) => Promise<unknown>
@@ -185,11 +167,11 @@ const OFFLINE_READERS: Record<string, OfflineReader> = {
   // the tab's own song queue now (`src/lib/songQueue.ts`), read straight out of
   // `sessionStorage`, so the chrome needs no action at all — online or off.
   //
-  // Version-addressed since RH-132. `null` means "this version is in no
-  // downloaded playlist", which `useSongEntry` reads as the not-found screen —
-  // offline, rendered as "not downloaded".
-  getResolvedEntryForVersion: async (ports, [versionId]) => {
-    return (await findSong(ports, String(versionId)))?.repertoire ?? null
+  // Version-addressed since RH-132, owner-context-preferring since RH-192.
+  // `null` means "this version is not on the device", which `useSongEntry` reads
+  // as the not-found screen — offline, rendered as "not downloaded".
+  getResolvedEntryForVersion: async (ports, [versionId, bandId]) => {
+    return (await findSong(ports, String(versionId), bandId))?.repertoire ?? null
   },
 
   // Resolved through `findSongBySongId` since RH-123: `getTabs` is called with

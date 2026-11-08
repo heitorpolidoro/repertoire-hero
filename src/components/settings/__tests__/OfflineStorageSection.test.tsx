@@ -10,56 +10,21 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { OfflineStorageSection } from '../OfflineStorageSection'
 import { songRecordId } from '@/lib/offlineSongRecord'
-import { createOfflineStore, type SaveOfflinePlaylistInput } from '@/lib/offlineStore'
-import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
-import type { Repertoire } from '@/types/database'
+import { createOfflineStore } from '@/lib/offlineStore'
+import {
+  createFakePorts,
+  seedSetlist,
+  seedSongInput,
+  type FakeOfflinePorts,
+} from '@/lib/__tests__/offlineStoreFakes'
 
 afterEach(cleanup)
-
-const REPERTOIRE: Repertoire = {
-  id: 'rep-1',
-  user_id: 'user-1',
-  band_id: null,
-  song_id: 'song-1',
-  version_id: 'version-1',
-  key: null,
-  tuning: null,
-  map: null,
-  status: 'learning',
-  tags: [],
-  last_practiced: null,
-  lyrics: null,
-}
-
-function saveInput(playlistId: string, playlistName: string, tabId: string): SaveOfflinePlaylistInput {
-  return {
-    playlistId,
-    playlistName,
-    bandId: null,
-    savedAt: new Date().toISOString(),
-    songs: [
-      {
-        entry: { repertoireId: 'rep-1', songId: 'song-1', title: 'Song', artist: null },
-        repertoire: REPERTOIRE,
-        tabs: [
-          {
-            id: tabId,
-            repertoire_id: 'rep-1',
-            title: 'Chart',
-            file_url: `https://store.public.blob.vercel-storage.com/tabs/${tabId}.pdf`,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-      },
-    ],
-  }
-}
 
 async function seeded(): Promise<FakeOfflinePorts> {
   const ports = createFakePorts()
   const store = createOfflineStore(ports)
-  await store.saveOfflinePlaylist(saveInput('pl-1', 'Gig — Bar do Zé', 'tab-a'))
-  await store.saveOfflinePlaylist(saveInput('pl-2', 'Ensaio quarta', 'tab-b'))
+  await seedSetlist(store, 'pl-1', 'Gig — Bar do Zé', 'tab-a')
+  await seedSetlist(store, 'pl-2', 'Ensaio quarta', 'tab-b')
   return ports
 }
 
@@ -67,7 +32,12 @@ describe('OfflineStorageSection, song records (ER8)', () => {
   it('lists a stored song by title with a Song label, and removes it alone', async () => {
     const ports = await seeded()
     const songId = songRecordId('version-1', null)
-    await createOfflineStore(ports).saveOfflinePlaylist(saveInput(songId, 'Tempo Perdido', 'tab-s'))
+    await createOfflineStore(ports).saveOfflineSong({
+      song: seedSongInput('version-1', 'tab-s', 'Tempo Perdido'),
+      bandId: null,
+      savedAt: new Date().toISOString(),
+      individualDownload: true,
+    })
     render(<OfflineStorageSection store={createOfflineStore(ports)} />)
 
     expect(await screen.findByText('Tempo Perdido')).toBeDefined()
@@ -107,8 +77,10 @@ describe('OfflineStorageSection', () => {
     expect(screen.getByText('Ensaio quarta')).toBeDefined()
     expect(ports.records.rows.has('pl-2')).toBe(true)
     expect(ports.records.rows.has('pl-1')).toBe(false)
-    expect(ports.blobs.keysFor('pl-2')).toEqual(['/__offline-tab/pl-2/tab-b'])
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
+    expect(ports.blobs.keysFor(songRecordId('v-pl-2', null))).toEqual([
+      `/__offline-tab/${songRecordId('v-pl-2', null)}/tab-b`,
+    ])
+    expect(ports.blobs.keysFor(songRecordId('v-pl-1', null))).toEqual([])
   })
 
   it('says so plainly when this device stores nothing', async () => {

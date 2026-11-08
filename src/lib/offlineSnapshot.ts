@@ -202,6 +202,26 @@ export interface OfflineSnapshot {
   songs: OfflineSongSnapshot[]
 }
 
+/** One entry of a stored setlist (RH-192): its place in the order, never the song body. */
+export type OfflineSetlistEntry = Pick<PlaylistEntry, 'versionId' | 'title' | 'artist'>
+
+/** A stored setlist (RH-192): the ordered list only; each song is stored once on its own. */
+export interface OfflineSetlistList extends Omit<OfflineSnapshot, 'schemaVersion' | 'songs'> {
+  entries: OfflineSetlistEntry[]
+}
+
+/**
+ * A stored song (RH-192), once per `(versionId, bandId)` however it was downloaded.
+ * `bytes` is its cached files plus its own serialized size; `individualDownload`
+ * is true once a single-song control downloaded it, so a setlist removal keeps it.
+ */
+export interface OfflineStoredSong extends OfflineSongSnapshot {
+  bandId: string | null
+  savedAt: string
+  bytes: number
+  individualDownload: boolean
+}
+
 /** One file row plus the byte count measured while it was fetched. */
 export interface OfflineTabMaterial {
   tab: SongFile

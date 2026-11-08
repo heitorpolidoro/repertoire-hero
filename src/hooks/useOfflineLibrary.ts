@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { logger } from '@/lib/logger'
 import { formatDownloadedAgo, readOfflineQuota, type OfflineQuota } from '@/lib/offlineFormat'
 import { isSongRecordId } from '@/lib/offlineSongRecord'
-import { OFFLINE_STORE, type OfflinePlaylistSummary, type OfflineStore } from '@/lib/offlineStore'
+import type { OfflinePlaylistSummary } from '@/lib/offlineRecords'
+import { OFFLINE_STORE, type OfflineStore } from '@/lib/offlineStore'
 
 /**
  * The aggregate view of what this device has stored offline (RH-79).

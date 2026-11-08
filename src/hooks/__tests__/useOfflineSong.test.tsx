@@ -8,6 +8,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useOfflineSong } from '@/hooks/useOfflineSong'
 import type { OfflineCaptureActions } from '@/lib/offlineCapture'
 import { songRecordId } from '@/lib/offlineSongRecord'
+import { isSetlistRecord, isSongRecord, type OfflineSongRecord } from '@/lib/offlineRecords'
 import { createOfflineStore } from '@/lib/offlineStore'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
@@ -81,6 +82,12 @@ function makeActions(overrides: Partial<OfflineCaptureActions> = {}): OfflineCap
   }
 }
 
+/** The one stored song record. */
+function storedSong(ports: FakeOfflinePorts): OfflineSongRecord {
+  const [record] = [...ports.records.rows.values()].filter(isSongRecord)
+  return record
+}
+
 function setup(
   options: { bandId?: string | null; actions?: OfflineCaptureActions; ports?: FakeOfflinePorts } = {},
 ) {
@@ -106,13 +113,59 @@ describe('useOfflineSong — download', () => {
     expect(result.current.status).toBe('downloaded')
     expect(result.current.progress).toEqual({ done: 1, total: 1 })
     expect(ports.records.rows.size).toBe(1)
-    const record = [...ports.records.rows.values()][0]
+    const record = storedSong(ports)
     expect(record.playlistId).toBe(songRecordId('v-7', 'band-1'))
-    expect(record.playlistName).toBe('Tempo Perdido')
-    expect(record.snapshot.songs).toHaveLength(1)
-    expect(record.snapshot.songs[0].versionId).toBe('v-7')
-    expect(record.snapshot.songs[0].personalRepertoire?.lyrics).toBe('mine')
+    expect(result.current.summary?.playlistName).toBe('Tempo Perdido')
+    expect(record.versionId).toBe('v-7')
+    expect(record.personalRepertoire?.lyrics).toBe('mine')
     expect(ports.blobs.keysFor(record.playlistId)).toHaveLength(1)
+  })
+
+  it('marks a download from the idle control as individual (RH-192)', async () => {
+    const { result, ports } = setup()
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(storedSong(ports).individualDownload).toBe(true)
+  })
+
+  it('leaves a setlist-held song unmarked when its stored copy is refreshed here (RH-192)', async () => {
+    const ports = createFakePorts()
+    await createOfflineStore(ports).saveOfflineSong({
+      song: { entry: { repertoireId: OWNER_ROW_ID, versionId: 'v-7', songId: 'song-7', title: 'T', artist: null }, repertoire: resolved(), personalRepertoire: null, tabs: [], customFields: [] },
+      bandId: 'band-1',
+      savedAt: '2026-09-20T18:04:00.000Z',
+    })
+    const { result } = setup({ ports })
+    // Stored through a setlist, so the control already reads as downloaded.
+    await waitFor(() => expect(result.current.status).toBe('downloaded'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(storedSong(ports).individualDownload).toBe(false)
+  })
+
+  it('keeps the stored copy when its refresh fails', async () => {
+    const ports = createFakePorts()
+    const first = setup({ ports })
+    await waitFor(() => expect(first.result.current.status).toBe('idle'))
+    await act(async () => {
+      await first.result.current.download()
+    })
+    ports.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof fetch
+
+    await act(async () => {
+      await first.result.current.download()
+    })
+
+    expect(first.result.current.status).toBe('downloaded')
+    expect(first.result.current.error).toBe('Failed to fetch')
+    expect(ports.records.rows.size).toBe(1)
   })
 
   it('passes the song id, never the owner row id, to getTabs (ER2)', async () => {
@@ -167,7 +220,7 @@ describe('useOfflineSong — download', () => {
   it('stays quiet when reading the library fails on mount', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    store.listOfflinePlaylists = () => Promise.reject(new Error('IndexedDB unavailable'))
+    store.listOfflineSongs = () => Promise.reject(new Error('IndexedDB unavailable'))
     const { result } = renderHook(() =>
       useOfflineSong({ versionId: 'v-7', bandId: null, actions: makeActions(), store }),
     )
@@ -239,8 +292,7 @@ describe('useOfflineSong — failure (ER4)', () => {
     })
 
     expect(actions.getCustomFieldValues).toHaveBeenCalledWith('v-7')
-    const record = [...ports.records.rows.values()][0]
-    expect(record.snapshot.songs[0].customFields).toEqual([preset])
+    expect(storedSong(ports).customFields).toEqual([preset])
   })
 
   it('a rejected custom field read fails the download and stores nothing (RH-186)', async () => {
@@ -286,22 +338,15 @@ describe('useOfflineSong — failure (ER4)', () => {
 })
 
 describe('useOfflineSong — remove (ER6)', () => {
-  it('removes its own cached files and leaves a stored playlist record intact', async () => {
+  it('removes its own record and cached files and leaves a stored playlist list intact', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist({
+    await store.saveOfflineSetlist({
       playlistId: 'pl-1',
       playlistName: 'Gig',
-      bandId: null,
+      bandId: 'band-1',
       savedAt: '2026-09-20T18:04:00.000Z',
-      songs: [
-        {
-          entry: { repertoireId: 'rep-1', versionId: 'v-7', songId: 'song-7', title: 'T', artist: null },
-          repertoire: resolved(),
-          personalRepertoire: null,
-          tabs: [tabRow('tab-pl', 'song-7')],
-        },
-      ],
+      entries: [{ versionId: 'v-7', title: 'T', artist: null }],
     })
     const { result } = setup({ ports })
     await waitFor(() => expect(result.current.status).toBe('idle'))
@@ -319,14 +364,14 @@ describe('useOfflineSong — remove (ER6)', () => {
     expect(result.current.summary).toBeNull()
     expect(ports.blobs.keysFor(songId)).toEqual([])
     expect(ports.records.rows.has(songId)).toBe(false)
-    expect(ports.blobs.keysFor('pl-1')).toEqual(['/__offline-tab/pl-1/tab-pl'])
-    expect(ports.records.rows.has('pl-1')).toBe(true)
+    const list = ports.records.rows.get('pl-1')
+    expect(list && isSetlistRecord(list) ? list.entries.map((entry) => entry.versionId) : null).toEqual(['v-7'])
   })
 
   it('surfaces an error when the removal fails', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    store.removeOfflinePlaylist = () => Promise.reject(new Error('locked'))
+    store.removeOfflineSong = () => Promise.reject(new Error('locked'))
     const { result } = renderHook(() =>
       useOfflineSong({ versionId: 'v-7', bandId: null, actions: makeActions(), store }),
     )

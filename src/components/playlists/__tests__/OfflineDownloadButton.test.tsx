@@ -16,6 +16,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { OfflineDownloadButton } from '../OfflineDownloadButton'
 import { createOfflineStore } from '@/lib/offlineStore'
+import { songRecordId } from '@/lib/offlineSongRecord'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
 import type { ResolvedSongEntry, SongFile } from '@/types/database'
@@ -119,9 +120,9 @@ describe('OfflineDownloadButton', () => {
 
     const busy = await screen.findByRole('button', { name: /downloading/i })
     expect(busy.getAttribute('aria-busy')).toBe('true')
-    // The counter is against the playlist's real song total, read before the
-    // first byte is fetched.
-    expect(screen.getByText(/0 \/ 2 songs/)).toBeDefined()
+    // The counter is against the songs this run fetches; the first one is
+    // stored while the second is held (RH-192: one song at a time).
+    expect(await screen.findByText(/1 \/ 2 songs/)).toBeDefined()
 
     release()
     await screen.findByRole('button', { name: /remove offline copy/i })
@@ -157,12 +158,13 @@ describe('OfflineDownloadButton', () => {
     fireEvent.click(await screen.findByRole('button', { name: MAKE_AVAILABLE }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toMatch(/not enough storage/i)
+    expect(alert.textContent).toContain('Not enough storage. 1 of 2 songs could not be downloaded.')
     expect(alertSpy).not.toHaveBeenCalled()
-    // The rollback, seen from the UI: still offerable, nothing stored.
-    expect(screen.getByRole('button', { name: MAKE_AVAILABLE })).toBeDefined()
-    expect(ports.records.rows.size).toBe(0)
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
+    // RH-192: the song that fit stays stored, and the list with it.
+    expect(screen.getByText('Available offline')).toBeDefined()
+    expect(ports.records.rows.has('pl-1')).toBe(true)
+    expect(ports.records.rows.has(songRecordId('v-rep-1', 'band-1'))).toBe(true)
+    expect(ports.records.rows.has(songRecordId('v-rep-2', 'band-1'))).toBe(false)
     alertSpy.mockRestore()
   })
 

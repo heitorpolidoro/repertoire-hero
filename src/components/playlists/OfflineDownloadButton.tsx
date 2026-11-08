@@ -80,7 +80,7 @@ function DownloadedControl({
         <button
           type="button"
           aria-label="Refresh offline copy"
-          onClick={() => void offline.download()}
+          onClick={() => void offline.refresh()}
           disabled={isOffline}
           className="rounded-md p-2 text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:text-gray-300 disabled:hover:bg-transparent"
         >
@@ -159,8 +159,8 @@ function IdleControl({
  * offline", RH-188), in progress (a busy control carrying an `x / y` song
  * counter) and downloaded ("Available offline": size, date, refresh and
  * remove). A failure renders as an inline alert — never `alert()` or
- * `confirm()` — with a "Try again" button, and leaves the idle control in
- * place, which is true: the store rolled the whole download back.
+ * `confirm()` — with a "Try again" button that fetches only the songs still
+ * missing; "Refresh offline copy" refetches them all (RH-192).
  *
  * The design writes the label "Disponível offline"; it ships in English because
  * AGENTS.md (F25) scopes i18n to the landing page and writes application copy

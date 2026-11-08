@@ -1,36 +1,69 @@
 /**
- * The browser storage boundary for offline playlists (RH-79).
+ * The browser storage boundary for offline songs and setlists (RH-79, RH-192).
  *
  * The store never touches `indexedDB` or `caches` itself. It talks to two small
  * ports plus `fetch`, passed as one optional trailing argument that defaults to
- * the real adapter in `@/lib/offlineBackends`. That is what makes the rollback
+ * the real adapter in `@/lib/offlineBackends`. That is what makes every write
  * testable over in-memory fakes with no mocking library and no
  * `fake-indexeddb`, and it is what keeps this module importable under `jsdom`,
  * which implements neither global: `createOfflineStore()` captures nothing at
  * construction, and the default adapter reaches for a global only inside a
  * call. Importing this module — `OFFLINE_STORE` included — is inert.
  *
- * The write order in `saveOfflinePlaylist` is the all-or-nothing mechanism:
- * every PDF is cached first and the IndexedDB record is written last, so the
- * record is the only thing that marks a playlist as downloaded and any failure
- * before it already means "not downloaded". Any throw at any step also unwinds
- * what did land — including, on a failed refresh, the previous good copy, which
- * is deliberate: a half-written snapshot claiming a playlist is available is
- * worse than none.
+ * ## Songs once, setlists as lists (RH-192)
  *
- * See docs/tasks/RH-79-spec.md §§2-4.
+ * A song is stored **once per `(versionId, owner context)`** under
+ * `songRecordId(versionId, bandId)`, with its resolved entry, the member's own
+ * row, its files and the reader's custom field values. A setlist is stored as
+ * its ordered list only (`offlineRecords.ts`). So:
+ *
+ *   - `saveOfflineSong` is all-or-nothing **for that song**: its files are
+ *     cached first and its record written last, and a failure removes only the
+ *     bytes this attempt added — a song already stored keeps its copy. A setlist
+ *     download is a run of these, so one failing song stops nothing else.
+ *   - `removeOfflineSong` deletes that song's record and bytes and leaves every
+ *     setlist list as it is.
+ *   - `removeOfflinePlaylist` deletes a setlist's list and only the songs no
+ *     other stored setlist holds and nobody downloaded individually (the
+ *     protection rule, `releasableSongIds`). A refresh that drops a song from
+ *     the list applies the same rule to it.
+ *   - bytes are deleted per key, and never while another stored song still
+ *     points at them.
+ *
+ * Every read goes through `loadLibrary`, which converts any pre-RH-192 record
+ * first, without the network (`offlineConversion.ts`).
+ *
+ * See docs/tasks/RH-79-spec.md and docs/tasks/RH-192-spec.md.
  */
 
 import { logger } from '@/lib/logger'
 import {
+  applyOfflineConversion,
+  conversionPending,
+  planOfflineConversion,
+  type OfflineLibraryView,
+} from '@/lib/offlineConversion'
+import {
   OFFLINE_SCHEMA_VERSION,
   buildOfflineSnapshot,
   offlineTabCacheKey,
-  readValidSnapshot,
-  utf8ByteLength,
-  type OfflineSnapshot,
+  type OfflineSetlistList,
   type OfflineTabMaterial,
 } from '@/lib/offlineSnapshot'
+import {
+  newestFirst,
+  releasableSongIds,
+  setlistListBytes,
+  setlistSummary,
+  songCacheKeys,
+  songSummary,
+  storedSongBytes,
+  type OfflinePlaylistSummary,
+  type OfflineSetlistRecord,
+  type OfflineSongRecord,
+  type OfflineStorePorts,
+} from '@/lib/offlineRecords'
+import { isSongRecordId, songRecordId } from '@/lib/offlineSongRecord'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 import type { CustomFieldEntry } from '@/types/customField'
@@ -45,48 +78,12 @@ import type { CustomFieldEntry } from '@/types/customField'
  */
 export { OFFLINE_TAB_CACHE } from '@/lib/offlineCacheNames'
 
-/** The IndexedDB database and object store holding the snapshots. */
+/** The IndexedDB database and object store holding the records. */
 export const OFFLINE_DB_NAME = 'repertoire-hero-offline'
 export const OFFLINE_DB_VERSION = 1
 export const OFFLINE_SNAPSHOT_STORE = 'snapshots'
 
-/** One stored playlist. `schemaVersion` mirrors `snapshot.schemaVersion`. */
-export interface OfflineSnapshotRecord {
-  playlistId: string
-  playlistName: string
-  savedAt: string
-  /** Every cached PDF's real byte length plus the serialized snapshot's. */
-  bytes: number
-  schemaVersion: number
-  snapshot: OfflineSnapshot
-}
-
-/** A stored playlist as a listing shows it — the record minus the snapshot. */
-export type OfflinePlaylistSummary = Omit<OfflineSnapshotRecord, 'snapshot'>
-
-/** The JSON side of the boundary: IndexedDB in production. */
-export interface OfflineRecordPort {
-  get(playlistId: string): Promise<OfflineSnapshotRecord | null>
-  put(record: OfflineSnapshotRecord): Promise<void>
-  delete(playlistId: string): Promise<void>
-  list(): Promise<OfflineSnapshotRecord[]>
-}
-
-/** The bytes side of the boundary: Cache Storage in production. */
-export interface OfflineBlobPort {
-  put(key: string, response: Response): Promise<void>
-  match(key: string): Promise<Response | undefined>
-  deleteByPrefix(prefix: string): Promise<void>
-  clear(): Promise<void>
-}
-
-export interface OfflineStorePorts {
-  records: OfflineRecordPort
-  blobs: OfflineBlobPort
-  fetch: typeof fetch
-}
-
-/** Everything read for one song of the playlist being downloaded. */
+/** Everything read for one song being downloaded. */
 export interface OfflineSongInput {
   entry: PlaylistEntry
   /** The resolved `(owner, version)` pair; `ownerRowId` may be null (RH-132). */
@@ -98,34 +95,33 @@ export interface OfflineSongInput {
   customFields: CustomFieldEntry[]
 }
 
-export interface SaveOfflinePlaylistInput {
-  playlistId: string
-  playlistName: string
+export interface SaveOfflineSongInput {
+  song: OfflineSongInput
   bandId: string | null
   /** ISO-8601 UTC, supplied by the caller so the store keeps no clock. */
   savedAt: string
-  songs: OfflineSongInput[]
-  /** Called once per finished song, with the running count and the total. */
-  onProgress?: (done: number, total: number) => void
+  /**
+   * True only from a tap on an idle single-song control. Never clears a stored
+   * `true`: a setlist download or a refresh leaves that flag as it was.
+   */
+  individualDownload?: boolean
 }
 
-/** The six operations every offline surface goes through. */
+/** The operations every offline surface goes through. */
 export interface OfflineStore {
-  /** All-or-nothing: resolves with the written record, or rolls back and throws. */
-  saveOfflinePlaylist(input: SaveOfflinePlaylistInput): Promise<OfflineSnapshotRecord>
-  /** `null` when nothing is stored *or* the stored schema is not this one. */
-  readOfflineSnapshot(playlistId: string): Promise<OfflineSnapshot | null>
-  /** Never lists a record of another schema version — it purges it instead. */
+  /** All-or-nothing for this one song; a song already stored keeps its copy on failure. */
+  saveOfflineSong(input: SaveOfflineSongInput): Promise<OfflineSongRecord>
+  /** Writes the ordered list; songs a refresh dropped go by the protection rule. */
+  saveOfflineSetlist(list: OfflineSetlistList): Promise<OfflineSetlistRecord>
+  listOfflineSongs(): Promise<OfflineSongRecord[]>
+  listOfflineSetlists(): Promise<OfflineSetlistRecord[]>
+  /** Setlists plus individually downloaded songs, as the library lists them. */
   listOfflinePlaylists(): Promise<OfflinePlaylistSummary[]>
-  removeOfflinePlaylist(playlistId: string): Promise<void>
-  matchOfflineTab(playlistId: string, tabId: string): Promise<Response | undefined>
+  removeOfflineSong(versionId: string, bandId: string | null): Promise<void>
+  /** A setlist by playlist id (protection rule), or one song by its record id. */
+  removeOfflinePlaylist(recordId: string): Promise<void>
   /** Never throws: a sign-out must always be able to await it. */
   clearAllOfflineData(): Promise<void>
-}
-
-/** Everything cached for one playlist shares this key prefix. */
-function offlineTabKeyPrefix(playlistId: string): string {
-  return `/__offline-tab/${playlistId}/`
 }
 
 /**
@@ -134,7 +130,7 @@ function offlineTabKeyPrefix(playlistId: string): string {
  * Vercel Blob is CORS-enabled (measured — see the design's second correction
  * note), so a tab response is a normal one. `type === 'opaque'` would mean the
  * bytes are unreadable and the size unknowable, and a non-`ok` response would
- * cache an error page as a chart. Either aborts the whole download.
+ * cache an error page as a chart. Either fails the song.
  */
 function assertUsableTabResponse(response: Response, fileUrl: string): void {
   if (response.type === 'opaque') {
@@ -147,24 +143,42 @@ function assertUsableTabResponse(response: Response, fileUrl: string): void {
 
 async function cacheOneTab(
   ports: OfflineStorePorts,
-  playlistId: string,
+  recordId: string,
   tab: SongFile,
+  written: string[],
 ): Promise<OfflineTabMaterial> {
   const response = await ports.fetch(tab.file_url)
   assertUsableTabResponse(response, tab.file_url)
   const bytes = (await response.clone().arrayBuffer()).byteLength
-  await ports.blobs.put(offlineTabCacheKey(playlistId, tab.id), response)
+  const key = offlineTabCacheKey(recordId, tab.id)
+  written.push(key)
+  await ports.blobs.put(key, response)
   return { tab, bytes }
 }
 
-function toSummary(record: OfflineSnapshotRecord): OfflinePlaylistSummary {
-  return {
-    playlistId: record.playlistId,
-    playlistName: record.playlistName,
-    savedAt: record.savedAt,
-    bytes: record.bytes,
-    schemaVersion: record.schemaVersion,
+/** Deletes each key no song in `remaining` still points at. */
+async function deleteUnreferenced(
+  ports: OfflineStorePorts,
+  keys: string[],
+  remaining: OfflineSongRecord[],
+): Promise<void> {
+  const kept = new Set(remaining.flatMap(songCacheKeys))
+  for (const key of new Set(keys)) {
+    if (!kept.has(key)) await ports.blobs.delete(key)
   }
+}
+
+/** Deletes these songs' bytes, then their records. */
+async function deleteSongs(
+  ports: OfflineStorePorts,
+  view: OfflineLibraryView,
+  ids: string[],
+): Promise<void> {
+  const doomed = new Set(ids)
+  const leaving = view.songs.filter((song) => doomed.has(song.playlistId))
+  const remaining = view.songs.filter((song) => !doomed.has(song.playlistId))
+  await deleteUnreferenced(ports, leaving.flatMap(songCacheKeys), remaining)
+  for (const song of leaving) await ports.records.delete(song.playlistId)
 }
 
 /**
@@ -178,6 +192,7 @@ function toSummary(record: OfflineSnapshotRecord): OfflinePlaylistSummary {
 export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
   let resolved = ports
   let pending: Promise<OfflineStorePorts> | undefined
+  let converting: Promise<void> | undefined
 
   async function resolvePorts(): Promise<OfflineStorePorts> {
     if (resolved) return resolved
@@ -186,109 +201,135 @@ export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
     return resolved
   }
 
-  async function removeOfflinePlaylist(playlistId: string): Promise<void> {
-    const active = await resolvePorts()
-    await active.blobs.deleteByPrefix(offlineTabKeyPrefix(playlistId))
-    await active.records.delete(playlistId)
+  /**
+   * Every stored record as one song per id plus every setlist, converting any
+   * pre-RH-192 record on the way. A conversion that fails is logged and the
+   * view still answers, from the legacy records themselves.
+   */
+  async function loadLibrary(active: OfflineStorePorts): Promise<OfflineLibraryView> {
+    const plan = planOfflineConversion(await active.records.list())
+    if (conversionPending(plan)) {
+      converting ??= applyOfflineConversion(active, plan)
+        .catch((error: unknown) => logger.error('Failed to convert the offline library', error))
+        .finally(() => {
+          converting = undefined
+        })
+      await converting
+    }
+    return { songs: plan.songs, setlists: plan.setlists }
   }
 
-  async function writePlaylist(
+  async function writeSong(
     active: OfflineStorePorts,
-    input: SaveOfflinePlaylistInput,
-  ): Promise<OfflineSnapshotRecord> {
-    const songs = []
-    for (const song of input.songs) {
-      const tabs: OfflineTabMaterial[] = []
-      for (const tab of song.tabs) {
-        tabs.push(await cacheOneTab(active, input.playlistId, tab))
-      }
-      songs.push({
-        entry: song.entry,
-        repertoire: song.repertoire,
-        personalRepertoire: song.personalRepertoire,
-        tabs,
-        customFields: song.customFields,
-      })
-      input.onProgress?.(songs.length, input.songs.length)
-    }
-
-    const snapshot = buildOfflineSnapshot({
-      playlistId: input.playlistId,
-      playlistName: input.playlistName,
+    input: SaveOfflineSongInput,
+    previous: OfflineSongRecord | undefined,
+    written: string[],
+  ): Promise<OfflineSongRecord> {
+    const recordId = songRecordId(input.song.entry.versionId, input.bandId)
+    const tabs: OfflineTabMaterial[] = []
+    for (const tab of input.song.tabs) tabs.push(await cacheOneTab(active, recordId, tab, written))
+    const [song] = buildOfflineSnapshot({
+      playlistId: recordId,
+      playlistName: input.song.entry.title,
       bandId: input.bandId,
       savedAt: input.savedAt,
-      songs,
-    })
-    const serialized = JSON.stringify(snapshot)
-    const tabBytes = songs.reduce(
-      (total, song) => total + song.tabs.reduce((sum, tab) => sum + tab.bytes, 0),
-      0,
-    )
-    const record: OfflineSnapshotRecord = {
-      playlistId: snapshot.playlistId,
-      playlistName: snapshot.playlistName,
-      savedAt: snapshot.savedAt,
-      bytes: tabBytes + utf8ByteLength(serialized),
-      // Mirrored from the snapshot itself, so the two can never disagree.
-      schemaVersion: snapshot.schemaVersion,
-      snapshot,
+      songs: [{ ...input.song, tabs }],
+    }).songs
+    const record: OfflineSongRecord = {
+      ...song,
+      kind: 'song',
+      playlistId: recordId,
+      schemaVersion: OFFLINE_SCHEMA_VERSION,
+      bandId: input.bandId,
+      savedAt: input.savedAt,
+      bytes: storedSongBytes(song),
+      individualDownload: input.individualDownload === true || previous?.individualDownload === true,
     }
-    // Last, deliberately: the record is what marks the playlist as downloaded.
+    // Last, deliberately: the record is what marks the song as on the device.
     await active.records.put(record)
     return record
   }
 
+  async function removeSongById(recordId: string): Promise<void> {
+    const active = await resolvePorts()
+    await deleteSongs(active, await loadLibrary(active), [recordId])
+  }
+
   return {
-    async saveOfflinePlaylist(input) {
+    async saveOfflineSong(input) {
       const active = await resolvePorts()
+      const recordId = songRecordId(input.song.entry.versionId, input.bandId)
+      const view = await loadLibrary(active)
+      const previous = view.songs.find((song) => song.playlistId === recordId)
+      const others = view.songs.filter((song) => song.playlistId !== recordId)
+      const written: string[] = []
+      let record: OfflineSongRecord
       try {
-        return await writePlaylist(active, input)
+        record = await writeSong(active, input, previous, written)
       } catch (error) {
-        await removeOfflinePlaylist(input.playlistId)
+        // Unwinds only what this attempt added; a stored copy keeps its bytes.
+        await deleteUnreferenced(active, written, previous ? [...others, previous] : others)
         throw error
       }
+      // A refreshed song's files that are gone from its latest version.
+      const fresh = new Set(songCacheKeys(record))
+      const gone = previous ? songCacheKeys(previous).filter((key) => !fresh.has(key)) : []
+      await deleteUnreferenced(active, gone, [...others, record])
+      return record
     },
 
-    async readOfflineSnapshot(playlistId) {
+    async saveOfflineSetlist(list) {
       const active = await resolvePorts()
-      const record = await active.records.get(playlistId)
-      return record ? readValidSnapshot(record.snapshot) : null
+      const view = await loadLibrary(active)
+      const previous = view.setlists.find((setlist) => setlist.playlistId === list.playlistId)
+      const record: OfflineSetlistRecord = {
+        ...list,
+        kind: 'setlist',
+        schemaVersion: OFFLINE_SCHEMA_VERSION,
+        bytes: setlistListBytes(list),
+      }
+      await active.records.put(record)
+      if (previous) {
+        const now = new Set(list.entries.map((entry) => songRecordId(entry.versionId, list.bandId)))
+        const dropped = previous.entries
+          .map((entry) => songRecordId(entry.versionId, previous.bandId))
+          .filter((id) => !now.has(id))
+        const others = view.setlists.filter((setlist) => setlist.playlistId !== list.playlistId)
+        await deleteSongs(active, view, releasableSongIds(dropped, [...others, record], view.songs))
+      }
+      return record
+    },
+
+    async listOfflineSongs() {
+      return newestFirst((await loadLibrary(await resolvePorts())).songs)
+    },
+
+    async listOfflineSetlists() {
+      return (await loadLibrary(await resolvePorts())).setlists
     },
 
     async listOfflinePlaylists() {
-      const active = await resolvePorts()
-      const rows = await active.records.list()
-      const current: OfflinePlaylistSummary[] = []
-      for (const record of rows) {
-        if (record.schemaVersion === OFFLINE_SCHEMA_VERSION) {
-          current.push(toSummary(record))
-          continue
-        }
-        // A superseded record is **upgraded where it can be** (RH-132):
-        // `readValidSnapshot` reshapes a v5 record losslessly, and the cached
-        // PDFs survive because no `cacheKey` changes. The record is rewritten
-        // at the new version so the walk happens once rather than on every
-        // listing.
-        const upgraded = readValidSnapshot(record.snapshot)
-        if (!upgraded) {
-          // Purged, not merely skipped: a record listed as "Downloaded" while
-          // Fast View reports the playlist unavailable is the worst of both
-          // (RH-83 ER11). `removeOfflinePlaylist` drops the cached PDFs too.
-          await removeOfflinePlaylist(record.playlistId)
-          continue
-        }
-        const rewritten = { ...record, schemaVersion: upgraded.schemaVersion, snapshot: upgraded }
-        await active.records.put(rewritten)
-        current.push(toSummary(rewritten))
-      }
-      return current
+      const { songs, setlists } = await loadLibrary(await resolvePorts())
+      return [
+        ...setlists.map((setlist) => setlistSummary(setlist, songs)),
+        ...songs.filter((song) => song.individualDownload).map(songSummary),
+      ]
     },
 
-    removeOfflinePlaylist,
+    removeOfflineSong(versionId, bandId) {
+      return removeSongById(songRecordId(versionId, bandId))
+    },
 
-    async matchOfflineTab(playlistId, tabId) {
+    async removeOfflinePlaylist(recordId) {
+      if (isSongRecordId(recordId)) return removeSongById(recordId)
       const active = await resolvePorts()
-      return active.blobs.match(offlineTabCacheKey(playlistId, tabId))
+      const view = await loadLibrary(active)
+      const setlist = view.setlists.find((row) => row.playlistId === recordId)
+      if (!setlist) return
+      const others = view.setlists.filter((row) => row.playlistId !== recordId)
+      const ids = setlist.entries.map((entry) => songRecordId(entry.versionId, setlist.bandId))
+      await deleteSongs(active, view, releasableSongIds(ids, others, view.songs))
+      await active.records.delete(recordId)
     },
 
     async clearAllOfflineData() {

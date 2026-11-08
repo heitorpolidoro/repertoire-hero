@@ -1,28 +1,29 @@
 /**
- * RH-79 — the storage boundary, exercised over in-memory ports.
+ * RH-79 / RH-192 — the storage boundary, exercised over in-memory ports.
  *
  * `createOfflineStore(ports)` is the real store; only `indexedDB`, Cache
- * Storage and `fetch` are replaced, by `./offlineStoreFakes`. No mocking
- * library appears here and none is needed: what is asserted after a failed
- * download is the *fakes' own contents*, so the rollback under test is the
- * store's real rollback.
+ * Storage and `fetch` are replaced, by `./offlineStoreFakes`. What is asserted
+ * is the *fakes' own contents*, so every rollback and every deletion under test
+ * is the store's real one.
  *
- * The write order is the mechanism, so it is what the failure tests probe: the
- * PDFs go in first and the IndexedDB record goes in last, which makes the
- * record the only thing that marks a playlist as downloaded.
+ * Since RH-192 a song is stored once per `(versionId, owner context)` and a
+ * setlist as its ordered list only.
  */
 import { describe, it, expect } from 'vitest'
-import { createOfflineStore, type SaveOfflinePlaylistInput } from '@/lib/offlineStore'
-import { OFFLINE_SCHEMA_VERSION, type OfflineSnapshot } from '@/lib/offlineSnapshot'
-import { createFakePorts, tabResponse, unusableResponse } from './offlineStoreFakes'
+import { createOfflineStore, type OfflineSongInput } from '@/lib/offlineStore'
+import { OFFLINE_SCHEMA_VERSION, type OfflineSetlistList } from '@/lib/offlineSnapshot'
+import { isSetlistRecord, isSongRecord } from '@/lib/offlineRecords'
+import { songRecordId } from '@/lib/offlineSongRecord'
+import { createFakePorts, unusableResponse, type FakeOfflinePorts } from './offlineStoreFakes'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
-/** The captured `(owner, version)` pair — a `ResolvedSongEntry` since RH-132. */
-function repertoire(id: string): ResolvedSongEntry {
+const SAVED_AT = '2026-09-20T18:04:00.000Z'
+
+function resolved(versionId: string): ResolvedSongEntry {
   return {
-    ownerRowId: id,
-    song_id: `song-${id}`,
-    version_id: 'version-1',
+    ownerRowId: `row-${versionId}`,
+    song_id: `song-${versionId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -33,14 +34,13 @@ function repertoire(id: string): ResolvedSongEntry {
   }
 }
 
-/** The member's own row, still a `Repertoire` (RH-132 ER14). */
-function personalRow(id: string): Repertoire {
+function personalRow(versionId: string): Repertoire {
   return {
-    id,
+    id: `personal-${versionId}`,
     user_id: 'user-1',
     band_id: null,
-    song_id: `song-${id}`,
-    version_id: 'version-1',
+    song_id: `song-${versionId}`,
+    version_id: versionId,
     key: null,
     tuning: null,
     map: null,
@@ -51,197 +51,323 @@ function personalRow(id: string): Repertoire {
   }
 }
 
-function tabRow(id: string, repertoireId: string): SongFile {
+function tabRow(id: string, versionId: string): SongFile {
   return {
     id,
     user_id: 'user-1',
-    song_id: `song-${repertoireId}`,
+    song_id: `song-${versionId}`,
     title: `Chart ${id}`,
     file_url: `https://store.public.blob.vercel-storage.com/tabs/${id}.pdf`,
     created_at: '2026-05-01T00:00:00Z',
   }
 }
 
-function saveInput(playlistId: string, tabIds: string[]): SaveOfflinePlaylistInput {
+/** One song's capture, with one chart per tab id. */
+function songInput(versionId: string, tabIds: string[] = [`tab-${versionId}`]): OfflineSongInput {
   return {
-    playlistId,
-    playlistName: `Playlist ${playlistId}`,
-    bandId: 'band-1',
-    savedAt: '2026-09-20T18:04:00.000Z',
-    songs: [
-      {
-        entry: { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
-        repertoire: repertoire('rep-1'),
-        personalRepertoire: personalRow('personal-1'),
-        tabs: tabIds.map((tabId) => tabRow(tabId, 'rep-1')),
-      },
-    ],
+    entry: { repertoireId: `row-${versionId}`, versionId, songId: `song-${versionId}`, title: `Song ${versionId}`, artist: 'Artist' },
+    repertoire: resolved(versionId),
+    personalRepertoire: personalRow(versionId),
+    tabs: tabIds.map((id) => tabRow(id, versionId)),
+    customFields: [],
   }
 }
 
-describe('saveOfflinePlaylist / readOfflineSnapshot / removeOfflinePlaylist', () => {
-  it('writes a record keyed by playlistId carrying savedAt, bytes and schemaVersion', async () => {
+function list(playlistId: string, versionIds: string[], bandId: string | null = null): OfflineSetlistList {
+  return {
+    playlistId,
+    playlistName: `Playlist ${playlistId}`,
+    bandId,
+    savedAt: SAVED_AT,
+    entries: versionIds.map((versionId) => ({ versionId, title: `Song ${versionId}`, artist: 'Artist' })),
+  }
+}
+
+function songIds(ports: FakeOfflinePorts): string[] {
+  return [...ports.records.rows.values()].filter(isSongRecord).map((row) => row.playlistId).sort()
+}
+
+function setlistIds(ports: FakeOfflinePorts): string[] {
+  return [...ports.records.rows.values()].filter(isSetlistRecord).map((row) => row.playlistId).sort()
+}
+
+/** Downloads a setlist the way the hook does: each song, then the list. */
+async function downloadSetlist(
+  store: ReturnType<typeof createOfflineStore>,
+  playlistId: string,
+  versionIds: string[],
+  bandId: string | null = null,
+) {
+  for (const versionId of versionIds) {
+    await store.saveOfflineSong({ song: songInput(versionId), bandId, savedAt: SAVED_AT })
+  }
+  await store.saveOfflineSetlist(list(playlistId, versionIds, bandId))
+}
+
+describe('saveOfflineSong — one record per version and owner context (RH-192)', () => {
+  it('two setlists sharing a song store exactly one song record with one set of cached bytes', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
 
-    const record = await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a', 'tab-b']))
+    await downloadSetlist(store, 'pl-1', ['v-shared', 'v-a'])
+    await downloadSetlist(store, 'pl-2', ['v-shared', 'v-b'])
 
-    expect(record.playlistId).toBe('pl-1')
-    expect(record.playlistName).toBe('Playlist pl-1')
-    expect(record.savedAt).toBe('2026-09-20T18:04:00.000Z')
-    expect(record.schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
-    // Two 1 KB PDFs plus the serialized snapshot.
-    expect(record.bytes).toBeGreaterThan(2048)
-    expect([...ports.records.rows.keys()]).toEqual(['pl-1'])
-    expect(ports.records.rows.get('pl-1')?.schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
-  })
-
-  it('caches each PDF under its own synthetic, playlist-scoped key', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-
-    await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a', 'tab-b']))
-
-    expect(ports.blobs.keysFor('pl-1').sort()).toEqual([
-      '/__offline-tab/pl-1/tab-a',
-      '/__offline-tab/pl-1/tab-b',
+    expect(songIds(ports)).toEqual([songRecordId('v-a', null), songRecordId('v-b', null), songRecordId('v-shared', null)])
+    expect(setlistIds(ports)).toEqual(['pl-1', 'pl-2'])
+    // One set of bytes for the shared song, under its own record id.
+    expect(ports.blobs.keysFor(songRecordId('v-shared', null))).toEqual([
+      `/__offline-tab/${songRecordId('v-shared', null)}/tab-v-shared`,
     ])
-    expect(await store.matchOfflineTab('pl-1', 'tab-a')).toBeDefined()
-    expect(await store.matchOfflineTab('pl-1', 'missing')).toBeUndefined()
-  })
-
-  it('reads the snapshot back with its tabs, and lists what is stored', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))
-
-    const snapshot = await store.readOfflineSnapshot('pl-1')
-    const listed = await store.listOfflinePlaylists()
-
-    expect(snapshot?.playlistName).toBe('Playlist pl-1')
-    expect(snapshot?.songs[0].versionId).toBe('v-rep-1')
-    expect(snapshot?.songs[0].repertoire.ownerRowId).toBe('rep-1')
-    expect(snapshot?.songs[0].tabs[0].createdAt).toBe('2026-05-01T00:00:00Z')
-    // RH-83 ER10: the member's own row travels with the song.
-    expect(snapshot?.songs[0].personalRepertoire?.lyrics).toBe('my cues')
-    expect(listed.map((row) => row.playlistId)).toEqual(['pl-1'])
-    expect(listed[0].bytes).toBe(ports.records.rows.get('pl-1')?.bytes)
-  })
-
-  it('reads back as absent when nothing is stored, or when the schema moved on', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-1', []))
-
-    expect(await store.readOfflineSnapshot('pl-unknown')).toBeNull()
-
+    expect(ports.blobs.entries.size).toBe(3)
+    // A setlist record carries its list only — no song body, no file.
     const stored = ports.records.rows.get('pl-1')
-    if (stored) {
-      stored.snapshot = { ...stored.snapshot, schemaVersion: OFFLINE_SCHEMA_VERSION + 1 }
-    }
-    expect(await store.readOfflineSnapshot('pl-1')).toBeNull()
+    expect(stored && isSetlistRecord(stored) ? stored.entries.map((entry) => entry.versionId) : null).toEqual(['v-shared', 'v-a'])
+    expect(stored).not.toHaveProperty('snapshot')
+    expect(stored).not.toHaveProperty('songs')
   })
 
-  // RH-83 ER11: a record that cannot be read is discarded rather than listed as
-  // "Downloaded" while Fast View reports the playlist unavailable. A photograph
-  // is cheap to retake; an indicator that might be wrong is not.
-  //
-  // RH-132 narrowed this to "cannot be read": a v5 record *can* be, so it is
-  // upgraded instead (see the ER6c suite below). The stale record here is
-  // tagged v3 — the last version whose reshape genuinely lost information —
-  // on both the record and the snapshot, so no upgrade path applies.
-  it('drops and purges a record whose schema version has no upgrade path', async () => {
+  it('a version downloaded in personal and band context stores one song record with one set of cached bytes per context', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-stale', ['tab-a']))
-    await store.saveOfflinePlaylist(saveInput('pl-current', ['tab-b']))
-    const stale = ports.records.rows.get('pl-stale')
-    if (stale) {
-      stale.schemaVersion = 3
-      stale.snapshot = { ...stale.snapshot, schemaVersion: 3 }
-    }
 
-    const listed = await store.listOfflinePlaylists()
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: 'band-1', savedAt: SAVED_AT })
+    // Downloading the same pair again replaces it rather than adding a third.
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: 'band-1', savedAt: SAVED_AT })
 
-    expect(listed.map((row) => row.playlistId)).toEqual(['pl-current'])
-    // Purged, not merely hidden: the record and its cached bytes are both gone.
-    expect(ports.records.rows.has('pl-stale')).toBe(false)
-    expect(ports.blobs.keysFor('pl-stale')).toEqual([])
-    expect(ports.blobs.keysFor('pl-current')).toEqual(['/__offline-tab/pl-current/tab-b'])
+    expect(songIds(ports)).toEqual([songRecordId('v-1', null), songRecordId('v-1', 'band-1')].sort())
+    expect(ports.blobs.keysFor(songRecordId('v-1', null))).toHaveLength(1)
+    expect(ports.blobs.keysFor(songRecordId('v-1', 'band-1'))).toHaveLength(1)
+    expect(ports.blobs.entries.size).toBe(2)
   })
 
-  it('removes one playlist without disturbing another', async () => {
+  it('stores everything readable about the song, at the current schema', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))
-    await store.saveOfflinePlaylist(saveInput('pl-2', ['tab-b']))
 
-    await store.removeOfflinePlaylist('pl-1')
+    const record = await store.saveOfflineSong({ song: songInput('v-1', ['tab-a', 'tab-b']), bandId: 'band-1', savedAt: SAVED_AT })
 
-    expect(await store.readOfflineSnapshot('pl-1')).toBeNull()
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
-    expect((await store.listOfflinePlaylists()).map((row) => row.playlistId)).toEqual(['pl-2'])
-    expect(ports.blobs.keysFor('pl-2')).toEqual(['/__offline-tab/pl-2/tab-b'])
+    expect(record.playlistId).toBe(songRecordId('v-1', 'band-1'))
+    expect(record.schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
+    expect(record.versionId).toBe('v-1')
+    expect(record.bandId).toBe('band-1')
+    expect(record.personalRepertoire?.lyrics).toBe('my cues')
+    expect(record.tabs.map((tab) => tab.cacheKey)).toEqual([
+      `/__offline-tab/${songRecordId('v-1', 'band-1')}/tab-a`,
+      `/__offline-tab/${songRecordId('v-1', 'band-1')}/tab-b`,
+    ])
+    // Two 1 KB charts plus the serialized song.
+    expect(record.bytes).toBeGreaterThan(2048)
+    expect(record.individualDownload).toBe(false)
+  })
+
+  it('keeps individualDownload true across a later setlist download of the same song', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT, individualDownload: true })
+    const again = await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+
+    expect(again.individualDownload).toBe(true)
+  })
+
+  it('deletes a refreshed song’s files that are gone from its latest version', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    const id = songRecordId('v-1', null)
+
+    await store.saveOfflineSong({ song: songInput('v-1', ['tab-a', 'tab-b']), bandId: null, savedAt: SAVED_AT })
+    await store.saveOfflineSong({ song: songInput('v-1', ['tab-b']), bandId: null, savedAt: SAVED_AT })
+
+    expect(ports.blobs.keysFor(id)).toEqual([`/__offline-tab/${id}/tab-b`])
   })
 })
 
-describe('the download refuses a response it cannot trust', () => {
-  it('aborts on an opaque response and keeps nothing', async () => {
+describe('saveOfflineSong — a failure unwinds only that attempt', () => {
+  it('refuses an opaque response and keeps nothing of that song', async () => {
     const ports = createFakePorts({ respond: () => unusableResponse('opaque') })
     const store = createOfflineStore(ports)
 
-    await expect(store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))).rejects.toThrow(/opaque/i)
+    await expect(store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })).rejects.toThrow(/opaque/i)
 
     expect(ports.records.rows.size).toBe(0)
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
+    expect(ports.blobs.entries.size).toBe(0)
   })
 
-  it('aborts on a non-ok response and keeps nothing', async () => {
+  it('refuses a non-ok response and keeps nothing of that song', async () => {
     const ports = createFakePorts({ respond: () => unusableResponse('not-ok') })
     const store = createOfflineStore(ports)
 
-    await expect(store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))).rejects.toThrow(/404/)
+    await expect(store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })).rejects.toThrow(/404/)
 
     expect(ports.records.rows.size).toBe(0)
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
   })
-})
 
-describe('all-or-nothing rollback', () => {
-  it('leaves both stores empty when the blob port runs out of quota mid-download', async () => {
+  it('removes the bytes it cached when the quota runs out mid-song', async () => {
     const ports = createFakePorts({ failBlobPutOnCall: 2 })
     const store = createOfflineStore(ports)
 
     await expect(
-      store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a', 'tab-b', 'tab-c'])),
+      store.saveOfflineSong({ song: songInput('v-1', ['tab-a', 'tab-b', 'tab-c']), bandId: null, savedAt: SAVED_AT }),
     ).rejects.toThrow(/quota/i)
 
-    expect(await store.listOfflinePlaylists()).toEqual([])
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
-    expect(ports.blobs.putCalls).toBe(2)
+    expect(ports.records.rows.size).toBe(0)
+    expect(ports.blobs.entries.size).toBe(0)
   })
 
-  it('discards the previous good copy when a refresh fails — "not downloaded" is then true', async () => {
+  it('keeps every other stored song when one fails', async () => {
+    const ports = createFakePorts({ failRecordPutOnCall: 2 })
+    const store = createOfflineStore(ports)
+
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+    await expect(store.saveOfflineSong({ song: songInput('v-2'), bandId: null, savedAt: SAVED_AT })).rejects.toThrow(/quota/i)
+
+    expect(songIds(ports)).toEqual([songRecordId('v-1', null)])
+    expect(ports.blobs.keysFor(songRecordId('v-1', null))).toHaveLength(1)
+    expect(ports.blobs.keysFor(songRecordId('v-2', null))).toEqual([])
+  })
+
+  it('keeps a stored copy and its bytes when its refresh fails', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))
-    expect(ports.records.rows.size).toBe(1)
+    const id = songRecordId('v-1', null)
+    await store.saveOfflineSong({ song: songInput('v-1', ['tab-a']), bandId: null, savedAt: SAVED_AT })
 
-    ports.blobs.put = () => Promise.reject(new DOMException('quota', 'QuotaExceededError'))
-    await expect(store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))).rejects.toThrow(/quota/i)
+    ports.records.put = () => Promise.reject(new DOMException('quota', 'QuotaExceededError'))
+    await expect(
+      store.saveOfflineSong({ song: songInput('v-1', ['tab-a', 'tab-new']), bandId: null, savedAt: SAVED_AT }),
+    ).rejects.toThrow(/quota/i)
 
-    expect(await store.listOfflinePlaylists()).toEqual([])
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
+    expect(songIds(ports)).toEqual([id])
+    expect(ports.blobs.keysFor(id)).toEqual([`/__offline-tab/${id}/tab-a`])
+  })
+})
+
+describe('removeOfflineSong (RH-192)', () => {
+  it('removing one stored song leaves every other song and every setlist list stored', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-1', ['v-1', 'v-2'])
+    await downloadSetlist(store, 'pl-2', ['v-1', 'v-3'])
+
+    await store.removeOfflineSong('v-1', null)
+
+    expect(songIds(ports)).toEqual([songRecordId('v-2', null), songRecordId('v-3', null)])
+    expect(ports.blobs.keysFor(songRecordId('v-1', null))).toEqual([])
+    expect(ports.blobs.keysFor(songRecordId('v-2', null))).toHaveLength(1)
+    expect(ports.blobs.keysFor(songRecordId('v-3', null))).toHaveLength(1)
+    // Both lists stay whole: the removed song now counts as missing in each.
+    expect(setlistIds(ports)).toEqual(['pl-1', 'pl-2'])
+    const first = ports.records.rows.get('pl-1')
+    expect(first && isSetlistRecord(first) ? first.entries.map((entry) => entry.versionId) : null).toEqual(['v-1', 'v-2'])
   })
 
-  it('rolls back when the record port itself is the thing that fails', async () => {
-    const ports = createFakePorts({ failRecordPutOnCall: 1 })
+  it('removes only the copy in the given owner context', async () => {
+    const ports = createFakePorts()
     const store = createOfflineStore(ports)
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: 'band-1', savedAt: SAVED_AT })
 
-    await expect(store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))).rejects.toThrow(/quota/i)
+    await store.removeOfflineSong('v-1', 'band-1')
+
+    expect(songIds(ports)).toEqual([songRecordId('v-1', null)])
+  })
+
+  it('is also reachable through removeOfflinePlaylist with the song record id', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT, individualDownload: true })
+
+    await store.removeOfflinePlaylist(songRecordId('v-1', null))
 
     expect(ports.records.rows.size).toBe(0)
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
+    expect(ports.blobs.entries.size).toBe(0)
+  })
+})
+
+describe('removeOfflinePlaylist — the protection rule (RH-192)', () => {
+  it('removing a downloaded setlist deletes only the songs not held by another downloaded setlist and not downloaded individually', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-1', ['v-only', 'v-shared', 'v-mine'])
+    await downloadSetlist(store, 'pl-2', ['v-shared'])
+    await store.saveOfflineSong({ song: songInput('v-mine'), bandId: null, savedAt: SAVED_AT, individualDownload: true })
+
+    await store.removeOfflinePlaylist('pl-1')
+
+    expect(setlistIds(ports)).toEqual(['pl-2'])
+    expect(songIds(ports)).toEqual([songRecordId('v-mine', null), songRecordId('v-shared', null)])
+    expect(ports.blobs.keysFor(songRecordId('v-only', null))).toEqual([])
+    expect(ports.blobs.keysFor(songRecordId('v-shared', null))).toHaveLength(1)
+    expect(ports.blobs.keysFor(songRecordId('v-mine', null))).toHaveLength(1)
+  })
+
+  it('does not count a setlist of another owner context as holding the song', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-personal', ['v-1'], null)
+    await downloadSetlist(store, 'pl-band', ['v-1'], 'band-1')
+
+    await store.removeOfflinePlaylist('pl-personal')
+
+    expect(songIds(ports)).toEqual([songRecordId('v-1', 'band-1')])
+  })
+
+  it('a refresh that drops a song deletes it unless it is protected', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-1', ['v-1', 'v-2', 'v-3'])
+    await downloadSetlist(store, 'pl-2', ['v-2'])
+    await store.saveOfflineSong({ song: songInput('v-3'), bandId: null, savedAt: SAVED_AT, individualDownload: true })
+
+    await store.saveOfflineSetlist(list('pl-1', []))
+
+    expect(songIds(ports)).toEqual([songRecordId('v-2', null), songRecordId('v-3', null)])
+  })
+
+  it('removes nothing for a playlist that is not stored', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-1', ['v-1'])
+
+    await store.removeOfflinePlaylist('pl-unknown')
+
+    expect(songIds(ports)).toEqual([songRecordId('v-1', null)])
+  })
+
+  it('never deletes bytes another stored song still points at', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    // Two versions of one composition sharing a chart, under two stored songs.
+    const shared = '/__offline-tab/legacy/tab-shared'
+    await downloadSetlist(store, 'pl-1', ['v-1', 'v-2'])
+    for (const id of [songRecordId('v-1', null), songRecordId('v-2', null)]) {
+      const row = ports.records.rows.get(id)
+      if (row && isSongRecord(row)) row.tabs = [{ ...row.tabs[0], cacheKey: shared }]
+    }
+    await ports.blobs.put(shared, new Response('pdf'))
+
+    await store.removeOfflineSong('v-1', null)
+
+    expect(ports.blobs.entries.has(shared)).toBe(true)
+  })
+})
+
+describe('listing', () => {
+  it('lists setlists and individually downloaded songs, with each setlist counting its stored songs', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-1', ['v-1', 'v-2'])
+    await store.saveOfflineSong({ song: songInput('v-9'), bandId: null, savedAt: SAVED_AT, individualDownload: true })
+
+    const rows = await store.listOfflinePlaylists()
+
+    expect(rows.map((row) => row.playlistId)).toEqual(['pl-1', songRecordId('v-9', null)])
+    expect(rows[0].playlistName).toBe('Playlist pl-1')
+    expect(rows[0].bytes).toBeGreaterThan(2048)
+    expect(rows[1].playlistName).toBe('Song v-9')
+    expect((await store.listOfflineSongs()).map((song) => song.versionId).sort()).toEqual(['v-1', 'v-2', 'v-9'])
+    expect((await store.listOfflineSetlists()).map((setlist) => setlist.playlistId)).toEqual(['pl-1'])
   })
 })
 
@@ -249,149 +375,22 @@ describe('clearAllOfflineData', () => {
   it('empties both stores', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))
-    await store.saveOfflinePlaylist(saveInput('pl-2', ['tab-b']))
+    await downloadSetlist(store, 'pl-1', ['v-1'])
+    await store.saveOfflineSong({ song: songInput('v-2'), bandId: null, savedAt: SAVED_AT, individualDownload: true })
 
     await store.clearAllOfflineData()
 
     expect(await store.listOfflinePlaylists()).toEqual([])
+    expect(ports.records.rows.size).toBe(0)
     expect(ports.blobs.entries.size).toBe(0)
   })
 
   it('resolves rather than throwing when a port fails, so a sign-out can always await it', async () => {
     const ports = createFakePorts()
     const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-1', ['tab-a']))
+    await downloadSetlist(store, 'pl-1', ['v-1'])
     ports.blobs.clear = () => Promise.reject(new Error('cache unavailable'))
 
     await expect(store.clearAllOfflineData()).resolves.toBeUndefined()
-  })
-})
-
-describe('progress reporting', () => {
-  it('reports one step per song, in order, against the song total', async () => {
-    const ports = createFakePorts({ respond: () => tabResponse(512) })
-    const store = createOfflineStore(ports)
-    const steps: Array<[number, number]> = []
-    const input = saveInput('pl-1', ['tab-a'])
-
-    await store.saveOfflinePlaylist({
-      ...input,
-      songs: [...input.songs, { ...input.songs[0], entry: { ...input.songs[0].entry, repertoireId: 'rep-2' }, tabs: [] }],
-      onProgress: (done, total) => steps.push([done, total]),
-    })
-
-    expect(steps).toEqual([
-      [1, 2],
-      [2, 2],
-    ])
-  })
-})
-
-/**
- * RH-132 ER6c — a v5 record is rewritten, not purged.
- *
- * The purge at `listOfflinePlaylists` existed because a superseded record was
- * always unreadable. A v5 record is not: it reshapes losslessly, and its cached
- * PDF bytes stay addressable because no `cacheKey` changes. Destroying it would
- * cost a musician a downloaded setlist recoverable only online.
- */
-describe('a v5 record is upgraded in place (RH-132 ER6c)', () => {
-  /** Rewrites a stored record into the v5 shape, in place, the way one is on disk. */
-  function degradeToV5(record: { schemaVersion: number; snapshot: OfflineSnapshot }) {
-    record.schemaVersion = 5
-    record.snapshot = {
-      ...record.snapshot,
-      schemaVersion: 5,
-      songs: record.snapshot.songs.map((row) => {
-        const resolved = row.repertoire
-        return {
-          repertoireId: resolved.ownerRowId as string,
-          entry: row.entry,
-          repertoire: {
-            id: resolved.ownerRowId as string,
-            user_id: null,
-            band_id: 'band-1',
-            song_id: resolved.song_id,
-            version_id: resolved.version_id,
-            key: resolved.key,
-            tuning: resolved.tuning,
-            map: resolved.map,
-            status: resolved.status ?? 'learning',
-            tags: resolved.tags,
-            last_practiced: resolved.last_practiced,
-            lyrics: resolved.lyrics,
-          },
-          personalRepertoire: row.personalRepertoire,
-          tabs: row.tabs,
-        }
-      }),
-    } as unknown as OfflineSnapshot
-  }
-
-  it('still lists it as downloaded, keeping its record and its cached PDFs', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-v5', ['tab-a']))
-    const stored = ports.records.rows.get('pl-v5')
-    if (!stored) throw new Error('fixture record was not written')
-    degradeToV5(stored)
-
-    const listed = await store.listOfflinePlaylists()
-
-    expect(listed.map((row) => row.playlistId)).toEqual(['pl-v5'])
-    // Not purged: the record is still there and so are the cached bytes.
-    expect(ports.records.rows.has('pl-v5')).toBe(true)
-    expect(ports.blobs.keysFor('pl-v5')).toEqual(['/__offline-tab/pl-v5/tab-a'])
-  })
-
-  it('rewrites the record at the new schema version, so the walk happens once', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-v5', ['tab-a']))
-    const stored = ports.records.rows.get('pl-v5')
-    if (!stored) throw new Error('fixture record was not written')
-    degradeToV5(stored)
-
-    const listed = await store.listOfflinePlaylists()
-
-    expect(listed[0].schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
-    expect(ports.records.rows.get('pl-v5')?.schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
-    expect(ports.records.rows.get('pl-v5')?.snapshot.schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
-    expect(ports.records.rows.get('pl-v5')?.snapshot.songs[0].versionId).toBe('v-rep-1')
-    expect(ports.records.rows.get('pl-v5')?.snapshot.songs[0].repertoire.ownerRowId).toBe('rep-1')
-  })
-
-  it('reads the snapshot back through readOfflineSnapshot before any rewrite', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-v5', ['tab-a']))
-    const stored = ports.records.rows.get('pl-v5')
-    if (!stored) throw new Error('fixture record was not written')
-    degradeToV5(stored)
-
-    const snapshot = await store.readOfflineSnapshot('pl-v5')
-
-    expect(snapshot).not.toBeNull()
-    expect(snapshot!.schemaVersion).toBe(OFFLINE_SCHEMA_VERSION)
-    expect(snapshot!.songs[0].tabs[0].cacheKey).toBe('/__offline-tab/pl-v5/tab-a')
-  })
-
-  it('still purges a record whose snapshot cannot be made valid', async () => {
-    const ports = createFakePorts()
-    const store = createOfflineStore(ports)
-    await store.saveOfflinePlaylist(saveInput('pl-broken', ['tab-a']))
-    await store.saveOfflinePlaylist(saveInput('pl-current', ['tab-b']))
-    const broken = ports.records.rows.get('pl-broken')
-    if (broken) {
-      broken.schemaVersion = 2
-      broken.snapshot = { ...broken.snapshot, schemaVersion: 2 }
-    }
-
-    const listed = await store.listOfflinePlaylists()
-
-    expect(listed.map((row) => row.playlistId)).toEqual(['pl-current'])
-    expect(ports.records.rows.has('pl-broken')).toBe(false)
-    expect(ports.blobs.keysFor('pl-broken')).toEqual([])
   })
 })

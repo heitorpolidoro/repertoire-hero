@@ -3,7 +3,8 @@ import { logger } from '@/lib/logger'
 import { captureResolvedEntry, type OfflineCaptureActions } from '@/lib/offlineCapture'
 import { formatDownloadedAgo } from '@/lib/offlineFormat'
 import { songRecordId } from '@/lib/offlineSongRecord'
-import { OFFLINE_STORE, type OfflinePlaylistSummary, type OfflineStore } from '@/lib/offlineStore'
+import { songSummary, type OfflinePlaylistSummary } from '@/lib/offlineRecords'
+import { OFFLINE_STORE, type OfflineStore } from '@/lib/offlineStore'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type {
   OfflineDownloadProgress,
@@ -44,15 +45,19 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * The per-song download controller (RH-116).
+ * The per-song download controller (RH-116, RH-192).
  *
- * A downloaded song is an ordinary one-song snapshot stored through the same
- * all-or-nothing `saveOfflinePlaylist`, under a record id from
- * `songRecordId` that cannot collide with a playlist's. The capture is the
- * playlist download's own (`captureResolvedEntry`): resolved entry, then
- * `getTabs(song id)`, then in band context the member's own row. Unlike the
- * playlist loop nothing is skipped — there is no other song to carry on with —
- * so a null or throwing entry read fails the download.
+ * The song is stored once per owner context through `saveOfflineSong`, under
+ * `songRecordId(versionId, bandId)` — the same record a setlist download of it
+ * writes, so a song already on the device through a setlist reads as
+ * downloaded here too. A tap on the **idle** control marks it
+ * `individualDownload: true`, which a later setlist removal respects; a refresh
+ * of a stored copy leaves the flag as it was. Removing it here deletes that one
+ * song and keeps every setlist list.
+ *
+ * The capture is the playlist download's own (`captureResolvedEntry`). Nothing
+ * is skipped — there is no other song to carry on with — so a null or throwing
+ * entry read fails the download, and a failure keeps any stored copy.
  */
 export function useOfflineSong({
   versionId,
@@ -75,11 +80,11 @@ export function useOfflineSong({
   useEffect(() => {
     let active = true
     store
-      .listOfflinePlaylists()
+      .listOfflineSongs()
       .then((rows) => {
         const stored = rows.find((row) => row.playlistId === recordId)
         if (!active || !stored) return
-        setSummary(stored)
+        setSummary(songSummary(stored))
         setDownloadedAgo(formatDownloadedAgo(stored.savedAt, Date.now()))
         setStatus('downloaded')
       })
@@ -90,6 +95,9 @@ export function useOfflineSong({
   }, [recordId, store])
 
   const download = useCallback(async () => {
+    // Only a tap on the idle control downloads the song individually (RH-192).
+    const individualDownload = summary === null
+    const previous = summary
     setError(null)
     setStatus('downloading')
     setProgress(ONE_SONG)
@@ -104,30 +112,27 @@ export function useOfflineSong({
         artist: resolved.song?.artist ?? null,
       }
       const song = await captureResolvedEntry(actionsRef.current, entry, resolved, bandId)
-      const record = await store.saveOfflinePlaylist({
-        playlistId: recordId,
-        playlistName: entry.title,
+      const record = await store.saveOfflineSong({
+        song,
         bandId,
         savedAt: new Date().toISOString(),
-        songs: [song],
-        onProgress: (done, total) => setProgress({ done, total }),
+        individualDownload,
       })
-      setSummary(record)
+      setProgress({ done: 1, total: 1 })
+      setSummary(songSummary(record))
       setDownloadedAgo(formatDownloadedAgo(record.savedAt, Date.now()))
       setStatus('downloaded')
     } catch (cause) {
-      // The store already rolled everything back, so "not downloaded" is true.
+      // The store unwound this attempt; a copy stored before it is still there.
       logger.error('Offline song download failed', cause, { versionId })
-      setSummary(null)
-      setDownloadedAgo(null)
-      setStatus('idle')
+      setStatus(previous ? 'downloaded' : 'idle')
       setError(messageOf(cause))
     }
-  }, [bandId, recordId, store, versionId])
+  }, [bandId, store, summary, versionId])
 
   const remove = useCallback(async () => {
     try {
-      await store.removeOfflinePlaylist(recordId)
+      await store.removeOfflineSong(versionId, bandId)
       setSummary(null)
       setDownloadedAgo(null)
       setStatus('idle')
@@ -136,7 +141,7 @@ export function useOfflineSong({
       logger.error('Failed to remove the offline song copy', cause, { versionId })
       setError(messageOf(cause))
     }
-  }, [recordId, store, versionId])
+  }, [bandId, store, versionId])
 
   const dismissError = useCallback(() => setError(null), [])
 

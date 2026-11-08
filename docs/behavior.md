@@ -98,17 +98,21 @@ Registry of what the system does today, one `##` section per functional area and
 - Catalog admin can merge, split and delete songs and versions after showing the blast radius. (src/lib/catalogAdmin.ts, src/components/admin/CatalogAdmin.tsx, src/app/admin/catalog/page.tsx)
 
 ## Offline
-- Marking a playlist or a single song available offline stores a snapshot of everything readable about it, including the reader's own custom field values; a copy taken before RH-186 has none. (src/lib/offlineStore.ts, src/lib/offlineCapture.ts, src/lib/offlineSnapshot.ts)
+- Marking a playlist or a single song available offline stores each song once per owner context, with everything readable about it, including the reader's own custom field values; a playlist stores only its list and order; a song stored before RH-186 has no custom field values. (src/lib/offlineStore.ts, src/lib/offlineCapture.ts, src/lib/offlineSnapshot.ts) (RH-192)
 - The snapshot holds the reader's own files for every song, whether the playlist is personal or a band's. (src/lib/offlineCapture.ts, src/lib/__tests__/offlineSnapshot.test.ts)
 - Offline is read-only: reads answer from the snapshot and writes are refused with a message. (src/lib/offlineFirst.ts, src/lib/__tests__/offlineFirst.test.ts)
 - A method the offline layer does not know is refused rather than served; the custom field read is answered from the snapshot and the custom field write is refused. (src/lib/offlineFirst.ts)
 - Snapshot data is served only when the browser is offline or a reader failed on the network, never in place of another error. (src/lib/offlineFirst.ts, src/lib/__tests__/offlineFirst.test.ts)
+- Removing one stored song keeps every playlist's list and deletes that song's record and cached files. (src/lib/offlineStore.ts, src/lib/__tests__/offlineStore.test.ts) (RH-192)
+- Removing a downloaded playlist deletes its songs except those held by another downloaded playlist or downloaded individually. (src/lib/offlineStore.ts, src/lib/__tests__/offlineStore.test.ts) (RH-192)
+- A song that fails during a playlist download does not stop the others, and the playlist then counts it as missing. (src/hooks/useOfflinePlaylist.ts, src/hooks/__tests__/useOfflinePlaylist.test.tsx) (RH-192)
+- Copies stored before RH-192 are converted to one record per song without network access, and a copy that cannot be converted stays readable. (src/lib/offlineConversion.ts, src/lib/__tests__/offlineConversion.test.ts) (RH-192)
 - Controls that write across the network are disabled offline, including uploads, links, lyrics saving, drawing and custom field edits. (src/hooks/useOfflineStatus.ts, src/components/fastview/OfflineBanner.tsx)
 - Audio, video and the setlist player are unavailable offline and show a message instead. (src/components/fastview/OfflineUnavailable.tsx, src/components/layout/SetlistPlayer.tsx)
 - Settings lists the stored offline copies and lets the user remove them. (src/components/settings/OfflineStorageSection.tsx, src/hooks/useOfflineLibrary.ts)
 - A service worker caches the app shell and offline chart files. (src/app/sw.ts, src/lib/offlineCacheNames.ts, src/lib/__tests__/pwaShell.test.ts)
 - The playlist page's offline control reads "Make available offline" until downloaded; offline it is disabled with "Connect to the internet to download this playlist.", and a failed download offers "Try again". (src/components/playlists/OfflineDownloadButton.tsx, src/components/playlists/__tests__/OfflineDownloadButton.test.tsx, e2e/playlist-detail.spec.ts) (RH-188)
-- A single-song offline copy is stored under a record id made of the version id and band context. (src/lib/offlineSongRecord.ts, src/lib/__tests__/offlineSongRecord.test.ts)
+- A stored song is kept under a record id made of the version id and band context, however it was downloaded. (src/lib/offlineSongRecord.ts, src/lib/__tests__/offlineSongRecord.test.ts) (RH-192)
 
 ## Auth and profile
 - Sign-up and sign-in use email and password through Better Auth, with no email verification required. (src/lib/auth.ts, src/lib/auth-client.ts, e2e/auth.spec.ts)

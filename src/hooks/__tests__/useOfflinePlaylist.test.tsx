@@ -1,37 +1,33 @@
 // @vitest-environment jsdom
 /**
- * RH-79 — the download controller, over the real store and fake ports.
+ * RH-79 / RH-192 — the download controller, over the real store and fake ports.
  *
  * Every test here injects `createOfflineStore(createFakePorts())`: the real
- * store, with only `indexedDB`, Cache Storage and `fetch` replaced. That is the
- * whole point of the rollback test below — a hand-written store double performs
- * no rollback, so asserting "nothing survived" against one would be vacuous.
- * What is asserted is the fake ports' own contents after the hook has settled.
+ * store, with only `indexedDB`, Cache Storage and `fetch` replaced, so what is
+ * asserted is the fake ports' own contents after the hook has settled.
  *
- * The first test carries ER6: this file imports `@/lib/offlineStore` under
- * `jsdom`, which implements neither `indexedDB` nor `caches`, and the import
- * must be inert.
+ * Since RH-192 each song is stored on its own and the playlist as its ordered
+ * list: one failing song never stops the others, "Make available offline" and
+ * "Try again" fetch only what is missing, and "Refresh offline copy" refetches
+ * everything.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import {
+  PLAYLIST_READ_FAILED_KEPT,
   useOfflinePlaylist,
   type OfflineDownloadActions,
   type UseOfflinePlaylistOptions,
 } from '@/hooks/useOfflinePlaylist'
+import { OfflineDownloadButton } from '@/components/playlists/OfflineDownloadButton'
 import { OFFLINE_STORE, createOfflineStore } from '@/lib/offlineStore'
+import { isSetlistRecord, isSongRecord } from '@/lib/offlineRecords'
+import { songRecordId } from '@/lib/offlineSongRecord'
 import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 
 afterEach(cleanup)
 
-/**
- * The captured `(owner, version)` pair, keyed by the version the entry names.
- *
- * `versionId` is `v-rep-N` in this fixture, and `song_id` is `song-rep-N` —
- * the pairing the entries below carry, so the song-keyed reads stay
- * distinguishable from the version-keyed one.
- */
 function resolvedEntry(versionId: string): ResolvedSongEntry {
   const ownerRowId = versionId.replace(/^v-/, '')
   return {
@@ -48,7 +44,6 @@ function resolvedEntry(versionId: string): ResolvedSongEntry {
   }
 }
 
-/** The member's own row, still a `Repertoire` read by song id (RH-132 ER14). */
 function personalRow(songId: string): Repertoire {
   return {
     id: `personal-${songId}`,
@@ -80,14 +75,13 @@ function tabRow(id: string, songId: string): SongFile {
 const ENTRIES = [
   { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
   { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-rep-2', title: 'Faroeste Caboclo', artist: null },
+  { repertoireId: 'rep-3', versionId: 'v-rep-3', songId: 'song-rep-3', title: 'Índios', artist: null },
 ]
 
 function makeActions(): OfflineDownloadActions {
   return {
     getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Gig', entries: ENTRIES }),
-    getResolvedEntryForVersion: vi.fn((versionId: string) =>
-      Promise.resolve(resolvedEntry(versionId)),
-    ),
+    getResolvedEntryForVersion: vi.fn((versionId: string) => Promise.resolve(resolvedEntry(versionId))),
     getTabs: vi.fn((songId: string) => Promise.resolve([tabRow(`tab-${songId}`, songId)])),
     getPersonalEntryForSong: vi.fn((songId: string) => Promise.resolve(personalRow(songId))),
     getCustomFieldValues: vi.fn((versionId: string) =>
@@ -115,12 +109,29 @@ function setup(overrides: Partial<UseOfflinePlaylistOptions> = {}, ports?: FakeO
   return { ...view, ports: fakePorts, options, statuses }
 }
 
+function storedSongs(ports: FakeOfflinePorts) {
+  return [...ports.records.rows.values()].filter(isSongRecord)
+}
+
+function storedVersionIds(ports: FakeOfflinePorts): string[] {
+  return storedSongs(ports).map((song) => song.versionId).sort()
+}
+
+/** Fails exactly the song whose version is `versionId`, on its files read. */
+function failingOn(versionId: string, error: unknown = new Error('network down')) {
+  const actions = makeActions()
+  actions.getTabs = vi.fn((songId: string) =>
+    songId === `song-${versionId.replace(/^v-/, '')}`
+      ? Promise.reject(error)
+      : Promise.resolve([tabRow(`tab-${songId}`, songId)]),
+  )
+  return actions
+}
+
 describe('importing the store under jsdom (ER6)', () => {
   it('constructs OFFLINE_STORE without touching indexedDB or caches', () => {
     expect(OFFLINE_STORE).toBeDefined()
-    expect(typeof OFFLINE_STORE.saveOfflinePlaylist).toBe('function')
-    // jsdom implements neither, and this repository carries no `fake-indexeddb`.
-    // A default port constructed at import time would already have thrown above.
+    expect(typeof OFFLINE_STORE.saveOfflineSong).toBe('function')
     expect('indexedDB' in globalThis).toBe(false)
     expect('caches' in globalThis).toBe(false)
   })
@@ -132,10 +143,11 @@ describe('useOfflinePlaylist — the happy path', () => {
 
     await waitFor(() => expect(result.current.status).toBe('idle'))
     expect(result.current.summary).toBeNull()
+    expect(result.current.count).toBeNull()
     expect(result.current.error).toBeNull()
   })
 
-  it('goes idle -> downloading -> downloaded, counting songs as it goes', async () => {
+  it('goes idle -> downloading -> downloaded, storing each song once and the list in order', async () => {
     const { result, ports } = setup()
     await waitFor(() => expect(result.current.status).toBe('idle'))
 
@@ -144,97 +156,52 @@ describe('useOfflinePlaylist — the happy path', () => {
       finished = result.current.download()
     })
     expect(result.current.status).toBe('downloading')
-
     await act(async () => {
       await finished
     })
 
     expect(result.current.status).toBe('downloaded')
-    expect(result.current.progress).toEqual({ done: 2, total: 2 })
+    expect(result.current.progress).toEqual({ done: 3, total: 3 })
+    expect(result.current.count).toEqual({ onDevice: 3, total: 3 })
     expect(result.current.summary?.playlistId).toBe('pl-1')
-    expect(result.current.summary?.bytes).toBeGreaterThan(0)
-    expect(ports.blobs.keysFor('pl-1').sort()).toEqual([
-      '/__offline-tab/pl-1/tab-song-rep-1',
-      '/__offline-tab/pl-1/tab-song-rep-2',
-    ])
-    expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.versionId)).toEqual([
+    expect(result.current.summary?.bytes).toBeGreaterThan(3 * 1024)
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-2', 'v-rep-3'])
+    const list = ports.records.rows.get('pl-1')
+    expect(list && isSetlistRecord(list) ? list.entries.map((entry) => entry.versionId) : null).toEqual([
       'v-rep-1',
       'v-rep-2',
+      'v-rep-3',
     ])
+    // Every song is a setlist song, not an individual download.
+    expect(storedSongs(ports).every((song) => !song.individualDownload)).toBe(true)
   })
 
-  /**
-   * RH-123 ER10 — the capture passes a **song id**.
-   *
-   * This is where the plan's recorded defect lived: `entry.repertoireId` is the
-   * *band* row in band context, so the snapshot took the band's files and
-   * skipped the member's own. `bandId` is non-null in this fixture, so the
-   * assertions below are taken in exactly that context.
-   */
-  it('calls getTabs with the song id, never with a repertoire id', async () => {
+  it('calls getTabs with the song id, and reads the member own row in band context', async () => {
     const actions = makeActions()
-    const { result } = setup({ actions, bandId: 'band-1' })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
+    const { result, ports } = setup({ actions, bandId: 'band-1' })
 
     await act(async () => {
       await result.current.download()
     })
 
-    const args = vi.mocked(actions.getTabs).mock.calls.map(([id]) => id)
-    expect(args).toEqual(['song-rep-1', 'song-rep-2'])
-    for (const entry of ENTRIES) {
-      expect(args).not.toContain(entry.repertoireId)
-    }
-  })
-
-  // RH-83 ER10 — the personal row is captured in band context and only there.
-  it('captures the member own repertoire row once per song, in band context', async () => {
-    const actions = makeActions()
-    const { result, ports } = setup({ actions })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
-
-    await act(async () => {
-      await result.current.download()
-    })
-
-    expect(vi.mocked(actions.getPersonalEntryForSong).mock.calls).toEqual([
-      ['song-rep-1'],
-      ['song-rep-2'],
-    ])
-    const songs = ports.records.rows.get('pl-1')?.snapshot.songs ?? []
-    expect(songs.map((song) => song.personalRepertoire?.id)).toEqual([
-      'personal-song-rep-1',
-      'personal-song-rep-2',
-    ])
-  })
-
-  // RH-186 — each stored song carries the reader's own values on its version.
-  it('stores each song with its custom field values, read by version id', async () => {
-    const actions = makeActions()
-    const { result, ports } = setup({ actions })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
-
-    await act(async () => {
-      await result.current.download()
-    })
-
-    expect(vi.mocked(actions.getCustomFieldValues).mock.calls).toEqual([['v-rep-1'], ['v-rep-2']])
-    const songs = ports.records.rows.get('pl-1')?.snapshot.songs ?? []
-    expect(songs.map((song) => song.customFields?.[0].value)).toEqual(['Preset of v-rep-1', 'Preset of v-rep-2'])
+    expect(vi.mocked(actions.getTabs).mock.calls.map(([id]) => id)).toEqual(['song-rep-1', 'song-rep-2', 'song-rep-3'])
+    expect(vi.mocked(actions.getPersonalEntryForSong)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(actions.getCustomFieldValues).mock.calls).toEqual([['v-rep-1'], ['v-rep-2'], ['v-rep-3']])
+    const first = ports.records.rows.get(songRecordId('v-rep-1', 'band-1'))
+    expect(first && isSongRecord(first) ? first.personalRepertoire?.id : null).toBe('personal-song-rep-1')
+    expect(first && isSongRecord(first) ? first.customFields?.[0].value : null).toBe('Preset of v-rep-1')
   })
 
   it('never reads the personal row outside a band context', async () => {
     const actions = makeActions()
     const { result, ports } = setup({ actions, bandId: null })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
 
     await act(async () => {
       await result.current.download()
     })
 
     expect(actions.getPersonalEntryForSong).not.toHaveBeenCalled()
-    const songs = ports.records.rows.get('pl-1')?.snapshot.songs ?? []
-    expect(songs.map((song) => song.personalRepertoire)).toEqual([null, null])
+    expect(storedSongs(ports).map((song) => song.personalRepertoire)).toEqual([null, null, null])
   })
 
   it('reports downloaded on mount when the playlist is already stored', async () => {
@@ -257,6 +224,7 @@ describe('useOfflinePlaylist — the happy path', () => {
 
     await waitFor(() => expect(second.result.current.status).toBe('downloaded'))
     expect(second.result.current.summary?.playlistName).toBe('Gig')
+    expect(second.result.current.count).toEqual({ onDevice: 3, total: 3 })
   })
 
   it('removes the offline copy and returns to idle', async () => {
@@ -272,10 +240,127 @@ describe('useOfflinePlaylist — the happy path', () => {
     expect(result.current.status).toBe('idle')
     expect(result.current.summary).toBeNull()
     expect(ports.records.rows.size).toBe(0)
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
+    expect(ports.blobs.entries.size).toBe(0)
   })
 
-  it('skips an entry whose resolved read answers null rather than failing the download', async () => {
+  it('reports a failed removal as an error rather than claiming the copy is gone', async () => {
+    const ports = createFakePorts()
+    const { result } = setup({}, ports)
+    await act(async () => {
+      await result.current.download()
+    })
+    ports.blobs.delete = () => Promise.reject('cache vanished')
+
+    await act(async () => {
+      await result.current.remove()
+    })
+
+    expect(result.current.error).toBe('Failed to remove the offline copy')
+    expect(result.current.status).toBe('downloaded')
+  })
+})
+
+describe('useOfflinePlaylist — per-song failure isolation (RH-192)', () => {
+  it('when one song fails during a setlist download, shows the other songs stored, the count one short, and the alert offering Try again', async () => {
+    const ports = createFakePorts()
+    const actions = failingOn('v-rep-2')
+    const { result } = setup({ actions }, ports)
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    // The others are stored; the failing one is not, and nothing was rolled back.
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-3'])
+    expect(result.current.status).toBe('downloaded')
+    expect(result.current.count).toEqual({ onDevice: 2, total: 3 })
+    expect(result.current.error).toBe('1 of 3 songs could not be downloaded.')
+
+    // The control renders the same run's alert with its Try again action.
+    cleanup()
+    const fresh = createFakePorts()
+    render(
+      <OfflineDownloadButton
+        playlistId="pl-1"
+        playlistName="Gig"
+        bandId="band-1"
+        actions={failingOn('v-rep-2')}
+        store={createOfflineStore(fresh)}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Make available offline' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('1 of 3 songs could not be downloaded.')
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeDefined()
+    expect(screen.getByText('Available offline')).toBeDefined()
+    expect(storedVersionIds(fresh)).toEqual(['v-rep-1', 'v-rep-3'])
+  })
+
+  it('Try again fetches only the songs missing from the device, and M is what that run attempted', async () => {
+    const ports = createFakePorts()
+    const actions = failingOn('v-rep-2')
+    const { result } = setup({ actions }, ports)
+    await act(async () => {
+      await result.current.download()
+    })
+    vi.mocked(actions.getResolvedEntryForVersion).mockClear()
+    vi.mocked(actions.getTabs).mockImplementation(() => Promise.reject(new Error('still down')))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(vi.mocked(actions.getResolvedEntryForVersion).mock.calls.map(([id]) => id)).toEqual(['v-rep-2'])
+    expect(result.current.error).toBe('1 of 1 songs could not be downloaded.')
+    expect(result.current.count).toEqual({ onDevice: 2, total: 3 })
+  })
+
+  it('Try again that succeeds completes the playlist and clears the alert', async () => {
+    const ports = createFakePorts()
+    const actions = failingOn('v-rep-2')
+    const { result } = setup({ actions }, ports)
+    await act(async () => {
+      await result.current.download()
+    })
+    vi.mocked(actions.getTabs).mockImplementation((songId: string) => Promise.resolve([tabRow(`tab-${songId}`, songId)]))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.error).toBeNull()
+    expect(result.current.count).toEqual({ onDevice: 3, total: 3 })
+  })
+
+  it('Refresh offline copy refetches every song', async () => {
+    const actions = makeActions()
+    const { result } = setup({ actions })
+    await act(async () => {
+      await result.current.download()
+    })
+    vi.mocked(actions.getResolvedEntryForVersion).mockClear()
+
+    await act(async () => {
+      await result.current.refresh()
+    })
+
+    expect(vi.mocked(actions.getResolvedEntryForVersion)).toHaveBeenCalledTimes(3)
+    expect(result.current.status).toBe('downloaded')
+  })
+
+  it('names a quota failure in the partial alert', async () => {
+    const ports = createFakePorts()
+    const actions = failingOn('v-rep-3', new DOMException('quota', 'QuotaExceededError'))
+    const { result } = setup({ actions }, ports)
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.error).toBe('Not enough storage. 1 of 3 songs could not be downloaded.')
+  })
+
+  it('counts a song whose entry read answers null as missing', async () => {
     const actions = makeActions()
     actions.getResolvedEntryForVersion = vi.fn((versionId: string) =>
       Promise.resolve(versionId === 'v-rep-2' ? null : resolvedEntry(versionId)),
@@ -286,78 +371,29 @@ describe('useOfflinePlaylist — the happy path', () => {
       await result.current.download()
     })
 
-    expect(result.current.status).toBe('downloaded')
-    expect(
-      ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.versionId),
-    ).toEqual(['v-rep-1'])
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-3'])
+    expect(result.current.count).toEqual({ onDevice: 2, total: 3 })
   })
-})
 
-describe('useOfflinePlaylist — all-or-nothing (ER10)', () => {
-  it('lands idle with an error, never downloaded, and leaves nothing behind in either port', async () => {
-    // The real store over fake ports; the blob port runs out of quota on the
-    // second `put`, i.e. halfway through a two-song playlist.
-    const ports = createFakePorts({ failBlobPutOnCall: 2 })
-    const { result, statuses } = setup({}, ports)
-    await waitFor(() => expect(result.current.status).toBe('idle'))
+  it('keeps no list when every song failed and the playlist was not downloaded before', async () => {
+    const actions = makeActions()
+    actions.getTabs = vi.fn().mockRejectedValue(new DOMException('quota', 'QuotaExceededError'))
+    const { result, ports, statuses } = setup({ actions })
 
-    let finished: Promise<void> = Promise.resolve()
-    act(() => {
-      finished = result.current.download()
-    })
-    expect(result.current.status).toBe('downloading')
     await act(async () => {
-      await finished
+      await result.current.download()
     })
 
-    // Every status this hook ever published, across every render.
-    expect(statuses).toContain('downloading')
     expect(statuses).not.toContain('downloaded')
     expect(result.current.status).toBe('idle')
-    expect(result.current.summary).toBeNull()
-    expect(result.current.error).toMatch(/not enough storage/i)
-
-    // The rollback itself, observed through the hook: the REAL store unwound
-    // the one PDF that did land, and no record was ever written.
+    expect(result.current.error).toBe('Not enough storage. Nothing from this playlist was kept.')
     expect(ports.records.rows.size).toBe(0)
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
-  })
-
-  it('never reports downloaded when the read actions themselves fail', async () => {
-    const actions = makeActions()
-    actions.getTabs = vi.fn().mockRejectedValue(new Error('network down'))
-    const { result, ports } = setup({ actions })
-
-    await act(async () => {
-      await result.current.download()
-    })
-
-    expect(result.current.status).toBe('idle')
-    expect(result.current.error).toBe('network down')
-    expect(ports.records.rows.size).toBe(0)
-  })
-
-  it('reports a failed removal as an error rather than claiming the copy is gone', async () => {
-    const ports = createFakePorts()
-    const { result } = setup({}, ports)
-    await act(async () => {
-      await result.current.download()
-    })
-    ports.blobs.deleteByPrefix = () => Promise.reject('cache vanished')
-
-    await act(async () => {
-      await result.current.remove()
-    })
-
-    // A non-Error rejection still reads as a sentence, never as "[object Object]".
-    expect(result.current.error).toBe('Failed to make this playlist available offline')
-    expect(result.current.status).toBe('downloaded')
+    expect(ports.blobs.entries.size).toBe(0)
   })
 
   it('dismisses the error banner without touching what is stored', async () => {
-    const actions = makeActions()
-    actions.getTabs = vi.fn().mockRejectedValue(new Error('network down'))
-    const { result } = setup({ actions })
+    const ports = createFakePorts()
+    const { result } = setup({ actions: failingOn('v-rep-2') }, ports)
     await act(async () => {
       await result.current.download()
     })
@@ -365,102 +401,102 @@ describe('useOfflinePlaylist — all-or-nothing (ER10)', () => {
     act(() => result.current.dismissError())
 
     expect(result.current.error).toBeNull()
-    expect(result.current.status).toBe('idle')
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-3'])
   })
 })
 
-/**
- * RH-132 ER7 — every entry of the playlist is captured.
- *
- * The download used to `continue` past an entry carrying no `repertoireId`,
- * which is what kept `OfflineSongSnapshot`'s key non-null. Fast View is
- * version-addressed now, so such an entry has an address and a readable page:
- * skipping it would leave the musician a downloaded setlist with holes in it.
- */
-describe('the download captures every entry (RH-132 ER7)', () => {
-  const GAPPED = [
-    { repertoireId: 'rep-1', versionId: 'v-rep-1', songId: 'song-rep-1', title: 'Tempo Perdido', artist: 'Legião Urbana' },
-    { repertoireId: null, versionId: 'v-rep-9', songId: 'song-rep-9', title: 'Spoonman', artist: 'Soundgarden' },
-    { repertoireId: 'rep-2', versionId: 'v-rep-2', songId: 'song-rep-2', title: 'Faroeste Caboclo', artist: null },
-  ]
-
-  it('saves all three songs, one of them keyed by the entry with no owner row', async () => {
+describe('useOfflinePlaylist — a failed playlist read (RH-192)', () => {
+  it('a failed playlist read on an already downloaded setlist leaves stored records and bytes unchanged and shows Could not reach this playlist. Your offline copy was not changed.', async () => {
+    const ports = createFakePorts()
     const actions = makeActions()
-    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: GAPPED })
-    // The middle entry resolves at version defaults: no owner row at all.
-    vi.mocked(actions.getResolvedEntryForVersion).mockImplementation((versionId: string) =>
-      Promise.resolve(
-        versionId === 'v-rep-9'
-          ? { ...resolvedEntry(versionId), ownerRowId: null, status: null, tags: [] }
-          : resolvedEntry(versionId),
-      ),
-    )
-    const { result, ports } = setup({ actions })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
-
+    const { result } = setup({ actions }, ports)
     await act(async () => {
       await result.current.download()
     })
-
-    const saved = ports.records.rows.get('pl-1')?.snapshot.songs
-    expect(saved).toHaveLength(3)
-    expect(saved?.map((song) => song.versionId)).toEqual(['v-rep-1', 'v-rep-9', 'v-rep-2'])
-    const captured = saved?.find((song) => song.versionId === 'v-rep-9')
-    expect(captured?.repertoire.ownerRowId).toBeNull()
-    expect(captured?.entry.repertoireId).toBeNull()
-    // Read by version, never by the owner row id the entry does not have.
-    expect(vi.mocked(actions.getResolvedEntryForVersion).mock.calls.map(([id]) => id)).toEqual([
-      'v-rep-1',
-      'v-rep-9',
-      'v-rep-2',
-    ])
-  })
-
-  /**
-   * The per-entry `try` / `continue` the two old `continue`s used to provide.
-   *
-   * The replacement read **throws** for a version that no longer exists
-   * (`ownerSongs.ts`, "Song version not found"), so a version deleted between
-   * the playlist read and the capture would abort the whole download instead of
-   * dropping one song.
-   */
-  it('drops one unreadable entry rather than failing the whole download', async () => {
-    const actions = makeActions()
-    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: GAPPED })
-    vi.mocked(actions.getResolvedEntryForVersion).mockImplementation((versionId: string) =>
-      versionId === 'v-rep-9'
-        ? Promise.reject(new Error('Failed to resolve song version: Song version not found'))
-        : Promise.resolve(resolvedEntry(versionId)),
-    )
-    const { result, ports } = setup({ actions })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
+    const recordsBefore = structuredClone([...ports.records.rows.entries()])
+    const keysBefore = [...ports.blobs.entries.keys()].sort()
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockRejectedValue(new TypeError('Failed to fetch'))
 
     await act(async () => {
-      await result.current.download()
+      await result.current.refresh()
     })
 
+    expect(result.current.error).toBe('Could not reach this playlist. Your offline copy was not changed.')
+    expect(PLAYLIST_READ_FAILED_KEPT).toBe(result.current.error)
     expect(result.current.status).toBe('downloaded')
-    expect(result.current.error).toBeNull()
-    const saved = ports.records.rows.get('pl-1')?.snapshot.songs
-    expect(saved?.map((song) => song.versionId)).toEqual(['v-rep-1', 'v-rep-2'])
+    expect([...ports.records.rows.entries()]).toEqual(recordsBefore)
+    expect([...ports.blobs.entries.keys()].sort()).toEqual(keysBefore)
   })
 
-  it('still skips an entry whose read answers null', async () => {
+  it('a failed playlist read on a playlist not downloaded keeps nothing and says so', async () => {
+    const ports = createFakePorts()
     const actions = makeActions()
-    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: GAPPED })
-    vi.mocked(actions.getResolvedEntryForVersion).mockImplementation((versionId: string) =>
-      Promise.resolve(versionId === 'v-rep-9' ? null : resolvedEntry(versionId)),
-    )
-    const { result, ports } = setup({ actions })
-    await waitFor(() => expect(result.current.status).toBe('idle'))
+    // A song already stored individually stays stored.
+    const store = createOfflineStore(ports)
+    await store.saveOfflineSong({
+      song: { entry: ENTRIES[0], repertoire: resolvedEntry('v-rep-1'), personalRepertoire: null, tabs: [], customFields: [] },
+      bandId: 'band-1',
+      savedAt: '2026-09-20T18:04:00.000Z',
+      individualDownload: true,
+    })
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockRejectedValue(new TypeError('Failed to fetch'))
+    const { result } = setup({ actions }, ports)
 
     await act(async () => {
       await result.current.download()
     })
 
-    expect(ports.records.rows.get('pl-1')?.snapshot.songs.map((song) => song.versionId)).toEqual([
-      'v-rep-1',
-      'v-rep-2',
-    ])
+    expect(result.current.status).toBe('idle')
+    expect(result.current.error).toBe('Could not download this playlist. Nothing from this playlist was kept.')
+    expect(ports.records.rows.has('pl-1')).toBe(false)
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1'])
+  })
+})
+
+describe('useOfflinePlaylist — the list itself cannot be written', () => {
+  it('says the playlist could not be saved, naming a quota failure', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    store.saveOfflineSetlist = () => Promise.reject(new DOMException('quota', 'QuotaExceededError'))
+    const { result } = setup({ store }, ports)
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.status).toBe('idle')
+    expect(result.current.error).toBe('Not enough storage to save this playlist offline.')
+  })
+
+  it('stays quiet when reading the library fails on mount', async () => {
+    const store = createOfflineStore(createFakePorts())
+    store.listOfflineSetlists = () => Promise.reject(new Error('IndexedDB unavailable'))
+    const { result } = setup({ store })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('idle')
+    expect(result.current.error).toBeNull()
+  })
+})
+
+describe('useOfflinePlaylist — a refresh that drops a song', () => {
+  it('deletes the dropped song unless another playlist holds it', async () => {
+    const ports = createFakePorts()
+    const actions = makeActions()
+    const { result } = setup({ actions }, ports)
+    await act(async () => {
+      await result.current.download()
+    })
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockResolvedValue({ name: 'Gig', entries: ENTRIES.slice(0, 2) })
+
+    await act(async () => {
+      await result.current.refresh()
+    })
+
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-2'])
+    expect(result.current.count).toEqual({ onDevice: 2, total: 2 })
   })
 })

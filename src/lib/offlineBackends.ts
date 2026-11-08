@@ -16,11 +16,13 @@ import {
   OFFLINE_DB_VERSION,
   OFFLINE_SNAPSHOT_STORE,
   OFFLINE_TAB_CACHE,
-  type OfflineBlobPort,
-  type OfflineRecordPort,
-  type OfflineSnapshotRecord,
-  type OfflineStorePorts,
 } from '@/lib/offlineStore'
+import type {
+  OfflineBlobPort,
+  OfflineRecordPort,
+  OfflineStoredRecord,
+  OfflineStorePorts,
+} from '@/lib/offlineRecords'
 
 /** One `IDBRequest` as a promise. */
 function fromRequest<T>(request: IDBRequest<T>): Promise<T> {
@@ -60,20 +62,20 @@ async function withStore<T>(
 
 function createRecordPort(): OfflineRecordPort {
   return {
-    async get(playlistId) {
-      const row = await withStore<OfflineSnapshotRecord | undefined>('readonly', (store) =>
-        store.get(playlistId),
+    async get(recordId) {
+      const row = await withStore<OfflineStoredRecord | undefined>('readonly', (store) =>
+        store.get(recordId),
       )
       return row ?? null
     },
     async put(record) {
       await withStore('readwrite', (store) => store.put(record))
     },
-    async delete(playlistId) {
-      await withStore('readwrite', (store) => store.delete(playlistId))
+    async delete(recordId) {
+      await withStore('readwrite', (store) => store.delete(recordId))
     },
     list() {
-      return withStore<OfflineSnapshotRecord[]>('readonly', (store) => store.getAll())
+      return withStore<OfflineStoredRecord[]>('readonly', (store) => store.getAll())
     },
   }
 }
@@ -92,10 +94,14 @@ function createBlobPort(): OfflineBlobPort {
       const cache = await openTabCache()
       return cache.match(key)
     },
+    async delete(key) {
+      const cache = await openTabCache()
+      await cache.delete(key)
+    },
     async deleteByPrefix(prefix) {
       const cache = await openTabCache()
-      // A prefix scan of the cache's own keys — which is what keying the PDFs
-      // by `/__offline-tab/<playlistId>/<tabId>` bought.
+      // A prefix scan of the cache's own keys, kept for purging a pre-RH-192
+      // record no upgrade can read (its bytes are keyed by its record id).
       for (const request of await cache.keys()) {
         if (new URL(request.url).pathname.startsWith(prefix)) await cache.delete(request)
       }

@@ -15,13 +15,14 @@
 import type {
   OfflineBlobPort,
   OfflineRecordPort,
-  OfflineSnapshotRecord,
+  OfflineStoredRecord,
   OfflineStorePorts,
-} from '@/lib/offlineStore'
+} from '@/lib/offlineRecords'
+import type { OfflineSongInput, OfflineStore } from '@/lib/offlineStore'
 
 /** The record port plus the map behind it, so a test can read what survived. */
 export interface FakeRecordPort extends OfflineRecordPort {
-  rows: Map<string, OfflineSnapshotRecord>
+  rows: Map<string, OfflineStoredRecord>
   putCalls: number
 }
 
@@ -29,9 +30,14 @@ export interface FakeRecordPort extends OfflineRecordPort {
 export interface FakeBlobPort extends OfflineBlobPort {
   entries: Map<string, Response>
   putCalls: number
-  /** Every key currently held under `/__offline-tab/<playlistId>/`. */
-  keysFor(playlistId: string): string[]
+  /** Every key currently held under `/__offline-tab/<recordId>/`. */
+  keysFor(recordId: string): string[]
 }
+
+/** A `fetch` that fails the test if anything calls it (RH-192 conversion). */
+export const throwingFetch = (() => {
+  throw new Error('fetch must not be called')
+}) as unknown as typeof fetch
 
 export interface FakeOfflinePorts extends OfflineStorePorts {
   records: FakeRecordPort
@@ -104,6 +110,10 @@ function createFakeBlobPort(failOnCall?: number): FakeBlobPort {
       return Promise.resolve()
     },
     match: (key) => Promise.resolve(entries.get(key)),
+    delete: (key) => {
+      entries.delete(key)
+      return Promise.resolve()
+    },
     deleteByPrefix: (prefix) => {
       for (const key of [...entries.keys()]) if (key.startsWith(prefix)) entries.delete(key)
       return Promise.resolve()
@@ -114,6 +124,56 @@ function createFakeBlobPort(failOnCall?: number): FakeBlobPort {
     },
   }
   return port
+}
+
+/** One captured song of version `versionId` with one chart `tabId`, for seeding a store. */
+export function seedSongInput(versionId: string, tabId: string, title = 'Song'): OfflineSongInput {
+  return {
+    entry: { repertoireId: `row-${versionId}`, versionId, songId: `song-${versionId}`, title, artist: null },
+    repertoire: {
+      ownerRowId: `row-${versionId}`,
+      song_id: `song-${versionId}`,
+      version_id: versionId,
+      key: null,
+      tuning: null,
+      map: null,
+      status: 'learning',
+      tags: [],
+      last_practiced: null,
+      lyrics: null,
+    },
+    personalRepertoire: null,
+    tabs: [
+      {
+        id: tabId,
+        user_id: 'user-1',
+        song_id: `song-${versionId}`,
+        title: 'Chart',
+        file_url: `https://store.public.blob.vercel-storage.com/tabs/${tabId}.pdf`,
+        created_at: '2026-05-01T00:00:00Z',
+      },
+    ],
+    customFields: [],
+  }
+}
+
+/** Downloads a one-song personal setlist the way the hook does: the song, then the list. */
+export async function seedSetlist(
+  store: OfflineStore,
+  playlistId: string,
+  playlistName: string,
+  tabId: string,
+): Promise<void> {
+  const versionId = `v-${playlistId}`
+  const savedAt = '2026-09-20T18:04:00.000Z'
+  await store.saveOfflineSong({ song: seedSongInput(versionId, tabId), bandId: null, savedAt })
+  await store.saveOfflineSetlist({
+    playlistId,
+    playlistName,
+    bandId: null,
+    savedAt,
+    entries: [{ versionId, title: 'Song', artist: null }],
+  })
 }
 
 /** The three ports, wired together, with their contents readable. */

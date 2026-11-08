@@ -15,10 +15,10 @@ import { describe, it, expect } from 'vitest'
 import {
   isNetworkFailure,
   offlineFirst,
-  orderSnapshotCandidates,
   OFFLINE_WRITE_MESSAGE,
   type OfflineFirstPorts,
 } from '@/lib/offlineFirst'
+import { newestFirst } from '@/lib/offlineRecords'
 import { createOfflineStore, type OfflineStore } from '@/lib/offlineStore'
 import { offlineTabCacheKey } from '@/lib/offlineSnapshot'
 import { songRecordId } from '@/lib/offlineSongRecord'
@@ -98,27 +98,34 @@ interface SeededPlaylist {
   }[]
 }
 
-/** The real store over in-memory ports, with the given playlists downloaded. */
+/** The real store over in-memory ports, with the given playlists downloaded song by song. */
 async function seededStore(playlists: SeededPlaylist[]): Promise<OfflineStore> {
   const store = createOfflineStore(createFakePorts())
   for (const playlist of playlists) {
-    await store.saveOfflinePlaylist({
+    for (const song of playlist.songs) {
+      await store.saveOfflineSong({
+        bandId: null,
+        savedAt: playlist.savedAt,
+        song: {
+          entry: entry(song.repertoireId, `Song ${song.repertoireId}`),
+          repertoire: song.noOwnerRow
+            ? repertoire(song.repertoireId, { ownerRowId: null, status: null, tags: [] })
+            : repertoire(song.repertoireId),
+          personalRepertoire: song.personalLyrics
+            ? personalRow(song.repertoireId, song.personalLyrics)
+            : null,
+          tabs: song.tabs ?? [],
+          // A pre-RH-186 record carries no such field; the store passes it through as given.
+          customFields: song.customFields as CustomFieldEntry[],
+        },
+      })
+    }
+    await store.saveOfflineSetlist({
       playlistId: playlist.playlistId,
       playlistName: playlist.playlistName,
       bandId: null,
       savedAt: playlist.savedAt,
-      songs: playlist.songs.map((song) => ({
-        entry: entry(song.repertoireId, `Song ${song.repertoireId}`),
-        repertoire: song.noOwnerRow
-          ? repertoire(song.repertoireId, { ownerRowId: null, status: null, tags: [] })
-          : repertoire(song.repertoireId),
-        personalRepertoire: song.personalLyrics
-          ? personalRow(song.repertoireId, song.personalLyrics)
-          : null,
-        tabs: song.tabs ?? [],
-        // A pre-RH-186 record carries no such field; the store passes it through as given.
-        customFields: song.customFields as CustomFieldEntry[],
-      })),
+      entries: playlist.songs.map((song) => ({ versionId: `v-${song.repertoireId}`, title: 'x', artist: null })),
     })
   }
   return store
@@ -171,26 +178,16 @@ describe('isNetworkFailure', () => {
   })
 })
 
-describe('orderSnapshotCandidates', () => {
-  it('orders by savedAt descending, ties broken by playlistId ascending', () => {
-    const ordered = orderSnapshotCandidates([
-      { playlistId: 'b', playlistName: 'B', savedAt: '2026-01-01T00:00:00.000Z', bytes: 1, schemaVersion: 1 },
-      { playlistId: 'a', playlistName: 'A', savedAt: '2026-01-01T00:00:00.000Z', bytes: 1, schemaVersion: 1 },
-      { playlistId: 'c', playlistName: 'C', savedAt: '2026-02-01T00:00:00.000Z', bytes: 1, schemaVersion: 1 },
-    ])
-
-    expect(ordered.map((summary) => summary.playlistId)).toEqual(['c', 'a', 'b'])
-  })
-
-  it('does not mutate its argument', () => {
+describe('newestFirst', () => {
+  it('orders by savedAt descending, ties broken by record id ascending, without mutating', () => {
     const input = [
-      { playlistId: 'a', playlistName: 'A', savedAt: '2026-01-01T00:00:00.000Z', bytes: 1, schemaVersion: 1 },
-      { playlistId: 'b', playlistName: 'B', savedAt: '2026-02-01T00:00:00.000Z', bytes: 1, schemaVersion: 1 },
+      { playlistId: 'b', savedAt: '2026-01-01T00:00:00.000Z' },
+      { playlistId: 'a', savedAt: '2026-01-01T00:00:00.000Z' },
+      { playlistId: 'c', savedAt: '2026-02-01T00:00:00.000Z' },
     ]
 
-    orderSnapshotCandidates(input)
-
-    expect(input.map((summary) => summary.playlistId)).toEqual(['a', 'b'])
+    expect(newestFirst(input).map((row) => row.playlistId)).toEqual(['c', 'a', 'b'])
+    expect(input.map((row) => row.playlistId)).toEqual(['b', 'a', 'c'])
   })
 })
 
@@ -299,7 +296,7 @@ describe('offlineFirst — the error policy', () => {
         // storage one.
         store: {
           ...store,
-          listOfflinePlaylists: () => Promise.reject(new Error('IndexedDB is gone')),
+          listOfflineSongs: () => Promise.reject(new Error('IndexedDB is gone')),
         },
         isOffline: () => false,
       },
@@ -360,7 +357,7 @@ describe('offlineFirst — the offline readers', () => {
     expect((found as ResolvedSongEntry).version_id).toBe('v-rep-9')
   })
 
-  it('prefers the most recently downloaded playlist when a song is in two', async () => {
+  it('answers from the latest download when a song is in two playlists, stored once', async () => {
     const wrapped = offlineFirst(
       { getTabs: () => Promise.reject(new Error('unreachable')) },
       await offlinePorts([
@@ -382,7 +379,7 @@ describe('offlineFirst — the offline readers', () => {
     const tabs = await wrapped.getTabs('song-rep-1')
 
     expect(tabs.map((row) => row.id)).toEqual(['tab-new'])
-    expect(tabs[0].file_url).toBe(offlineTabCacheKey('pl-new', 'tab-new'))
+    expect(tabs[0].file_url).toBe(offlineTabCacheKey(songRecordId('v-rep-1', null), 'tab-new'))
   })
 
   // ER9: the reader resolves through `findSongBySongId`, so the argument is a
@@ -401,7 +398,7 @@ describe('offlineFirst — the offline readers', () => {
         user_id: 'user-1',
         song_id: 'song-rep-1',
         title: 'Tab tab-1',
-        file_url: offlineTabCacheKey('pl-1', 'tab-1'),
+        file_url: offlineTabCacheKey(songRecordId('v-rep-1', null), 'tab-1'),
         created_at: '2026-01-02T00:00:00.000Z',
         // RH-128: the snapshot carries no content type here, which reads as a
         // PDF — every snapshot written before that task is one.
@@ -560,20 +557,17 @@ describe('offlineFirst — a single-song record (RH-116 ER3)', () => {
   /** Only a song record is stored: no playlist at all. */
   async function songOnlyPorts(): Promise<OfflineFirstPorts> {
     const store = createOfflineStore(createFakePorts())
-    await store.saveOfflinePlaylist({
-      playlistId: songRecordId('v-rep-1', 'band-1'),
-      playlistName: 'Song rep-1',
+    await store.saveOfflineSong({
       bandId: 'band-1',
       savedAt: '2026-09-21T10:00:00.000Z',
-      songs: [
-        {
-          entry: entry('rep-1', 'Song rep-1'),
-          repertoire: repertoire('rep-1'),
-          personalRepertoire: personalRow('rep-1', 'my cues'),
-          tabs: [tab('tab-1', 'song-rep-1', '2026-01-02T00:00:00.000Z')],
-          customFields: [],
-        },
-      ],
+      individualDownload: true,
+      song: {
+        entry: entry('rep-1', 'Song rep-1'),
+        repertoire: repertoire('rep-1'),
+        personalRepertoire: personalRow('rep-1', 'my cues'),
+        tabs: [tab('tab-1', 'song-rep-1', '2026-01-02T00:00:00.000Z')],
+        customFields: [],
+      },
     })
     return { store, isOffline: () => true }
   }
@@ -607,5 +601,67 @@ describe('offlineFirst — a single-song record (RH-116 ER3)', () => {
     )
 
     await expect(wrapped.getResolvedEntryForVersion('v-other', null)).resolves.toBeNull()
+  })
+})
+
+/**
+ * RH-192 — the personal and band-context copies of one version are separate
+ * song records, and the entry read picks between them by owner context.
+ */
+describe('offlineFirst — getResolvedEntryForVersion and the owner context (RH-192)', () => {
+  /** One version stored twice: personally (older) and for band-1 (newer). */
+  async function twoContexts(): Promise<OfflineStore> {
+    const store = createOfflineStore(createFakePorts())
+    const save = (bandId: string | null, savedAt: string, lyrics: string) =>
+      store.saveOfflineSong({
+        bandId,
+        savedAt,
+        song: {
+          entry: entry('rep-1', 'Song rep-1'),
+          repertoire: repertoire('rep-1', { lyrics }),
+          personalRepertoire: null,
+          tabs: [],
+          customFields: [],
+        },
+      })
+    await save(null, '2026-09-01T10:00:00.000Z', 'personal words')
+    await save('band-1', '2026-09-20T10:00:00.000Z', 'band words')
+    return store
+  }
+
+  const unreachable = { getResolvedEntryForVersion: () => Promise.reject(new Error('unreachable')) }
+
+  it('getResolvedEntryForVersion prefers the requested owner context', async () => {
+    const wrapped = offlineFirst(unreachable, { store: await twoContexts(), isOffline: () => true })
+
+    const personal = await wrapped.getResolvedEntryForVersion('v-rep-1', null)
+    const band = await wrapped.getResolvedEntryForVersion('v-rep-1', 'band-1')
+
+    // The personal copy is older, and still wins when the personal context is asked.
+    expect((personal as ResolvedSongEntry).lyrics).toBe('personal words')
+    expect((band as ResolvedSongEntry).lyrics).toBe('band words')
+  })
+
+  it('getResolvedEntryForVersion falls back to any other stored context for that version', async () => {
+    const store = await twoContexts()
+    const wrapped = offlineFirst(unreachable, { store, isOffline: () => true })
+
+    const otherBand = await wrapped.getResolvedEntryForVersion('v-rep-1', 'band-2')
+    expect((otherBand as ResolvedSongEntry).lyrics).toBe('band words')
+
+    await store.removeOfflineSong('v-rep-1', 'band-1')
+    const personalOnly = await wrapped.getResolvedEntryForVersion('v-rep-1', 'band-1')
+    expect((personalOnly as ResolvedSongEntry).lyrics).toBe('personal words')
+  })
+
+  it('getResolvedEntryForVersion answers null after removal', async () => {
+    const store = await twoContexts()
+    const wrapped = offlineFirst(unreachable, { store, isOffline: () => true })
+
+    await store.removeOfflineSong('v-rep-1', null)
+    await store.removeOfflineSong('v-rep-1', 'band-1')
+
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', null)).resolves.toBeNull()
+    await expect(wrapped.getResolvedEntryForVersion('v-rep-1', 'band-1')).resolves.toBeNull()
   })
 })

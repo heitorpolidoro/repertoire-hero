@@ -15,55 +15,21 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary'
 import { songRecordId } from '@/lib/offlineSongRecord'
-import { createOfflineStore, type OfflineStore, type SaveOfflinePlaylistInput } from '@/lib/offlineStore'
-import { createFakePorts, type FakeOfflinePorts } from '@/lib/__tests__/offlineStoreFakes'
-import type { Repertoire } from '@/types/database'
+import { createOfflineStore, type OfflineStore } from '@/lib/offlineStore'
+import {
+  createFakePorts,
+  seedSetlist,
+  seedSongInput,
+  type FakeOfflinePorts,
+} from '@/lib/__tests__/offlineStoreFakes'
 
 afterEach(cleanup)
-
-function saveInput(playlistId: string, tabId: string): SaveOfflinePlaylistInput {
-  const repertoire: Repertoire = {
-    id: 'rep-1',
-    user_id: null,
-    band_id: null,
-    song_id: 'song-1',
-    version_id: 'version-1',
-    key: null,
-    tuning: null,
-    map: null,
-    status: 'learning',
-    tags: [],
-    last_practiced: null,
-    lyrics: null,
-  }
-  return {
-    playlistId,
-    playlistName: `Playlist ${playlistId}`,
-    bandId: null,
-    savedAt: '2026-09-20T18:04:00.000Z',
-    songs: [
-      {
-        entry: { repertoireId: 'rep-1', songId: 'song-1', title: 'Song', artist: null },
-        repertoire,
-        tabs: [
-          {
-            id: tabId,
-            repertoire_id: 'rep-1',
-            title: 'Chart',
-            file_url: `https://store.public.blob.vercel-storage.com/tabs/${tabId}.pdf`,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-      },
-    ],
-  }
-}
 
 async function seededStore(): Promise<{ store: OfflineStore; ports: FakeOfflinePorts }> {
   const ports = createFakePorts()
   const store = createOfflineStore(ports)
-  await store.saveOfflinePlaylist(saveInput('pl-1', 'tab-a'))
-  await store.saveOfflinePlaylist(saveInput('pl-2', 'tab-b'))
+  await seedSetlist(store, 'pl-1', 'Playlist pl-1', 'tab-a')
+  await seedSetlist(store, 'pl-2', 'Playlist pl-2', 'tab-b')
   return { store, ports }
 }
 
@@ -71,7 +37,12 @@ describe('useOfflineLibrary, song records (ER8)', () => {
   it('flags a stored single-song record as a song and leaves playlists unflagged', async () => {
     const { store } = await seededStore()
     const songId = songRecordId('version-1', null)
-    await store.saveOfflinePlaylist({ ...saveInput(songId, 'tab-s'), playlistName: 'Tempo Perdido' })
+    await store.saveOfflineSong({
+      song: seedSongInput('version-1', 'tab-s', 'Tempo Perdido'),
+      bandId: null,
+      savedAt: '2026-09-20T18:04:00.000Z',
+      individualDownload: true,
+    })
 
     const { result } = renderHook(() => useOfflineLibrary({ store }))
 
@@ -90,9 +61,10 @@ describe('useOfflineLibrary', () => {
     const { result } = renderHook(() => useOfflineLibrary({ store }))
 
     await waitFor(() => expect(result.current.rows).toHaveLength(2))
+    // Each playlist counts its list plus its one stored song.
     const stored = [...ports.records.rows.values()]
     expect(result.current.rows.map((row) => row.playlistId).sort()).toEqual(['pl-1', 'pl-2'])
-    expect(result.current.totalBytes).toBe(stored[0].bytes + stored[1].bytes)
+    expect(result.current.totalBytes).toBe(stored.reduce((sum, row) => sum + row.bytes, 0))
   })
 
   it('removes one playlist and leaves the other record and its cached keys intact', async () => {
@@ -105,8 +77,10 @@ describe('useOfflineLibrary', () => {
     })
 
     await waitFor(() => expect(result.current.rows.map((row) => row.playlistId)).toEqual(['pl-2']))
-    expect(ports.blobs.keysFor('pl-1')).toEqual([])
-    expect(ports.blobs.keysFor('pl-2')).toEqual(['/__offline-tab/pl-2/tab-b'])
+    expect(ports.blobs.keysFor(songRecordId('v-pl-1', null))).toEqual([])
+    expect(ports.blobs.keysFor(songRecordId('v-pl-2', null))).toEqual([
+      `/__offline-tab/${songRecordId('v-pl-2', null)}/tab-b`,
+    ])
     expect(ports.records.rows.has('pl-2')).toBe(true)
   })
 
