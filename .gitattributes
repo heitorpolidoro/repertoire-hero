@@ -1,0 +1,2 @@
+# Every task appends to the behavior registry: keep both sides on a merge.
+docs/behavior.md merge=union
