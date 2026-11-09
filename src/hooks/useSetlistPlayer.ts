@@ -113,7 +113,7 @@ function buildController(
   meta: CountdownMeta,
   runtime: SetlistRuntime,
 ): SetlistPlayerController {
-  const current = state.entries[state.index]
+  const { current, title, artist, versionId, nextTitle } = currentEntryDetails(state.entries, state.index)
   const visible = options.enabled && state.status !== 'idle' && Boolean(current)
 
   return {
@@ -122,14 +122,14 @@ function buildController(
     offline: options.offline,
     status: state.status,
     kind: state.kind,
-    title: current?.title ?? '',
-    artist: current?.artist ?? null,
-    versionId: current?.versionId ?? null,
+    title,
+    artist,
+    versionId,
     bandId: state.bandId,
-    nextTitle: state.entries[state.index + 1]?.title ?? null,
+    nextTitle,
     counter: counterText(state.index, state.entries.length),
-    message: messageFor(state, options.offline, current?.title ?? ''),
-    hasPrev: state.index > 0,
+    message: messageFor(state, options.offline, title),
+    hasPrev: computeHasPrev(state.index, state.status, state.countdown),
     hasNext: state.index < state.entries.length - 1,
     countdown: state.countdown,
     tuning: meta.tuning,
@@ -247,6 +247,24 @@ function useCountdownMetadata(
 
   const cached = extractCachedDetails(bandId, versionId)
   return resolveUpcomingDetails(versionId, bandId, cached, asyncMeta)
+}
+
+function computeHasPrev(index: number, status: PlayerStatus, countdown: number | null): boolean {
+  return index > 0 || ((status === 'playing' || status === 'paused') && countdown === null)
+}
+
+function currentEntryDetails(
+  entries: { title: string; artist: string | null; versionId: string }[],
+  index: number,
+) {
+  const current = entries[index]
+  return {
+    current,
+    title: current?.title ?? '',
+    artist: current?.artist ?? null,
+    versionId: current?.versionId ?? null,
+    nextTitle: entries[index + 1]?.title ?? null,
+  }
 }
 
 function messageFor(

@@ -3,129 +3,31 @@
  * RH-167 - the setlist player over the RH-133 queue: no autoplay, start
  * position, advancing across engines, refusal, skipping, no-remount, offline.
  * The audio engine is the real one over jsdom's <audio>; YouTube and Spotify
- * are fake engines (no SDK, no network).
+ * are fake engines (no SDK, no network), from `setlistPlayerHarness`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SetlistPlayer } from '../SetlistPlayer'
-import { useSetlistPlayer, type SetlistPlayerActions } from '@/hooks/useSetlistPlayer'
-import { createAudioEngine } from '@/hooks/setlistEngines/audioEngine'
-import type { EngineEvents, EngineFactories, SetlistEngine } from '@/hooks/setlistEngines/types'
-import type { QueueSources } from '@/lib/setlistPlayer'
+import { useSetlistPlayer } from '@/hooks/useSetlistPlayer'
 import type { SongQueueEntry } from '@/lib/songQueue'
 import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
+import {
+  FILE,
+  Host,
+  SPOTIFY,
+  YT,
+  audioEl,
+  entries,
+  factories,
+  fakes,
+  mediaPlay,
+  setYoutubePlay,
+  setupSetlistPlayerHarness,
+  status,
+  tap,
+} from './setlistPlayerHarness'
 
-const entries: SongQueueEntry[] = ['one', 'two', 'three', 'four'].map((id) => ({
-  versionId: id,
-  title: id.toUpperCase(),
-  artist: null,
-}))
-const FILE = (n: string): QueueSources => ({ audio: { fileUrl: `https://blob.example/${n}.mp3`, title: n } })
-const YT: QueueSources = { youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }
-const SPOTIFY: QueueSources = { spotifyUrl: 'https://open.spotify.com/track/abc123' }
-
-interface Fake extends SetlistEngine {
-  load: ReturnType<typeof vi.fn>
-  play: ReturnType<typeof vi.fn>
-  pause: ReturnType<typeof vi.fn>
-  events: EngineEvents
-}
-
-let fakes: Partial<Record<'youtube' | 'spotify', Fake>>
-let youtubePlay: () => Promise<void>
-let mediaPlay: ReturnType<typeof vi.fn>
-
-function fakeFactory(kind: 'youtube' | 'spotify', play: () => Promise<void>) {
-  return (events: EngineEvents) => {
-    const engine: Fake = {
-      load: vi.fn().mockResolvedValue(undefined),
-      play: vi.fn(play),
-      pause: vi.fn(),
-      dispose: vi.fn(),
-      events,
-    }
-    fakes[kind] = engine
-    return engine
-  }
-}
-
-function factories(): EngineFactories {
-  return {
-    file: createAudioEngine,
-    youtube: fakeFactory('youtube', () => youtubePlay()),
-    spotify: fakeFactory('spotify', async () => undefined),
-  }
-}
-
-beforeEach(() => {
-  fakes = {}
-  youtubePlay = async () => undefined
-  useSetlistPlayerStore.getState().reset()
-  mediaPlay = vi.fn().mockResolvedValue(undefined)
-  vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(mediaPlay as never)
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
-  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
-})
-
-// Registered before `cleanup`: afterEach hooks run last-registered first, so the
-// tree unmounts (and pauses its <audio>) before the media stubs are restored.
-afterEach(() => vi.restoreAllMocks())
-afterEach(cleanup)
-
-interface HostProps {
-  sources: Record<string, QueueSources>
-  offline?: boolean
-  refusalMs?: number
-  countdownMs?: number
-  onSongChange?: (versionId: string, bandId: string | null) => void
-  facts?: { connected: boolean; scope: string | null; premium: boolean }
-  children?: ReactNode
-  actions?: SetlistPlayerActions
-}
-
-/** An `AppShell` equivalent: the hook and the bar above whatever route is rendered. */
-function Host({
-  sources,
-  offline = false,
-  refusalMs = 30,
-  countdownMs = 0,
-  onSongChange,
-  facts,
-  children,
-  actions,
-}: HostProps) {
-  const player = useSetlistPlayer({
-    actions: actions ?? {
-      getSources: async (id) => sources[id] ?? {},
-      loadFacts: async () =>
-        facts ?? {
-          connected: true,
-          scope: 'streaming user-read-playback-state user-modify-playback-state',
-          premium: true,
-        },
-    },
-    offline,
-    enabled: true,
-    engines: factories(),
-    refusalMs,
-    countdownMs,
-    onSongChange,
-  })
-  return (
-    <>
-      <main>{children}</main>
-      <SetlistPlayer {...player} />
-    </>
-  )
-}
-
-const tap = (versionId: string) =>
-  act(() => {
-    useSetlistPlayerStore.getState().requestStart({ entries, versionId, bandId: null })
-  })
-const audioEl = (c: HTMLElement) => c.ownerDocument.querySelector('audio') as HTMLAudioElement
-const status = () => screen.queryByRole('status')?.textContent ?? ''
+setupSetlistPlayerHarness()
 
 describe('no autoplay (ER1)', () => {
   it('plays and loads nothing on mount, with a store holding entries, or after a route change', async () => {
@@ -262,9 +164,9 @@ describe('refusal (ER4)', () => {
     const { container } = render(<Host sources={{ one: FILE('one'), two: YT, three: YT }} />)
     tap('one')
     await waitFor(() => expect(mediaPlay).toHaveBeenCalledTimes(1))
-    youtubePlay = async () => {
+    setYoutubePlay(async () => {
       throw new Error('NotAllowedError')
-    }
+    })
     await act(async () => {
       fireEvent(audioEl(container), new Event('ended'))
     })
@@ -274,7 +176,7 @@ describe('refusal (ER4)', () => {
     expect(useSetlistPlayerStore.getState().status).toBe('paused')
 
     // A tap on play retries the same entry only.
-    youtubePlay = async () => undefined
+    setYoutubePlay(async () => undefined)
     fireEvent.click(screen.getByRole('button', { name: 'Play' }))
     await waitFor(() => expect(status()).toBe(''))
     expect(fakes.youtube?.play).toHaveBeenCalledTimes(2)
@@ -282,7 +184,7 @@ describe('refusal (ER4)', () => {
   })
 
   it('treats a start that never reports playing as a refusal (timeout)', async () => {
-    youtubePlay = () => new Promise<void>(() => undefined)
+    setYoutubePlay(() => new Promise<void>(() => undefined))
     render(<Host sources={{ one: YT, two: YT }} refusalMs={20} />)
     tap('one')
     await waitFor(() => expect(status()).toBe('Tap to play ONE'))
@@ -782,6 +684,94 @@ describe('countdown overlay (RH-189)', () => {
       expect(getSongDetails).not.toHaveBeenCalled()
       resetSongWindow()
     })
+  })
+})
+
+describe('previous control restart and step (RH-200)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms) })
+  async function startSong(id: string) {
+    render(<Host sources={{ one: YT, two: YT }} countdownMs={5000} />)
+    tap(id)
+    await act(async () => {})
+    advance(5000)
+    await act(async () => {})
+  }
+
+  it('restarts while playing after 3500 ms without countdown or re-calling play', async () => {
+    await startSong('two')
+    expect(screen.getByText('2 / 4')).toBeTruthy()
+    expect(fakes.youtube?.play).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
+
+    advance(3500)
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+    await act(async () => {})
+
+    expect(fakes.youtube?.seek).toHaveBeenCalledWith(0)
+    expect(screen.getByText('2 / 4')).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'Setlist countdown' })).toBeNull()
+    expect(fakes.youtube?.play).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
+  })
+
+  it('restarts while paused after 3500 ms playback, calling seek(0) and play', async () => {
+    await startSong('two')
+    advance(3500)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+    await act(async () => {})
+
+    expect(fakes.youtube?.seek).toHaveBeenCalledWith(0)
+    expect(fakes.youtube?.play).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
+    expect(screen.getByText('2 / 4')).toBeTruthy()
+  })
+
+  it('steps to previous song within threshold (1500 ms)', async () => {
+    await startSong('two')
+    advance(1500)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+    await act(async () => {})
+
+    expect(fakes.youtube?.seek).not.toHaveBeenCalled()
+    expect(screen.getByText('1 / 4')).toBeTruthy()
+  })
+
+  it('does not count paused time towards the 3000 ms threshold', async () => {
+    await startSong('two')
+    advance(2000)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    advance(5000)
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    advance(500)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+    await act(async () => {})
+
+    expect(fakes.youtube?.seek).not.toHaveBeenCalled()
+    expect(screen.getByText('1 / 4')).toBeTruthy()
+  })
+
+  it('enables Previous at index 0 when playing or paused, and always restarts at index 0', async () => {
+    await startSong('one')
+    expect(screen.getByText('1 / 4')).toBeTruthy()
+    const prevBtn = screen.getByRole('button', { name: 'Previous' })
+    expect(prevBtn.hasAttribute('disabled')).toBe(false)
+
+    advance(1000)
+    fireEvent.click(prevBtn)
+    await act(async () => {})
+
+    expect(fakes.youtube?.seek).toHaveBeenCalledWith(0)
+    expect(screen.getByText('1 / 4')).toBeTruthy()
   })
 })
 

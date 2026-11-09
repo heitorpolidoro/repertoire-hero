@@ -26,6 +26,9 @@ export const createAudioEngine: EngineFactory = (events, hosts) => {
       await el.play()
     },
     pause: () => el.pause(),
+    seek: (seconds: number) => {
+      el.currentTime = seconds
+    },
     dispose() {
       el.pause()
       el.removeEventListener('ended', onEnded)

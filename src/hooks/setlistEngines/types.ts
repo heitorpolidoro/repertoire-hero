@@ -18,6 +18,7 @@ export interface SetlistEngine {
   load: (source: PickedSource) => Promise<void>
   play: () => Promise<void>
   pause: () => void
+  seek: (seconds: number) => void
   dispose: () => void
 }
 

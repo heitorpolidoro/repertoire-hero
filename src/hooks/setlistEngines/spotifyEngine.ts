@@ -2,6 +2,7 @@ import {
   pauseSpotify,
   playTrack,
   resumeSpotify,
+  seekSpotify,
   subscribeSpotifyState,
   type SpotifyPlayerState,
 } from '@/lib/spotifyWebPlayback'
@@ -40,6 +41,7 @@ export const createSpotifyEngine: EngineFactory = (events) => {
       startedUri = trackUri
     },
     pause: () => pauseSpotify(),
+    seek: (seconds: number) => seekSpotify(Math.round(seconds * 1000)),
     dispose() {
       unsubscribe()
       pauseSpotify()

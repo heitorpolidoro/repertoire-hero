@@ -7,6 +7,7 @@ const sdk = vi.hoisted(() => ({
   playTrack: vi.fn(),
   pauseSpotify: vi.fn(),
   resumeSpotify: vi.fn(),
+  seekSpotify: vi.fn(),
   unsubscribe: vi.fn(),
   listener: null as null | ((s: unknown) => void),
 }))
@@ -14,6 +15,7 @@ vi.mock('@/lib/spotifyWebPlayback', () => ({
   playTrack: sdk.playTrack,
   pauseSpotify: sdk.pauseSpotify,
   resumeSpotify: sdk.resumeSpotify,
+  seekSpotify: sdk.seekSpotify,
   subscribeSpotifyState: (l: (s: unknown) => void) => {
     sdk.listener = l
     return sdk.unsubscribe
@@ -34,6 +36,7 @@ describe('youtubeEngine', () => {
     loadVideoById: vi.fn(),
     playVideo: vi.fn(),
     pauseVideo: vi.fn(),
+    seekTo: vi.fn(),
     destroy: vi.fn(),
   }
 
@@ -115,6 +118,13 @@ describe('youtubeEngine', () => {
     expect(createYoutubeEngine(events(), { audio: () => null, youtube: () => null })).toBeNull()
   })
 
+  it('seeks through player.seekTo', async () => {
+    const { engine } = await setup()
+    await engine.load({ kind: 'youtube', videoId: 'abcdefghijk' })
+    engine.seek(0)
+    expect(player.seekTo).toHaveBeenCalledWith(0, true)
+  })
+
   it('loads the IFrame API script only when it is first needed', async () => {
     delete (window as unknown as { YT?: unknown }).YT
     const { engine } = await setup()
@@ -190,5 +200,23 @@ describe('spotifyEngine', () => {
     engine.dispose()
     expect(sdk.pauseSpotify).toHaveBeenCalledTimes(2)
     expect(sdk.unsubscribe).toHaveBeenCalled()
+  })
+
+  it('seeks through seekSpotify', async () => {
+    const { engine } = await setup()
+    engine.seek(1.5)
+    expect(sdk.seekSpotify).toHaveBeenCalledWith(1500)
+  })
+})
+
+describe('audioEngine', () => {
+  it('seeks by setting currentTime', async () => {
+    const { createAudioEngine } = await import('../setlistEngines/audioEngine')
+    const audio = document.createElement('audio')
+    const engine = createAudioEngine(events(), { audio: () => audio, youtube: () => null })!
+    expect(engine).not.toBeNull()
+    audio.currentTime = 10
+    engine.seek(0)
+    expect(audio.currentTime).toBe(0)
   })
 })

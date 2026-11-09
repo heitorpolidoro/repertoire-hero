@@ -67,6 +67,17 @@ describe('setlist player hooks into the SDK (RH-167)', () => {
     listeners.player_state_changed({ paused: true } as never)
     expect(seen).toHaveBeenCalledTimes(1)
   })
+
+  it('seeks the connected SDK device and is a no-op before a player exists', async () => {
+    fetchMock.mockImplementation(async (url: string) => (url.includes('/me/player/play') ? { ok: true } : tokenOk))
+    const mod = await import('../spotifyWebPlayback')
+    expect(() => mod.seekSpotify(1500)).not.toThrow()
+    await mod.playTrack('spotify:track:abc')
+    const seek = vi.fn().mockResolvedValue(undefined)
+    Object.assign(FakePlayer.last, { seek })
+    mod.seekSpotify(1500)
+    expect(seek).toHaveBeenCalledWith(1500)
+  })
 })
 
 describe('playTrack', () => {

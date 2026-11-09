@@ -5,6 +5,7 @@ interface YtPlayer {
   loadVideoById(videoId: string): void
   playVideo(): void
   pauseVideo(): void
+  seekTo(seconds: number, allowSeekAhead: boolean): void
   destroy(): void
 }
 interface YtApi {
@@ -107,6 +108,7 @@ export const createYoutubeEngine: EngineFactory = (events: EngineEvents, hosts) 
       })
     },
     pause: () => player?.pauseVideo(),
+    seek: (seconds: number) => player?.seekTo(seconds, true),
     dispose() {
       pending = null
       player?.destroy()

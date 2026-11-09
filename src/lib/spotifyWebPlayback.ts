@@ -33,6 +33,7 @@ interface SdkPlayer {
   addListener<T>(event: string, cb: (payload: T) => void): void
   pause?(): Promise<void>
   resume?(): Promise<void>
+  seek?(positionMs: number): Promise<void>
 }
 
 /** The slice of the SDK's `player_state_changed` payload the setlist player reads (RH-167). */
@@ -57,6 +58,9 @@ export function pauseSpotify(): void {
 }
 export function resumeSpotify(): Promise<void> {
   return sdkPlayer?.resume?.() ?? Promise.resolve()
+}
+export function seekSpotify(positionMs: number): void {
+  void sdkPlayer?.seek?.(positionMs)
 }
 interface SdkWindow {
   Spotify?: { Player: new (opts: { name: string; getOAuthToken: (cb: (t: string) => void) => void }) => SdkPlayer }

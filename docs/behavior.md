@@ -73,7 +73,8 @@ Registry of what the system does today, one `##` section per functional area and
 - Fast View embeds the song's first YouTube link as a no-autoplay youtube-nocookie iframe. (src/lib/youtubeEmbed.ts, src/components/fastview/YoutubeEmbed.tsx, src/lib/__tests__/youtubeEmbed.test.ts)
 - The setlist player plays the queue in order from uploaded audio, then Spotify, then YouTube, and stops at the end. (src/lib/setlistPlayer.ts, src/hooks/useSetlistPlayer.ts, src/components/layout/SetlistPlayer.tsx)
 - The setlist player automatically navigates Fast View to each upcoming song in the queue via router.replace when advancing or stepping. (src/app/AppShell.tsx, src/hooks/setlistEngines/runtime.ts, src/hooks/useSetlistPlayer.ts)
-- The setlist player shows a full-screen 5-second countdown overlay with the upcoming title, resolved tuning, custom fields, and a skip control before each song starts. (src/components/layout/SetlistPlayer.tsx, src/hooks/setlistEngines/runtime.ts, src/store/setlistPlayerStore.ts) (RH-198)
+- The setlist player shows a full-screen 5-second countdown overlay with the upcoming title, resolved tuning, custom fields, and a skip control before each song starts, but not when the previous control restarts the current song. (src/components/layout/SetlistPlayer.tsx, src/hooks/setlistEngines/runtime.ts, src/store/setlistPlayerStore.ts) (RH-198, RH-200)
+- The setlist player's previous control restarts the current song from 0:00, with no countdown, after more than 3 seconds of playback or on the first song; within the first 3 seconds it steps to the prior song. (src/hooks/setlistEngines/runtime.ts, src/hooks/useSetlistPlayer.ts, src/components/layout/SetlistPlayer.tsx) (RH-200)
 - The Content-Security-Policy frame-src allows only YouTube nocookie, Google Docs and the Spotify SDK origin. (next.config.ts, src/lib/__tests__/nextConfigCsp.test.ts)
 
 ## Search

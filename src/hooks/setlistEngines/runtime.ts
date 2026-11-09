@@ -66,6 +66,8 @@ export class SetlistRuntime {
   private countdownTimer: ReturnType<typeof setInterval> | null = null
   private countdownResolver: (() => void) | null = null
   private onSongChange?: (versionId: string, bandId: string | null) => void
+  private accumulatedPlayingMs = 0
+  private playStartedAt: number | null = null
 
   /** The hoisted nodes, handed over by the bar's callback refs; `null` while unmounted. */
   private nodes: { audio: HTMLAudioElement | null; youtube: HTMLElement | null } = { audio: null, youtube: null }
@@ -91,6 +93,8 @@ export class SetlistRuntime {
     this.offline = offline
     if (!offline) return
     this.clearCountdownTimer()
+    this.markPaused()
+    this.resetElapsed()
     store().patch({ countdown: null })
     // The hoisted nodes unmount while offline: stop and let engines be rebuilt later.
     this.run++
@@ -115,6 +119,26 @@ export class SetlistRuntime {
   }
 
   prev(): void {
+    const { status, index, countdown } = store()
+    const engine = this.active ? this.engines[this.active] : undefined
+    const isRestart =
+      !this.offline &&
+      countdown === null &&
+      engine !== undefined &&
+      (status === 'playing' || status === 'paused') &&
+      (this.getElapsedPlayingMs() > 3000 || index === 0)
+
+    if (isRestart) {
+      engine.seek(0)
+      this.resetElapsed()
+      if (status === 'playing') {
+        this.markPlaying()
+      } else if (status === 'paused') {
+        void this.tryPlay(engine, this.run)
+      }
+      return
+    }
+
     this.step(-1)
   }
 
@@ -124,10 +148,12 @@ export class SetlistRuntime {
     if (this.offline) return
     if (countdown !== null) {
       this.clearCountdownTimer()
+      this.markPaused()
       store().patch({ countdown: null, status: 'paused', refused: false })
       return
     }
     if (status === 'playing') {
+      this.markPaused()
       engine?.pause()
       store().patch({ status: 'paused', refused: false })
     } else if (engine && status === 'paused') {
@@ -155,6 +181,7 @@ export class SetlistRuntime {
 
   dismiss(): void {
     this.clearCountdownTimer()
+    this.resetElapsed()
     this.run++
     this.disposeEngines()
     store().reset()
@@ -162,6 +189,7 @@ export class SetlistRuntime {
 
   dispose(): void {
     this.clearCountdownTimer()
+    this.resetElapsed()
     this.run++
     this.disposeEngines()
   }
@@ -222,9 +250,15 @@ export class SetlistRuntime {
         // A source that fails is treated like one with no source.
         void this.runFrom(store().index + 1, 1, store().entries[store().index]?.title ?? null)
       }),
-      playing: live(() => store().patch({ status: 'playing', refused: false })),
+      playing: live(() => {
+        this.markPlaying()
+        store().patch({ status: 'playing', refused: false })
+      }),
       paused: live(() => {
-        if (store().status === 'playing') store().patch({ status: 'paused' })
+        if (store().status === 'playing') {
+          this.markPaused()
+          store().patch({ status: 'paused' })
+        }
       }),
     }
   }
@@ -246,10 +280,14 @@ export class SetlistRuntime {
     store().patch({ refused: false })
     try {
       await withTimeout(engine.play(), this.deps.refusalMs)
-      if (run === this.run) store().patch({ status: 'playing', refused: false })
+      if (run === this.run) {
+        this.markPlaying()
+        store().patch({ status: 'playing', refused: false })
+      }
     } catch {
       // Never retried and never skipped: the musician taps to start this entry.
       if (run !== this.run) return
+      this.markPaused()
       engine.pause()
       store().patch({ status: 'paused', refused: true })
     }
@@ -266,7 +304,33 @@ export class SetlistRuntime {
     }
   }
 
+  private markPlaying(): void {
+    if (this.playStartedAt === null) {
+      this.playStartedAt = Date.now()
+    }
+  }
+
+  private markPaused(): void {
+    if (this.playStartedAt !== null) {
+      this.accumulatedPlayingMs += Date.now() - this.playStartedAt
+      this.playStartedAt = null
+    }
+  }
+
+  private resetElapsed(): void {
+    this.accumulatedPlayingMs = 0
+    this.playStartedAt = null
+  }
+
+  private getElapsedPlayingMs(): number {
+    if (this.playStartedAt !== null) {
+      return this.accumulatedPlayingMs + (Date.now() - this.playStartedAt)
+    }
+    return this.accumulatedPlayingMs
+  }
+
   private async runFrom(from: number, direction: 1 | -1, skipped: string | null = null): Promise<void> {
+    this.resetElapsed()
     const run = ++this.run
     const { entries } = store()
     store().patch({ skipped, refused: false })
