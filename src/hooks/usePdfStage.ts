@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { findScrollHost, lockScrollHost } from '@/lib/scrollHost'
-import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
+import { isStageHistoryEntry, stageHistoryState, stripStageParam } from '@/lib/stageHistory'
 import { isStableViewportMeasurement, stageViewportHeight } from '@/lib/stageInteraction'
 import type { Stroke, TabAnnotations } from '@/types/database'
 
@@ -35,6 +35,8 @@ export interface UsePdfStageOptions {
   actions: PdfStageActions
   /** Test seam. Defaults to a module-level reader of the browser's viewport. */
   getViewport?: () => VisualViewportLike | null | undefined
+  /** Open overlay immediately on mount if stage=pdf was in URL (RH-197). */
+  initialOpen?: boolean
 }
 
 export interface PdfStageController {
@@ -78,8 +80,9 @@ export function usePdfStage({
   tabId,
   actions,
   getViewport = WINDOW_VIEWPORT,
+  initialOpen = false,
 }: UsePdfStageOptions): PdfStageController {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(initialOpen)
   const [height, setHeight] = useState<number | null>(null)
   const [payload, setPayload] = useState<StageAnnotations | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -100,6 +103,7 @@ export function usePdfStage({
   useEffect(() => {
     if (!isOpen) return
 
+    stripStageParam()
     window.history.pushState(stageHistoryState(), '')
 
     const handleBackNavigation = () => setIsOpen(false)

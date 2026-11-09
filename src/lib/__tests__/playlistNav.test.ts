@@ -101,6 +101,12 @@ describe('fastViewHref', () => {
   it('percent-encodes the band id', () => {
     expect(fastViewHref('v-2', 'band 7&8')).toBe('/songs/v-2/fast-view?bandId=band+7%268')
   })
+
+  it('appends stage=lyrics or stage=pdf when specified', () => {
+    expect(fastViewHref('v-2', 'band-7', 'lyrics')).toBe('/songs/v-2/fast-view?bandId=band-7&stage=lyrics')
+    expect(fastViewHref('v-2', null, 'pdf')).toBe('/songs/v-2/fast-view?stage=pdf')
+    expect(fastViewHref('v-2', '', 'lyrics')).toBe('/songs/v-2/fast-view?stage=lyrics')
+  })
 })
 
 describe('slideDirection', () => {
@@ -189,6 +195,22 @@ describe('keyboardTarget', () => {
   it('returns null while typing or when the event was already handled', () => {
     expect(keyboardTarget(press({ editableTarget: true }), navAt(1))).toBeNull()
     expect(keyboardTarget(press({ defaultPrevented: true }), navAt(1))).toBeNull()
+  })
+
+  it('in stage mode, maps ArrowRight and ArrowLeft but returns null for ArrowDown and ArrowUp', () => {
+    // ArrowRight navigates to next
+    expect(keyboardTarget(press({ key: 'ArrowRight' }), navAt(1), { inStageMode: true })).toEqual({
+      versionId: 'v-3',
+      direction: 'left',
+    })
+    // ArrowLeft navigates to prev
+    expect(keyboardTarget(press({ key: 'ArrowLeft' }), navAt(1), { inStageMode: true })).toEqual({
+      versionId: 'v-1',
+      direction: 'right',
+    })
+    // ArrowDown and ArrowUp are suppressed (return null) in stage mode to preserve scrolling
+    expect(keyboardTarget(press({ key: 'ArrowDown' }), navAt(1), { inStageMode: true })).toBeNull()
+    expect(keyboardTarget(press({ key: 'ArrowUp' }), navAt(1), { inStageMode: true })).toBeNull()
   })
 })
 

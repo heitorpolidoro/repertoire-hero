@@ -153,6 +153,12 @@ export interface PendingTabDelete {
  */
 export interface TabLibraryController {
   tabs: SongFile[]
+  /**
+   * True while the current song's file fetch is in flight (RH-197). Distinct
+   * from `uploading`: it is what lets PDF Stage Mode, opened on a song it
+   * navigated to, show a loading indicator instead of the "no file" state.
+   */
+  tabsLoading: boolean
   activeTabId: string | null
   activeTabUrl: string | null
   activeTabTitle: string

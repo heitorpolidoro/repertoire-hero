@@ -75,13 +75,20 @@ describe('PdfStageOverlay', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('PdfStageOverlay renders nothing without an active tab url', () => {
+  it('PdfStageOverlay renders empty state when song has no active tab url or id, keeping header and close button', () => {
     const noUrl = render(<PdfStageOverlay {...props({ fileUrl: null })} />)
-    expect(noUrl.container.innerHTML).toBe('')
+    expect(screen.getByText('No tab or chord chart available for this song')).toBeDefined()
+    expect(screen.getByTitle('Close Stage Mode')).toBeDefined()
     noUrl.unmount()
 
     const noTab = render(<PdfStageOverlay {...props({ tabId: null })} />)
-    expect(noTab.container.innerHTML).toBe('')
+    expect(screen.getByText('No tab or chord chart available for this song')).toBeDefined()
+    noTab.unmount()
+  })
+
+  it('PdfStageOverlay shows loading indicator when isLoading is true and no file is loaded', () => {
+    render(<PdfStageOverlay {...props({ fileUrl: null, tabId: null, isLoading: true })} />)
+    expect(screen.getByText('Loading tab...')).toBeDefined()
   })
 
   it('PdfStageOverlay shows the tab title, the song title and the key in the header', () => {

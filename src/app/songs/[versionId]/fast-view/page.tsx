@@ -109,6 +109,7 @@ export default function FastViewPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryBandId = searchParams.get('bandId')
+  const stageParam = searchParams.get('stage')
 
   // The page's one Toast and its single offline reader — see the docblock.
   const { toast, showToast, dismissToast } = useToast()
@@ -133,41 +134,30 @@ export default function FastViewPage() {
 
   // File library (RH-49), keyed by song id since RH-123.
   const tabLibrary = useTabLibrary({
-    songId: song.songId,
-    actions: OFFLINE_FIRST_TAB_LIBRARY_ACTIONS,
-    onPersonalEntryCreated: song.adoptPersonalEntry,
-    notify: showToast,
-    onDeleteRequested: links.cancelDelete,
-    versionId,
-    bandId: queryBandId,
-    onFilesChanged: invalidateCurrent,
+    songId: song.songId, actions: OFFLINE_FIRST_TAB_LIBRARY_ACTIONS, onPersonalEntryCreated: song.adoptPersonalEntry,
+    notify: showToast, onDeleteRequested: links.cancelDelete, versionId, bandId: queryBandId,
+    onFilesChanged: invalidateCurrent, initialStageOpen: stageParam === 'pdf',
   })
 
-  // PDF Stage Mode: viewport, scroll lock, back intercept, annotations (RH-50).
-  const pdfStage = usePdfStage({ tabId: tabLibrary.activeTabId, actions: OFFLINE_FIRST_PDF_STAGE_ACTIONS })
+  // PDF Stage Mode: viewport, scroll lock, back intercept, annotations (RH-50, RH-197).
+  const pdfStage = usePdfStage({ tabId: tabLibrary.activeTabId, actions: OFFLINE_FIRST_PDF_STAGE_ACTIONS, initialOpen: stageParam === 'pdf' })
 
-  // Lyrics: draft, save, band/personal switch and lyrics Stage Mode (RH-51).
+  // Lyrics: draft, save, band/personal switch and lyrics Stage Mode (RH-51, RH-197).
   const lyrics = useLyricsEditor({
-    entry,
-    bandId: queryBandId,
-    personalEntry,
-    songTitle: identity.title,
-    artist: identity.artist,
-    actions: OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS,
-    onEntryLyricsSaved: afterWrite(song.applyEntryLyrics),
-    onPersonalLyricsSaved: afterWrite(song.applyPersonalLyrics),
-    onPersonalEntryCreated: song.adoptPersonalEntry,
-    notify: showToast,
+    entry, bandId: queryBandId, personalEntry, songTitle: identity.title, artist: identity.artist,
+    actions: OFFLINE_FIRST_LYRICS_EDITOR_ACTIONS, onEntryLyricsSaved: afterWrite(song.applyEntryLyrics),
+    onPersonalLyricsSaved: afterWrite(song.applyPersonalLyrics), onPersonalEntryCreated: song.adoptPersonalEntry,
+    notify: showToast, initialStageOpen: stageParam === 'lyrics',
   })
+
+  const activeStage: 'pdf' | 'lyrics' | null = pdfStage.isOpen ? 'pdf' : lyrics.isStageOpen ? 'lyrics' : null
 
   const isCountingDown = useSetlistPlayerStore((s) => s.countdown !== null)
-  // Setlist navigation over the tab's song queue (RH-48, RH-133); arrows off during Stage Mode or countdown.
+  // Setlist navigation over the tab's song queue (RH-48, RH-133, RH-197).
   const playlist = usePlaylistNav({
-    currentVersionId: versionId,
-    bandId: queryBandId,
-    navigate: (href) => router.push(href),
-    navigateBack: () => router.back(),
-    keyboardEnabled: !pdfStage.isOpen && !lyrics.isStageOpen && !isCountingDown,
+    currentVersionId: versionId, bandId: queryBandId, navigate: (href) => router.push(href),
+    navigateBack: () => router.back(), replace: (href) => router.replace(href),
+    keyboardEnabled: !isCountingDown, activeStage,
   })
 
   // "Finish practice" on the last queue entry (RH-169).
@@ -290,14 +280,9 @@ export default function FastViewPage() {
 
       {/* Stage Mode surfaces, the two confirmations and the floating Toast */}
       <FastViewOverlays
-        identity={identity}
-        lyrics={lyrics}
-        pdfStage={pdfStage}
-        tabLibrary={tabLibrary}
-        links={links}
-        toast={toast}
-        onDismissToast={dismissToast}
-        readOnly={readOnly}
+        identity={identity} lyrics={lyrics} pdfStage={pdfStage} tabLibrary={tabLibrary}
+        links={links} toast={toast} onDismissToast={dismissToast} readOnly={readOnly}
+        onNavigatePrev={playlist.goPrev} onNavigateNext={playlist.goNext}
       />
     </>
   )

@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { usePdfStage, type PdfStageActions, type UsePdfStageOptions, type VisualViewportLike } from '@/hooks/usePdfStage'
-import { stageHistoryState } from '@/lib/stageHistory'
+import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
 import type { Stroke, TabAnnotations } from '@/types/database'
 
 afterEach(cleanup)
@@ -267,5 +267,71 @@ describe('usePdfStage', () => {
     act(() => result.current.open())
 
     expect(result.current.height).toBe(812)
+  })
+
+  describe('stage=pdf URL sanitization and history sequence', () => {
+    it('calls replaceState before pushState when mounting with initialOpen and stage=pdf', async () => {
+      window.history.replaceState(null, '', '/songs/v-2/fast-view?bandId=b-1&stage=pdf')
+      const callOrder: string[] = []
+      vi.spyOn(window.history, 'replaceState').mockImplementation((...args) => {
+        callOrder.push('replaceState')
+        vi.spyOn(window.history, 'replaceState').mockRestore()
+        window.history.replaceState(...args)
+        vi.spyOn(window.history, 'replaceState').mockImplementation((...a) => {
+          callOrder.push('replaceState')
+          vi.spyOn(window.history, 'replaceState').mockRestore()
+          window.history.replaceState(...a)
+        })
+      })
+      vi.spyOn(window.history, 'pushState').mockImplementation((...args) => {
+        callOrder.push('pushState')
+        vi.spyOn(window.history, 'pushState').mockRestore()
+        window.history.pushState(...args)
+        vi.spyOn(window.history, 'pushState').mockImplementation((...a) => {
+          callOrder.push('pushState')
+          vi.spyOn(window.history, 'pushState').mockRestore()
+          window.history.pushState(...a)
+        })
+      })
+
+      const { result } = setup({ initialOpen: true })
+
+      expect(callOrder).toEqual(['replaceState', 'pushState'])
+      expect(result.current.isOpen).toBe(true)
+      expect(isStageHistoryEntry(window.history.state)).toBe(true)
+      expect(window.location.search).toBe('?bandId=b-1')
+
+      // Closing with close() (✕ button)
+      act(() => result.current.close())
+      expect(result.current.isOpen).toBe(false)
+      await waitFor(() => {
+        expect(isStageHistoryEntry(window.history.state)).toBe(false)
+      })
+      expect(window.location.search).toBe('?bandId=b-1')
+    })
+
+    it('closing via dispatched popstate (Back) closes overlay and leaves search without stage=', () => {
+      window.history.replaceState(null, '', '/songs/v-2/fast-view?bandId=b-1&stage=pdf')
+      const { result } = setup({ initialOpen: true })
+
+      expect(result.current.isOpen).toBe(true)
+      expect(window.location.search).toBe('?bandId=b-1')
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+
+      expect(result.current.isOpen).toBe(false)
+      expect(window.location.search).toBe('?bandId=b-1')
+    })
+
+    it('mounting without stage in the URL never calls replaceState', () => {
+      window.history.replaceState(null, '', '/songs/v-2/fast-view?bandId=b-1')
+      const replaceSpy = vi.spyOn(window.history, 'replaceState')
+
+      setup({ initialOpen: true })
+
+      expect(replaceSpy).not.toHaveBeenCalled()
+    })
   })
 })

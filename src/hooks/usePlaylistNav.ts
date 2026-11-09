@@ -22,12 +22,16 @@ export interface UsePlaylistNavOptions {
   navigate: (href: string) => void
   /** `router.back` */
   navigateBack: () => void
+  /** `router.replace` (used when navigating within stage mode) */
+  replace?: (href: string) => void
   /**
    * Whether ArrowLeft / ArrowRight move through the setlist. Off while a Stage
-   * Mode surface is up, so a key press never yanks the musician out of it.
+   * Mode surface is up unless stage navigation is supported, or during countdown.
    * Defaults to true.
    */
   keyboardEnabled?: boolean
+  /** Active stage overlay if Stage Mode is open (RH-197). */
+  activeStage?: 'lyrics' | 'pdf' | null
 }
 
 export interface PlaylistNavController {
@@ -40,6 +44,7 @@ export interface PlaylistNavController {
   /** No-op when `versionId` is the current entry. */
   selectEntry: (versionId: string) => void
   goPrev: () => void
+  goNext: () => void
   goBack: () => void
   /** "Play setlist": asks the setlist player to start at this song (RH-167). */
   playSetlist: () => void
@@ -98,7 +103,9 @@ export function usePlaylistNav({
   bandId,
   navigate,
   navigateBack,
+  replace,
   keyboardEnabled = true,
+  activeStage = null,
 }: UsePlaylistNavOptions): PlaylistNavController {
   const storedQueue = useSyncExternalStore(subscribeToSongQueue, readSongQueue, noQueueOnTheServer)
 
@@ -149,10 +156,15 @@ export function usePlaylistNav({
       setSlideOut(direction)
       slideTimer.current = setTimeout(() => {
         slideTimer.current = null
-        navigate(fastViewHref(versionId, hrefBandId))
+        if (activeStage) {
+          const navFn = replace ?? navigate
+          navFn(fastViewHref(versionId, hrefBandId, activeStage))
+        } else {
+          navigate(fastViewHref(versionId, hrefBandId))
+        }
       }, SLIDE_OUT_MS)
     },
-    [hrefBandId, navigate],
+    [activeStage, hrefBandId, navigate, replace],
   )
 
   const selectEntry = useCallback(
@@ -168,6 +180,12 @@ export function usePlaylistNav({
     if (!prevId) return
     slideAwayTo(prevId, 'right')
   }, [nav?.prevId, slideAwayTo])
+
+  const goNext = useCallback(() => {
+    const nextId = nav?.nextId
+    if (!nextId) return
+    slideAwayTo(nextId, 'left')
+  }, [nav?.nextId, slideAwayTo])
 
   const onTouchStart = useCallback((clientX: number) => {
     touchStartX.current = clientX
@@ -205,6 +223,7 @@ export function usePlaylistNav({
           editableTarget: isEditableTarget(event.target),
         },
         nav,
+        { inStageMode: Boolean(activeStage) },
       )
       if (!target) return
       event.preventDefault()
@@ -213,7 +232,7 @@ export function usePlaylistNav({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [keyboardEnabled, nav, slideAwayTo])
+  }, [activeStage, keyboardEnabled, nav, slideAwayTo])
 
   // Back goes to the href the queue recorded as its origin, whatever kind of
   // screen that is, and walks history back when there is no queue to ask.
@@ -244,6 +263,7 @@ export function usePlaylistNav({
     closeDrawer,
     selectEntry,
     goPrev,
+    goNext,
     goBack,
     playSetlist,
     onTouchStart,

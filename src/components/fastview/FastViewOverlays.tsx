@@ -43,6 +43,8 @@ export interface FastViewOverlaysProps {
    * two confirmations are opened by controls that are themselves disabled.
    */
   readOnly?: boolean
+  onNavigatePrev?: () => void
+  onNavigateNext?: () => void
 }
 
 /**
@@ -68,11 +70,19 @@ export function FastViewOverlays({
   toast,
   onDismissToast,
   readOnly = false,
+  onNavigatePrev,
+  onNavigateNext,
 }: FastViewOverlaysProps) {
   return (
     <>
       {/* Stage Mode (Full Screen Lyrics) */}
-      <LyricsStageOverlay controller={lyrics} songTitle={identity.title} songKey={identity.key} />
+      <LyricsStageOverlay
+        controller={lyrics}
+        songTitle={identity.title}
+        songKey={identity.key}
+        onNavigatePrev={onNavigatePrev}
+        onNavigateNext={onNavigateNext}
+      />
 
       {/* PDF Stage Mode Overlay */}
       <PdfStageOverlay
@@ -90,6 +100,9 @@ export function FastViewOverlays({
         onSaveAnnotations={pdfStage.saveAnnotations}
         onClose={pdfStage.close}
         readOnly={readOnly}
+        onNavigatePrev={onNavigatePrev}
+        onNavigateNext={onNavigateNext}
+        isLoading={tabLibrary.tabsLoading}
       />
 
       {/* Band-or-personal lyrics choice (band entries only, and never offline:

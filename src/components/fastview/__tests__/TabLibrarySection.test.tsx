@@ -29,6 +29,7 @@ const IMAGE_TAB: SongFile = {
 function controller(overrides: Partial<TabLibraryController> = {}): TabLibraryController {
   return {
     tabs: [],
+    tabsLoading: false,
     activeTabId: null,
     activeTabUrl: null,
     activeTabTitle: '',

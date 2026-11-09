@@ -181,6 +181,7 @@ const TABS: SongFile[] = [
 function makeTabLibrary(overrides: Partial<TabLibraryController> = {}): TabLibraryController {
   return {
     tabs: TABS,
+    tabsLoading: false,
     activeTabId: 'tab-band',
     activeTabUrl: 'https://blob.example/band.pdf',
     activeTabTitle: 'Guitar chart',

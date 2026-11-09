@@ -121,6 +121,64 @@ describe('the one fetch, by song id', () => {
   })
 })
 
+// RH-197: PDF Stage Mode opened on a song it navigated to must tell "still
+// fetching the files" apart from "this song has none", so the fetch itself —
+// not the upload — is what `tabsLoading` reports.
+describe('tabsLoading — the file fetch in flight', () => {
+  it('is true while the fetch is pending and false once it resolves', async () => {
+    let release!: (files: SongFile[]) => void
+    const actions = makeActions()
+    actions.getTabs.mockReturnValue(new Promise<SongFile[]>((resolve) => (release = resolve)))
+    const { result } = setup({ actions: actions as unknown as TabLibraryActions })
+
+    expect(result.current.tabsLoading).toBe(true)
+    await flush()
+    expect(result.current.tabsLoading).toBe(true)
+    expect(result.current.uploading).toBe(false)
+
+    await act(async () => {
+      release(SONG_FILES)
+    })
+    await flush()
+
+    expect(result.current.tabsLoading).toBe(false)
+    expect(result.current.tabs).toEqual(SONG_FILES)
+  })
+
+  it('is false once the fetch rejects, so the empty state replaces the indicator', async () => {
+    const actions = makeActions()
+    actions.getTabs.mockRejectedValue(new Error('offline'))
+    const { result } = setup({ actions: actions as unknown as TabLibraryActions })
+    await flush()
+
+    expect(result.current.tabsLoading).toBe(false)
+  })
+
+  it('is false while the song id is unknown, since no fetch is in flight', async () => {
+    const { result } = setup({ songId: null })
+    await flush()
+
+    expect(result.current.tabsLoading).toBe(false)
+  })
+
+  it('is true again for a new song id until that song’s fetch settles', async () => {
+    const { result, rerender, initialProps, actions } = setup()
+    await flush()
+    expect(result.current.tabsLoading).toBe(false)
+
+    let release!: (files: SongFile[]) => void
+    actions.getTabs.mockReturnValue(new Promise<SongFile[]>((resolve) => (release = resolve)))
+    rerender({ ...initialProps, songId: 'song-2' })
+
+    expect(result.current.tabsLoading).toBe(true)
+    await act(async () => {
+      release([])
+    })
+    await flush()
+    expect(result.current.tabsLoading).toBe(false)
+  })
+})
+
 describe('the active file', () => {
   it('selects a file and clears the selection when the same file is chosen again', async () => {
     const { result } = setup()
@@ -131,6 +189,31 @@ describe('the active file', () => {
 
     act(() => result.current.selectTab(SONG_FILES[0]))
     expect(result.current.activeTabId).toBeNull()
+  })
+
+  it('auto-selects the primary file or first file when initialStageOpen is true', async () => {
+    const tabsWithPrimary = [
+      { ...songFile('t-1', '2026-01-01T00:00:00Z'), is_primary: false },
+      { ...songFile('t-2', '2026-01-02T00:00:00Z'), is_primary: true },
+    ]
+    const actions = makeActions()
+    actions.getTabs.mockResolvedValue(tabsWithPrimary)
+    const { result } = setup({ actions: actions as unknown as TabLibraryActions, initialStageOpen: true })
+    await flush()
+
+    expect(result.current.activeTabId).toBe('t-2')
+
+    // Falls back to tabs[0] when no tab is primary
+    const tabsWithoutPrimary = [
+      { ...songFile('t-3', '2026-01-01T00:00:00Z'), is_primary: false },
+      { ...songFile('t-4', '2026-01-02T00:00:00Z'), is_primary: false },
+    ]
+    const actions2 = makeActions()
+    actions2.getTabs.mockResolvedValue(tabsWithoutPrimary)
+    const view2 = setup({ actions: actions2 as unknown as TabLibraryActions, initialStageOpen: true })
+    await flush()
+
+    expect(view2.result.current.activeTabId).toBe('t-3')
   })
 
   it('exposes the active file id, url and title for the stage overlay — and no repertoire id', async () => {

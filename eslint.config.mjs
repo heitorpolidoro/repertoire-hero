@@ -152,7 +152,7 @@ const eslintConfig = defineConfig([
   // all. The component function went 743 lines to 709 and the file 815 to 788.
   // None of the four new modules carries an entry: each is inside every base
   // budget (worst: 72 lines, 44 per function, complexity 4).
-  { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { "max-lines-per-function": ["error", 709], "max-lines": ["error", 788] } },
+  { name: "complexity-budget/override", files: ["src/components/tabs/TabDrawingStage.tsx"], rules: { "max-lines-per-function": ["error", 704], "max-lines": ["error", 777] } },
   { name: "complexity-budget/override", files: ["src/lib/bands.ts"], rules: { "max-params": ["error", 5] } },
   { name: "complexity-budget/override", files: ["src/lib/linkFetcher.ts"], rules: { complexity: ["error", 18] } },
   // RH-124 removed `src/lib/songs.ts`'s entry outright rather than lowering it:

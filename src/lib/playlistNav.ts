@@ -135,9 +135,14 @@ export function computePlaylistNav(
  * the page built before the extraction: preserving it keeps a bookmark or a
  * history entry created by either version of the page comparable.
  */
-export function fastViewHref(versionId: string, bandId: string | null): string {
+export function fastViewHref(
+  versionId: string,
+  bandId: string | null,
+  stage?: 'lyrics' | 'pdf' | null,
+): string {
   const qs = new URLSearchParams()
   if (bandId) qs.set('bandId', bandId)
+  if (stage) qs.set('stage', stage)
   return `/songs/${versionId}/fast-view?${qs.toString()}`
 }
 
@@ -200,20 +205,35 @@ export interface NavKeyPress {
 const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown'])
 const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp'])
 
-export function keyboardTarget(
-  press: NavKeyPress,
-  nav: PlaylistNav | null,
-): { versionId: string; direction: SlideDirection } | null {
-  if (!nav || press.defaultPrevented || press.editableTarget) return null
-  if (press.altKey || press.ctrlKey || press.metaKey || press.shiftKey) return null
+function hasModifierKey(press: NavKeyPress): boolean {
+  return press.altKey || press.ctrlKey || press.metaKey || press.shiftKey
+}
 
-  if (NEXT_KEYS.has(press.key)) {
+function resolveKeyTarget(
+  key: string,
+  nav: PlaylistNav,
+  inStageMode: boolean,
+): { versionId: string; direction: SlideDirection } | null {
+  const isNext = inStageMode ? key === 'ArrowRight' : NEXT_KEYS.has(key)
+  if (isNext) {
     return nav.nextId ? { versionId: nav.nextId, direction: 'left' } : null
   }
-  if (PREV_KEYS.has(press.key)) {
+  const isPrev = inStageMode ? key === 'ArrowLeft' : PREV_KEYS.has(key)
+  if (isPrev) {
     return nav.prevId ? { versionId: nav.prevId, direction: 'right' } : null
   }
   return null
+}
+
+export function keyboardTarget(
+  press: NavKeyPress,
+  nav: PlaylistNav | null,
+  options?: { inStageMode?: boolean },
+): { versionId: string; direction: SlideDirection } | null {
+  if (!nav || press.defaultPrevented || press.editableTarget || hasModifierKey(press)) {
+    return null
+  }
+  return resolveKeyTarget(press.key, nav, Boolean(options?.inStageMode))
 }
 
 /** The full className of the page's `<main>`, including the transform. */

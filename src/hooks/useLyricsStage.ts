@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
+import { isStageHistoryEntry, stageHistoryState, stripStageParam } from '@/lib/stageHistory'
 import { LYRICS_FONT_DEFAULT, LYRICS_FONT_STEP, stepLyricsFontSize } from '@/lib/lyricsEditor'
 
 /** The lyrics Stage Mode slice of `LyricsEditorController`. */
@@ -25,8 +25,8 @@ export interface LyricsStageController {
  * may not gain an entry (F20), and a Stage Mode that shares no state with the
  * editor's draft is the seam that was already there.
  */
-export function useLyricsStage(): LyricsStageController {
-  const [isStageOpen, setIsStageOpen] = useState(false)
+export function useLyricsStage(initialOpen = false): LyricsStageController {
+  const [isStageOpen, setIsStageOpen] = useState(initialOpen)
   const [fontSize, setFontSize] = useState(LYRICS_FONT_DEFAULT)
   const [isDarkMode, setIsDarkMode] = useState(false)
 
@@ -45,6 +45,7 @@ export function useLyricsStage(): LyricsStageController {
   useEffect(() => {
     if (!isStageOpen) return
 
+    stripStageParam()
     window.history.pushState(stageHistoryState(), '')
 
     const handlePopState = () => setIsStageOpen(false)

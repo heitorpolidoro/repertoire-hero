@@ -73,8 +73,8 @@ describe('LyricsStageOverlay', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('LyricsStageOverlay renders nothing when there are no lyrics', () => {
-    const { container } = render(
+  it('LyricsStageOverlay renders empty state when there are no lyrics, keeping header and close button', () => {
+    render(
       <LyricsStageOverlay
         controller={makeController({ displayedLyrics: null })}
         songTitle="Sultans of Swing"
@@ -82,7 +82,9 @@ describe('LyricsStageOverlay', () => {
       />,
     )
 
-    expect(container.innerHTML).toBe('')
+    expect(screen.getByText('No lyrics available for this song')).toBeDefined()
+    expect(screen.getByText('Sultans of Swing')).toBeDefined()
+    expect(screen.getByTitle('Fechar Modo Palco')).toBeDefined()
   })
 
   it('LyricsStageOverlay shows the song title and the key in the header', () => {

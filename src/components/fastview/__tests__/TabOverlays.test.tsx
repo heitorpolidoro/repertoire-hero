@@ -23,6 +23,7 @@ const TAB: SongFile = {
 function makeLibrary(overrides: Partial<TabLibraryController> = {}): TabLibraryController {
   return {
     tabs: [],
+    tabsLoading: false,
     activeTabId: null,
     activeTabUrl: null,
     activeTabTitle: '',

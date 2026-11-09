@@ -52,6 +52,8 @@ export interface UseTabLibraryOptions {
   bandId?: string | null
   /** Called after an upload or a delete succeeded, so the page can invalidate the window cache. */
   onFilesChanged?: () => void
+  /** Auto-select primary or first tab immediately upon load when stage=pdf is active (RH-197). */
+  initialStageOpen?: boolean
 }
 
 /** The file the embedded viewer and PDF Stage Mode are showing. */
@@ -61,6 +63,21 @@ interface ActiveTab {
   title: string
   /** How it is rendered (RH-128). Resolved at selection: the list row knows, the viewer does not. */
   contentType: string
+}
+
+function toActiveTab(tab: SongFile): ActiveTab {
+  return {
+    id: tab.id,
+    url: tab.file_url,
+    title: tab.title,
+    contentType: tab.content_type ?? DEFAULT_TAB_CONTENT_TYPE,
+  }
+}
+
+function resolvePrimaryTab(tabs: SongFile[]): ActiveTab | null {
+  if (tabs.length === 0) return null
+  const primary = tabs.find((t) => t.is_primary) ?? tabs[0]
+  return toActiveTab(primary)
 }
 
 /**
@@ -87,8 +104,13 @@ export function useTabLibrary({
   versionId = null,
   bandId = null,
   onFilesChanged,
+  initialStageOpen = false,
 }: UseTabLibraryOptions): TabLibraryController {
   const [tabs, setTabs] = useState<SongFile[]>([])
+  // The song id whose fetch last settled: `tabsLoading` for any other known id.
+  // Set in the batch that sets the list, never at the fetch's start, so the effect
+  // sets no state synchronously and the stage never flashes "no file" (RH-197).
+  const [settledSongId, setSettledSongId] = useState<string | null>(null)
   const [active, setActive] = useState<ActiveTab | null>(null)
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -113,27 +135,24 @@ export function useTabLibrary({
     }
     load()
       .then((loaded) => {
-        if (!cancelled) setTabs(loaded)
+        if (cancelled) return
+        setTabs(loaded)
+        if (initialStageOpen) {
+          const activeTab = resolvePrimaryTab(loaded)
+          if (activeTab) setActive(activeTab)
+        }
+        setSettledSongId(songId)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setSettledSongId(songId)
+      })
     return () => {
       cancelled = true
     }
-  }, [actions, bandId, songId, versionId])
+  }, [actions, bandId, initialStageOpen, songId, versionId])
 
   const selectTab = useCallback((tab: SongFile) => {
-    setActive((current) =>
-      current?.url === tab.file_url
-        ? null
-        : {
-            id: tab.id,
-            url: tab.file_url,
-            title: tab.title,
-            // Absent is `application/pdf`, not a guess: every row written
-            // before RH-127 and every pre-RH-128 offline snapshot is a PDF.
-            contentType: tab.content_type ?? DEFAULT_TAB_CONTENT_TYPE,
-          },
-    )
+    setActive((current) => (current?.url === tab.file_url ? null : toActiveTab(tab)))
   }, [])
 
   const closeActiveTab = useCallback(() => setActive(null), [])
@@ -253,6 +272,7 @@ export function useTabLibrary({
 
   return {
     tabs,
+    tabsLoading: Boolean(songId) && settledSongId !== songId,
     activeTabId: active?.id ?? null,
     activeTabUrl: active?.url ?? null,
     activeTabTitle: active?.title ?? '',

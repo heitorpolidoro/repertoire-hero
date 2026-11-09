@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
+import { isStageHistoryEntry, stageHistoryState, stripStageParam } from '@/lib/stageHistory'
 
 describe('stageHistoryState', () => {
   it('stageHistoryState marks the entry Stage Mode pushed', () => {
@@ -22,5 +22,11 @@ describe('isStageHistoryEntry', () => {
     expect(isStageHistoryEntry({ stageMode: false })).toBe(false)
     expect(isStageHistoryEntry({ stageMode: 'yes' })).toBe(false)
     expect(isStageHistoryEntry('stageMode')).toBe(false)
+  })
+})
+
+describe('stripStageParam', () => {
+  it('does nothing when window is undefined in node environment', () => {
+    expect(() => stripStageParam()).not.toThrow()
   })
 })

@@ -149,4 +149,19 @@ describe('TabDrawingStage renders from props (RH-46)', () => {
 
     expect(onSaveAnnotations).toHaveBeenCalledWith(1, [STROKE_A])
   })
+
+  it('notifies onDrawingChange when drawing is toggled and notifies false on unmount', () => {
+    const onDrawingChange = vi.fn()
+    const { unmount } = renderStage({ onDrawingChange })
+
+    const toggleBtn = screen.getByRole('button', { name: 'Toggle drawing' })
+    fireEvent.click(toggleBtn)
+    expect(onDrawingChange).toHaveBeenCalledWith(true)
+
+    fireEvent.click(toggleBtn)
+    expect(onDrawingChange).toHaveBeenCalledWith(false)
+
+    unmount()
+    expect(onDrawingChange).toHaveBeenLastCalledWith(false)
+  })
 })

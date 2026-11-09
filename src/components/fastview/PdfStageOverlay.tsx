@@ -1,7 +1,8 @@
 'use client'
 
-import type { RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 import TabDrawingStage from '@/components/tabs/TabDrawingStage'
+import { useEdgeDoubleTap } from '@/hooks/useEdgeDoubleTap'
 import type { Stroke, TabAnnotations } from '@/types/database'
 
 export interface PdfStageOverlayProps {
@@ -30,6 +31,9 @@ export interface PdfStageOverlayProps {
    * page navigation, zoom, the stored strokes — is unaffected.
    */
   readOnly?: boolean
+  onNavigatePrev?: () => void
+  onNavigateNext?: () => void
+  isLoading?: boolean
 }
 
 /**
@@ -54,8 +58,21 @@ export function PdfStageOverlay({
   onSaveAnnotations,
   onClose,
   readOnly = false,
+  onNavigatePrev,
+  onNavigateNext,
+  isLoading = false,
 }: PdfStageOverlayProps) {
-  if (!open || !fileUrl || !tabId) return null
+  const [isDrawing, setIsDrawing] = useState(false)
+
+  useEdgeDoubleTap({
+    enabled: open && !isDrawing,
+    onPrev: onNavigatePrev,
+    onNext: onNavigateNext,
+  })
+
+  if (!open) return null
+
+  const hasFile = Boolean(fileUrl && tabId)
 
   return (
     <div
@@ -89,15 +106,29 @@ export function PdfStageOverlay({
           ✕
         </button>
       </div>
-      <TabDrawingStage
-        key={tabId}
-        fileUrl={fileUrl}
-        contentType={contentType}
-        annotations={annotations}
-        annotationsError={annotationsError}
-        onSaveAnnotations={onSaveAnnotations}
-        readOnly={readOnly}
-      />
+      {hasFile ? (
+        <TabDrawingStage
+          key={tabId}
+          fileUrl={fileUrl!}
+          contentType={contentType}
+          annotations={annotations}
+          annotationsError={annotationsError}
+          onSaveAnnotations={onSaveAnnotations}
+          readOnly={readOnly}
+          onDrawingChange={setIsDrawing}
+        />
+      ) : isLoading ? (
+        <div className="flex-1 flex items-center justify-center p-6 text-gray-400">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-gray-600 border-t-emerald-500 rounded-full animate-spin" />
+            <span className="text-sm">Loading tab...</span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center p-6 text-gray-400">
+          <p className="text-sm text-center">No tab or chord chart available for this song</p>
+        </div>
+      )}
     </div>
   )
 }

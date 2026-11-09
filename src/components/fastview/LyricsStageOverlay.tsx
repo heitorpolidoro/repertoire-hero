@@ -2,11 +2,14 @@
 
 import type { LyricsEditorController } from '@/lib/lyricsEditor'
 import { parseLyricsMarkdown } from '@/lib/lyricsMarkdown'
+import { useEdgeDoubleTap } from '@/hooks/useEdgeDoubleTap'
 
 export interface LyricsStageOverlayProps {
   controller: LyricsEditorController
   songTitle: string
   songKey?: string | null
+  onNavigatePrev?: () => void
+  onNavigateNext?: () => void
 }
 
 /**
@@ -17,8 +20,20 @@ export interface LyricsStageOverlayProps {
  * Presentational only — the open state, the font size, the dark mode and the
  * back-button intercept belong to `useLyricsEditor` (RH-51).
  */
-export function LyricsStageOverlay({ controller, songTitle, songKey }: LyricsStageOverlayProps) {
-  if (!controller.isStageOpen || !controller.displayedLyrics) return null
+export function LyricsStageOverlay({
+  controller,
+  songTitle,
+  songKey,
+  onNavigatePrev,
+  onNavigateNext,
+}: LyricsStageOverlayProps) {
+  useEdgeDoubleTap({
+    enabled: controller.isStageOpen,
+    onPrev: onNavigatePrev,
+    onNext: onNavigateNext,
+  })
+
+  if (!controller.isStageOpen) return null
 
   return (
     <div
@@ -90,13 +105,19 @@ export function LyricsStageOverlay({ controller, songTitle, songKey }: LyricsSta
         </div>
       </div>
 
-      {/* Scrollable Lyrics Container */}
-      <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text">
-        <div
-          className="font-mono leading-relaxed tracking-wide whitespace-pre-wrap"
-          dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(controller.displayedLyrics) }}
-        />
-      </div>
+      {/* Lyrics Body or Empty State */}
+      {controller.displayedLyrics ? (
+        <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text">
+          <div
+            className="font-mono leading-relaxed tracking-wide whitespace-pre-wrap"
+            dangerouslySetInnerHTML={{ __html: parseLyricsMarkdown(controller.displayedLyrics) }}
+          />
+        </div>
+      ) : (
+        <div className="flex-1 max-w-xl mx-auto w-full py-4 select-text flex items-center justify-center">
+          <p className="text-sm opacity-60 text-center">No lyrics available for this song</p>
+        </div>
+      )}
     </div>
   )
 }

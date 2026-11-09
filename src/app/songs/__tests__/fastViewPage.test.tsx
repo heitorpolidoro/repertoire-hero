@@ -116,7 +116,8 @@ vi.mock('@/app/fastViewOfflineActions', () => {
 // `react-pdf`, whose `pdfjs-dist` dependency touches `DOMMatrix` at module load
 // — which jsdom has no implementation of. Mocked for exactly that reason, as
 // `offlineReadOnlyControls.test.tsx` and `TabDrawingStage.test.tsx` already do.
-// Nothing here opens the stage, so the mock never has to behave.
+// Only the RH-197 `?stage=pdf` suite opens the stage, and it asserts nothing
+// about the rendered PDF, so the mock never has to behave.
 vi.mock('react-pdf', () => ({
   Document: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Page: () => null,
@@ -625,5 +626,55 @@ describe('Fast View and the tab song queue (RH-133 ER4)', { timeout: 30_000 }, (
 
     expect(screen.getByText(/Setlist \(1\/2\)/)).toBeDefined()
     expect(screen.getAllByText('Saturday gig').length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * RH-197 — PDF Stage Mode entered on a song navigated to from Stage Mode
+ * (`?stage=pdf`). The overlay opens before the song's files are fetched, so
+ * only the page can show that the stage's loading flag is wired to that fetch:
+ * an indicator while it is in flight, the "no file" state only once it found none.
+ */
+describe('PDF Stage Mode opened by ?stage=pdf (RH-197)', { timeout: 30_000 }, () => {
+  const EMPTY_STATE = 'No tab or chord chart available for this song'
+
+  beforeEach(() => {
+    searchParams.set('stage', 'pdf')
+    // The drawing stage sizes itself with a ResizeObserver, which jsdom lacks.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+  })
+  afterEach(() => {
+    searchParams.delete('stage')
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the loading indicator, not the empty state, while the files are fetched', async () => {
+    let release!: (files: SongFile[]) => void
+    actions.getTabs.mockReturnValue(new Promise<SongFile[]>((resolve) => (release = resolve)))
+
+    await renderPage()
+
+    expect(screen.getByText('Loading tab...')).toBeDefined()
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull()
+
+    release([TAB])
+    await waitFor(() => expect(screen.queryByText('Loading tab...')).toBeNull(), { timeout: 20_000 })
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull()
+  })
+
+  it('shows the empty state once the fetch finds no file', async () => {
+    actions.getTabs.mockResolvedValue([])
+
+    await renderPage()
+
+    await screen.findByText(EMPTY_STATE, {}, { timeout: 20_000 })
+    expect(screen.queryByText('Loading tab...')).toBeNull()
   })
 })

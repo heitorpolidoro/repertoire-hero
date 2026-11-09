@@ -25,3 +25,21 @@ export function stageHistoryState(): { stageMode: true } {
 export function isStageHistoryEntry(state: unknown): boolean {
   return (state as { stageMode?: unknown } | null)?.stageMode === true
 }
+
+/**
+ * Removes any `stage` query parameter from the current URL via history.replaceState,
+ * keeping the existing history state. If no `stage` param is present, does nothing.
+ */
+export function stripStageParam(): void {
+  if (typeof window === 'undefined') return
+  const search = window.location.search
+  if (!search) return
+
+  const params = new URLSearchParams(search)
+  if (!params.has('stage')) return
+
+  params.delete('stage')
+  const newSearch = params.toString() ? `?${params.toString()}` : ''
+  const newUrl = `${window.location.pathname}${newSearch}${window.location.hash}`
+  window.history.replaceState(window.history.state, '', newUrl)
+}

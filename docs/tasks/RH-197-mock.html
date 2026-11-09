@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RH-197 Mockup — Stage Mode Queue Navigation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    .edge-zone-highlight {
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(59, 130, 246, 0.08),
+        rgba(59, 130, 246, 0.08) 10px,
+        rgba(59, 130, 246, 0.16) 10px,
+        rgba(59, 130, 246, 0.16) 20px
+      );
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans antialiased select-none">
+
+  <!-- Top bar controls & info for reviewer -->
+  <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+    <div class="flex items-center gap-2">
+      <span class="font-bold text-amber-400 bg-amber-950/60 px-2.5 py-1 rounded border border-amber-800">RH-197</span>
+      <span class="font-semibold text-slate-200">Navegação entre músicas no Modo Palco (Teclas de Seta & Duplo Toque nas Bordas)</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <label class="flex items-center gap-1.5 cursor-pointer text-slate-300 hover:text-white">
+        <input type="checkbox" id="toggle-zones-visibility" checked class="rounded border-slate-600 text-blue-600 focus:ring-0">
+        <span>Destacar zonas de borda (20%)</span>
+      </label>
+      <div class="bg-slate-700 h-4 w-[1px]"></div>
+      <span class="text-slate-400">Atalho de teclado: <kbd class="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-700 font-mono text-emerald-400">←</kbd> / <kbd class="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-700 font-mono text-emerald-400">→</kbd></span>
+    </div>
+  </header>
+
+  <!-- Interactive Sandbox Shell -->
+  <div class="flex-1 flex flex-col lg:flex-row relative overflow-hidden">
+
+    <!-- Main Mobile/Tablet Device Frame -->
+    <main class="flex-1 flex flex-col items-center justify-center p-4 bg-slate-950/80">
+      
+      <!-- Device container with realistic phone/tablet aspect ratio -->
+      <div id="device-container" class="w-full max-w-md h-[720px] bg-slate-900 rounded-2xl shadow-2xl border-4 border-slate-700 flex flex-col relative overflow-hidden">
+        
+        <!-- Standard Fast View Screen -->
+        <div id="fast-view-screen" class="flex-1 flex flex-col p-5 overflow-y-auto">
+          <!-- Back button & Setlist pill -->
+          <div class="flex items-center justify-between mb-4">
+            <button class="text-emerald-500 font-medium text-xs hover:underline flex items-center gap-1">
+              <span>&larr; Voltar</span>
+            </button>
+            <div class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-xs font-mono flex items-center gap-1.5">
+              <i data-lucide="list-music" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span id="fastview-queue-pos">2 / 3</span>
+            </div>
+          </div>
+
+          <!-- Song Identity -->
+          <div class="bg-slate-800/80 rounded-xl p-4 border border-slate-700 mb-4">
+            <div class="flex items-start justify-between">
+              <div>
+                <h1 id="fastview-title" class="text-xl font-bold text-white">Rosanna</h1>
+                <p id="fastview-artist" class="text-sm text-slate-400">Toto</p>
+              </div>
+              <span id="fastview-key" class="text-xs font-mono font-bold px-2 py-1 bg-emerald-950 text-emerald-300 rounded border border-emerald-700">Tom: G</span>
+            </div>
+          </div>
+
+          <!-- Stage Mode Open Triggers -->
+          <div class="space-y-3 mb-6">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Acessar Modo Palco</div>
+            
+            <button id="btn-open-lyrics-stage" class="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-emerald-500/50 rounded-xl text-left flex items-center justify-between group transition-all">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-emerald-950/80 text-emerald-400 flex items-center justify-center border border-emerald-800/60">
+                  <i data-lucide="align-left" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-sm text-slate-200 group-hover:text-emerald-400">Modo Palco Letra</div>
+                  <div class="text-xs text-slate-400">Visualização limpa em tela cheia</div>
+                </div>
+              </div>
+              <i data-lucide="maximize-2" class="w-4 h-4 text-slate-500 group-hover:text-emerald-400"></i>
+            </button>
+
+            <button id="btn-open-pdf-stage" class="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-blue-500/50 rounded-xl text-left flex items-center justify-between group transition-all">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-blue-950/80 text-blue-400 flex items-center justify-center border border-blue-800/60">
+                  <i data-lucide="file-text" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-sm text-slate-200 group-hover:text-blue-400">Modo Palco Partitura / PDF</div>
+                  <div class="text-xs text-slate-400">Tablatura com anotações e zoom</div>
+                </div>
+              </div>
+              <i data-lucide="maximize-2" class="w-4 h-4 text-slate-500 group-hover:text-blue-400"></i>
+            </button>
+          </div>
+
+          <!-- Bottom Queue Navigation buttons for reference -->
+          <div class="mt-auto pt-4 border-t border-slate-800 flex items-center justify-between">
+            <button id="fastview-btn-prev" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-300 flex items-center gap-1.5 disabled:opacity-40">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i> Anterior
+            </button>
+            <span class="text-xs text-slate-500">Fast View Padrão</span>
+            <button id="fastview-btn-next" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-300 flex items-center gap-1.5 disabled:opacity-40">
+              Próxima <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- LYRICS STAGE MODE OVERLAY -->
+        <div id="lyrics-stage-overlay" class="absolute inset-0 z-40 bg-gray-950 text-gray-100 flex flex-col hidden select-none">
+          <!-- Sticky Header -->
+          <div class="sticky top-0 z-30 px-4 py-3 bg-gray-900/90 backdrop-blur border-b border-gray-800 flex items-center justify-between">
+            <div>
+              <h2 id="stage-lyrics-title" class="text-sm font-bold truncate">Rosanna</h2>
+              <div class="flex items-center gap-2 text-xs text-gray-400">
+                <span id="stage-lyrics-artist">Toto</span>
+                <span>•</span>
+                <span id="stage-lyrics-key">Tom: G</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btn-close-lyrics-stage" class="w-8 h-8 rounded-lg bg-red-600/90 hover:bg-red-600 text-white font-bold flex items-center justify-center transition-colors" title="Fechar Modo Palco">
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <!-- Lyrics Stage Reading Area (with interactive zones) -->
+          <div id="lyrics-stage-content" class="flex-1 overflow-y-auto px-6 py-6 relative">
+            <div id="stage-lyrics-body" class="font-mono text-sm leading-relaxed whitespace-pre-wrap max-w-sm mx-auto">
+[Intro]
+G  F  C  G
+G  F  C  G
+
+[Verse 1]
+G                 F
+All I wanna do when I wake up in the morning
+C                   G
+Is see your eyes, Rosanna, Rosanna
+G                  F
+I never thought that a girl like you
+C                  G
+Could ever care for me, Rosanna
+
+[Chorus]
+Eb            F
+Meet you all the way
+G
+Meet you all the way, Rosanna
+            </div>
+            <div id="stage-lyrics-empty" class="hidden h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
+              <i data-lucide="align-left" class="w-10 h-10 mb-2 opacity-40"></i>
+              <p class="text-sm font-semibold text-gray-300">No lyrics available for this song</p>
+            </div>
+
+            <!-- Left Edge Zone Touch Area (Overlayed) -->
+            <div id="lyrics-left-edge" class="absolute top-0 bottom-0 left-0 w-[20%] cursor-pointer flex items-center justify-center pointer-events-auto transition-opacity z-20 edge-zone-highlight" title="Borda Esquerda (Duplo toque: música anterior)">
+              <div class="text-[10px] font-mono font-bold text-blue-400 rotate-90 opacity-75">BORDA ESQ (20%)</div>
+            </div>
+
+            <!-- Right Edge Zone Touch Area (Overlayed) -->
+            <div id="lyrics-right-edge" class="absolute top-0 bottom-0 right-0 w-[20%] cursor-pointer flex items-center justify-center pointer-events-auto transition-opacity z-20 edge-zone-highlight" title="Borda Direita (Duplo toque: próxima música)">
+              <div class="text-[10px] font-mono font-bold text-blue-400 -rotate-90 opacity-75">BORDA DIR (20%)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PDF STAGE MODE OVERLAY -->
+        <div id="pdf-stage-overlay" class="absolute inset-0 z-40 bg-black text-white flex flex-col hidden select-none">
+          <!-- PDF Stage Header -->
+          <div class="px-4 py-3 bg-gray-900 border-b border-gray-800 flex items-center justify-between shrink-0">
+            <div>
+              <div class="flex items-center gap-2">
+                <span id="stage-pdf-title" class="text-sm font-bold truncate">Rosanna — Tablatura</span>
+              </div>
+              <div class="text-xs text-gray-400">
+                <span id="stage-pdf-artist">Toto</span> • <span id="stage-pdf-key">Tom: G</span>
+              </div>
+            </div>
+            <button id="btn-close-pdf-stage" class="w-8 h-8 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold flex items-center justify-center">
+              ✕
+            </button>
+          </div>
+
+          <!-- Drawing / PDF Area -->
+          <div id="pdf-stage-content" class="flex-1 relative flex items-center justify-center bg-zinc-900 overflow-hidden">
+            <!-- Simulated PDF sheet -->
+            <div id="simulated-pdf-sheet" class="w-[85%] h-[85%] bg-zinc-100 text-zinc-900 rounded p-4 shadow-lg flex flex-col justify-between font-mono text-xs border border-zinc-300 pointer-events-none">
+              <div>
+                <div class="font-bold text-sm border-b pb-1 mb-2">Toto — Rosanna (Drum & Key Chart)</div>
+                <div class="text-[11px] leading-5 text-zinc-700">
+                  ||: G  | F  | C  | G  :|| (Half-time shuffle)<br>
+                  Verse: [G] [F] [C] [G]<br>
+                  Pre-Chorus: [Bb] [F] [C] [G]<br>
+                  Chorus: [Eb] [F] [G]
+                </div>
+              </div>
+              <div class="text-center text-[10px] text-zinc-400 border-t pt-1">Página 1 / 1 • Repertoire Hero Tab Viewer</div>
+            </div>
+
+            <div id="stage-pdf-empty" class="hidden h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
+              <i data-lucide="file-x" class="w-10 h-10 mb-2 opacity-40"></i>
+              <p class="text-sm font-semibold text-gray-300">No tab or chord chart available for this song</p>
+            </div>
+
+            <!-- Left Edge Zone -->
+            <div id="pdf-left-edge" class="absolute top-0 bottom-0 left-0 w-[20%] cursor-pointer flex items-center justify-center z-20 edge-zone-highlight" title="Duplo toque: música anterior">
+              <div class="text-[10px] font-mono font-bold text-blue-400 rotate-90 opacity-75">BORDA ESQ (20%)</div>
+            </div>
+
+            <!-- Right Edge Zone -->
+            <div id="pdf-right-edge" class="absolute top-0 bottom-0 right-0 w-[20%] cursor-pointer flex items-center justify-center z-20 edge-zone-highlight" title="Duplo toque: próxima música">
+              <div class="text-[10px] font-mono font-bold text-blue-400 -rotate-90 opacity-75">BORDA DIR (20%)</div>
+            </div>
+          </div>
+
+          <!-- Bottom PDF Toolbar -->
+          <div class="shrink-0 bg-gray-900 border-t border-gray-800 px-3 py-2 flex items-center justify-between text-xs">
+            <button id="btn-toggle-drawing" class="px-3 py-1.5 rounded-lg bg-gray-800 text-gray-200 hover:text-white font-semibold flex items-center gap-1.5 transition-colors">
+              <span id="drawing-btn-text">✏️ Desenhar: Desligado</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Side Control Panel for Testing and Inspecting States -->
+    <aside class="w-full lg:w-96 bg-slate-800 border-t lg:border-t-0 lg:border-l border-slate-700 p-5 flex flex-col gap-5 text-sm overflow-y-auto">
+      <div>
+        <h3 class="font-bold text-base text-white mb-1 flex items-center gap-2">
+          <i data-lucide="sliders" class="w-4 h-4 text-emerald-400"></i>
+          <span>Controles de Teste</span>
+        </h3>
+        <p class="text-xs text-slate-400">Simule toques, teclas e eventos para validar os critérios de aceitação.</p>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="space-y-2">
+        <div class="text-xs font-semibold text-slate-300">Simular Ações</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="sim-arrow-left" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-xs font-mono flex items-center justify-center gap-1">
+            <kbd>ArrowLeft</kbd> (←)
+          </button>
+          <button id="sim-arrow-right" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-xs font-mono flex items-center justify-center gap-1">
+            <kbd>ArrowRight</kbd> (→)
+          </button>
+          <button id="sim-double-left" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-xs flex items-center justify-center gap-1 text-blue-300">
+            2x Toque Esquerdo
+          </button>
+          <button id="sim-double-right" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-xs flex items-center justify-center gap-1 text-blue-300">
+            2x Toque Direito
+          </button>
+          <button id="sim-single-tap" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-300">
+            1x Toque Único (Ignorado)
+          </button>
+          <button id="sim-scroll-drag" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-xs text-slate-300">
+            Arrasto / Scroll (Ignorado)
+          </button>
+        </div>
+      </div>
+
+      <!-- Live State Table -->
+      <div class="bg-slate-900 rounded-xl p-3.5 border border-slate-700/80 space-y-2 text-xs">
+        <div class="font-bold text-slate-200 uppercase tracking-wide text-[10px]">Estado Atual</div>
+        <div class="flex justify-between py-1 border-b border-slate-800">
+          <span class="text-slate-400">Modo Atual:</span>
+          <span id="state-active-mode" class="font-semibold text-emerald-400">Fast View Padrão</span>
+        </div>
+        <div class="flex justify-between py-1 border-b border-slate-800">
+          <span class="text-slate-400">Música Atual:</span>
+          <span id="state-song-name" class="font-semibold text-white">2. Rosanna</span>
+        </div>
+        <div class="flex justify-between py-1 border-b border-slate-800">
+          <span class="text-slate-400">Música Anterior:</span>
+          <span id="state-prev-song" class="text-slate-300">1. Black Dog</span>
+        </div>
+        <div class="flex justify-between py-1 border-b border-slate-800">
+          <span class="text-slate-400">Próxima Música:</span>
+          <span id="state-next-song" class="text-slate-300">3. Hotel California</span>
+        </div>
+        <div class="flex justify-between py-1">
+          <span class="text-slate-400">Modo Desenho (PDF):</span>
+          <span id="state-drawing" class="font-semibold text-slate-400">Desativado</span>
+        </div>
+      </div>
+
+      <!-- Gesture Event Log -->
+      <div class="flex-1 flex flex-col min-h-[160px]">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold text-slate-300">Histórico de Eventos</span>
+          <button id="btn-clear-logs" class="text-[11px] text-slate-500 hover:text-slate-300">Limpar</button>
+        </div>
+        <div id="event-log-container" class="flex-1 bg-slate-950 rounded-lg p-2.5 font-mono text-[11px] text-slate-400 overflow-y-auto space-y-1 border border-slate-800">
+          <div class="text-slate-600">[Iniciado] Pronto para testar gestos e teclas</div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // --- Mock Data ---
+    const QUEUE = [
+      {
+        id: 'v-1',
+        title: 'Black Dog',
+        artist: 'Led Zeppelin',
+        key: 'A',
+        lyrics: '[Intro]\nHey hey mama said the way you move\nGonna make you sweat, gonna make you groove\n\n[Verse 1]\nOh yeah child way you shake that thing\nGonna make you burn, gonna make you sting\n\n[Chorus]\nHey, hey, what can I do?\nI got a woman, she won\'t be true',
+        pdfText: 'Led Zeppelin — Black Dog (Guitar TAB)\nKey: A (Standard Tuning)\nRiff: A5 - C - D - A5'
+      },
+      {
+        id: 'v-2',
+        title: 'Rosanna',
+        artist: 'Toto',
+        key: 'G',
+        lyrics: '[Intro]\nG  F  C  G\nG  F  C  G\n\n[Verse 1]\nG                 F\nAll I wanna do when I wake up in the morning\nC                   G\nIs see your eyes, Rosanna, Rosanna\n\n[Chorus]\nEb            F\nMeet you all the way\nG\nMeet you all the way, Rosanna',
+        pdfText: 'Toto — Rosanna (Drum & Key Chart)\nKey: G (Half-time shuffle)\nIntro: G | F | C | G\nVerse: G | F | C | G'
+      },
+      {
+        id: 'v-3',
+        title: 'Hotel California',
+        artist: 'Eagles',
+        key: 'Bm',
+        lyrics: '[Intro]\nBm  F#  A  E\nG   D   Em F#\n\n[Verse 1]\nBm                        F#\nOn a dark desert highway, cool wind in my hair\nA                      E\nWarm smell of colitas, rising up through the air\n\n[Chorus]\nG                         D\nWelcome to the Hotel California\n       Em                 F#\nSuch a lovely place, such a lovely face',
+        pdfText: 'Eagles — Hotel California (12-String & Solo TAB)\nKey: Bm (Capo 7th fret or Standard)\nChords: Bm - F#7 - A - E9'
+      },
+      {
+        id: 'v-4',
+        title: 'Instrumental Jam (No Lyrics/Tab)',
+        artist: 'Repertoire Hero',
+        key: 'Em',
+        lyrics: '',
+        pdfText: ''
+      }
+    ];
+
+    let currentIndex = 1; // Starting at "Rosanna"
+    let currentMode = 'fast-view'; // 'fast-view' | 'lyrics-stage' | 'pdf-stage'
+    let drawingEnabled = false;
+
+    // Tap tracking state (aligned with spec: 350 ms, 50 px)
+    let lastTapTime = 0;
+    let lastTapZone = null;
+    let lastTapX = 0;
+    let lastTapY = 0;
+
+    const DOUBLE_TAP_MAX_DELAY_MS = 350;
+    const DOUBLE_TAP_MAX_DIST_PX = 50;
+
+    // --- DOM Elements ---
+    const fastViewScreen = document.getElementById('fast-view-screen');
+    const lyricsOverlay = document.getElementById('lyrics-stage-overlay');
+    const pdfOverlay = document.getElementById('pdf-stage-overlay');
+    const logBox = document.getElementById('event-log-container');
+
+    function log(msg, colorClass = 'text-slate-300') {
+      const line = document.createElement('div');
+      const time = new Date().toLocaleTimeString().split(' ')[0];
+      line.className = colorClass;
+      line.textContent = `[${time}] ${msg}`;
+      logBox.appendChild(line);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function updateUI() {
+      const song = QUEUE[currentIndex];
+      const prevSong = currentIndex > 0 ? QUEUE[currentIndex - 1] : null;
+      const nextSong = currentIndex < QUEUE.length - 1 ? QUEUE[currentIndex + 1] : null;
+
+      // Fast View Screen
+      document.getElementById('fastview-title').textContent = song.title;
+      document.getElementById('fastview-artist').textContent = song.artist;
+      document.getElementById('fastview-key').textContent = `Tom: ${song.key}`;
+      document.getElementById('fastview-queue-pos').textContent = `${currentIndex + 1} / ${QUEUE.length}`;
+      document.getElementById('fastview-btn-prev').disabled = !prevSong;
+      document.getElementById('fastview-btn-next').disabled = !nextSong;
+
+      // Lyrics Stage Screen
+      document.getElementById('stage-lyrics-title').textContent = song.title;
+      document.getElementById('stage-lyrics-artist').textContent = song.artist;
+      document.getElementById('stage-lyrics-key').textContent = `Tom: ${song.key}`;
+      
+      const lyricsBody = document.getElementById('stage-lyrics-body');
+      const lyricsEmpty = document.getElementById('stage-lyrics-empty');
+      if (song.lyrics) {
+        lyricsBody.textContent = song.lyrics;
+        lyricsBody.classList.remove('hidden');
+        lyricsEmpty.classList.add('hidden');
+      } else {
+        lyricsBody.classList.add('hidden');
+        lyricsEmpty.classList.remove('hidden');
+      }
+
+      // PDF Stage Screen
+      document.getElementById('stage-pdf-title').textContent = song.pdfText ? `${song.title} — Tablatura` : song.title;
+      document.getElementById('stage-pdf-artist').textContent = song.artist;
+      document.getElementById('stage-pdf-key').textContent = `Tom: ${song.key}`;
+
+      const pdfSheet = document.getElementById('simulated-pdf-sheet');
+      const pdfEmpty = document.getElementById('stage-pdf-empty');
+      if (song.pdfText) {
+        pdfSheet.classList.remove('hidden');
+        pdfEmpty.classList.add('hidden');
+      } else {
+        pdfSheet.classList.add('hidden');
+        pdfEmpty.classList.remove('hidden');
+      }
+
+      // Mode visibility
+      if (currentMode === 'fast-view') {
+        fastViewScreen.classList.remove('hidden');
+        lyricsOverlay.classList.add('hidden');
+        pdfOverlay.classList.add('hidden');
+      } else if (currentMode === 'lyrics-stage') {
+        fastViewScreen.classList.add('hidden');
+        lyricsOverlay.classList.remove('hidden');
+        pdfOverlay.classList.add('hidden');
+      } else if (currentMode === 'pdf-stage') {
+        fastViewScreen.classList.add('hidden');
+        lyricsOverlay.classList.add('hidden');
+        pdfOverlay.classList.remove('hidden');
+      }
+
+      // Sidebar state inspector
+      document.getElementById('state-active-mode').textContent = 
+        currentMode === 'fast-view' ? 'Fast View Padrão' :
+        currentMode === 'lyrics-stage' ? 'Modo Palco Letra' : 'Modo Palco PDF/Tab';
+      document.getElementById('state-song-name').textContent = `${currentIndex + 1}. ${song.title}`;
+      document.getElementById('state-prev-song').textContent = prevSong ? `${currentIndex}. ${prevSong.title}` : '(Nenhuma / Início da fila)';
+      document.getElementById('state-next-song').textContent = nextSong ? `${currentIndex + 2}. ${nextSong.title}` : '(Nenhuma / Fim da fila)';
+      document.getElementById('state-drawing').textContent = drawingEnabled ? 'ATIVADO' : 'Desativado';
+      document.getElementById('state-drawing').className = drawingEnabled ? 'font-semibold text-amber-400' : 'font-semibold text-slate-400';
+
+      // Drawing button in PDF stage
+      const drawBtn = document.getElementById('drawing-btn-text');
+      if (drawingEnabled) {
+        drawBtn.textContent = '✏️ Desenho: Ativado';
+      } else {
+        drawBtn.textContent = '✏️ Desenho: Desligado';
+      }
+    }
+
+    // --- Navigation Logic ---
+    function navigatePrev(triggerSource) {
+      if (currentIndex > 0) {
+        currentIndex--;
+        log(`← Navegou para anterior: "${QUEUE[currentIndex].title}" via ${triggerSource}`, 'text-emerald-400');
+        updateUI();
+      } else {
+        log(`← Início da fila alcançado. Nenhuma música anterior (via ${triggerSource})`, 'text-amber-400');
+      }
+    }
+
+    function navigateNext(triggerSource) {
+      if (currentIndex < QUEUE.length - 1) {
+        currentIndex++;
+        log(`→ Navegou para próxima: "${QUEUE[currentIndex].title}" via ${triggerSource}`, 'text-emerald-400');
+        updateUI();
+      } else {
+        log(`→ Fim da fila alcançado. Nenhuma próxima música (via ${triggerSource})`, 'text-amber-400');
+      }
+    }
+
+    // --- Tap & Double-Tap Processing ---
+    function handleEdgeTap(zone, e) {
+      const now = Date.now();
+      const x = e.clientX;
+      const y = e.clientY;
+
+      if (currentMode === 'pdf-stage' && drawingEnabled) {
+        log(`Toque na borda ${zone} ignorado: Modo Desenho está ativo`, 'text-amber-400');
+        return;
+      }
+
+      const timeDiff = now - lastTapTime;
+      const dist = Math.hypot(x - lastTapX, y - lastTapY);
+
+      if (lastTapZone === zone && timeDiff <= DOUBLE_TAP_MAX_DELAY_MS && dist <= DOUBLE_TAP_MAX_DIST_PX) {
+        // Valid Double-tap!
+        lastTapTime = 0;
+        lastTapZone = null;
+        if (zone === 'left') {
+          navigatePrev('Duplo Toque na Borda Esquerda');
+        } else {
+          navigateNext('Duplo Toque na Borda Direita');
+        }
+      } else {
+        // First tap candidate
+        lastTapTime = now;
+        lastTapZone = zone;
+        lastTapX = x;
+        lastTapY = y;
+        log(`Toque único na borda ${zone === 'left' ? 'esquerda' : 'direita'} registrado (aguardando 2º toque)`, 'text-slate-400');
+        setTimeout(() => {
+          if (lastTapTime === now) {
+            log(`Toque único na borda ${zone === 'left' ? 'esquerda' : 'direita'} expirou (nenhuma navegação)`, 'text-slate-500');
+            lastTapZone = null;
+          }
+        }, DOUBLE_TAP_MAX_DELAY_MS + 50);
+      }
+    }
+
+    // Attach Edge Listeners
+    ['lyrics-left-edge', 'pdf-left-edge'].forEach(id => {
+      document.getElementById(id).addEventListener('pointerup', (e) => handleEdgeTap('left', e));
+    });
+    ['lyrics-right-edge', 'pdf-right-edge'].forEach(id => {
+      document.getElementById(id).addEventListener('pointerup', (e) => handleEdgeTap('right', e));
+    });
+
+    // Keyboard Navigation Listener
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigatePrev(`Tecla ArrowLeft [Modo: ${currentMode}]`);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateNext(`Tecla ArrowRight [Modo: ${currentMode}]`);
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (currentMode !== 'fast-view') {
+          log(`Tecla ${e.key} mantida para rolagem no Modo Palco (não navega músicas)`, 'text-slate-500');
+        }
+      }
+    });
+
+    // --- Mode Switch Handlers ---
+    document.getElementById('btn-open-lyrics-stage').addEventListener('click', () => {
+      currentMode = 'lyrics-stage';
+      log('Abriu Modo Palco Letra', 'text-blue-300');
+      updateUI();
+    });
+
+    document.getElementById('btn-open-pdf-stage').addEventListener('click', () => {
+      currentMode = 'pdf-stage';
+      log('Abriu Modo Palco PDF', 'text-blue-300');
+      updateUI();
+    });
+
+    document.getElementById('btn-close-lyrics-stage').addEventListener('click', () => {
+      currentMode = 'fast-view';
+      log('Fechou Modo Palco Letra', 'text-slate-400');
+      updateUI();
+    });
+
+    document.getElementById('btn-close-pdf-stage').addEventListener('click', () => {
+      currentMode = 'fast-view';
+      drawingEnabled = false;
+      log('Fechou Modo Palco PDF', 'text-slate-400');
+      updateUI();
+    });
+
+    document.getElementById('btn-toggle-drawing').addEventListener('click', () => {
+      drawingEnabled = !drawingEnabled;
+      log(`Alternou Modo Desenho: ${drawingEnabled ? 'ATIVADO' : 'DESLIGADO'}`, drawingEnabled ? 'text-amber-400' : 'text-slate-400');
+      updateUI();
+    });
+
+    document.getElementById('fastview-btn-prev').addEventListener('click', () => navigatePrev('Botão Fast View Anterior'));
+    document.getElementById('fastview-btn-next').addEventListener('click', () => navigateNext('Botão Fast View Próxima'));
+
+    // --- Edge Zone Visibility Toggle ---
+    document.getElementById('toggle-zones-visibility').addEventListener('change', (e) => {
+      const show = e.target.checked;
+      ['lyrics-left-edge', 'lyrics-right-edge', 'pdf-left-edge', 'pdf-right-edge'].forEach(id => {
+        const el = document.getElementById(id);
+        if (show) {
+          el.classList.add('edge-zone-highlight');
+          el.style.opacity = '1';
+        } else {
+          el.classList.remove('edge-zone-highlight');
+          el.style.opacity = '0';
+        }
+      });
+    });
+
+    // --- Side Simulation Buttons ---
+    document.getElementById('sim-arrow-left').addEventListener('click', () => navigatePrev('Simulador Teclado [←]'));
+    document.getElementById('sim-arrow-right').addEventListener('click', () => navigateNext('Simulador Teclado [→]'));
+    document.getElementById('sim-double-left').addEventListener('click', (e) => {
+      handleEdgeTap('left', { clientX: 20, clientY: 200 });
+      setTimeout(() => handleEdgeTap('left', { clientX: 20, clientY: 200 }), 100);
+    });
+    document.getElementById('sim-double-right').addEventListener('click', (e) => {
+      handleEdgeTap('right', { clientX: 380, clientY: 200 });
+      setTimeout(() => handleEdgeTap('right', { clientX: 380, clientY: 200 }), 100);
+    });
+    document.getElementById('sim-single-tap').addEventListener('click', () => {
+      log('Simulou toque único no centro/borda (Navegação não acionada)', 'text-slate-400');
+    });
+    document.getElementById('sim-scroll-drag').addEventListener('click', () => {
+      log('Simulou gesto de scroll vertical / arrasto (>15px) — Navegação não acionada', 'text-slate-400');
+    });
+    document.getElementById('btn-clear-logs').addEventListener('click', () => {
+      logBox.innerHTML = '';
+      log('Logs limpos.');
+    });
+
+    // Initialize
+    updateUI();
+    lucide.createIcons();
+  </script>
+</body>
+</html>

@@ -46,6 +46,8 @@ interface TabDrawingStageProps {
    * this file's pinned `complexity` budget (F20), which may only shrink.
    */
   readOnly?: boolean
+  /** Notifies when drawing mode is toggled on or off (RH-197). */
+  onDrawingChange?: (drawing: boolean) => void
 }
 
 type Mode = 'pen' | 'erase' | 'pan'
@@ -57,17 +59,9 @@ const MAX_ZOOM = 3.0
 const ZOOM_STEP = 0.25
 const SAVE_DEBOUNCE_MS = 800
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
-}
-
-function distanceBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return Math.hypot(a.x - b.x, a.y - b.y)
-}
-
-function midpointOf(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-}
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+const distanceBetween = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+const midpointOf = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 
 interface PinchState {
   initialDistance: number
@@ -84,6 +78,7 @@ export default function TabDrawingStage({
   annotationsError,
   onSaveAnnotations,
   readOnly,
+  onDrawingChange,
 }: TabDrawingStageProps) {
   const stageContainerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -110,6 +105,12 @@ export default function TabDrawingStage({
 
   const annotationsRef = useRef<TabAnnotations>(annotations ?? {})
   const annotationsLoaded = annotations !== null
+
+  useEffect(() => {
+    return () => {
+      onDrawingChange?.(false)
+    }
+  }, [fileUrl, onDrawingChange])
 
   // The save callback is read through a ref at every call site so it never has
   // to appear in a dependency array: a parent that re-creates it on each render
@@ -514,31 +515,19 @@ export default function TabDrawingStage({
       redraw()
       flushSave()
     }
-    setDrawingEnabled(!drawingEnabled)
+    const nextState = !drawingEnabled
+    setDrawingEnabled(nextState)
+    onDrawingChange?.(nextState)
   }
 
-  function handleZoomIn() {
-    setZoomLevel((z) => clamp(Math.round((z + ZOOM_STEP) * 100) / 100, MIN_ZOOM, MAX_ZOOM))
-  }
-  function handleZoomOut() {
-    setZoomLevel((z) => clamp(Math.round((z - ZOOM_STEP) * 100) / 100, MIN_ZOOM, MAX_ZOOM))
-  }
-  function handleZoomReset() {
-    setZoomLevel(MIN_ZOOM)
-  }
-
-  function handlePresetColor(preset: string) {
-    setColor(preset)
-  }
-
-  function handleCustomColorSwatchClick() {
-    colorInputRef.current?.click()
-  }
-
-  function handleCustomColorChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const value = e.target.value
-    setCustomColor(value)
-    setColor(value)
+  const handleZoomIn = () => setZoomLevel((z) => clamp(Math.round((z + ZOOM_STEP) * 100) / 100, MIN_ZOOM, MAX_ZOOM))
+  const handleZoomOut = () => setZoomLevel((z) => clamp(Math.round((z - ZOOM_STEP) * 100) / 100, MIN_ZOOM, MAX_ZOOM))
+  const handleZoomReset = () => setZoomLevel(MIN_ZOOM)
+  const handlePresetColor = (preset: string) => { setColor(preset) }
+  const handleCustomColorSwatchClick = () => { colorInputRef.current?.click() }
+  const handleCustomColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCustomColor(e.target.value)
+    setColor(e.target.value)
   }
 
   const renderWidth = baseFitWidth > 0 ? baseFitWidth * zoomLevel : undefined

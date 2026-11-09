@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useLyricsEditor, type LyricsEditorActions, type UseLyricsEditorOptions } from '@/hooks/useLyricsEditor'
-import { stageHistoryState } from '@/lib/stageHistory'
+import { isStageHistoryEntry, stageHistoryState } from '@/lib/stageHistory'
 import type { Repertoire, ResolvedSongEntry } from '@/types/database'
 
 afterEach(cleanup)
@@ -528,6 +528,72 @@ describe('useLyricsEditor', () => {
 
     expect(result.current.isStageOpen).toBe(false)
     expect(back).toHaveBeenCalledTimes(1)
+  })
+
+  describe('stage=lyrics URL sanitization and history sequence', () => {
+    it('calls replaceState before pushState when mounting with initialStageOpen and stage=lyrics', async () => {
+      window.history.replaceState(null, '', '/songs/v-2/fast-view?bandId=b-1&stage=lyrics')
+      const callOrder: string[] = []
+      vi.spyOn(window.history, 'replaceState').mockImplementation((...args) => {
+        callOrder.push('replaceState')
+        vi.spyOn(window.history, 'replaceState').mockRestore()
+        window.history.replaceState(...args)
+        vi.spyOn(window.history, 'replaceState').mockImplementation((...a) => {
+          callOrder.push('replaceState')
+          vi.spyOn(window.history, 'replaceState').mockRestore()
+          window.history.replaceState(...a)
+        })
+      })
+      vi.spyOn(window.history, 'pushState').mockImplementation((...args) => {
+        callOrder.push('pushState')
+        vi.spyOn(window.history, 'pushState').mockRestore()
+        window.history.pushState(...args)
+        vi.spyOn(window.history, 'pushState').mockImplementation((...a) => {
+          callOrder.push('pushState')
+          vi.spyOn(window.history, 'pushState').mockRestore()
+          window.history.pushState(...a)
+        })
+      })
+
+      const { result } = setup({ initialStageOpen: true })
+
+      expect(callOrder).toEqual(['replaceState', 'pushState'])
+      expect(result.current.isStageOpen).toBe(true)
+      expect(isStageHistoryEntry(window.history.state)).toBe(true)
+      expect(window.location.search).toBe('?bandId=b-1')
+
+      // Closing with closeStage() (✕ button)
+      act(() => result.current.closeStage())
+      expect(result.current.isStageOpen).toBe(false)
+      await waitFor(() => {
+        expect(isStageHistoryEntry(window.history.state)).toBe(false)
+      })
+      expect(window.location.search).toBe('?bandId=b-1')
+    })
+
+    it('closing via dispatched popstate (Back) closes lyrics stage and leaves search without stage=', () => {
+      window.history.replaceState(null, '', '/songs/v-2/fast-view?bandId=b-1&stage=lyrics')
+      const { result } = setup({ initialStageOpen: true })
+
+      expect(result.current.isStageOpen).toBe(true)
+      expect(window.location.search).toBe('?bandId=b-1')
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+
+      expect(result.current.isStageOpen).toBe(false)
+      expect(window.location.search).toBe('?bandId=b-1')
+    })
+
+    it('mounting without stage in the URL never calls replaceState', () => {
+      window.history.replaceState(null, '', '/songs/v-2/fast-view?bandId=b-1')
+      const replaceSpy = vi.spyOn(window.history, 'replaceState')
+
+      setup({ initialStageOpen: true })
+
+      expect(replaceSpy).not.toHaveBeenCalled()
+    })
   })
 
   /**

@@ -58,6 +58,8 @@ export interface UseLyricsEditorOptions {
   onPersonalEntryCreated: (entry: Repertoire) => void
   /** `showToast` from the page's `useToast`. */
   notify: (message: string, tone: ToastTone) => void
+  /** Open lyrics stage overlay immediately on mount if stage=lyrics was in URL (RH-197). */
+  initialStageOpen?: boolean
 }
 
 /**
@@ -86,12 +88,13 @@ export function useLyricsEditor({
   onPersonalLyricsSaved,
   onPersonalEntryCreated,
   notify,
+  initialStageOpen = false,
 }: UseLyricsEditorOptions): LyricsEditorController {
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [fetching, setFetching] = useState(false)
-  const stage = useLyricsStage()
+  const stage = useLyricsStage(initialStageOpen)
   // The adapter of §3b: `ResolvedSongEntry` carries no `band_id`, and the pure
   // helpers decide the whole Band/Personal switcher from one. Null-ness is
   // preserved rather than flattened, because `selectDisplayedLyrics` branches

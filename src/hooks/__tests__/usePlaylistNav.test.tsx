@@ -37,15 +37,17 @@ function seed(queue: SongQueue = PLAYLIST_QUEUE) {
 function setup(overrides: Partial<UsePlaylistNavOptions> = {}) {
   const navigate = vi.fn()
   const navigateBack = vi.fn()
+  const replace = vi.fn()
   const initialProps: UsePlaylistNavOptions = {
     currentVersionId: 'v-rep-2',
     bandId: 'band-7',
     navigate,
     navigateBack,
+    replace,
     ...overrides,
   }
   const view = renderHook((props: UsePlaylistNavOptions) => usePlaylistNav(props), { initialProps })
-  return { ...view, navigate, navigateBack, initialProps }
+  return { ...view, navigate, navigateBack, replace, initialProps }
 }
 
 /** Let the mount effect's state update settle, without running any timer. */
@@ -182,6 +184,23 @@ describe('usePlaylistNav', () => {
     act(() => first.result.current.goPrev())
     act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
     expect(first.navigate).not.toHaveBeenCalled()
+  })
+
+  it('goNext slides left to the next entry and does nothing on the last entry', async () => {
+    seed()
+    const { result, navigate } = setup()
+    await flush()
+
+    act(() => result.current.goNext())
+    expect(result.current.slideOut).toBe('left')
+    act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+    expect(navigate).toHaveBeenCalledWith('/songs/v-rep-3/fast-view?bandId=band-7')
+
+    const last = setup({ currentVersionId: 'v-rep-3' })
+    await flush()
+    act(() => last.result.current.goNext())
+    act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+    expect(last.navigate).not.toHaveBeenCalled()
   })
 
   it('advances to the next entry on a leftward swipe past the threshold', async () => {
@@ -359,6 +378,7 @@ describe('usePlaylistNav', () => {
         'closeDrawer',
         'entries',
         'goBack',
+        'goNext',
         'goPrev',
         'isDrawerOpen',
         'nav',
@@ -449,6 +469,33 @@ describe('usePlaylistNav', () => {
       press('ArrowRight')
 
       expect(last.navigate).not.toHaveBeenCalled()
+    })
+
+    it('in stage mode, triggers navigation via router.replace and preserves stage query param', async () => {
+      seed()
+      const { replace, navigate } = setup({ activeStage: 'pdf' })
+      await flush()
+
+      press('ArrowRight')
+      expect(replace).toHaveBeenCalledWith('/songs/v-rep-3/fast-view?bandId=band-7&stage=pdf')
+      expect(navigate).not.toHaveBeenCalled()
+
+      press('ArrowLeft')
+      expect(replace).toHaveBeenCalledWith('/songs/v-rep-1/fast-view?bandId=band-7&stage=pdf')
+    })
+
+    it('in stage mode, ignores ArrowDown and ArrowUp to preserve reading scroll', async () => {
+      seed()
+      const { replace, navigate } = setup({ activeStage: 'lyrics' })
+      await flush()
+
+      press('ArrowDown')
+      expect(replace).not.toHaveBeenCalled()
+      expect(navigate).not.toHaveBeenCalled()
+
+      press('ArrowUp')
+      expect(replace).not.toHaveBeenCalled()
+      expect(navigate).not.toHaveBeenCalled()
     })
   })
 })
