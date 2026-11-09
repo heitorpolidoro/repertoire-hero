@@ -16,6 +16,10 @@ import type { EngineEvents, EngineFactories, EngineHosts, SetlistEngine } from '
 export interface SetlistPlayerActions {
   getSources: (versionId: string) => Promise<QueueSources>
   loadFacts: () => Promise<PlaybackFacts>
+  getSongDetails?: (
+    versionId: string,
+    bandId: string | null,
+  ) => Promise<{ tuning: string | null; customFields: Array<{ name: string; value: string }> }>
 }
 
 export interface RuntimeDeps {

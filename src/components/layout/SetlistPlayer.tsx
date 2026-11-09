@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { fastViewHref } from '@/lib/playlistNav'
+import { formatTuningDisplay } from '@/lib/songTuning'
 import type { SetlistPlayerController } from '@/hooks/useSetlistPlayer'
 
 const BADGES = { file: 'File', spotify: 'Spotify', youtube: 'YouTube' } as const
@@ -44,6 +45,9 @@ export function SetlistPlayer({ controller: c, bindAudio, bindYoutube }: Setlist
 }
 
 function CountdownOverlay({ c }: { c: SetlistPlayerController }) {
+  const validFields = (c.customFields || []).filter((f) => f.value && f.value.trim() !== '')
+  const hasMetadata = Boolean(c.tuning || validFields.length > 0)
+
   return (
     <div
       role="dialog"
@@ -76,6 +80,30 @@ function CountdownOverlay({ c }: { c: SetlistPlayerController }) {
           <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Up Next</p>
           <h3 className="mt-1 truncate text-xl font-bold text-white">{c.title}</h3>
           {c.artist && <p className="truncate text-sm text-gray-300">{c.artist}</p>}
+          {hasMetadata && (
+            <div
+              data-testid="countdown-metadata"
+              className="mt-3 flex flex-wrap items-center justify-center gap-2 max-w-full px-2"
+            >
+              {c.tuning && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-950/50 px-2.5 py-1 text-xs text-emerald-300 shadow-sm max-w-full min-w-0">
+                  <span className="font-medium text-emerald-400/80 shrink-0">Tuning:</span>
+                  <span className="font-semibold text-emerald-200 truncate">
+                    {formatTuningDisplay(c.tuning)}
+                  </span>
+                </span>
+              )}
+              {validFields.map((field) => (
+                <span
+                  key={field.name}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/10 px-2.5 py-1 text-xs text-gray-200 shadow-sm max-w-full min-w-0"
+                >
+                  <span className="max-w-[120px] truncate font-medium text-gray-400">{field.name}:</span>
+                  <span className="max-w-[160px] truncate font-semibold text-white">{field.value}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

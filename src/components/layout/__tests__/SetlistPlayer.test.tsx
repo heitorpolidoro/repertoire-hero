@@ -651,5 +651,137 @@ describe('countdown overlay (RH-189)', () => {
     })
     expect(onSongChange).toHaveBeenCalledWith('two', null)
   })
+
+  describe('tuning and custom fields in countdown overlay (RH-198)', () => {
+    const cdHost = (
+      details: { tuning: string | null; customFields: Array<{ name: string; value: string }> },
+      gd?: ReturnType<typeof vi.fn>,
+    ) => (
+      <Host
+        sources={{ one: FILE('one'), two: FILE('two') }}
+        countdownMs={5000}
+        actions={{
+          getSources: async (id) => (id === 'one' ? FILE('one') : FILE('two')),
+          loadFacts: async () => ({ connected: false, scope: null, premium: false }),
+          getSongDetails: gd ?? vi.fn().mockResolvedValue(details),
+        }}
+      />
+    )
+
+    it('displays resolved tuning formatted through formatTuningDisplay and wraps with mobile constraints', async () => {
+      render(cdHost({ tuning: 'Eb', customFields: [] }))
+      tapCd('one')
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      const tuningSpan = screen.getByText('Eb (-0.5)')
+      expect(screen.getByText('Tuning:')).toBeTruthy()
+      expect(tuningSpan.className).toContain('truncate')
+      expect(tuningSpan.parentElement?.className).toContain('max-w-full min-w-0')
+      expect(screen.getByTestId('countdown-metadata').className).toContain('flex-wrap')
+      expect(screen.getByTestId('countdown-metadata').className).toContain('max-w-full')
+    })
+
+    it('displays custom fields, omitting empty/whitespace values, and truncates long labels', async () => {
+      const longName = 'ExtraordinarilyLongCustomFieldNameThatExceedsNormalLength'
+      const longVal = 'SuperLongCustomFieldValuePresetDescriptionThatNeedsTruncation'
+      render(
+        cdHost({
+          tuning: null,
+          customFields: [
+            { name: 'Capo', value: '2' },
+            { name: longName, value: longVal },
+            { name: 'EmptyField', value: '' },
+            { name: 'BlankField', value: '   ' },
+          ],
+        }),
+      )
+      tapCd('one')
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Capo:')).toBeTruthy()
+      expect(screen.getByText('2')).toBeTruthy()
+      expect(screen.queryByText(/EmptyField/)).toBeNull()
+      expect(screen.queryByText(/BlankField/)).toBeNull()
+      expect(screen.getByText(`${longName}:`).className).toContain('max-w-[120px] truncate')
+      expect(screen.getByText(longVal).className).toContain('max-w-[160px] truncate')
+    })
+
+    it('renders cleanly without metadata container or blank badges when upcoming song has neither', async () => {
+      render(cdHost({ tuning: null, customFields: [] }))
+      tapCd('one')
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(screen.queryByTestId('countdown-metadata')).toBeNull()
+      expect(screen.queryByText(/Tuning:/)).toBeNull()
+    })
+
+    it('stale responses: discards in-flight getSongDetails response when navigation moves to another song', async () => {
+      let resolveSongOne!: (val: { tuning: string | null; customFields: Array<{ name: string; value: string }> }) => void
+      const songOnePromise = new Promise<{ tuning: string | null; customFields: Array<{ name: string; value: string }> }>((res) => {
+        resolveSongOne = res
+      })
+      const getSongDetails = vi.fn().mockImplementation((id: string) => {
+        if (id === 'one') return songOnePromise
+        return Promise.resolve({ tuning: 'Drop D', customFields: [{ name: 'Patch', value: 'Lead' }] })
+      })
+
+      render(cdHost({ tuning: null, customFields: [] }, getSongDetails))
+      tapCd('one')
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(screen.getByRole('heading', { level: 3, name: 'Hotel California' })).toBeTruthy()
+      expect(screen.getByText('Drop D')).toBeTruthy()
+      expect(screen.getByText('Patch:')).toBeTruthy()
+
+      await act(async () => {
+        resolveSongOne({ tuning: 'Eb', customFields: [{ name: 'Capo', value: '2' }] })
+        await Promise.resolve()
+      })
+
+      expect(screen.getByRole('heading', { level: 3, name: 'Hotel California' })).toBeTruthy()
+      expect(screen.getByText('Drop D')).toBeTruthy()
+      expect(screen.queryByText('Eb (-0.5)')).toBeNull()
+      expect(screen.queryByText(/Capo/)).toBeNull()
+    })
+
+    it('populates tuning and custom fields synchronously from cachedSong when pre-fetched', async () => {
+      const { fetchSongWindow, resetSongWindow } = await import('@/lib/songWindow')
+      resetSongWindow()
+      await fetchSongWindow(null, ['one'], async () => [
+        {
+          versionId: 'one',
+          entry: { tuning: 'Eb' } as never,
+          files: [],
+          customFields: [{ fieldId: 'f1', name: 'Preset', value: 'Acoustic' }],
+        },
+      ])
+
+      const getSongDetails = vi.fn()
+      render(cdHost({ tuning: null, customFields: [] }, getSongDetails))
+      tapCd('one')
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Eb (-0.5)')).toBeTruthy()
+      expect(screen.getByText('Preset:')).toBeTruthy()
+      expect(screen.getByText('Acoustic')).toBeTruthy()
+      expect(getSongDetails).not.toHaveBeenCalled()
+      resetSongWindow()
+    })
+  })
 })
 

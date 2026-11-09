@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RH-198 Mockup — Tuning and Custom Fields in Setlist Countdown Overlay</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col font-sans select-none">
+
+  <!-- Top Tool Header for Testing -->
+  <header class="bg-gray-900 border-b border-gray-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">RH-198 Mockup</span>
+      <h1 class="text-sm font-semibold text-white">Tuning &amp; Custom Fields in Countdown Overlay</h1>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center gap-2 flex-wrap text-xs">
+      <div class="bg-gray-800 rounded p-1 flex items-center border border-gray-700">
+        <button id="btn-view-desktop" class="px-2.5 py-1 rounded font-medium bg-emerald-600 text-white transition-colors">Desktop</button>
+        <button id="btn-view-mobile" class="px-2.5 py-1 rounded font-medium text-gray-400 hover:text-white transition-colors">Mobile (375px)</button>
+      </div>
+
+      <!-- Presets -->
+      <div class="flex items-center gap-1 bg-gray-800 p-1 rounded border border-gray-700 flex-wrap">
+        <span class="text-gray-400 px-1 text-[11px] font-medium">Preset:</span>
+        <button id="btn-preset-full" class="px-2 py-0.5 rounded font-medium bg-emerald-600 text-white transition-colors">Full Details</button>
+        <button id="btn-preset-long" class="px-2 py-0.5 rounded font-medium text-gray-400 hover:text-white transition-colors">Long (Truncate)</button>
+        <button id="btn-preset-tuning" class="px-2 py-0.5 rounded font-medium text-gray-400 hover:text-white transition-colors">Tuning Only</button>
+        <button id="btn-preset-custom" class="px-2 py-0.5 rounded font-medium text-gray-400 hover:text-white transition-colors">Custom Only</button>
+        <button id="btn-preset-clean" class="px-2 py-0.5 rounded font-medium text-gray-400 hover:text-white transition-colors">Clean / None</button>
+      </div>
+
+      <button id="btn-trigger-countdown" class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors">
+        <i data-lucide="play" class="w-3.5 h-3.5"></i> Restart 5s
+      </button>
+
+      <button id="btn-toggle-overlay" class="px-2.5 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 transition-colors">
+        Toggle Overlay
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 flex flex-col md:flex-row items-stretch justify-center p-4 gap-4 bg-gray-950 overflow-hidden">
+    
+    <!-- Viewport Container Frame -->
+    <div class="flex-1 flex items-center justify-center overflow-auto min-h-[500px]">
+      <div id="viewport-frame" class="w-full h-[84vh] max-w-4xl bg-black text-gray-900 rounded-xl shadow-2xl overflow-hidden relative flex flex-col transition-all duration-300 border border-gray-800">
+        
+        <!-- Underlying Fast View Simulation -->
+        <div class="flex-1 bg-gray-900 text-gray-100 flex flex-col overflow-y-auto">
+          <div class="bg-gray-800/80 border-b border-gray-700 px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+            <span>Fast View background</span>
+            <span class="text-emerald-400 font-medium">Song Queue: 2 / 5</span>
+          </div>
+          <div class="p-8 max-w-lg mx-auto text-center my-auto">
+            <h2 class="text-xl font-bold text-gray-300">Underlying Fast View Screen</h2>
+            <p class="text-sm text-gray-500 mt-2">During countdown, this content is occluded by the full-screen overlay (pointer-events intercepted).</p>
+          </div>
+        </div>
+
+        <!-- RH-198 Full-Screen Countdown Overlay (matching CountdownOverlay styling) -->
+        <div
+          id="countdown-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Setlist countdown"
+          class="absolute inset-0 z-50 flex flex-col items-center justify-between bg-black/90 p-8 text-white backdrop-blur-md pointer-events-auto select-none"
+        >
+          <!-- Top Row -->
+          <div class="flex w-full max-w-md items-center justify-between">
+            <span class="rounded-full border border-emerald-800/80 bg-emerald-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              Starting Song In
+            </span>
+            <button
+              id="btn-cancel-countdown"
+              type="button"
+              aria-label="Cancel countdown"
+              class="flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <!-- Center Content: Countdown Number & Up Next Details -->
+          <div class="my-auto flex w-full max-w-md flex-col items-center justify-center text-center">
+            <!-- Big Countdown Number matching text-[30vh] -->
+            <div
+              id="countdown-num-display"
+              data-testid="countdown-display"
+              class="text-[30vh] font-black leading-none tracking-tighter text-white tabular-nums drop-shadow-2xl"
+            >
+              5
+            </div>
+
+            <!-- Song Title, Artist & RH-198 Metadata -->
+            <div class="mt-4 w-full px-4">
+              <p class="text-xs font-medium uppercase tracking-wider text-gray-400">Up Next</p>
+              <h3 id="overlay-title" class="mt-1 truncate text-xl font-bold text-white">Comfortably Numb</h3>
+              <p id="overlay-artist" class="truncate text-sm text-gray-300">Pink Floyd</p>
+
+              <!-- RH-198: Tuning and Custom Fields Badges Container -->
+              <div
+                id="metadata-container"
+                class="mt-3 flex flex-wrap items-center justify-center gap-2 max-w-full px-2"
+              >
+                <!-- Injected via JavaScript based on state -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Action Button -->
+          <div class="flex w-full max-w-xs flex-col items-center gap-2">
+            <button
+              id="btn-skip-countdown"
+              type="button"
+              aria-label="Skip countdown"
+              class="flex w-full items-center justify-center rounded-full bg-emerald-500 px-6 py-3.5 text-sm font-bold tracking-wide text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400 active:scale-95"
+            >
+              Skip countdown
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Live Inspector / Config Panel -->
+    <aside class="w-full md:w-80 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-4 text-xs overflow-y-auto">
+      <div>
+        <h2 class="font-bold text-sm text-white flex items-center gap-2">
+          <i data-lucide="sliders" class="w-4 h-4 text-emerald-400"></i> Overlay Inspector
+        </h2>
+        <p class="text-gray-400 mt-1">Simulate live song tuning and custom field definitions in the countdown overlay.</p>
+      </div>
+
+      <!-- Tuning Configuration -->
+      <div class="border-t border-gray-800 pt-3">
+        <label class="block font-semibold text-gray-300 mb-1.5">Upcoming Song Tuning</label>
+        <select id="select-tuning" class="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-white">
+          <option value="Eb">Eb (-0.5)</option>
+          <option value="Drop D">Drop D (-1)</option>
+          <option value="Drop Db">Drop Db (-1.5)</option>
+          <option value="D">D (-1)</option>
+          <option value="E">E Standard</option>
+          <option value="Open G (Custom D-G-D-G-B-D Extended Description)">Open G (Custom Long)</option>
+          <option value="">None / Not set</option>
+        </select>
+      </div>
+
+      <!-- Custom Fields Configuration -->
+      <div class="border-t border-gray-800 pt-3 flex flex-col gap-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-gray-300">Custom Fields</span>
+          <button id="btn-add-field" class="text-emerald-400 hover:text-emerald-300 font-medium">+ Add Field</button>
+        </div>
+
+        <div id="custom-fields-editor" class="flex flex-col gap-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Viewport Metrics -->
+      <div class="border-t border-gray-800 pt-3 bg-gray-950/60 p-3 rounded border">
+        <span class="font-semibold text-gray-400 block mb-1">Mobile Constraint Check</span>
+        <div class="flex items-center justify-between text-gray-300">
+          <span>Viewport Width:</span>
+          <span id="metric-width" class="font-mono font-bold text-emerald-400">Full</span>
+        </div>
+        <div class="flex items-center justify-between text-gray-300 mt-1">
+          <span>Horizontal Overflow:</span>
+          <span id="metric-overflow" class="font-mono text-emerald-400 font-bold">None (0 px)</span>
+        </div>
+      </div>
+
+      <!-- Expected Behavior Notes -->
+      <div class="border-t border-gray-800 pt-3 text-gray-400 space-y-1.5">
+        <p class="font-semibold text-gray-300">Key Behaviors Verified:</p>
+        <ul class="list-disc list-inside space-y-1 text-[11px]">
+          <li>Tuning formatted canonically (<code class="text-emerald-300">Eb (-0.5)</code>).</li>
+          <li>Custom fields show bounded <code class="text-gray-200">Name: Value</code> chips.</li>
+          <li>Explicit bounds (<code class="text-gray-200">max-w-full min-w-0</code>) and <code class="text-gray-200">truncate</code> prevent horizontal overflow.</li>
+          <li>Clean state: no empty badges or layout shift when neither is set.</li>
+          <li>Fits without horizontal overflow on 375 px mobile.</li>
+        </ul>
+      </div>
+    </aside>
+
+  </main>
+
+  <script>
+    // Mock Data State
+    const state = {
+      isMobile: false,
+      countdown: 5,
+      timer: null,
+      overlayVisible: true,
+      song: {
+        title: "Comfortably Numb",
+        artist: "Pink Floyd",
+        tuning: "Eb",
+        customFields: [
+          { name: "Capo", value: "2" },
+          { name: "Preset", value: "Lead Boost" },
+          { name: "Guitar", value: "Strat Olympic White" }
+        ]
+      }
+    };
+
+    // Format Tuning helper (matches formatTuningDisplay in src/lib/songTuning.ts)
+    function formatTuning(value) {
+      if (!value) return null;
+      const canonicals = {
+        'F': 'F (+0.5)',
+        'E': 'E',
+        'Eb': 'Eb (-0.5)',
+        'D': 'D (-1)',
+        'Db': 'Db (-1.5)',
+        'C': 'C (-2)',
+        'B': 'B (-2.5)',
+        'Bb': 'Bb (-3)',
+        'Drop D': 'Drop D (-1)',
+        'Drop Db': 'Drop Db (-1.5)',
+        'Drop C': 'Drop C (-2)',
+        'Drop B': 'Drop B (-2.5)',
+        'Drop Bb': 'Drop Bb (-3)',
+      };
+      return canonicals[value] || value;
+    }
+
+    // Render Badges
+    function renderBadges() {
+      const container = document.getElementById('metadata-container');
+      container.innerHTML = '';
+
+      const hasTuning = !!state.song.tuning;
+      const validFields = (state.song.customFields || []).filter(f => f.value && f.value.trim() !== '');
+      const hasFields = validFields.length > 0;
+
+      if (!hasTuning && !hasFields) {
+        container.classList.add('hidden');
+        checkOverflow();
+        return;
+      }
+      container.classList.remove('hidden');
+
+      // Tuning Badge: bounded with max-w-full min-w-0 and truncate
+      if (hasTuning) {
+        const tuningBadge = document.createElement('span');
+        tuningBadge.className = 'inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-950/50 px-2.5 py-1 text-xs text-emerald-300 shadow-sm max-w-full min-w-0';
+        tuningBadge.innerHTML = `
+          <span class="font-medium text-emerald-400/80 shrink-0">Tuning:</span>
+          <span class="font-semibold text-emerald-200 truncate">${escapeHtml(formatTuning(state.song.tuning))}</span>
+        `;
+        container.appendChild(tuningBadge);
+      }
+
+      // Custom Field Badges: bounded with max-w-full min-w-0 and truncate on name and value
+      validFields.forEach(field => {
+        const chip = document.createElement('span');
+        chip.className = 'inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/10 px-2.5 py-1 text-xs text-gray-200 shadow-sm max-w-full min-w-0';
+        chip.innerHTML = `
+          <span class="font-medium text-gray-400 max-w-[120px] truncate">${escapeHtml(field.name)}:</span>
+          <span class="font-semibold text-white max-w-[160px] truncate">${escapeHtml(field.value)}</span>
+        `;
+        container.appendChild(chip);
+      });
+
+      checkOverflow();
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Render Fields in Inspector
+    function renderInspectorFields() {
+      const editor = document.getElementById('custom-fields-editor');
+      editor.innerHTML = '';
+
+      state.song.customFields.forEach((field, index) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-1.5 bg-gray-800 p-1.5 rounded border border-gray-700';
+        row.innerHTML = `
+          <input type="text" value="${escapeHtml(field.name)}" placeholder="Name" class="w-20 bg-gray-900 border border-gray-700 rounded px-1.5 py-1 text-white text-xs field-name" data-index="${index}">
+          <input type="text" value="${escapeHtml(field.value)}" placeholder="Value" class="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded px-1.5 py-1 text-white text-xs field-value" data-index="${index}">
+          <button class="text-gray-400 hover:text-red-400 p-1 btn-delete-field" data-index="${index}" title="Remove">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        `;
+        editor.appendChild(row);
+      });
+
+      // Bind edit events
+      editor.querySelectorAll('.field-name').forEach(input => {
+        input.addEventListener('input', (e) => {
+          const idx = parseInt(e.target.dataset.index, 10);
+          state.song.customFields[idx].name = e.target.value;
+          renderBadges();
+        });
+      });
+
+      editor.querySelectorAll('.field-value').forEach(input => {
+        input.addEventListener('input', (e) => {
+          const idx = parseInt(e.target.dataset.index, 10);
+          state.song.customFields[idx].value = e.target.value;
+          renderBadges();
+        });
+      });
+
+      editor.querySelectorAll('.btn-delete-field').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const idx = parseInt(btn.dataset.index, 10);
+          state.song.customFields.splice(idx, 1);
+          renderInspectorFields();
+          renderBadges();
+        });
+      });
+    }
+
+    // Check Overflow Metric
+    function checkOverflow() {
+      const frame = document.getElementById('viewport-frame');
+      const overflowElem = document.getElementById('metric-overflow');
+      const widthElem = document.getElementById('metric-width');
+
+      const width = frame.clientWidth;
+      widthElem.textContent = `${width} px`;
+
+      const hasHorizontalScroll = frame.scrollWidth > frame.clientWidth;
+      if (hasHorizontalScroll) {
+        overflowElem.textContent = `Overflow (${frame.scrollWidth - frame.clientWidth} px)`;
+        overflowElem.className = 'font-mono text-red-400 font-bold';
+      } else {
+        overflowElem.textContent = 'None (0 px)';
+        overflowElem.className = 'font-mono text-emerald-400 font-bold';
+      }
+    }
+
+    // Countdown Timer logic
+    function startCountdown() {
+      if (state.timer) clearInterval(state.timer);
+      state.countdown = 5;
+      document.getElementById('countdown-num-display').textContent = '5';
+      state.overlayVisible = true;
+      document.getElementById('countdown-overlay').classList.remove('hidden');
+
+      state.timer = setInterval(() => {
+        state.countdown--;
+        if (state.countdown > 0) {
+          document.getElementById('countdown-num-display').textContent = state.countdown;
+        } else {
+          clearInterval(state.timer);
+          state.timer = null;
+          state.overlayVisible = false;
+          document.getElementById('countdown-overlay').classList.add('hidden');
+        }
+      }, 1000);
+    }
+
+    // Wire Controls
+    document.getElementById('btn-view-desktop').addEventListener('click', () => {
+      state.isMobile = false;
+      document.getElementById('viewport-frame').style.maxWidth = '56rem'; // 896px max-w-4xl
+      document.getElementById('btn-view-desktop').className = 'px-2.5 py-1 rounded font-medium bg-emerald-600 text-white transition-colors';
+      document.getElementById('btn-view-mobile').className = 'px-2.5 py-1 rounded font-medium text-gray-400 hover:text-white transition-colors';
+      setTimeout(checkOverflow, 350);
+    });
+
+    document.getElementById('btn-view-mobile').addEventListener('click', () => {
+      state.isMobile = true;
+      document.getElementById('viewport-frame').style.maxWidth = '375px';
+      document.getElementById('btn-view-mobile').className = 'px-2.5 py-1 rounded font-medium bg-emerald-600 text-white transition-colors';
+      document.getElementById('btn-view-desktop').className = 'px-2.5 py-1 rounded font-medium text-gray-400 hover:text-white transition-colors';
+      setTimeout(checkOverflow, 350);
+    });
+
+    // Preset Buttons
+    function setPreset(tuning, fields, activeBtnId) {
+      state.song.tuning = tuning;
+      state.song.customFields = JSON.parse(JSON.stringify(fields));
+      document.getElementById('select-tuning').value = tuning;
+      renderInspectorFields();
+      renderBadges();
+
+      ['btn-preset-full', 'btn-preset-long', 'btn-preset-tuning', 'btn-preset-custom', 'btn-preset-clean'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        if (id === activeBtnId) {
+          btn.className = 'px-2 py-0.5 rounded font-medium bg-emerald-600 text-white transition-colors';
+        } else {
+          btn.className = 'px-2 py-0.5 rounded font-medium text-gray-400 hover:text-white transition-colors';
+        }
+      });
+    }
+
+    document.getElementById('btn-preset-full').addEventListener('click', () => {
+      setPreset('Eb', [
+        { name: 'Capo', value: '2' },
+        { name: 'Preset', value: 'Lead Boost' },
+        { name: 'Guitar', value: 'Strat Olympic White' }
+      ], 'btn-preset-full');
+    });
+
+    document.getElementById('btn-preset-long').addEventListener('click', () => {
+      setPreset('Open G (Custom D-G-D-G-B-D Extended Description)', [
+        { name: 'Extraordinary Long Parameter Name', value: 'Preset 49 Bank Charlie Reverb Shimmer Chorus Flanger' },
+        { name: 'Amplifier Model Selection Line', value: 'Vintage 1965 Reissue Twin Reverb With Vibrato Pedal' }
+      ], 'btn-preset-long');
+    });
+
+    document.getElementById('btn-preset-tuning').addEventListener('click', () => {
+      setPreset('Drop D', [], 'btn-preset-tuning');
+    });
+
+    document.getElementById('btn-preset-custom').addEventListener('click', () => {
+      setPreset('', [
+        { name: 'Capo', value: '1' },
+        { name: 'Amp', value: 'Clean AC30' }
+      ], 'btn-preset-custom');
+    });
+
+    document.getElementById('btn-preset-clean').addEventListener('click', () => {
+      setPreset('', [], 'btn-preset-clean');
+    });
+
+    document.getElementById('select-tuning').addEventListener('change', (e) => {
+      state.song.tuning = e.target.value;
+      renderBadges();
+    });
+
+    document.getElementById('btn-add-field').addEventListener('click', () => {
+      state.song.customFields.push({ name: 'Field', value: 'Value' });
+      renderInspectorFields();
+      renderBadges();
+    });
+
+    document.getElementById('btn-trigger-countdown').addEventListener('click', startCountdown);
+
+    document.getElementById('btn-toggle-overlay').addEventListener('click', () => {
+      state.overlayVisible = !state.overlayVisible;
+      document.getElementById('countdown-overlay').classList.toggle('hidden', !state.overlayVisible);
+    });
+
+    document.getElementById('btn-cancel-countdown').addEventListener('click', () => {
+      if (state.timer) clearInterval(state.timer);
+      state.timer = null;
+      document.getElementById('countdown-overlay').classList.add('hidden');
+    });
+
+    document.getElementById('btn-skip-countdown').addEventListener('click', () => {
+      if (state.timer) clearInterval(state.timer);
+      state.timer = null;
+      document.getElementById('countdown-overlay').classList.add('hidden');
+    });
+
+    // Initial Setup
+    renderInspectorFields();
+    renderBadges();
+    lucide.createIcons();
+    window.addEventListener('resize', checkOverflow);
+    setTimeout(checkOverflow, 200);
+  </script>
+</body>
+</html>
