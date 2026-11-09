@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { PlaylistSongIdentity } from "@/components/playlists/PlaylistSongIdentity";
 import { PractiseButton } from "@/components/playlists/PractiseButton";
@@ -48,6 +49,11 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
    * own song and the setlist is the whole playlist (RH-133).
    */
   onOpenFastView: () => void;
+  /**
+   * RH-193 — the song's offline mark (`PlaylistSongOfflineMark`), drawn right
+   * after the title link on line 1; the list decides whether there is one.
+   */
+  offlineMark?: ReactNode;
 }
 
 /**
@@ -79,6 +85,14 @@ export interface PlaylistSongRowProps extends PlaylistSongHandlers {
  * the single line it always was, in the same order. Every control is rendered
  * once — `order-last` moves the wrapper, nothing is duplicated and hidden — so
  * each accessible name still resolves to one element per row.
+ *
+ * RH-193 — the offline mark joins line 1, right after the title link and before
+ * the duration, at every width. Line 1 at 375px is now the link, the mark group
+ * (16px check + 4px gap + 24px trash = 44px; the dashed mark alone is 16px),
+ * the duration ~28 and the remove X 24, with three 12px gaps: 44 + 28 + 24 + 36
+ * = 132px of the 317px, leaving the link 185px — the 40px cover and its 12px
+ * gap take 52 of that, so the title keeps ~133px and truncates inside it
+ * (`min-w-0`). Nothing on line 1 wraps or overflows.
  */
 export function PlaylistSongRow({
   playlistSong: ps,
@@ -90,6 +104,7 @@ export function PlaylistSongRow({
   onPractise,
   onPractiseStatus,
   onOpenFastView,
+  offlineMark,
 }: PlaylistSongRowProps) {
 
   return (
@@ -102,6 +117,7 @@ export function PlaylistSongRow({
         >
           <PlaylistSongIdentity song={ps.song} label={ps.label} linked />
         </Link>
+        {offlineMark}
         {ps.song?.duration_seconds != null && (
           <span className="text-xs text-gray-400 shrink-0 tabular-nums">
             {formatPlaylistDuration(ps.song.duration_seconds)}

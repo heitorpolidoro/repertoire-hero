@@ -1,15 +1,23 @@
 "use client";
 
 import { Fragment, useCallback, useRef } from "react";
+import { PlaylistSongOfflineMark } from "@/components/playlists/PlaylistSongOfflineMark";
 import { PlaylistSongReorderRow } from "@/components/playlists/PlaylistSongReorderRow";
 import {
   PlaylistSongRow,
   type PlaylistSongHandlers,
 } from "@/components/playlists/PlaylistSongRow";
+import type { OfflinePlaylistController } from "@/hooks/useOfflinePlaylist";
 import { usePlaylistReorderDrag } from "@/hooks/usePlaylistReorderDrag";
 import { sortPlaylistSongs } from "@/lib/playlistDetail";
 import { writeSongQueue } from "@/lib/songQueue";
 import type { PlaylistSong, Repertoire } from "@/types/database";
+
+/** The part of the page's offline controller the rows read (RH-193). */
+export type PlaylistOfflineMarks = Pick<
+  OfflinePlaylistController,
+  "downloaded" | "storedVersionIds" | "status" | "removeSong"
+>;
 
 export interface PlaylistSongListProps extends PlaylistSongHandlers {
   /** Every song of the playlist — what decides the "no songs yet" state. */
@@ -38,6 +46,25 @@ export interface PlaylistSongListProps extends PlaylistSongHandlers {
   onMoveSong: (versionId: string, direction: "up" | "down") => Promise<void>;
   /** The drag's commit, with the full permuted `playlist_songs.id` order. */
   onReorderSongs: (orderedIds: string[]) => Promise<void>;
+  /**
+   * RH-193 — the page's one offline controller. Resting rows draw a mark once
+   * the list is stored or one live song is; absent, no row draws one.
+   */
+  offline?: PlaylistOfflineMarks;
+}
+
+/** A resting row's mark, or nothing when the playlist has no offline presence. */
+function offlineMarkFor(offline: PlaylistOfflineMarks | undefined, ps: PlaylistSong) {
+  if (!offline || (!offline.downloaded && offline.storedVersionIds.size === 0)) return undefined;
+  const title = ps.song?.title ?? "song";
+  return (
+    <PlaylistSongOfflineMark
+      title={title}
+      stored={offline.storedVersionIds.has(ps.version_id)}
+      disabled={offline.status === "downloading"}
+      onRemove={() => void offline.removeSong(ps.version_id, title)}
+    />
+  );
 }
 
 /**
@@ -64,6 +91,7 @@ export function PlaylistSongList({
   reordering,
   onMoveSong,
   onReorderSongs,
+  offline,
   ...rowProps
 }: PlaylistSongListProps) {
   const containerRef = useRef<HTMLElement | null>(null);
@@ -159,6 +187,7 @@ export function PlaylistSongList({
                 entry={repertoireMap.get(ps.version_id)}
                 bandId={bandId}
                 onOpenFastView={openFastView}
+                offlineMark={offlineMarkFor(offline, ps)}
               />
             ),
           )}

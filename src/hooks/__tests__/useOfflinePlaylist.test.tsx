@@ -19,7 +19,7 @@ import {
   type OfflineDownloadActions,
   type UseOfflinePlaylistOptions,
 } from '@/hooks/useOfflinePlaylist'
-import { OfflineDownloadButton } from '@/components/playlists/OfflineDownloadButton'
+import { HookedOfflineControl } from '@/components/playlists/__tests__/offlineControlHarness'
 import { OFFLINE_STORE, createOfflineStore } from '@/lib/offlineStore'
 import { isSetlistRecord, isSongRecord } from '@/lib/offlineRecords'
 import { songRecordId } from '@/lib/offlineSongRecord'
@@ -78,6 +78,14 @@ const ENTRIES = [
   { repertoireId: 'rep-3', versionId: 'v-rep-3', songId: 'song-rep-3', title: 'Índios', artist: null },
 ]
 
+/** The page's live list (RH-193): every entry's `version_id`, in playlist order. */
+const LIVE_IDS = ENTRIES.map((entry) => entry.versionId)
+
+/** The two live counts, as one comparable value. */
+function counted(controller: { stored: number; total: number }) {
+  return { stored: controller.stored, total: controller.total }
+}
+
 function makeActions(): OfflineDownloadActions {
   return {
     getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Gig', entries: ENTRIES }),
@@ -96,6 +104,7 @@ function setup(overrides: Partial<UseOfflinePlaylistOptions> = {}, ports?: FakeO
     playlistId: 'pl-1',
     playlistName: 'Gig',
     bandId: 'band-1',
+    versionIds: LIVE_IDS,
     actions: makeActions(),
     store: createOfflineStore(fakePorts),
     ...overrides,
@@ -143,7 +152,8 @@ describe('useOfflinePlaylist — the happy path', () => {
 
     await waitFor(() => expect(result.current.status).toBe('idle'))
     expect(result.current.summary).toBeNull()
-    expect(result.current.count).toBeNull()
+    expect(result.current.downloaded).toBe(false)
+    expect(counted(result.current)).toEqual({ stored: 0, total: 3 })
     expect(result.current.error).toBeNull()
   })
 
@@ -162,7 +172,7 @@ describe('useOfflinePlaylist — the happy path', () => {
 
     expect(result.current.status).toBe('downloaded')
     expect(result.current.progress).toEqual({ done: 3, total: 3 })
-    expect(result.current.count).toEqual({ onDevice: 3, total: 3 })
+    expect(counted(result.current)).toEqual({ stored: 3, total: 3 })
     expect(result.current.summary?.playlistId).toBe('pl-1')
     expect(result.current.summary?.bytes).toBeGreaterThan(3 * 1024)
     expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-2', 'v-rep-3'])
@@ -217,6 +227,7 @@ describe('useOfflinePlaylist — the happy path', () => {
         playlistId: 'pl-1',
         playlistName: 'Gig',
         bandId: 'band-1',
+        versionIds: LIVE_IDS,
         actions: makeActions(),
         store: createOfflineStore(ports),
       }),
@@ -224,7 +235,8 @@ describe('useOfflinePlaylist — the happy path', () => {
 
     await waitFor(() => expect(second.result.current.status).toBe('downloaded'))
     expect(second.result.current.summary?.playlistName).toBe('Gig')
-    expect(second.result.current.count).toEqual({ onDevice: 3, total: 3 })
+    expect(second.result.current.downloaded).toBe(true)
+    expect(counted(second.result.current)).toEqual({ stored: 3, total: 3 })
   })
 
   it('removes the offline copy and returns to idle', async () => {
@@ -255,7 +267,8 @@ describe('useOfflinePlaylist — the happy path', () => {
       await result.current.remove()
     })
 
-    expect(result.current.error).toBe('Failed to remove the offline copy')
+    expect(result.current.error).toBe('Could not remove this playlist from this device.')
+    expect(result.current.errorRetryable).toBe(false)
     expect(result.current.status).toBe('downloaded')
   })
 })
@@ -273,17 +286,18 @@ describe('useOfflinePlaylist — per-song failure isolation (RH-192)', () => {
     // The others are stored; the failing one is not, and nothing was rolled back.
     expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-3'])
     expect(result.current.status).toBe('downloaded')
-    expect(result.current.count).toEqual({ onDevice: 2, total: 3 })
+    expect(counted(result.current)).toEqual({ stored: 2, total: 3 })
     expect(result.current.error).toBe('1 of 3 songs could not be downloaded.')
 
     // The control renders the same run's alert with its Try again action.
     cleanup()
     const fresh = createFakePorts()
     render(
-      <OfflineDownloadButton
+      <HookedOfflineControl
         playlistId="pl-1"
         playlistName="Gig"
         bandId="band-1"
+        versionIds={LIVE_IDS}
         actions={failingOn('v-rep-2')}
         store={createOfflineStore(fresh)}
       />,
@@ -312,7 +326,7 @@ describe('useOfflinePlaylist — per-song failure isolation (RH-192)', () => {
 
     expect(vi.mocked(actions.getResolvedEntryForVersion).mock.calls.map(([id]) => id)).toEqual(['v-rep-2'])
     expect(result.current.error).toBe('1 of 1 songs could not be downloaded.')
-    expect(result.current.count).toEqual({ onDevice: 2, total: 3 })
+    expect(counted(result.current)).toEqual({ stored: 2, total: 3 })
   })
 
   it('Try again that succeeds completes the playlist and clears the alert', async () => {
@@ -329,7 +343,7 @@ describe('useOfflinePlaylist — per-song failure isolation (RH-192)', () => {
     })
 
     expect(result.current.error).toBeNull()
-    expect(result.current.count).toEqual({ onDevice: 3, total: 3 })
+    expect(counted(result.current)).toEqual({ stored: 3, total: 3 })
   })
 
   it('Refresh offline copy refetches every song', async () => {
@@ -372,7 +386,7 @@ describe('useOfflinePlaylist — per-song failure isolation (RH-192)', () => {
     })
 
     expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-3'])
-    expect(result.current.count).toEqual({ onDevice: 2, total: 3 })
+    expect(counted(result.current)).toEqual({ stored: 2, total: 3 })
   })
 
   it('keeps no list when every song failed and the playlist was not downloaded before', async () => {
@@ -497,6 +511,215 @@ describe('useOfflinePlaylist — a refresh that drops a song', () => {
     })
 
     expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-2'])
-    expect(result.current.count).toEqual({ onDevice: 2, total: 2 })
+    // The count is over the page's live list, which still names the third song
+    // until the page itself re-renders without it.
+    expect(counted(result.current)).toEqual({ stored: 2, total: 3 })
+  })
+})
+
+describe('useOfflinePlaylist — the live count and per-song removal (RH-193)', () => {
+  /** A hook whose live list a test can change, as the page re-renders it. */
+  function liveSetup(initial: string[], ports = createFakePorts()) {
+    const store = createOfflineStore(ports)
+    const actions = makeActions()
+    const view = renderHook(
+      ({ versionIds }: { versionIds: string[] }) =>
+        useOfflinePlaylist({ playlistId: 'pl-1', playlistName: 'Gig', bandId: 'band-1', versionIds, actions, store }),
+      { initialProps: { versionIds: initial } },
+    )
+    return { ...view, ports, store, actions }
+  }
+
+  it('counts stored and total over the live ids, and exposes the stored set', async () => {
+    const { result } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(counted(result.current)).toEqual({ stored: 3, total: 3 })
+    expect([...result.current.storedVersionIds].sort()).toEqual(LIVE_IDS)
+    expect(result.current.bytes).toBeGreaterThan(3 * 1024)
+  })
+
+  it('a live id that is not stored raises the total only', async () => {
+    const { result, rerender } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+
+    rerender({ versionIds: [...LIVE_IDS, 'v-added-online'] })
+
+    await waitFor(() => expect(counted(result.current)).toEqual({ stored: 3, total: 4 }))
+    expect(result.current.storedVersionIds.has('v-added-online')).toBe(false)
+    expect(result.current.downloaded).toBe(true)
+  })
+
+  it('re-reads the stored set when the live list changes', async () => {
+    const { result, rerender, store } = liveSetup(LIVE_IDS)
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+    // Stored behind the hook's back, e.g. by another surface.
+    await store.saveOfflineSong({
+      song: { entry: ENTRIES[0], repertoire: resolvedEntry('v-rep-1'), personalRepertoire: null, tabs: [], customFields: [] },
+      bandId: 'band-1',
+      savedAt: '2026-11-07T10:00:00.000Z',
+    })
+
+    rerender({ versionIds: LIVE_IDS.slice(0, 2) })
+
+    await waitFor(() => expect(counted(result.current)).toEqual({ stored: 1, total: 2 }))
+    expect(result.current.downloaded).toBe(false)
+  })
+
+  it('counts a live song stored in the idle state, with no list stored', async () => {
+    const ports = createFakePorts()
+    await createOfflineStore(ports).saveOfflineSong({
+      song: { entry: ENTRIES[1], repertoire: resolvedEntry('v-rep-2'), personalRepertoire: null, tabs: [], customFields: [] },
+      bandId: 'band-1',
+      savedAt: '2026-11-07T10:00:00.000Z',
+      individualDownload: true,
+    })
+
+    const { result } = liveSetup(LIVE_IDS, ports)
+
+    await waitFor(() => expect(counted(result.current)).toEqual({ stored: 1, total: 3 }))
+    expect(result.current.status).toBe('idle')
+    expect(result.current.downloaded).toBe(false)
+  })
+
+  it('removeSong lowers stored, deletes only that song and leaves the list stored', async () => {
+    const { result, ports, actions } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockClear()
+
+    await act(async () => {
+      await result.current.removeSong('v-rep-2', 'Faroeste Caboclo')
+    })
+
+    expect(counted(result.current)).toEqual({ stored: 2, total: 3 })
+    expect(result.current.storedVersionIds.has('v-rep-2')).toBe(false)
+    expect(result.current.downloaded).toBe(true)
+    expect(result.current.status).toBe('downloaded')
+    expect(result.current.error).toBeNull()
+    expect(storedVersionIds(ports)).toEqual(['v-rep-1', 'v-rep-3'])
+    expect(ports.records.rows.has('pl-1')).toBe(true)
+    // A purely local write: no network read at all.
+    expect(actions.getPlaylistDetailsWithEntries).not.toHaveBeenCalled()
+  })
+
+  it('a failing removal keeps the song stored and sets the non-retryable error with the exact copy', async () => {
+    const { result, store } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+    store.removeOfflineSong = () => Promise.reject(new Error('IndexedDB unavailable'))
+
+    await act(async () => {
+      await result.current.removeSong('v-rep-2', 'Faroeste Caboclo')
+    })
+
+    expect(result.current.error).toBe('Could not remove Faroeste Caboclo from this device.')
+    expect(result.current.errorRetryable).toBe(false)
+    expect(result.current.storedVersionIds.has('v-rep-2')).toBe(true)
+    expect(counted(result.current)).toEqual({ stored: 3, total: 3 })
+  })
+
+  it('a download failure keeps the retryable error', async () => {
+    const { result } = setup({ actions: failingOn('v-rep-2') })
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.error).toBe('1 of 3 songs could not be downloaded.')
+    expect(result.current.errorRetryable).toBe(true)
+  })
+
+  it('a live-list change during a download refreshes the stored set but keeps the busy state', async () => {
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { result, rerender, actions } = liveSetup(LIVE_IDS)
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+    vi.mocked(actions.getPlaylistDetailsWithEntries).mockImplementation(async () => {
+      await held
+      return { name: 'Gig', entries: ENTRIES }
+    })
+
+    let finished: Promise<void> = Promise.resolve()
+    act(() => {
+      finished = result.current.download()
+    })
+    rerender({ versionIds: [...LIVE_IDS, 'v-added-online'] })
+
+    await waitFor(() => expect(result.current.total).toBe(4))
+    expect(result.current.status).toBe('downloading')
+
+    release()
+    await act(async () => {
+      await finished
+    })
+    expect(counted(result.current)).toEqual({ stored: 3, total: 4 })
+    expect(result.current.status).toBe('downloaded')
+  })
+
+  it('a song removal whose re-read fails still drops that song from the count', async () => {
+    const { result, store } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+    store.listOfflineSetlists = () => Promise.reject(new Error('IndexedDB unavailable'))
+
+    await act(async () => {
+      await result.current.removeSong('v-rep-1', 'Tempo Perdido')
+    })
+
+    expect(counted(result.current)).toEqual({ stored: 2, total: 3 })
+    expect(result.current.error).toBeNull()
+  })
+
+  it('Remove offline copy whose re-read fails still returns to idle', async () => {
+    const { result, store } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+    store.listOfflineSetlists = () => Promise.reject(new Error('IndexedDB unavailable'))
+
+    await act(async () => {
+      await result.current.remove()
+    })
+
+    expect(result.current.status).toBe('idle')
+    expect(result.current.downloaded).toBe(false)
+  })
+
+  it('a run whose closing re-read fails settles back to a resting state', async () => {
+    const { result, store } = liveSetup(LIVE_IDS)
+    await waitFor(() => expect(result.current.status).toBe('idle'))
+    store.listOfflineSetlists = () => Promise.reject(new Error('IndexedDB unavailable'))
+
+    await act(async () => {
+      await result.current.download()
+    })
+
+    expect(result.current.status).toBe('idle')
+  })
+
+  it('Refresh offline copy brings a removed song back', async () => {
+    const { result } = liveSetup(LIVE_IDS)
+    await act(async () => {
+      await result.current.download()
+    })
+    await act(async () => {
+      await result.current.removeSong('v-rep-1', 'Tempo Perdido')
+    })
+
+    await act(async () => {
+      await result.current.refresh()
+    })
+
+    expect(counted(result.current)).toEqual({ stored: 3, total: 3 })
   })
 })

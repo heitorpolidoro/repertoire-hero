@@ -20,6 +20,8 @@ const { replace, refresh } = router
 
 import { PlaylistDetailView } from '../PlaylistDetailView'
 import { clearSongQueue, readSongQueue } from '@/lib/songQueue'
+import { createOfflineStore } from '@/lib/offlineStore'
+import { createFakePorts } from '@/lib/__tests__/offlineStoreFakes'
 import type { PlaylistDetailActions } from '@/hooks/usePlaylistDetail'
 import type { OfflineDownloadActions } from '@/hooks/useOfflinePlaylist'
 import type { SongPickerActions } from '@/hooks/useSongPicker'
@@ -140,6 +142,7 @@ function setup(props: Partial<React.ComponentProps<typeof PlaylistDetailView>> =
       actions={(props.actions ?? ACTIONS) as unknown as PlaylistDetailActions}
       pickerActions={PICKER_ACTIONS as unknown as SongPickerActions}
       offlineActions={props.offlineActions ?? OFFLINE_ACTIONS}
+      offlineStore={props.offlineStore}
       practiceActions={props.practiceActions ?? { getCandidates: vi.fn(), getPlaylists: vi.fn() }}
     />,
   )
@@ -349,5 +352,97 @@ describe('PlaylistDetailView (RH-71)', () => {
       .flatMap((group) => within(group).getAllByRole('button')) as HTMLButtonElement[]
     expect(personalNotes).toHaveLength(8)
     expect(personalNotes.some((note) => note.disabled)).toBe(false)
+  })
+})
+
+/**
+ * RH-193 — the island owns the one offline controller and hands it to both the
+ * control and the rows, so a row removal and the header count move together.
+ * The real hook runs over the real store and fake ports (the `offlineStore`
+ * seam); only the Server Actions are stubs.
+ */
+describe('PlaylistDetailView, one offline controller (RH-193)', () => {
+  const FIVE = ['s1', 's2', 's3', 's4', 's5'].map((versionId, index) => song(versionId, index + 1, `Track ${index + 1}`))
+
+  function fiveSongOffline() {
+    const entries = FIVE.map((ps) => ({
+      repertoireId: `rep-${ps.version_id}`,
+      versionId: ps.version_id,
+      songId: `song-of-${ps.version_id}`,
+      title: ps.song?.title ?? '',
+      artist: 'RH71 Artist',
+    }))
+    const offlineActions: OfflineDownloadActions = {
+      getPlaylistDetailsWithEntries: vi.fn().mockResolvedValue({ name: 'Friday Setlist', entries }),
+      getResolvedEntryForVersion: vi.fn((versionId: string) =>
+        Promise.resolve({
+          ownerRowId: `rep-${versionId}`,
+          song_id: `song-of-${versionId}`,
+          version_id: versionId,
+          ...BLANK_ENTRY,
+          tags: [],
+        }),
+      ),
+      getTabs: vi.fn().mockResolvedValue([]),
+      getPersonalEntryForSong: vi.fn().mockResolvedValue(null),
+      getCustomFieldValues: vi.fn().mockResolvedValue([]),
+    }
+    const offlineStore = createOfflineStore(createFakePorts())
+    setup({
+      playlist: playlist({ songs: FIVE }),
+      repertoire: FIVE.map((ps) => entry(ps.version_id)),
+      offlineActions,
+      offlineStore,
+    })
+    return { offlineStore, offlineActions }
+  }
+
+  function row(title: string): HTMLElement {
+    const items = screen.getByRole('region', { name: 'Songs in this playlist' }).querySelectorAll('li')
+    return Array.from(items).find((item) => item.textContent?.includes(title)) as HTMLElement
+  }
+
+  async function downloadAll() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Make available offline' }))
+    await screen.findByText(/^5 of 5 songs/)
+  }
+
+  it('removing a row from this device marks it, counts 4 of 5, and Refresh offline copy brings it back to 5 of 5', async () => {
+    fiveSongOffline()
+    await downloadAll()
+    expect(within(row('Track 3')).getByRole('img', { name: 'On this device' })).toBeDefined()
+
+    fireEvent.click(within(row('Track 3')).getByRole('button', { name: 'Remove Track 3 from this device' }))
+
+    await waitFor(() => expect(within(row('Track 3')).getByRole('img', { name: 'Not on this device' })).toBeDefined())
+    expect(screen.getByText(/^4 of 5 songs/)).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Download 1 missing song' })).toBeDefined()
+    expect(within(row('Track 2')).getByRole('img', { name: 'On this device' })).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh offline copy' }))
+
+    expect(await screen.findByText(/^5 of 5 songs/)).toBeDefined()
+    expect(within(row('Track 3')).getByRole('img', { name: 'On this device' })).toBeDefined()
+  })
+
+  it("a row's trash button goes through the shared controller's removeSong and never the playlist's onRemoveSong", async () => {
+    const { offlineStore } = fiveSongOffline()
+    const removeOfflineSong = vi.spyOn(offlineStore, 'removeOfflineSong')
+    await downloadAll()
+
+    fireEvent.click(within(row('Track 3')).getByRole('button', { name: 'Remove Track 3 from this device' }))
+
+    await waitFor(() => expect(removeOfflineSong).toHaveBeenCalledWith('s3', null))
+    expect(ACTIONS.removeSongFromPlaylist).not.toHaveBeenCalled()
+    expect(row('Track 3')).toBeDefined()
+    expect(within(row('Track 3')).getByRole('button', { name: 'Remove Track 3 from playlist' })).toBeDefined()
+  })
+
+  it('draws no row mark before anything of the playlist is stored', async () => {
+    fiveSongOffline()
+
+    await screen.findByRole('button', { name: 'Make available offline' })
+
+    expect(screen.queryByRole('img', { name: /on this device/i })).toBeNull()
   })
 })

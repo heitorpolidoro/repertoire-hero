@@ -609,6 +609,79 @@ test('walks a downloaded playlist with the network cut: queue chrome and content
 })
 
 /**
+ * RH-193 — a song removed from this device through its own playlist row stays
+ * removed across a cold offline reload, while the playlist's other song still
+ * opens. Both Fast View documents are fetched online first (the worker stores
+ * the document per URL, as the first test explains), so what decides each
+ * outcome offline is the store alone.
+ */
+test('keeps a song and drops one removed from its row, after a cold reload with no network', async ({
+  page,
+  context,
+}) => {
+  const keptTitle = uniqueFixtureName('RH193 Kept')
+  const removedTitle = uniqueFixtureName('RH193 Removed')
+  const playlistName = uniqueFixtureName('RH193 Playlist')
+
+  await goHome(page)
+  await addSong(page, { title: keptTitle, artist: 'RH193 Artist' })
+  await addSong(page, { title: removedTitle, artist: 'RH193 Artist' })
+  await createPlaylist(page, playlistName)
+  const playlistUrl = await openPlaylist(page, playlistName)
+  await addSongToOpenPlaylist(page, keptTitle)
+  await addSongToOpenPlaylist(page, removedTitle)
+
+  await waitForServiceWorker(page)
+  await downloadPlaylist(page)
+  await expect(page.getByText(/^2 of 2 songs/)).toBeVisible()
+
+  const keptUrl = await fastViewUrlFromPlaylist(page, keptTitle)
+  const removedUrl = await fastViewUrlFromPlaylist(page, removedTitle)
+
+  // The removal is the row's own trash button: the playlist keeps the song.
+  const removedRow = page
+    .getByRole('region', { name: 'Songs in this playlist' })
+    .getByRole('listitem')
+    .filter({ hasText: removedTitle })
+  await removedRow.getByRole('button', { name: `Remove ${removedTitle} from this device` }).click()
+  await expect(removedRow.getByRole('img', { name: 'Not on this device' })).toBeVisible()
+  await expect(page.getByText(/^1 of 2 songs/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download 1 missing song' })).toBeVisible()
+
+  // Both documents online, ending on the kept song entered through its row.
+  await page.goto(removedUrl)
+  await expect(page.getByRole('heading', { level: 1, name: removedTitle })).toBeVisible({ timeout: 20_000 })
+  await page.goto(playlistUrl)
+  await waitForPlaylistDetailHydrated(page)
+  // A cold load of the playlist page re-reads the store: the removal held.
+  await expect(removedRow.getByRole('img', { name: 'Not on this device' })).toBeVisible({ timeout: 20_000 })
+  await page
+    .getByRole('region', { name: 'Songs in this playlist' })
+    .getByRole('listitem')
+    .filter({ hasText: keptTitle })
+    .locator('a[href*="/fast-view"]')
+    .first()
+    .click()
+  await page.waitForURL((url) => url.pathname === keptUrl.split('?')[0], { timeout: 20_000 })
+  await page.goto(keptUrl)
+  await expect(page.getByRole('heading', { level: 1, name: keptTitle })).toBeVisible({ timeout: 20_000 })
+
+  await context.setOffline(true)
+  await page.reload()
+
+  // The kept song opens from the store, with no network.
+  await expect(page.getByRole('heading', { level: 1, name: keptTitle })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('offline-read-only-banner')).toBeVisible()
+
+  // The removed song is not on this device any more.
+  await page.goto(removedUrl)
+  await expect(page.getByTestId('offline-unavailable')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('heading', { level: 1, name: removedTitle })).toHaveCount(0)
+
+  await context.setOffline(false)
+})
+
+/**
  * A minimal, valid one-page PDF. Inline so the suite needs no fixture file and
  * no network: the point is only that `react-pdf` can parse and paint it.
  */

@@ -20,7 +20,11 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { PlaylistSongList, type PlaylistSongListProps } from '@/components/playlists/PlaylistSongList'
+import {
+  PlaylistSongList,
+  type PlaylistOfflineMarks,
+  type PlaylistSongListProps,
+} from '@/components/playlists/PlaylistSongList'
 import { readSongQueue } from '@/lib/songQueue'
 import type { TagEditorController } from '@/hooks/useTagEditor'
 import type { PlaylistSong, Repertoire, SongStatus } from '@/types/database'
@@ -530,5 +534,134 @@ describe('the song queue a row click writes (RH-133 ER10)', () => {
     const entries = readSongQueue()?.entries ?? []
     expect(entries.map((entry) => entry.versionId)).toEqual(['v-1', 'v-2', 'v-3'])
     expect(entries).toHaveLength(songs.length - 1)
+  })
+})
+
+/**
+ * RH-193 — each resting row says whether its song is on this device, read from
+ * the page's one offline controller. A stored song's row can remove it from the
+ * device; the playlist's own remove X keeps its meaning.
+ */
+describe('the offline row marks (RH-193)', () => {
+  const MARKED = [
+    playlistSong('v-1', { title: 'Kashmir', position: 0, duration: 515 }),
+    playlistSong('v-2', { title: 'Black Dog', position: 1 }),
+    playlistSong('v-3', { title: 'Roxanne', position: 2 }),
+  ]
+
+  function marks(overrides: Partial<PlaylistOfflineMarks> = {}): PlaylistOfflineMarks {
+    return {
+      downloaded: true,
+      storedVersionIds: new Set(['v-1', 'v-3']),
+      status: 'downloaded',
+      removeSong: vi.fn(async () => {}),
+      ...overrides,
+    }
+  }
+
+  function row(title: string): HTMLElement {
+    return within(songList())
+      .getAllByRole('listitem')
+      .find((item) => item.textContent?.includes(title)) as HTMLElement
+  }
+
+  it('renders On this device and the trash button on a stored row, Not on this device and no trash on a missing one', () => {
+    render(<PlaylistSongList {...props({ songs: MARKED, offline: marks() })} />)
+
+    const stored = row('Kashmir')
+    expect(within(stored).getByRole('img', { name: 'On this device' })).toBeDefined()
+    expect(within(stored).getByRole('button', { name: 'Remove Kashmir from this device' })).toBeDefined()
+    expect(within(stored).queryByRole('img', { name: 'Not on this device' })).toBeNull()
+
+    const missing = row('Black Dog')
+    expect(within(missing).getByRole('img', { name: 'Not on this device' })).toBeDefined()
+    expect(within(missing).queryByRole('img', { name: 'On this device' })).toBeNull()
+    expect(within(missing).queryByRole('button', { name: /from this device/ })).toBeNull()
+  })
+
+  it('draws no mark on any row when nothing of the playlist is stored and no list is', () => {
+    render(
+      <PlaylistSongList
+        {...props({ songs: MARKED, offline: marks({ downloaded: false, storedVersionIds: new Set(), status: 'idle' }) })}
+      />,
+    )
+
+    expect(within(songList()).queryByRole('img', { name: /on this device/i })).toBeNull()
+    expect(within(songList()).queryByRole('button', { name: /from this device/ })).toBeNull()
+  })
+
+  it('draws no mark when the list has no offline controller at all', () => {
+    render(<PlaylistSongList {...props({ songs: MARKED })} />)
+
+    expect(within(songList()).queryByRole('img', { name: /on this device/i })).toBeNull()
+  })
+
+  it('draws marks once one live song is stored, even with no list stored', () => {
+    render(
+      <PlaylistSongList
+        {...props({ songs: MARKED, offline: marks({ downloaded: false, storedVersionIds: new Set(['v-2']), status: 'idle' }) })}
+      />,
+    )
+
+    expect(within(row('Black Dog')).getByRole('img', { name: 'On this device' })).toBeDefined()
+    expect(within(row('Kashmir')).getByRole('img', { name: 'Not on this device' })).toBeDefined()
+  })
+
+  it('draws a downloaded list with every song removed as all Not on this device', () => {
+    render(<PlaylistSongList {...props({ songs: MARKED, offline: marks({ storedVersionIds: new Set() }) })} />)
+
+    expect(within(songList()).getAllByRole('img', { name: 'Not on this device' })).toHaveLength(3)
+  })
+
+  it('marks only the rows the filters leave visible', () => {
+    render(<PlaylistSongList {...props({ songs: MARKED, filteredSongs: [MARKED[1]], offline: marks() })} />)
+
+    expect(within(songList()).getAllByRole('img', { name: /on this device/i })).toHaveLength(1)
+    expect(within(row('Black Dog')).getByRole('img', { name: 'Not on this device' })).toBeDefined()
+  })
+
+  it('draws no mark and no trash on a reorder row', () => {
+    render(<PlaylistSongList {...props({ songs: MARKED, reordering: true, offline: marks() })} />)
+
+    expect(within(songList()).queryByRole('img', { name: /on this device/i })).toBeNull()
+    expect(within(songList()).queryByRole('button', { name: /from this device/ })).toBeNull()
+  })
+
+  it('calls removeSong with the version and title, never the playlist remove', () => {
+    const offline = marks()
+    const listProps = props({ songs: MARKED, offline })
+    render(<PlaylistSongList {...listProps} />)
+
+    fireEvent.click(within(row('Roxanne')).getByRole('button', { name: 'Remove Roxanne from this device' }))
+
+    expect(offline.removeSong).toHaveBeenCalledWith('v-3', 'Roxanne')
+    expect(listProps.onRemoveSong).not.toHaveBeenCalled()
+  })
+
+  it('disables the trash button while this playlist downloads and leaves it enabled otherwise (offline included)', () => {
+    const { rerender } = render(<PlaylistSongList {...props({ songs: MARKED, offline: marks({ status: 'downloading' }) })} />)
+    expect(
+      within(row('Kashmir')).getByRole('button', { name: 'Remove Kashmir from this device' }).hasAttribute('disabled'),
+    ).toBe(true)
+
+    // The list takes no network signal at all: removal is a local write.
+    rerender(<PlaylistSongList {...props({ songs: MARKED, offline: marks({ status: 'downloaded' }) })} />)
+    expect(
+      within(row('Kashmir')).getByRole('button', { name: 'Remove Kashmir from this device' }).hasAttribute('disabled'),
+    ).toBe(false)
+  })
+
+  it('places the mark after the title link and before the duration, keeping the playlist remove X', () => {
+    render(<PlaylistSongList {...props({ songs: MARKED, offline: marks() })} />)
+
+    const stored = row('Kashmir')
+    const link = within(stored).getByRole('link', { name: /Kashmir/ })
+    const mark = within(stored).getByRole('img', { name: 'On this device' })
+    const duration = within(stored).getByText('8:35')
+    const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(follows(link, mark)).toBe(true)
+    expect(follows(mark, duration)).toBe(true)
+    expect(link.contains(mark)).toBe(false)
+    expect(within(stored).getByRole('button', { name: 'Remove Kashmir from playlist' })).toBeDefined()
   })
 })

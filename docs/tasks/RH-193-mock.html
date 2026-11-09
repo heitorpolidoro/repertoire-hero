@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-193 — Playlist page offline count and per-row marks</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4 md:p-6 space-y-8">
+
+<header class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold">RH-193 — Playlist page: offline count and per-row marks</h1>
+  <p class="text-sm text-gray-600 mt-1">The playlist page at phone width (375px). The offline box and every row read one shared state, so removing a song from its row changes the count at once. The grey X on each row is today's "remove from playlist", unchanged and inactive here.</p>
+</header>
+
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-2">1. Try it</h2>
+  <div class="flex flex-wrap gap-2 mb-3 text-sm">
+    <label class="flex items-center gap-2 bg-white border rounded px-3 py-1"><input type="checkbox" id="toggleOffline"> Browser offline</label>
+    <label class="flex items-center gap-2 bg-white border rounded px-3 py-1"><input type="checkbox" id="toggleRemoveFail"> Next row removal fails</label>
+    <button type="button" id="addEntryBtn" class="bg-white border rounded px-3 py-1">Add a song to the playlist online</button>
+    <button type="button" id="filterBtn" class="bg-white border rounded px-3 py-1">Filter: "Pais"</button>
+    <select id="startState" class="bg-white border rounded px-3 py-1">
+      <option value="downloaded">Start: downloaded, 5 of 5</option>
+      <option value="idleSome">Start: not downloaded, 2 songs stored on their own</option>
+      <option value="idleNone">Start: nothing stored (looks as today)</option>
+    </select>
+  </div>
+
+  <div class="max-w-[375px] bg-white rounded-2xl shadow overflow-hidden border">
+    <div class="px-4 py-3 border-b flex items-center gap-3">
+      <i data-lucide="chevron-left" class="w-5 h-5 text-gray-500"></i>
+      <div class="w-10 h-10 rounded bg-emerald-200"></div>
+      <div class="flex-1"><p class="font-bold">Friday Gig</p><p class="text-xs text-gray-500" id="songTotal"></p></div>
+    </div>
+    <div id="offlineSlot" class="px-4 py-3 border-b border-gray-100"></div>
+    <p id="filterNote" class="hidden px-4 pt-2 text-xs text-gray-500">Filtered to "Pais" — the count above still covers every song.</p>
+    <ul id="songRows" class="flex flex-col gap-2 px-4 py-3"></ul>
+  </div>
+</section>
+
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-2">2. Static states</h2>
+  <div class="grid gap-4 md:grid-cols-2">
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Downloading: every trash button is disabled</p>
+      <div class="max-w-[375px] bg-white rounded-2xl shadow border overflow-hidden">
+        <div class="px-4 py-3 border-b"><div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3 text-emerald-800"><span class="font-semibold">Downloading...</span><span class="ml-auto text-sm tabular-nums">3 / 5 songs</span></div></div>
+        <div class="px-4 py-3"><div class="rounded-lg border border-gray-100 px-3 py-2 flex items-center gap-3 text-sm"><span class="w-10 h-10 shrink-0 rounded bg-gray-200"></span><span class="flex-1 min-w-0"><span class="block truncate font-medium">Tempo Perdido</span><span class="block truncate text-xs text-gray-500">Legião Urbana</span></span><span class="shrink-0 flex items-center gap-1"><span class="text-emerald-600"><i data-lucide="circle-check" class="w-4 h-4"></i></span><button type="button" disabled aria-label="Remove Tempo Perdido from this device" class="p-1 text-gray-300"><i data-lucide="trash-2" class="w-4 h-4"></i></button></span><span class="shrink-0 text-xs text-gray-400 tabular-nums">3:20</span><span class="shrink-0 p-1 text-gray-300">✕</span></div></div>
+      </div>
+    </div>
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">A 100-character title at 375px: it truncates, nothing overflows</p>
+      <div class="max-w-[375px] bg-white rounded-2xl shadow border overflow-hidden px-4 py-3">
+        <div class="rounded-lg border border-gray-100 px-3 py-2">
+          <div class="flex items-center gap-3 text-sm"><span class="w-10 h-10 shrink-0 rounded bg-gray-200"></span><span class="flex-1 min-w-0"><span class="block truncate font-medium">A very long song title that goes on and on and on well past any phone width you could imagine ok</span><span class="block truncate text-xs text-gray-500">Some Artist</span></span><span class="shrink-0 flex items-center gap-1"><span class="text-emerald-600"><i data-lucide="circle-check" class="w-4 h-4"></i></span><span class="p-1 text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></span></span><span class="shrink-0 text-xs text-gray-400 tabular-nums">4:12</span><span class="shrink-0 p-1 text-gray-300">✕</span></div>
+          <p class="pl-[52px] mt-1 text-xs text-gray-500">♪♪ Learning · Practised</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  var SONGS = [
+    { id: 'tempo', title: 'Tempo Perdido', artist: 'Legião Urbana', size: 9.4, time: '3:20', notes: '♪♪♪ Practicing' },
+    { id: 'indios', title: 'Índios', artist: 'Legião Urbana', size: 7.1, time: '4:01', notes: '♪♪ Learning' },
+    { id: 'pais', title: 'Pais e Filhos', artist: 'Legião Urbana', size: 8.2, time: '5:08', notes: '♪ Unknown' },
+    { id: 'eduardo', title: 'Eduardo e Mônica', artist: 'Legião Urbana', size: 11.3, time: '4:31', notes: '♪♪♪♪ Mastered' },
+    { id: 'faroeste', title: 'Faroeste Caboclo', artist: 'Legião Urbana', size: 10.5, time: '9:03', notes: '♪ Unknown' }
+  ];
+  var EXTRA = { id: 'sera', title: 'Será', artist: 'Legião Urbana', size: 6.6, time: '2:28', notes: '♪ Unknown' };
+  var state;
+
+  function el(id) { return document.getElementById(id); }
+  function isOffline() { return el('toggleOffline').checked; }
+  function esc(text) { var n = document.createElement('div'); n.textContent = text; return n.innerHTML; }
+
+  function reset() {
+    var start = el('startState').value;
+    state = { entries: SONGS.slice(), listSaved: start === 'downloaded', stored: {}, error: null, retryable: false, busy: false, filter: false };
+    if (start === 'downloaded') SONGS.forEach(function (s) { state.stored[s.id] = true; });
+    if (start === 'idleSome') { state.stored.tempo = true; state.stored.indios = true; }
+    render();
+  }
+
+  function storedCount() { return state.entries.filter(function (s) { return state.stored[s.id]; }).length; }
+  function storedSize() { return state.entries.reduce(function (t, s) { return t + (state.stored[s.id] ? s.size : 0); }, 0); }
+  function marksOn() { return state.listSaved || storedCount() > 0; }
+
+  function mark(s) {
+    if (!marksOn()) return '';
+    if (state.stored[s.id]) {
+      return '<span class="shrink-0 flex items-center gap-1"><span role="img" aria-label="On this device" title="On this device" class="text-emerald-600"><i data-lucide="circle-check" class="w-4 h-4"></i></span>' +
+        '<button type="button" data-remove="' + s.id + '" aria-label="Remove ' + esc(s.title) + ' from this device" ' + (state.busy ? 'disabled' : '') +
+        ' class="p-1 rounded text-red-500 hover:bg-red-50 disabled:text-gray-300"><i data-lucide="trash-2" class="w-4 h-4"></i></button></span>';
+    }
+    return '<span role="img" aria-label="Not on this device" title="Not on this device" class="shrink-0 text-gray-400"><i data-lucide="circle-dashed" class="w-4 h-4"></i></span>';
+  }
+
+  function renderControl() {
+    var total = state.entries.length, count = storedCount(), missing = total - count, html = '';
+    if (state.busy) {
+      html = '<button type="button" disabled aria-busy="true" class="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3 text-emerald-800"><span class="font-semibold">Downloading...</span><span class="ml-auto text-sm tabular-nums">' + state.busyDone + ' / ' + state.busyTotal + ' songs</span></button>';
+    } else if (state.listSaved) {
+      html = '<div class="rounded-xl border border-emerald-200 bg-white px-4 py-3"><div class="flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p>' +
+        '<p class="text-xs text-gray-500">' + count + ' of ' + total + ' songs · ' + storedSize().toFixed(1) + ' MB · downloaded today</p></div>' +
+        '<div class="ml-auto flex items-center gap-1"><button type="button" id="refreshBtn" aria-label="Refresh offline copy" ' + (isOffline() ? 'disabled' : '') + ' class="rounded-md p-2 text-gray-500 hover:bg-gray-100 disabled:text-gray-300">⟳</button>' +
+        '<span class="h-4 w-px bg-gray-200"></span><button type="button" id="removeListBtn" aria-label="Remove offline copy" class="rounded-md p-2 text-red-500 hover:bg-red-50">🗑</button></div></div>' +
+        (missing > 0 ? '<button type="button" id="missingBtn" ' + (isOffline() ? 'disabled' : '') + ' class="mt-2 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">Download ' + missing + ' missing song' + (missing === 1 ? '' : 's') + '</button>' : '') +
+        '</div>';
+    } else {
+      html = '<button type="button" id="downloadBtn" ' + (isOffline() ? 'disabled' : '') + ' class="w-full rounded-xl bg-emerald-600 px-4 py-3 flex items-center justify-center gap-2 font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400"><i data-lucide="download" class="w-5 h-5"></i>Make available offline</button>';
+      if (isOffline()) html += '<p class="mt-2 text-xs text-gray-500">Connect to the internet to download this playlist.</p>';
+      if (count > 0) html += '<p class="mt-2 text-xs text-gray-500">' + count + ' of ' + total + ' songs are already on this device.</p>';
+    }
+    if (state.error) {
+      html += '<div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">' + esc(state.error) + '</p>' +
+        (state.retryable ? '<button type="button" id="tryAgainBtn" ' + (isOffline() ? 'disabled' : '') + ' class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700 disabled:opacity-40">Try again</button>' : '') +
+        '<button type="button" id="dismissBtn" aria-label="Dismiss offline download error" class="text-red-400 hover:text-red-600 text-xs">✕</button></div>';
+    }
+    el('offlineSlot').innerHTML = html;
+  }
+
+  function renderRows() {
+    el('songTotal').textContent = state.entries.length + ' songs';
+    el('filterNote').classList.toggle('hidden', !state.filter);
+    var visible = state.filter ? state.entries.filter(function (s) { return s.title.indexOf('Pais') >= 0; }) : state.entries;
+    el('songRows').innerHTML = visible.map(function (s) {
+      return '<li class="rounded-lg border border-gray-100 bg-white px-3 py-2 shadow-sm"><div class="flex items-center gap-3 text-sm">' +
+        '<a href="#" class="flex-1 min-w-0 flex items-center gap-3"><span class="w-10 h-10 shrink-0 rounded bg-gray-200"></span><span class="min-w-0"><span class="block truncate font-medium">' + esc(s.title) + '</span><span class="block truncate text-xs text-gray-500">' + esc(s.artist) + '</span></span></a>' +
+        mark(s) +
+        '<span class="shrink-0 text-xs text-gray-400 tabular-nums">' + s.time + '</span>' +
+        '<button type="button" disabled aria-label="Remove ' + esc(s.title) + ' from playlist" class="shrink-0 p-1 text-gray-300">✕</button></div>' +
+        '<p class="pl-[52px] mt-1 text-xs text-gray-500">' + s.notes + ' · Practised</p></li>';
+    }).join('');
+  }
+
+  function render() { renderControl(); renderRows(); if (window.lucide) lucide.createIcons(); }
+
+  function runDownload(ids) {
+    state.error = null; state.busy = true; state.busyDone = 0; state.busyTotal = ids.length; render();
+    var i = 0;
+    var timer = setInterval(function () {
+      if (i < ids.length) { state.stored[ids[i]] = true; i += 1; state.busyDone = i; render(); return; }
+      clearInterval(timer); state.busy = false; state.listSaved = true; render();
+    }, 350);
+  }
+  function missingIds() { return state.entries.filter(function (s) { return !state.stored[s.id]; }).map(function (s) { return s.id; }); }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button, a');
+    if (!t) return;
+    if (t.tagName === 'A') { e.preventDefault(); return; }
+    if (t.dataset.remove) {
+      var song = state.entries.filter(function (s) { return s.id === t.dataset.remove; })[0];
+      if (el('toggleRemoveFail').checked) { state.error = 'Could not remove ' + song.title + ' from this device.'; state.retryable = false; el('toggleRemoveFail').checked = false; }
+      else { delete state.stored[song.id]; state.error = null; }
+      render(); return;
+    }
+    switch (t.id) {
+      case 'downloadBtn': case 'missingBtn': case 'tryAgainBtn': runDownload(missingIds()); break;
+      case 'refreshBtn': runDownload(state.entries.map(function (s) { return s.id; })); break;
+      case 'removeListBtn': state.listSaved = false; state.stored = {}; state.error = null; render(); break;
+      case 'dismissBtn': state.error = null; render(); break;
+      case 'addEntryBtn': if (state.entries.indexOf(EXTRA) < 0) { state.entries.push(EXTRA); render(); } break;
+      case 'filterBtn': state.filter = !state.filter; render(); break;
+    }
+  });
+  el('toggleOffline').addEventListener('change', render);
+  el('startState').addEventListener('change', reset);
+  reset();
+</script>
+</body>
+</html>

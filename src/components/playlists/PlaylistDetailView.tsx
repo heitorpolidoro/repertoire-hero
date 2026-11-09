@@ -17,9 +17,14 @@ import {
   usePlaylistDetail,
   type PlaylistDetailActions,
 } from "@/hooks/usePlaylistDetail";
-import type { OfflineDownloadActions } from "@/hooks/useOfflinePlaylist";
+import {
+  useOfflinePlaylist,
+  type OfflineDownloadActions,
+} from "@/hooks/useOfflinePlaylist";
 import { useOfflineStatus } from '@/hooks/useOfflineStatus'
 import type { SongPickerActions } from "@/hooks/useSongPicker";
+import type { OfflineStore } from "@/lib/offlineStore";
+import { sortPlaylistSongs } from "@/lib/playlistDetail";
 import type { Playlist, Repertoire } from "@/types/database";
 
 export interface PlaylistDetailViewProps {
@@ -43,6 +48,8 @@ export interface PlaylistDetailViewProps {
   pickerActions: SongPickerActions;
   /** Injected by the page (F21) — the three reads one offline copy is made of. */
   offlineActions: OfflineDownloadActions;
+  /** RH-193 — a test seam: defaults to the real `OFFLINE_STORE` inside the hook. */
+  offlineStore?: OfflineStore;
   /** RH-172 — injected by the page (F21): the two reads behind "Start practice". */
   practiceActions: PracticeActions;
 }
@@ -62,6 +69,12 @@ export interface PlaylistDetailViewProps {
  * `useOfflineStatus()` call lives here and the signal reaches
  * `OfflineDownloadButton` as a prop — the same one-reader-per-route shape Fast
  * View uses. No component under `src/components` reads `navigator.onLine`.
+ *
+ * RH-193 — and it owns the page's one offline controller: `useOfflinePlaylist`
+ * is called here, over the live song list, and the same instance reaches both
+ * `OfflineDownloadButton` and every resting row of `PlaylistSongList`, so a
+ * row's "Remove <title> from this device" and the header's `N of M songs`
+ * change in the same render.
  */
 export function PlaylistDetailView({
   playlist,
@@ -72,6 +85,7 @@ export function PlaylistDetailView({
   actions,
   pickerActions,
   offlineActions,
+  offlineStore,
   practiceActions,
 }: PlaylistDetailViewProps) {
   const router = useRouter();
@@ -85,6 +99,15 @@ export function PlaylistDetailView({
     presence,
     onRefresh: () => router.refresh(),
     onDeleted: () => router.replace("/playlists"),
+  });
+  // The live list, in playlist order: what the offline counts are over.
+  const offline = useOfflinePlaylist({
+    playlistId: playlist.id,
+    playlistName: playlist.name,
+    bandId: playlist.band_id,
+    versionIds: sortPlaylistSongs(detail.songs).map((ps) => ps.version_id),
+    actions: offlineActions,
+    store: offlineStore,
   });
   // Either filter narrows the list to a subset, so the reorder mode is not
   // offered while one is active — see `PlaylistDetailHeader`'s `canReorder`.
@@ -125,13 +148,7 @@ export function PlaylistDetailView({
       />
 
       {/* Offline: download this playlist's songs, tabs and lyrics to the device */}
-      <OfflineDownloadButton
-        playlistId={playlist.id}
-        playlistName={playlist.name}
-        bandId={playlist.band_id}
-        actions={offlineActions}
-        offline={isOffline}
-      />
+      <OfflineDownloadButton controller={offline} offline={isOffline} />
 
       {/* Playlist level summary */}
       <PlaylistSummary songs={detail.songs} repertoireMap={detail.repertoireMap} />
@@ -212,6 +229,7 @@ export function PlaylistDetailView({
         reordering={detail.reordering}
         onMoveSong={detail.moveSong}
         onReorderSongs={detail.reorderSongs}
+        offline={offline}
       />
 
       {/* RH-159: whole-playlist practice review */}

@@ -221,9 +221,16 @@ test('makes the playlist available offline in one click', async ({ page, context
   expect(dialogs).toEqual([])
   await expect(page.getByRole('button', { name: 'Remove offline copy' })).toBeVisible()
   await expect(page.getByText('Available offline', { exact: true })).toBeVisible()
+  // RH-193: the summary counts the playlist's live songs on this device, every
+  // row says it is stored, and nothing is missing.
+  await expect(page.getByText(/^2 of 2 songs · .* · downloaded today$/)).toBeVisible()
+  await expect(songList(page).getByRole('img', { name: 'On this device' })).toHaveCount(2)
+  await expect(page.getByRole('button', { name: /missing song/ })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Remove offline copy' }).click()
   await expect(makeAvailable).toBeVisible()
+  // Nothing of the playlist is stored any more, so no row draws a mark.
+  await expect(songList(page).getByRole('img', { name: /on this device/i })).toHaveCount(0)
 
   const hint = page.getByText('Connect to the internet to download this playlist.')
   await context.setOffline(true)

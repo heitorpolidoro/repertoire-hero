@@ -129,6 +129,37 @@ export function setlistSongIds(setlist: OfflineSetlistList): string[] {
   return setlist.entries.map((entry) => songRecordId(entry.versionId, setlist.bandId))
 }
 
+/** How much of a playlist's live entries this device holds (RH-193). */
+export interface LiveOfflineCount {
+  /** The live `version_id`s stored in the playlist's owner context. */
+  storedVersionIds: Set<string>
+  stored: number
+  total: number
+  /** The stored songs' bytes, over the live entries only. */
+  bytes: number
+}
+
+/**
+ * Counts the page's **live** entries, not the stored list's, so a song added
+ * online after the download reads `5 of 6`. `songBytes` maps every stored song
+ * record id to its bytes; a copy in another owner context never counts.
+ */
+export function liveOfflineCount(
+  versionIds: string[],
+  bandId: string | null,
+  songBytes: ReadonlyMap<string, number>,
+): LiveOfflineCount {
+  const storedVersionIds = new Set<string>()
+  let bytes = 0
+  for (const versionId of versionIds) {
+    const size = songBytes.get(songRecordId(versionId, bandId))
+    if (size === undefined) continue
+    storedVersionIds.add(versionId)
+    bytes += size
+  }
+  return { storedVersionIds, stored: storedVersionIds.size, total: versionIds.length, bytes }
+}
+
 /**
  * The protection rule (RH-192): which of `candidateIds` a setlist removal or
  * refresh may delete. A song stays when another stored setlist holds it — in the

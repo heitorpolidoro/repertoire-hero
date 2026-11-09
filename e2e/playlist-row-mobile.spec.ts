@@ -298,6 +298,67 @@ test('personal: every title keeps a visible box at 375px and the controls stay u
   await notes.getByRole('button').first().click({ trial: true })
 })
 
+/**
+ * RH-193 — once the playlist is downloaded, line 1 of a row also carries the
+ * offline mark and, on a stored song, the "Remove <title> from this device"
+ * trash button. The 100-character title still keeps a visible, truncated box
+ * clear of the mark and both buttons, and the row does not overflow.
+ */
+test('personal, downloaded: a stored row with a 100-character title fits 375px beside its offline mark', async ({
+  page,
+  viewport,
+}) => {
+  expect(viewport?.width).toBe(375)
+
+  await page.goto(personalPlaylistUrl)
+  await waitForPlaylistDetailHydrated(page)
+  await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
+  await page.getByRole('button', { name: 'Make available offline' }).click()
+  await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeVisible({ timeout: 60_000 })
+
+  const row = songRow(page, longTitle)
+  const titleText = rowTitle(page, longTitle)
+  const mark = row.getByRole('img', { name: 'On this device' })
+  const trash = row.getByRole('button', { name: `Remove ${longTitle} from this device` })
+  const remove = row.getByRole('button', { name: `Remove ${longTitle} from playlist` })
+  for (const control of [mark, trash, remove]) {
+    await expect(control).toHaveCount(1)
+    await expect(control).toBeVisible()
+  }
+  await expectTitlesVisible(page, [shortTitle, longTitle])
+
+  const truncation = await titleText.evaluate((el) => ({
+    textOverflow: getComputedStyle(el).textOverflow,
+    clipped: el.scrollWidth > el.clientWidth,
+  }))
+  expect(truncation.textOverflow).toBe('ellipsis')
+  expect(truncation.clipped, 'the long title is actually clipped').toBe(true)
+
+  const titleBox = await boxOf(titleText, 'long title')
+  const markBox = await boxOf(mark, 'offline mark')
+  const trashBox = await boxOf(trash, 'trash button')
+  const removeBox = await boxOf(remove, 'remove button')
+  expect(titleBox.width, 'the title keeps a usable width').toBeGreaterThanOrEqual(100)
+  expect(intersects(titleBox, markBox), 'title overlaps the offline mark').toBe(false)
+  expect(intersects(titleBox, trashBox), 'title overlaps the trash button').toBe(false)
+  expect(intersects(titleBox, removeBox), 'title overlaps the remove button').toBe(false)
+  // Line 1, in order: title, mark, trash, ..., the playlist remove X.
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(markBox.x)
+  expect(markBox.x + markBox.width).toBeLessThanOrEqual(trashBox.x)
+  expect(trashBox.x + trashBox.width).toBeLessThanOrEqual(removeBox.x)
+
+  const overflow = await row.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
+  expect(overflow.scrollWidth, 'the row overflows horizontally').toBeLessThanOrEqual(overflow.clientWidth)
+
+  await hideNextDevOverlay(page)
+  await trash.click({ trial: true })
+  await remove.click({ trial: true })
+
+  // Leave nothing stored behind for the next test's page.
+  await page.getByRole('button', { name: 'Remove offline copy' }).click()
+  await expect(page.getByRole('button', { name: 'Make available offline' })).toBeVisible()
+})
+
 test('band: every title of a band playlist keeps a visible box at 375px', async ({
   page,
   viewport,

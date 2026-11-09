@@ -42,7 +42,7 @@ Registry of what the system does today, one `##` section per functional area and
 - A playlist entry stores a version, so the same version resolves per the playlist owner's row. (src/lib/playlistDetail.ts, src/lib/__tests__/playlistVersionReads.db.test.ts)
 - The playlist summary shows a progress bar of statuses, with unknown as the unfilled remainder. (src/lib/playlistSummary.ts, src/components/playlists/PlaylistSummary.tsx)
 - Playlists are listed grouped by owner, personal and per band. (src/lib/playlistList.ts, src/components/playlists/PlaylistGroupList.tsx)
-- At phone width a playlist song row puts its status notes and Practised button on a second line, so the title always keeps its own width. (src/components/playlists/PlaylistSongRow.tsx, e2e/playlist-row-mobile.spec.ts) (RH-183)
+- At phone width a playlist song row puts its status notes and Practised button on a second line, so the title always keeps its own width, including beside the offline mark. (src/components/playlists/PlaylistSongRow.tsx, e2e/playlist-row-mobile.spec.ts) (RH-193)
 
 ## Files and annotations
 - Uploads accept PDF, JPEG, PNG and WebP, identified by their leading bytes. (src/lib/fileIngest.ts, src/lib/__tests__/fileIngest.test.ts)
@@ -113,7 +113,8 @@ Registry of what the system does today, one `##` section per functional area and
 - Audio, video and the setlist player are unavailable offline and show a message instead. (src/components/fastview/OfflineUnavailable.tsx, src/components/layout/SetlistPlayer.tsx)
 - Settings lists the stored offline copies and lets the user remove them. (src/components/settings/OfflineStorageSection.tsx, src/hooks/useOfflineLibrary.ts)
 - A service worker caches the app shell and offline chart files. (src/app/sw.ts, src/lib/offlineCacheNames.ts, src/lib/__tests__/pwaShell.test.ts)
-- The playlist page's offline control reads "Make available offline" until downloaded; offline it is disabled with "Connect to the internet to download this playlist.", and a failed download offers "Try again". (src/components/playlists/OfflineDownloadButton.tsx, src/components/playlists/__tests__/OfflineDownloadButton.test.tsx, e2e/playlist-detail.spec.ts) (RH-188)
+- The playlist page's offline control reads "Make available offline" until downloaded, then shows how many of the playlist's songs are on the device and offers to download the missing ones; offline it is disabled with "Connect to the internet to download this playlist.", and a failed download offers "Try again". (src/components/playlists/OfflineDownloadButton.tsx, src/components/playlists/__tests__/OfflineDownloadButton.test.tsx, e2e/playlist-detail.spec.ts) (RH-193)
+- Once a playlist is downloaded or holds a stored song, each of its rows shows whether that song is on this device, and a stored song's row can remove it from the device. (src/components/playlists/PlaylistSongOfflineMark.tsx, src/components/playlists/__tests__/PlaylistSongList.test.tsx) (RH-193)
 - A stored song is kept under a record id made of the version id and band context, however it was downloaded. (src/lib/offlineSongRecord.ts, src/lib/__tests__/offlineSongRecord.test.ts) (RH-192)
 
 ## Auth and profile
