@@ -107,10 +107,18 @@ declare const self: ServiceWorkerGlobalScope
  *    or the network. That is why sign-out clearing the snapshot and PDF caches
  *    (RH-79) is still sufficient to keep one person's repertoire off another
  *    person's device.
- *  - It is stored **per URL**. A Fast View that has never been opened while
- *    online is still answered with the `/offline` shell; downloading a playlist
- *    does not pre-cache its songs' documents. Making the download warm this
- *    cache is a real improvement and deliberately not in RH-80's scope.
+ *  - It is stored **per URL**, and since RH-195 a song download warms it: each
+ *    stored song's `/songs/<id>/fast-view` (with `?bandId=` in band context)
+ *    is fetched by the page and written into `OFFLINE_PAGE_CACHE` on an HTTP
+ *    `200`, so a song never opened online still opens offline. A failed or
+ *    non-`200` document fetch is logged and costs only that document, never
+ *    the download. Those entries are written by the page
+ *    (`src/lib/offlineStore.ts`, through its `pages` port), not by this
+ *    worker, whose own writes are still only the `NetworkFirst` 200s. Removing
+ *    a song leaves its document behind on purpose: it must still boot offline
+ *    to say the song is not available. A Fast View neither downloaded nor
+ *    opened online is still answered with the `/offline` shell, which lists the
+ *    downloaded setlists.
  *
  * ## Why the tab cache name comes from its own module
  *

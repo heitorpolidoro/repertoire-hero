@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { OfflineSetlists } from '@/components/playlists/OfflineSetlists'
 
 export const metadata: Metadata = {
   title: 'Offline — Repertoire Hero',
@@ -16,12 +17,14 @@ export const metadata: Metadata = {
  * It is deliberately absent from the `src/proxy.ts` matcher: offline the proxy
  * does not run at all, so the page has to render with no session.
  *
- * RH-80 may replace or extend this with a real offline read path — this is the
- * floor, not the final answer.
+ * RH-195 lists the downloaded setlists beneath the card. `OfflineSetlists`
+ * reads the device only after mount and renders nothing until then, so this
+ * page stays a static Server Component and its prerendered HTML is the card
+ * alone.
  */
 export default function OfflinePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 py-8 text-center">
       <div
         data-testid="offline-shell"
         className="max-w-md rounded-xl border border-gray-200 bg-white p-8 shadow-sm"
@@ -32,6 +35,7 @@ export default function OfflinePage() {
           load again — anything you already downloaded stays available.
         </p>
       </div>
+      <OfflineSetlists />
     </main>
   )
 }

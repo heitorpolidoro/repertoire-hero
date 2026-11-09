@@ -81,9 +81,19 @@ export interface OfflineBlobPort {
   clear(): Promise<void>
 }
 
+/**
+ * The Fast View documents side of the boundary (RH-195): the service worker's
+ * `OFFLINE_PAGE_CACHE` in production. Write-only on purpose — the worker is
+ * what reads it, and nothing in the store ever deletes from it.
+ */
+export interface OfflinePagePort {
+  put(path: string, response: Response): Promise<void>
+}
+
 export interface OfflineStorePorts {
   records: OfflineRecordPort
   blobs: OfflineBlobPort
+  pages: OfflinePagePort
   fetch: typeof fetch
 }
 

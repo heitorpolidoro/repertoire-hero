@@ -1,6 +1,7 @@
 /**
  * The real storage adapter behind `@/lib/offlineStore`'s ports (RH-79):
- * IndexedDB for the snapshot records, Cache Storage for the tab PDFs.
+ * IndexedDB for the snapshot records, Cache Storage for the tab PDFs and, since
+ * RH-195, for the Fast View documents the service worker answers offline.
  *
  * Decision-free on purpose. Every rule about *what* to store, in what order and
  * what to unwind lives in `offlineStore.ts` and is unit-tested over in-memory
@@ -14,11 +15,13 @@
 import {
   OFFLINE_DB_NAME,
   OFFLINE_DB_VERSION,
+  OFFLINE_PAGE_CACHE,
   OFFLINE_SNAPSHOT_STORE,
   OFFLINE_TAB_CACHE,
 } from '@/lib/offlineStore'
 import type {
   OfflineBlobPort,
+  OfflinePagePort,
   OfflineRecordPort,
   OfflineStoredRecord,
   OfflineStorePorts,
@@ -113,6 +116,20 @@ function createBlobPort(): OfflineBlobPort {
 }
 
 /**
+ * The worker's own Fast View document cache (RH-80), written by a song download
+ * too since RH-195. A relative path resolves against the page's origin, which
+ * is the URL the worker later looks the navigation up by.
+ */
+function createPagePort(): OfflinePagePort {
+  return {
+    async put(path, response) {
+      const cache = await caches.open(OFFLINE_PAGE_CACHE)
+      await cache.put(path, response)
+    },
+  }
+}
+
+/**
  * The ports the default `OFFLINE_STORE` runs on. Called from inside a store
  * method, never at import time: this is the only function here that touches a
  * browser global, and it is reached through a dynamic import.
@@ -121,6 +138,7 @@ export function createDefaultOfflinePorts(): OfflineStorePorts {
   return {
     records: createRecordPort(),
     blobs: createBlobPort(),
+    pages: createPagePort(),
     fetch: (...args) => fetch(...args),
   }
 }

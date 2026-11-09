@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSongRecordId, songRecordId } from '@/lib/offlineSongRecord'
+import { isSongRecordId, offlineFastViewPath, songRecordId } from '@/lib/offlineSongRecord'
 
 const UUID = '0b6f1c1e-5c1a-4a52-9d57-6f3b1f0a7c11'
 
@@ -33,6 +33,16 @@ describe('songRecordId', () => {
     const b = `/__offline-tab/${songRecordId('v-1', 'band-1')}/`
     expect(b.startsWith(a)).toBe(false)
     expect(a.startsWith(b)).toBe(false)
+  })
+})
+
+describe('offlineFastViewPath (RH-195)', () => {
+  it('is the bare Fast View path in personal context, with no trailing ?', () => {
+    expect(offlineFastViewPath('v-1', null)).toBe('/songs/v-1/fast-view')
+  })
+
+  it('carries the band as ?bandId= in band context', () => {
+    expect(offlineFastViewPath('v-1', 'band-1')).toBe('/songs/v-1/fast-view?bandId=band-1')
   })
 })
 

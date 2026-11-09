@@ -7,9 +7,6 @@
     "@sentry/browser",
     "@better-auth/utils"
   ],
-  "ignore": [
-    "src/lib/offlineCacheNames.ts"
-  ],
   "entry": [
     "serwist.config.js",
     "src/app/sw.ts",

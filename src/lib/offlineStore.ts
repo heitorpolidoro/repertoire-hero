@@ -1,7 +1,7 @@
 /**
  * The browser storage boundary for offline songs and setlists (RH-79, RH-192).
  *
- * The store never touches `indexedDB` or `caches` itself. It talks to two small
+ * The store never touches `indexedDB` or `caches` itself. It talks to three small
  * ports plus `fetch`, passed as one optional trailing argument that defaults to
  * the real adapter in `@/lib/offlineBackends`. That is what makes every write
  * testable over in-memory fakes with no mocking library and no
@@ -29,6 +29,8 @@
  *     the list applies the same rule to it.
  *   - bytes are deleted per key, and never while another stored song still
  *     points at them.
+ *   - a stored song's Fast View document is fetched and kept in the worker's
+ *     page cache, best-effort and never deleted (RH-195).
  *
  * Every read goes through `loadLibrary`, which converts any pre-RH-192 record
  * first, without the network (`offlineConversion.ts`).
@@ -63,20 +65,21 @@ import {
   type OfflineSongRecord,
   type OfflineStorePorts,
 } from '@/lib/offlineRecords'
-import { isSongRecordId, songRecordId } from '@/lib/offlineSongRecord'
+import { isSongRecordId, offlineFastViewPath, songRecordId } from '@/lib/offlineSongRecord'
 import type { PlaylistEntry } from '@/lib/playlistNav'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
 import type { CustomFieldEntry } from '@/types/customField'
 
 /**
- * The Cache Storage cache the tab PDFs live in.
+ * The Cache Storage caches the tab PDFs and the Fast View documents (RH-195)
+ * live in.
  *
- * Re-exported, not defined here: `src/app/sw.ts` needs the same name and must
+ * Re-exported, not defined here: `src/app/sw.ts` needs the same names and must
  * not reach this module, whose graph (`@/lib/logger` → `@sentry/nextjs`) needs
  * node builtins a browser bundle cannot resolve. See
  * `src/lib/offlineCacheNames.ts` (RH-80).
  */
-export { OFFLINE_TAB_CACHE } from '@/lib/offlineCacheNames'
+export { OFFLINE_PAGE_CACHE, OFFLINE_TAB_CACHE } from '@/lib/offlineCacheNames'
 
 /** The IndexedDB database and object store holding the records. */
 export const OFFLINE_DB_NAME = 'repertoire-hero-offline'
@@ -154,6 +157,29 @@ async function cacheOneTab(
   written.push(key)
   await ports.blobs.put(key, response)
   return { tab, bytes }
+}
+
+/**
+ * Stores the song's Fast View document for the worker to answer a cold offline
+ * navigation with (RH-195), so a song never opened online still opens.
+ *
+ * Best-effort, after the song is stored: a rejected fetch, an answer that is
+ * not a plain same-URL 200 (a redirect to `/login` would store the sign-in
+ * page as the song) or a refused write is logged and the save still resolves.
+ * Nothing deletes these documents: a removed song's Fast View must still boot
+ * offline to say the song is not available.
+ */
+async function cacheFastViewDocument(ports: OfflineStorePorts, versionId: string, bandId: string | null): Promise<void> {
+  const path = offlineFastViewPath(versionId, bandId)
+  try {
+    const response = await ports.fetch(path)
+    if (response.type === 'opaque' || response.redirected || response.status !== 200) {
+      throw new Error(`Fast View document answered ${response.status} (${response.type}): ${path}`)
+    }
+    await ports.pages.put(path, response)
+  } catch (error) {
+    logger.error('Failed to store the Fast View document', error, { path })
+  }
 }
 
 /** Deletes each key no song in `remaining` still points at. */
@@ -275,6 +301,7 @@ export function createOfflineStore(ports?: OfflineStorePorts): OfflineStore {
       const fresh = new Set(songCacheKeys(record))
       const gone = previous ? songCacheKeys(previous).filter((key) => !fresh.has(key)) : []
       await deleteUnreferenced(active, gone, [...others, record])
+      await cacheFastViewDocument(active, input.song.entry.versionId, input.bandId)
       return record
     },
 

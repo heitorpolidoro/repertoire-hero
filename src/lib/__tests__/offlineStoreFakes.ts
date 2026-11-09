@@ -14,6 +14,7 @@
  */
 import type {
   OfflineBlobPort,
+  OfflinePagePort,
   OfflineRecordPort,
   OfflineStoredRecord,
   OfflineStorePorts,
@@ -34,6 +35,11 @@ export interface FakeBlobPort extends OfflineBlobPort {
   keysFor(recordId: string): string[]
 }
 
+/** The page port plus the map behind it, keyed by the Fast View document path (RH-195). */
+export interface FakePagePort extends OfflinePagePort {
+  entries: Map<string, Response>
+}
+
 /** A `fetch` that fails the test if anything calls it (RH-192 conversion). */
 export const throwingFetch = (() => {
   throw new Error('fetch must not be called')
@@ -42,6 +48,7 @@ export const throwingFetch = (() => {
 export interface FakeOfflinePorts extends OfflineStorePorts {
   records: FakeRecordPort
   blobs: FakeBlobPort
+  pages: FakePagePort
   fetched: string[]
 }
 
@@ -50,8 +57,12 @@ export interface FakePortsOptions {
   failBlobPutOnCall?: number
   /** Throw `QuotaExceededError` from the record port's Nth `put` (1-based). */
   failRecordPutOnCall?: number
-  /** What `fetch` answers for a tab URL; defaults to a 1 KB usable response. */
-  respond?: (url: string) => Response
+  /**
+   * What `fetch` answers for a URL; a rejected promise is a network failure.
+   * Defaults to a 1 KB usable response for a tab and an HTML 200 for a Fast
+   * View document (RH-195).
+   */
+  respond?: (url: string) => Response | Promise<Response>
 }
 
 function quotaExceeded(): DOMException {
@@ -61,6 +72,14 @@ function quotaExceeded(): DOMException {
 /** A normal, non-opaque, `ok` response carrying `size` bytes. */
 export function tabResponse(size: number): Response {
   return new Response(new Uint8Array(size))
+}
+
+/** A Fast View document as the server answers it while online (RH-195). */
+export function documentResponse(status = 200): Response {
+  return new Response('<!DOCTYPE html><title>Fast View</title>', {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  })
 }
 
 /** A response the download must refuse: opaque, or not `ok`. */
@@ -126,6 +145,22 @@ function createFakeBlobPort(failOnCall?: number): FakeBlobPort {
   return port
 }
 
+function createFakePagePort(): FakePagePort {
+  const entries = new Map<string, Response>()
+  return {
+    entries,
+    put: (path, response) => {
+      entries.set(path, response)
+      return Promise.resolve()
+    },
+  }
+}
+
+/** What the fake `fetch` answers when a test names no `respond`. */
+function defaultResponse(url: string): Response {
+  return url.startsWith('/songs/') ? documentResponse() : tabResponse(1024)
+}
+
 /** One captured song of version `versionId` with one chart `tabId`, for seeding a store. */
 export function seedSongInput(versionId: string, tabId: string, title = 'Song'): OfflineSongInput {
   return {
@@ -157,10 +192,12 @@ export function seedSongInput(versionId: string, tabId: string, title = 'Song'):
   }
 }
 
-/** A personal setlist of several songs, for `seedSetlistOf`. */
+/** A setlist of several songs, for `seedSetlistOf`; personal unless `bandId` is given. */
 export interface SeedSetlistOfInput {
   playlistId: string
   playlistName: string
+  /** The owner context the list and its songs are stored in (RH-195). */
+  bandId?: string | null
   /** Each entry's version id and title, in order; the chart id is `tab-<versionId>`. */
   entries: Array<{ versionId: string; title: string }>
   /** Version ids the list holds but this device never stored, for an `N of M` count. */
@@ -169,37 +206,40 @@ export interface SeedSetlistOfInput {
 }
 
 /**
- * Downloads a personal setlist of several songs the way the hook does: each
- * song, then the list. A song another seeded setlist already stored is saved
- * again, which leaves one record — the shared-song case (RH-194).
+ * Downloads a setlist of several songs the way the hook does: each song, then
+ * the list. A song another seeded setlist already stored is saved again, which
+ * leaves one record — the shared-song case (RH-194).
  */
 export async function seedSetlistOf(store: OfflineStore, input: SeedSetlistOfInput): Promise<void> {
   const savedAt = input.savedAt ?? '2026-09-20T18:04:00.000Z'
+  const bandId = input.bandId ?? null
   const skipped = new Set(input.notStored ?? [])
   for (const { versionId, title } of input.entries) {
     if (skipped.has(versionId)) continue
-    await store.saveOfflineSong({ song: seedSongInput(versionId, `tab-${versionId}`, title), bandId: null, savedAt })
+    await store.saveOfflineSong({ song: seedSongInput(versionId, `tab-${versionId}`, title), bandId, savedAt })
   }
   await store.saveOfflineSetlist({
     playlistId: input.playlistId,
     playlistName: input.playlistName,
-    bandId: null,
+    bandId,
     savedAt,
     entries: input.entries.map(({ versionId, title }) => ({ versionId, title, artist: null })),
   })
 }
 
-/** The three ports, wired together, with their contents readable. */
+/** The ports, wired together, with their contents readable. */
 export function createFakePorts(options: FakePortsOptions = {}): FakeOfflinePorts {
   const fetched: string[] = []
+  const respond = options.respond ?? defaultResponse
   return {
     records: createFakeRecordPort(options.failRecordPutOnCall),
     blobs: createFakeBlobPort(options.failBlobPutOnCall),
+    pages: createFakePagePort(),
     fetched,
     fetch: ((input: RequestInfo | URL) => {
       const url = String(input)
       fetched.push(url)
-      return Promise.resolve(options.respond ? options.respond(url) : tabResponse(1024))
+      return Promise.resolve(respond(url))
     }) as typeof fetch,
   }
 }

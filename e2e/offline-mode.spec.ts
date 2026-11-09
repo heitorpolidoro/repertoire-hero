@@ -682,6 +682,71 @@ test('keeps a song and drops one removed from its row, after a cold reload with 
 })
 
 /**
+ * RH-195 — a cold offline start on a page the worker never stored lands on the
+ * `/offline` shell, which lists the downloaded playlist beneath its card. No
+ * Fast View is opened online here, unlike every test above: the download
+ * itself stored the stored song's document, so its link opens it offline with
+ * the playlist as the queue, and the song removed from the device is marked
+ * and is not a link.
+ */
+test('lists a downloaded playlist on /offline and opens a song never opened online (RH-195)', async ({
+  page,
+  context,
+}) => {
+  const storedTitle = uniqueFixtureName('RH195 Stored')
+  const removedTitle = uniqueFixtureName('RH195 Removed')
+  const playlistName = uniqueFixtureName('RH195 Playlist')
+
+  await goHome(page)
+  await addSong(page, { title: storedTitle, artist: 'RH195 Artist' })
+  await addSong(page, { title: removedTitle, artist: 'RH195 Artist' })
+  await createPlaylist(page, playlistName)
+  await openPlaylist(page, playlistName)
+  await addSongToOpenPlaylist(page, storedTitle)
+  await addSongToOpenPlaylist(page, removedTitle)
+
+  await waitForServiceWorker(page)
+  await downloadPlaylist(page)
+  const storedUrl = await fastViewUrlFromPlaylist(page, storedTitle)
+
+  const removedRow = page
+    .getByRole('region', { name: 'Songs in this playlist' })
+    .getByRole('listitem')
+    .filter({ hasText: removedTitle })
+  await removedRow.getByRole('button', { name: `Remove ${removedTitle} from this device` }).click()
+  await expect(removedRow.getByRole('img', { name: 'Not on this device' })).toBeVisible()
+
+  // The playlist page is no Fast View, so the worker never stored it: offline,
+  // its reload is answered with the precached `/offline` shell.
+  await context.setOffline(true)
+  await page.reload()
+
+  await expect(page.getByTestId('offline-shell')).toBeVisible({ timeout: 20_000 })
+  const downloaded = page.getByRole('region', { name: 'Downloaded playlists' })
+  await expect(downloaded.getByText(playlistName)).toBeVisible({ timeout: 20_000 })
+  await expect(downloaded.getByText('1 of 2 songs')).toBeVisible()
+
+  const songs = page.getByRole('list', { name: playlistName }).getByRole('listitem')
+  await expect(songs).toHaveCount(2)
+  const removedItem = songs.filter({ hasText: removedTitle })
+  await expect(removedItem.getByRole('img', { name: 'Not on this device' })).toBeVisible()
+  await expect(removedItem.getByRole('link')).toHaveCount(0)
+
+  await songs.filter({ hasText: storedTitle }).getByRole('link').click()
+  await page.waitForURL((url) => url.pathname === storedUrl.split('?')[0], { timeout: 20_000 })
+
+  // The document came from the download, the content from the store, and the
+  // setlist chrome from the queue the link wrote.
+  await expect(page.getByRole('heading', { level: 1, name: storedTitle })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('offline-read-only-banner')).toBeVisible()
+  const setlist = page.getByRole('complementary')
+  await expect(setlist.getByRole('heading', { name: playlistName })).toBeVisible()
+  await expect(setlist).toContainText('1 / 2')
+
+  await context.setOffline(false)
+})
+
+/**
  * A minimal, valid one-page PDF. Inline so the suite needs no fixture file and
  * no network: the point is only that `react-pdf` can parse and paint it.
  */

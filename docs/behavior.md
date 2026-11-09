@@ -116,6 +116,8 @@ Registry of what the system does today, one `##` section per functional area and
 - The playlist page's offline control reads "Make available offline" until downloaded, then shows how many of the playlist's songs are on the device and offers to download the missing ones; offline it is disabled with "Connect to the internet to download this playlist.", and a failed download offers "Try again". (src/components/playlists/OfflineDownloadButton.tsx, src/components/playlists/__tests__/OfflineDownloadButton.test.tsx, e2e/playlist-detail.spec.ts) (RH-193)
 - Once a playlist is downloaded or holds a stored song, each of its rows shows whether that song is on this device, and a stored song's row can remove it from the device. (src/components/playlists/PlaylistSongOfflineMark.tsx, src/components/playlists/__tests__/PlaylistSongList.test.tsx) (RH-193)
 - A stored song is kept under a record id made of the version id and band context, however it was downloaded. (src/lib/offlineSongRecord.ts, src/lib/__tests__/offlineSongRecord.test.ts) (RH-192)
+- After a cold offline start the offline screen lists each downloaded playlist's songs in stored order, marks those not on the device, and opens a stored one with the playlist as its queue. (src/components/playlists/OfflineSetlists.tsx, src/app/offline/page.tsx, e2e/offline-mode.spec.ts) (RH-195)
+- Storing a song also stores its Fast View document, so a song never opened online opens offline. (src/lib/offlineStore.ts, src/lib/offlineBackends.ts, src/lib/__tests__/offlineStore.test.ts) (RH-195)
 
 ## Auth and profile
 - Sign-up and sign-in use email and password through Better Auth, with no email verification required. (src/lib/auth.ts, src/lib/auth-client.ts, e2e/auth.spec.ts)

@@ -9,13 +9,28 @@
  * Since RH-192 a song is stored once per `(versionId, owner context)` and a
  * setlist as its ordered list only.
  */
-import { describe, it, expect } from 'vitest'
-import { createOfflineStore, type OfflineSongInput } from '@/lib/offlineStore'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { logger } from '@/lib/logger'
+import { OFFLINE_PAGE_CACHE, createOfflineStore, type OfflineSongInput } from '@/lib/offlineStore'
 import { OFFLINE_SCHEMA_VERSION, type OfflineSetlistList } from '@/lib/offlineSnapshot'
 import { isSetlistRecord, isSongRecord } from '@/lib/offlineRecords'
 import { songRecordId } from '@/lib/offlineSongRecord'
-import { createFakePorts, unusableResponse, type FakeOfflinePorts } from './offlineStoreFakes'
+import {
+  createFakePorts,
+  documentResponse,
+  tabResponse,
+  unusableResponse,
+  type FakeOfflinePorts,
+} from './offlineStoreFakes'
 import type { Repertoire, ResolvedSongEntry, SongFile } from '@/types/database'
+
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+
+beforeEach(() => {
+  vi.mocked(logger.error).mockClear()
+})
 
 const SAVED_AT = '2026-09-20T18:04:00.000Z'
 
@@ -240,6 +255,142 @@ describe('saveOfflineSong — a failure unwinds only that attempt', () => {
 
     expect(songIds(ports)).toEqual([id])
     expect(ports.blobs.keysFor(id)).toEqual([`/__offline-tab/${id}/tab-a`])
+  })
+})
+
+/**
+ * RH-195 — saving a song also stores its Fast View document, so a song never
+ * opened online still opens after a cold offline start. The document is
+ * best-effort: whatever happens to it, the song itself is stored.
+ */
+describe('saveOfflineSong — the Fast View document (RH-195)', () => {
+  /** A tab answers 1 KB; the Fast View document answers whatever `document` gives. */
+  function portsAnsweringDocument(document: () => Response | Promise<Response>): FakeOfflinePorts {
+    return createFakePorts({
+      respond: (url) => (url.startsWith('/songs/') ? document() : tabResponse(1024)),
+    })
+  }
+
+  /** The song's record and its one chart are both on the device. */
+  function expectSongStored(ports: FakeOfflinePorts, versionId: string, bandId: string | null) {
+    const id = songRecordId(versionId, bandId)
+    expect(songIds(ports)).toEqual([id])
+    expect(ports.blobs.keysFor(id)).toEqual([`/__offline-tab/${id}/tab-${versionId}`])
+  }
+
+  it('names the service worker page cache', () => {
+    expect(OFFLINE_PAGE_CACHE).toBe('rh-offline-pages-v1')
+  })
+
+  it('stores the personal Fast View document on HTTP 200, after the song is stored', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+
+    expect(ports.fetched).toEqual([
+      'https://store.public.blob.vercel-storage.com/tabs/tab-v-1.pdf',
+      '/songs/v-1/fast-view',
+    ])
+    expect([...ports.pages.entries.keys()]).toEqual(['/songs/v-1/fast-view'])
+    expect(await ports.pages.entries.get('/songs/v-1/fast-view')?.text()).toContain('<title>Fast View</title>')
+    expectSongStored(ports, 'v-1', null)
+    expect(logger.error).not.toHaveBeenCalled()
+  })
+
+  it('stores the band-context Fast View document under its ?bandId= path', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: 'band-1', savedAt: SAVED_AT })
+
+    expect(ports.fetched).toContain('/songs/v-1/fast-view?bandId=band-1')
+    expect([...ports.pages.entries.keys()]).toEqual(['/songs/v-1/fast-view?bandId=band-1'])
+  })
+
+  it('stores the document again on every save of the song, a setlist download included', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+
+    await downloadSetlist(store, 'pl-1', ['v-1', 'v-2'])
+
+    expect([...ports.pages.entries.keys()].sort()).toEqual(['/songs/v-1/fast-view', '/songs/v-2/fast-view'])
+  })
+
+  /** A 200 reached through a redirect: what a `/login` redirect would hand back. */
+  function redirectedDocument(): Response {
+    const response = documentResponse()
+    Object.defineProperty(response, 'redirected', { value: true })
+    return response
+  }
+
+  it.each([
+    ['answers 500', () => documentResponse(500)],
+    ['answers 404', () => documentResponse(404)],
+    ['is a 200 reached through a redirect', redirectedDocument],
+    ['is opaque', () => unusableResponse('opaque')],
+  ])('keeps the song but not the document when the document %s, and logs it', async (_case, document) => {
+    const ports = portsAnsweringDocument(document)
+    const store = createOfflineStore(ports)
+
+    const record = await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+
+    expect(record.playlistId).toBe(songRecordId('v-1', null))
+    expectSongStored(ports, 'v-1', null)
+    expect(ports.pages.entries.size).toBe(0)
+    expect(logger.error).toHaveBeenCalledTimes(1)
+    expect(String(vi.mocked(logger.error).mock.calls[0][0])).toMatch(/Fast View document/)
+  })
+
+  it.each([
+    ['the document fetch rejects with a network error', 'fetch', new TypeError('Failed to fetch')],
+    ['the page cache refuses the document', 'put', new DOMException('quota', 'QuotaExceededError')],
+  ] as const)('keeps the song when %s, and logs the failure', async (_case, failing, failure) => {
+    const ports = portsAnsweringDocument(() => (failing === 'fetch' ? Promise.reject(failure) : documentResponse()))
+    if (failing === 'put') ports.pages.put = () => Promise.reject(failure)
+    const store = createOfflineStore(ports)
+
+    await expect(
+      store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT }),
+    ).resolves.toMatchObject({ playlistId: songRecordId('v-1', null) })
+
+    expectSongStored(ports, 'v-1', null)
+    expect(ports.pages.entries.size).toBe(0)
+    expect(logger.error).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(logger.error).mock.calls[0][1]).toBe(failure)
+  })
+
+  it('fetches no document for a song whose own save failed', async () => {
+    const ports = createFakePorts({ failRecordPutOnCall: 1 })
+    const store = createOfflineStore(ports)
+
+    await expect(store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })).rejects.toThrow(/quota/i)
+
+    expect(ports.fetched.filter((url) => url.startsWith('/songs/'))).toEqual([])
+    expect(ports.pages.entries.size).toBe(0)
+  })
+
+  it('leaves the cached document behind when the song is removed', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await store.saveOfflineSong({ song: songInput('v-1'), bandId: null, savedAt: SAVED_AT })
+
+    await store.removeOfflineSong('v-1', null)
+
+    expect(ports.records.rows.size).toBe(0)
+    expect(ports.blobs.entries.size).toBe(0)
+    expect([...ports.pages.entries.keys()]).toEqual(['/songs/v-1/fast-view'])
+  })
+
+  it('leaves the cached documents behind when a setlist is removed', async () => {
+    const ports = createFakePorts()
+    const store = createOfflineStore(ports)
+    await downloadSetlist(store, 'pl-1', ['v-1', 'v-2'])
+
+    await store.removeOfflinePlaylist('pl-1')
+
+    expect(ports.records.rows.size).toBe(0)
+    expect([...ports.pages.entries.keys()].sort()).toEqual(['/songs/v-1/fast-view', '/songs/v-2/fast-view'])
   })
 })
 
