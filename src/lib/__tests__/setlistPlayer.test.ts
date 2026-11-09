@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   advance,
+  activeTrackVersionId,
   counterText,
   needsSpotifyFacts,
   pickSource,
@@ -120,5 +121,29 @@ describe('advance', () => {
 
   it('returns null for a start index outside the queue', async () => {
     expect(await advance({ entries, from: 4, direction: 1, resolve: only('a'), onSkip: () => {} })).toBeNull()
+  })
+})
+
+describe('activeTrackVersionId (RH-199)', () => {
+  const queueEntries = [
+    { versionId: 'v-1', title: 'Song 1', artist: null },
+    { versionId: 'v-2', title: 'Song 2', artist: null },
+    { versionId: 'v-3', title: 'Song 3', artist: null },
+  ]
+
+  it('returns the entry versionId when playing or paused', () => {
+    expect(activeTrackVersionId({ status: 'playing', entries: queueEntries, index: 1 })).toBe('v-2')
+    expect(activeTrackVersionId({ status: 'paused', entries: queueEntries, index: 0 })).toBe('v-1')
+  })
+
+  it('returns null when idle or stopped', () => {
+    expect(activeTrackVersionId({ status: 'idle', entries: queueEntries, index: 1 })).toBeNull()
+    expect(activeTrackVersionId({ status: 'stopped', entries: queueEntries, index: 1 })).toBeNull()
+  })
+
+  it('returns null for an out-of-range index or empty entries', () => {
+    expect(activeTrackVersionId({ status: 'playing', entries: queueEntries, index: -1 })).toBeNull()
+    expect(activeTrackVersionId({ status: 'playing', entries: queueEntries, index: 3 })).toBeNull()
+    expect(activeTrackVersionId({ status: 'playing', entries: [], index: 0 })).toBeNull()
   })
 })

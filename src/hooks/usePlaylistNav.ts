@@ -11,6 +11,7 @@ import {
   type SlideDirection,
 } from '@/lib/playlistNav'
 import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
+import { activeTrackVersionId } from '@/lib/setlistPlayer'
 import { readSongQueue, resolveQueueOwner, type SongQueueEntry } from '@/lib/songQueue'
 
 export interface UsePlaylistNavOptions {
@@ -37,6 +38,8 @@ export interface UsePlaylistNavOptions {
 export interface PlaylistNavController {
   nav: PlaylistNav | null
   entries: SongQueueEntry[]
+  /** Active track version id when setlist player is playing/paused; null otherwise (RH-199). */
+  activeVersionId: string | null
   isDrawerOpen: boolean
   slideOut: SlideDirection | null
   openDrawer: () => void
@@ -127,6 +130,10 @@ export function usePlaylistNav({
   const [slideOut, setSlideOut] = useState<SlideDirection | null>(null)
   const touchStartX = useRef<number | null>(null)
   const slideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const activeVersionId = useSetlistPlayerStore((s) =>
+    activeTrackVersionId({ status: s.status, entries: s.entries, index: s.index }),
+  )
 
   const entries = queue?.entries ?? NO_ENTRIES
 
@@ -257,6 +264,7 @@ export function usePlaylistNav({
   return {
     nav,
     entries,
+    activeVersionId,
     isDrawerOpen,
     slideOut,
     openDrawer,

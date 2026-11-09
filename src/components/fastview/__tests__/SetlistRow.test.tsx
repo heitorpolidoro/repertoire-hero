@@ -70,6 +70,45 @@ describe('SetlistRow', () => {
     renderRow({ variant: 'drawer' })
     expect(screen.getByRole('button').className).not.toContain('hover:border-gray-200')
   })
+
+  describe('marker rendering (RH-199)', () => {
+    it('renders the NOW badge when marker is now, even on a non-current row', () => {
+      const { onSelect } = renderRow({ isCurrent: false, marker: 'now' })
+
+      expect(screen.getByText(/NOW/)).toBeDefined()
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+      fireEvent.click(screen.getByRole('button'))
+      expect(onSelect).toHaveBeenCalledWith('v-rep-2')
+    })
+
+    it('renders Play button on viewed song when marker is play and onPlay is wired', () => {
+      const onPlay = vi.fn()
+      const { onSelect } = renderRow({ isCurrent: true, marker: 'play', onPlay })
+
+      expect(screen.queryByText(/NOW/)).toBeNull()
+      const playButton = screen.getByRole('button', { name: 'Play from Rosanna' })
+      expect(playButton).toBeDefined()
+      expect(playButton.textContent).toContain('Play')
+
+      fireEvent.click(playButton)
+      expect(onPlay).toHaveBeenCalledTimes(1)
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+
+    it('renders no Play button when marker is play but onPlay is not wired', () => {
+      renderRow({ isCurrent: true, marker: 'play', onPlay: undefined })
+
+      expect(screen.queryByText(/NOW/)).toBeNull()
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+    })
+
+    it('renders neither NOW nor Play button when marker is null', () => {
+      renderRow({ isCurrent: false, marker: null })
+
+      expect(screen.queryByText(/NOW/)).toBeNull()
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+    })
+  })
 })
 
 /**

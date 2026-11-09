@@ -257,3 +257,36 @@ export function backTarget(
 ): { kind: 'push'; href: string } | { kind: 'back' } {
   return originHref ? { kind: 'push', href: originHref } : { kind: 'back' }
 }
+
+/**
+ * Marker rendered on a setlist row (RH-199):
+ * - `'now'`: the setlist player's active track (or the viewed song when idle/stopped)
+ * - `'play'`: viewed song when setlist player is active on a different track
+ * - `null`: row carries neither indicator
+ */
+export type SetlistRowMarker = 'now' | 'play' | null
+
+/**
+ * Pure decision for a setlist row's marker (RH-199).
+ *
+ * | active track | row is active track | row is viewed song | marker |
+ * |---|---|---|---|
+ * | null | — | yes | 'now' |
+ * | null | — | no  | null  |
+ * | set  | yes | (either) | 'now' |
+ * | set  | no  | yes | 'play' |
+ * | set  | no  | no  | null  |
+ */
+export function setlistRowMarker(
+  entryVersionId: string,
+  viewedVersionId: string,
+  activeVersionId: string | null,
+): SetlistRowMarker {
+  if (activeVersionId === null) {
+    return entryVersionId === viewedVersionId ? 'now' : null
+  }
+  if (entryVersionId === activeVersionId) {
+    return 'now'
+  }
+  return entryVersionId === viewedVersionId ? 'play' : null
+}

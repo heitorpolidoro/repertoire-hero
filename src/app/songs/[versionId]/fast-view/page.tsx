@@ -181,6 +181,7 @@ export default function FastViewPage() {
         nav={playlist.nav}
         entries={playlist.entries}
         currentVersionId={versionId}
+        activeVersionId={playlist.activeVersionId}
         onClose={playlist.closeDrawer}
         onSelect={playlist.selectEntry} onPlay={playlist.playSetlist}
       />
@@ -270,6 +271,7 @@ export default function FastViewPage() {
           nav={playlist.nav}
           entries={playlist.entries}
           currentVersionId={versionId}
+          activeVersionId={playlist.activeVersionId}
           onSelect={playlist.selectEntry} onPlay={playlist.playSetlist}
         />
       </div>

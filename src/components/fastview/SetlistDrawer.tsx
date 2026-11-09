@@ -9,6 +9,8 @@ export interface SetlistDrawerProps {
   entries: SetlistEntry[]
   /** The route's `song_versions.id` (RH-132). */
   currentVersionId: string
+  /** The setlist player's active track version id when playing or paused; null otherwise (RH-199). */
+  activeVersionId?: string | null
   onClose: () => void
   onSelect: (versionId: string) => void
   onPlay?: () => void
@@ -25,6 +27,7 @@ export function SetlistDrawer({
   nav,
   entries,
   currentVersionId,
+  activeVersionId,
   onClose,
   onSelect,
   onPlay,
@@ -49,6 +52,7 @@ export function SetlistDrawer({
           }
           entries={entries}
           currentVersionId={currentVersionId}
+          activeVersionId={activeVersionId}
           variant="drawer"
           onPlay={
             onPlay &&

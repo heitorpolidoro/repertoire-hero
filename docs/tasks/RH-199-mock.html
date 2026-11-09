@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RH-199 — NOW stays on the playing song, Play on the viewed song</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans">
+  <div class="max-w-6xl mx-auto p-6 space-y-6">
+    <header class="space-y-2">
+      <h1 class="text-xl font-bold">RH-199 — Keep ▶ NOW on the playing song, show ▶ Play on the viewed song</h1>
+      <p class="text-sm text-gray-600 max-w-3xl">
+        The green highlight stays on the song you are <b>reading</b> (the route). While the setlist player is
+        playing or paused, <b>▶ NOW</b> stays on the song the player is on. If you are reading a different song,
+        its row shows a <b>▶ Play</b> button that restarts the setlist from it. With no playback, nothing changes
+        from today: the song you are reading carries ▶ NOW.
+      </p>
+      <p class="text-xs text-gray-500">Tap rows to "navigate", tap ▶ Play setlist / ▶ Play to start, use the bar at the bottom to pause or dismiss. Or jump to a preset state:</p>
+      <div class="flex flex-wrap gap-2" id="presets">
+        <button type="button" data-preset="idle" class="preset rounded-full border px-3 py-1 text-xs font-semibold">1 · No playback (today)</button>
+        <button type="button" data-preset="same" class="preset rounded-full border px-3 py-1 text-xs font-semibold">2 · Playing, reading the playing song</button>
+        <button type="button" data-preset="other" class="preset rounded-full border px-3 py-1 text-xs font-semibold">3 · Playing song 2, reading song 4</button>
+        <button type="button" data-preset="paused" class="preset rounded-full border px-3 py-1 text-xs font-semibold">4 · Paused on song 2, reading song 5</button>
+        <button type="button" data-preset="countdown" class="preset rounded-full border px-3 py-1 text-xs font-semibold">5 · Countdown before song 3, reading song 1</button>
+        <button type="button" data-preset="stopped" class="preset rounded-full border px-3 py-1 text-xs font-semibold">6 · End of setlist (stopped)</button>
+      </div>
+      <p id="stateLine" class="text-xs font-mono text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-2"></p>
+    </header>
+
+    <section class="space-y-2">
+      <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Desktop — Fast View with the right-hand sidebar (lg and up)</h2>
+      <div class="rounded-2xl overflow-hidden border border-gray-300 shadow-sm bg-gray-50 flex h-[520px]">
+        <div class="flex-1 p-6 space-y-4 overflow-y-auto">
+          <button type="button" class="text-sm font-medium text-emerald-600">&larr; Back</button>
+          <div>
+            <h3 id="viewTitle" class="text-2xl font-bold text-gray-900"></h3>
+            <p id="viewArtist" class="text-sm text-gray-500"></p>
+          </div>
+          <div class="rounded-xl bg-white border border-gray-200 p-4 text-sm text-gray-500 space-y-2">
+            <p class="font-semibold text-gray-700">Lyrics</p>
+            <p>[Verse 1] … the lyrics of the song on screen …</p>
+            <p>[Chorus] … the musician reads this while the player plays another song …</p>
+          </div>
+        </div>
+        <aside class="w-80 shrink-0 border-l border-gray-200 bg-white h-full overflow-y-auto flex flex-col">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white shadow-sm">
+            <div class="flex items-center gap-2 min-w-0 pr-2">
+              <span class="text-base shrink-0">🎵</span>
+              <h3 class="font-bold text-gray-900 text-sm truncate">Saturday gig</h3>
+            </div>
+            <span id="sidebarCounter" class="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200"></span>
+          </div>
+          <button type="button" data-action="play-setlist" class="mx-4 mt-3 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">&#9654; Play setlist</button>
+          <div id="sidebarRows" class="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5"></div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="space-y-2">
+      <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Mobile — the setlist bottom sheet (below lg)</h2>
+      <p class="text-xs text-gray-500">Same rows, same rule. Tapping ▶ Play here closes the sheet first, exactly like ▶ Play setlist does today.</p>
+      <div class="w-[380px] h-[600px] relative rounded-[2rem] border-8 border-gray-800 bg-gray-50 overflow-hidden shadow-lg">
+        <div class="p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-emerald-600">&larr; Back</span>
+            <button type="button" data-action="open-drawer" id="pill" class="rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700"></button>
+          </div>
+          <h3 id="mobileTitle" class="text-xl font-bold"></h3>
+          <p class="text-xs text-gray-400">Tap the Setlist pill to open the sheet.</p>
+        </div>
+        <div id="drawer" class="absolute inset-0 flex flex-col justify-end hidden">
+          <div data-action="close-drawer" class="absolute inset-0 bg-black/40"></div>
+          <div class="relative z-10 bg-white rounded-t-2xl max-h-[80%] flex flex-col shadow-2xl">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div class="flex items-center gap-2 min-w-0 pr-2">
+                <span class="text-base shrink-0">🎵</span>
+                <h3 class="font-bold text-gray-900 text-sm truncate">Saturday gig</h3>
+              </div>
+              <button type="button" data-action="close-drawer" class="text-gray-400 hover:text-gray-600 text-sm font-bold p-1">✕</button>
+            </div>
+            <button type="button" data-action="play-setlist" data-from="drawer" class="mx-4 mt-3 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">&#9654; Play setlist</button>
+            <div id="drawerRows" class="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-2 pb-28">
+      <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">The rule</h2>
+      <table class="text-xs bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <thead class="bg-gray-50 text-gray-600"><tr><th class="px-3 py-2 text-left">Player</th><th class="px-3 py-2 text-left">Row is the playing song</th><th class="px-3 py-2 text-left">Row is the song on screen</th><th class="px-3 py-2 text-left">Row shows</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr><td class="px-3 py-1.5">idle / stopped</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">yes</td><td class="px-3 py-1.5 font-bold text-emerald-700">▶ NOW</td></tr>
+          <tr><td class="px-3 py-1.5">playing / paused</td><td class="px-3 py-1.5">yes</td><td class="px-3 py-1.5">either</td><td class="px-3 py-1.5 font-bold text-emerald-700">▶ NOW</td></tr>
+          <tr><td class="px-3 py-1.5">playing / paused</td><td class="px-3 py-1.5">no</td><td class="px-3 py-1.5">yes</td><td class="px-3 py-1.5 font-bold text-emerald-700">▶ Play (button)</td></tr>
+          <tr><td class="px-3 py-1.5">any</td><td class="px-3 py-1.5">no</td><td class="px-3 py-1.5">no</td><td class="px-3 py-1.5 text-gray-400">nothing</td></tr>
+        </tbody>
+      </table>
+      <p class="text-xs text-gray-500">The green highlight always follows the song on screen; the ▶ NOW pill on a non-viewed row sits on an ordinary white row, which stays tappable.</p>
+    </section>
+  </div>
+
+  <!-- The setlist player bar (RH-167), unchanged by this task -->
+  <div id="playerBar" class="fixed bottom-0 inset-x-0 bg-gray-900 text-white hidden">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center gap-4">
+      <button type="button" id="toggleButton" data-action="toggle" class="rounded-full bg-white/10 hover:bg-white/20 p-2" aria-label="Play or pause"></button>
+      <div class="min-w-0 flex-1">
+        <p id="barTitle" class="text-sm font-semibold truncate"></p>
+        <p id="barMessage" class="text-xs text-gray-400 truncate"></p>
+      </div>
+      <span id="barCounter" class="text-xs text-gray-400"></span>
+      <button type="button" data-action="dismiss" class="rounded-full bg-white/10 hover:bg-white/20 p-2" aria-label="Dismiss player"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+  </div>
+
+  <script>
+    const ENTRIES = [
+      { versionId: 'v1', title: 'Wonderwall', artist: 'Oasis', repertoireId: 'r1' },
+      { versionId: 'v2', title: 'Sweet Child O’ Mine', artist: "Guns N' Roses", repertoireId: 'r2' },
+      { versionId: 'v3', title: 'Bad - Remaster 2012', artist: 'Michael Jackson', repertoireId: null },
+      { versionId: 'v4', title: 'Tempo Perdido', artist: 'Legião Urbana', repertoireId: 'r4' },
+      { versionId: 'v5', title: 'Garota de Ipanema', artist: 'Tom Jobim', repertoireId: 'r5' },
+      { versionId: 'v6', title: 'Hotel California', artist: 'Eagles', repertoireId: 'r6' },
+    ]
+
+    // viewed: route index. player: { status, index, countdown }
+    const state = { viewed: 0, status: 'idle', index: 0, countdown: null }
+
+    const PRESETS = {
+      idle: { viewed: 0, status: 'idle', index: 0, countdown: null },
+      same: { viewed: 1, status: 'playing', index: 1, countdown: null },
+      other: { viewed: 3, status: 'playing', index: 1, countdown: null },
+      paused: { viewed: 4, status: 'paused', index: 1, countdown: null },
+      countdown: { viewed: 0, status: 'paused', index: 2, countdown: 4 },
+      stopped: { viewed: 5, status: 'stopped', index: 5, countdown: null },
+    }
+
+    function activeVersionId() {
+      if (state.status !== 'playing' && state.status !== 'paused') return null
+      return ENTRIES[state.index] ? ENTRIES[state.index].versionId : null
+    }
+
+    function rowMarker(entryId, viewedId, activeId) {
+      if (activeId === null) return entryId === viewedId ? 'now' : null
+      if (entryId === activeId) return 'now'
+      return entryId === viewedId ? 'play' : null
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div')
+      div.textContent = text
+      return div.innerHTML
+    }
+
+    function rowHtml(entry, i, variant) {
+      const viewedId = ENTRIES[state.viewed].versionId
+      const isCurrent = entry.versionId === viewedId
+      const marker = rowMarker(entry.versionId, viewedId, activeVersionId())
+      const sidebar = variant === 'sidebar'
+      const stateClasses = isCurrent
+        ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-sm' + (sidebar ? ' ring-1 ring-emerald-400/20' : '')
+        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100' + (sidebar ? ' hover:border-gray-200' : '')
+      const chip = entry.repertoireId === null
+        ? '<span class="text-[10px] font-medium text-gray-400 bg-white border border-dashed border-gray-300 px-2 py-0.5 rounded-full shrink-0">Not in repertoire</span>'
+        : ''
+      const now = marker === 'now'
+        ? '<span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">▶ NOW</span>'
+        : ''
+      // The Play control is a sibling button laid over the row's right padding, never nested in it.
+      const play = marker === 'play'
+        ? `<button type="button" data-action="row-play" data-from="${variant}" aria-label="Play from ${escapeHtml(entry.title)}"
+             class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1 rounded-full shadow-sm">▶ Play</button>`
+        : ''
+      return `
+        <div class="relative">
+          <button type="button" data-action="select" data-index="${i}" data-from="${variant}"
+            class="w-full text-left px-3.5 py-3 ${marker === 'play' ? 'pr-20' : ''} rounded-xl transition-all flex items-center justify-between gap-2 text-xs border ${stateClasses}">
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}">${i + 1}.</span>
+              <div class="min-w-0 truncate">
+                <p class="truncate font-medium">${escapeHtml(entry.title)}</p>
+                <p class="text-[11px] text-gray-400 truncate">${escapeHtml(entry.artist)}</p>
+              </div>
+            </div>
+            <span class="flex items-center gap-1.5 shrink-0">${chip}${now}</span>
+          </button>
+          ${play}
+        </div>`
+    }
+
+    function render() {
+      const viewedEntry = ENTRIES[state.viewed]
+      document.getElementById('viewTitle').textContent = viewedEntry.title
+      document.getElementById('viewArtist').textContent = viewedEntry.artist
+      document.getElementById('mobileTitle').textContent = viewedEntry.title
+      document.getElementById('sidebarCounter').textContent = `${state.viewed + 1} / ${ENTRIES.length}`
+      document.getElementById('pill').textContent = `🎵 Setlist (${state.viewed + 1}/${ENTRIES.length})`
+      document.getElementById('sidebarRows').innerHTML = ENTRIES.map((e, i) => rowHtml(e, i, 'sidebar')).join('')
+      document.getElementById('drawerRows').innerHTML = ENTRIES.map((e, i) => rowHtml(e, i, 'drawer')).join('')
+
+      const active = activeVersionId()
+      const activeTitle = active ? ENTRIES[state.index].title : '—'
+      document.getElementById('stateLine').textContent =
+        `route (song on screen): ${state.viewed + 1}. ${viewedEntry.title}   |   player: ${state.status}` +
+        (state.countdown !== null ? ` (countdown ${state.countdown})` : '') +
+        `   |   active track: ${active ? state.index + 1 + '. ' + activeTitle : 'none'}`
+
+      const bar = document.getElementById('playerBar')
+      bar.classList.toggle('hidden', state.status === 'idle')
+      const current = ENTRIES[state.index]
+      document.getElementById('barTitle').textContent = current.title
+      document.getElementById('barCounter').textContent = `${state.index + 1} / ${ENTRIES.length}`
+      let message = ''
+      if (state.countdown !== null) message = `Starting in ${state.countdown}…`
+      else if (state.status === 'stopped') message = 'End of setlist'
+      else if (state.status === 'paused') message = 'Paused'
+      document.getElementById('barMessage').textContent = message
+      document.getElementById('toggleButton').innerHTML =
+        `<i data-lucide="${state.status === 'playing' ? 'pause' : 'play'}" class="w-4 h-4"></i>`
+      document.querySelectorAll('.preset').forEach((btn) => {
+        const p = PRESETS[btn.dataset.preset]
+        const match = p.viewed === state.viewed && p.status === state.status && p.index === state.index && p.countdown === state.countdown
+        btn.className = 'preset rounded-full border px-3 py-1 text-xs font-semibold ' +
+          (match ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700 border-gray-300')
+      })
+      if (window.lucide) window.lucide.createIcons()
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer').classList.add('hidden')
+    }
+
+    // "Play setlist" and the row Play do the same thing: start the player at the song on screen.
+    function startFromViewed() {
+      state.status = 'playing'
+      state.index = state.viewed
+      state.countdown = null
+    }
+
+    document.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-action], [data-preset]')
+      if (!target) return
+      if (target.dataset.preset) {
+        Object.assign(state, PRESETS[target.dataset.preset])
+        render()
+        return
+      }
+      const action = target.dataset.action
+      if (action === 'select') {
+        const index = Number(target.dataset.index)
+        if (index === state.viewed) return // the row on screen navigates nowhere
+        if (target.dataset.from === 'drawer') closeDrawer()
+        state.viewed = index
+      } else if (action === 'row-play' || action === 'play-setlist') {
+        if (target.dataset.from === 'drawer') closeDrawer()
+        startFromViewed()
+      } else if (action === 'open-drawer') {
+        document.getElementById('drawer').classList.remove('hidden')
+      } else if (action === 'close-drawer') {
+        closeDrawer()
+      } else if (action === 'toggle') {
+        if (state.countdown !== null) state.countdown = null
+        if (state.status === 'playing') state.status = 'paused'
+        else if (state.status === 'paused') state.status = 'playing'
+        else if (state.status === 'stopped') { state.status = 'playing' }
+      } else if (action === 'dismiss') {
+        state.status = 'idle'
+        state.countdown = null
+      }
+      render()
+    })
+
+    render()
+  </script>
+</body>
+</html>

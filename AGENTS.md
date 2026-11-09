@@ -554,7 +554,7 @@ whichever page happens to be open.
 
 - **NO Browser Alerts**: NEVER use browser `alert()` or `confirm()` dialogs. Always use floating Toast notifications (`showToast`), inline alert banners, or accessible modal overlays.
 - **Fast View Playlist Layout**:
-  - **Desktop (`lg:flex`)**: Two-column layout with a dedicated right sidebar (`w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen`) displaying the actual playlist name, track position numbers, and `▶ NOW` indicator.
+  - **Desktop (`lg:flex`)**: Two-column layout with a dedicated right sidebar (`w-80 shrink-0 border-l border-gray-200 bg-white sticky top-0 h-screen`) displaying the actual playlist name, track position numbers, and `▶ NOW` indicator (which marks the setlist player's active track while one is playing or paused, and the viewed song when idle or stopped).
   - **Mobile (`< lg`)**: Non-overlapping `🎵 Setlist (X/Y)` pill button in the top header row next to `← Back`, which opens a smooth bottom-sheet modal.
 - **Link Card UI**: Single white rounded card (`rounded-xl bg-white border border-gray-200 shadow-sm`) with a square-with-arrow SVG icon and an in-card delete button on the far right separated by a vertical divider line (`h-4 w-px bg-gray-200`).
 

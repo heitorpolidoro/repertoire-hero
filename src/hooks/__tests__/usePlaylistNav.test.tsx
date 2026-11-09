@@ -375,6 +375,7 @@ describe('usePlaylistNav', () => {
       // The chrome gets entries, a position and commands — never a band id it
       // could pass to a write.
       expect(Object.keys(result.current).sort()).toEqual([
+        'activeVersionId',
         'closeDrawer',
         'entries',
         'goBack',
@@ -389,6 +390,40 @@ describe('usePlaylistNav', () => {
         'selectEntry',
         'slideOut',
       ])
+    })
+  })
+
+  describe('activeVersionId (RH-199)', () => {
+    beforeEach(() => {
+      useSetlistPlayerStore.getState().reset()
+    })
+
+    it('derives activeVersionId from the setlist player store', async () => {
+      seed()
+      const { result } = setup()
+      await flush()
+
+      expect(result.current.activeVersionId).toBeNull()
+
+      act(() => {
+        useSetlistPlayerStore.getState().begin(ENTRIES, 1, null)
+      })
+      expect(result.current.activeVersionId).toBe('v-rep-2')
+
+      act(() => {
+        useSetlistPlayerStore.getState().patch({ status: 'stopped' })
+      })
+      expect(result.current.activeVersionId).toBeNull()
+
+      act(() => {
+        useSetlistPlayerStore.getState().begin(ENTRIES, 0, null)
+      })
+      expect(result.current.activeVersionId).toBe('v-rep-1')
+
+      act(() => {
+        useSetlistPlayerStore.getState().reset()
+      })
+      expect(result.current.activeVersionId).toBeNull()
     })
   })
 

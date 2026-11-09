@@ -75,6 +75,7 @@ Registry of what the system does today, one `##` section per functional area and
 - The setlist player automatically navigates Fast View to each upcoming song in the queue via router.replace when advancing or stepping. (src/app/AppShell.tsx, src/hooks/setlistEngines/runtime.ts, src/hooks/useSetlistPlayer.ts)
 - The setlist player shows a full-screen 5-second countdown overlay with the upcoming title, resolved tuning, custom fields, and a skip control before each song starts, but not when the previous control restarts the current song. (src/components/layout/SetlistPlayer.tsx, src/hooks/setlistEngines/runtime.ts, src/store/setlistPlayerStore.ts) (RH-198, RH-200)
 - The setlist player's previous control restarts the current song from 0:00, with no countdown, after more than 3 seconds of playback or on the first song; within the first 3 seconds it steps to the prior song. (src/hooks/setlistEngines/runtime.ts, src/hooks/useSetlistPlayer.ts, src/components/layout/SetlistPlayer.tsx) (RH-200)
+- While the setlist player is playing or paused, the setlist marks its active track ▶ NOW and the viewed song, when different, shows a Play control that restarts playback from it; with no active playback the viewed song carries ▶ NOW. (src/lib/playlistNav.ts, src/hooks/usePlaylistNav.ts, src/components/fastview/SetlistRow.tsx) (RH-199)
 - The Content-Security-Policy frame-src allows only YouTube nocookie, Google Docs and the Spotify SDK origin. (next.config.ts, src/lib/__tests__/nextConfigCsp.test.ts)
 
 ## Search

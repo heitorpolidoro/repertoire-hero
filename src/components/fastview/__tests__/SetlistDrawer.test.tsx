@@ -118,4 +118,65 @@ describe('SetlistDrawer', () => {
       expect(row?.className).not.toContain('bg-emerald-50')
     }
   })
+
+  describe('active track and viewed song markers (RH-199)', () => {
+    it('keeps NOW on active track and shows Play on viewed row when they differ', () => {
+      const callOrder: string[] = []
+      const onClose = vi.fn(() => callOrder.push('close'))
+      const onSelect = vi.fn()
+
+      renderDrawer({
+        currentVersionId: 'v-dr-b',
+        activeVersionId: 'v-dr-a',
+        onPlay: vi.fn(() => callOrder.push('play')),
+        onClose,
+        onSelect,
+      })
+
+      // Active track (Africa) has NOW
+      const activeRow = screen.getByText('Africa').closest('button')
+      expect(activeRow?.textContent).toContain('NOW')
+
+      // Viewed row (Bohemian Rhapsody) has Play button and no NOW
+      const viewedRow = screen.getByText('Bohemian Rhapsody').closest('button')
+      expect(viewedRow?.textContent).not.toContain('NOW')
+
+      const playButton = screen.getByRole('button', { name: 'Play from Bohemian Rhapsody' })
+      expect(playButton).toBeDefined()
+
+      // Exactly one NOW in the panel
+      expect(screen.getAllByText(/NOW/)).toHaveLength(1)
+
+      // Clicking Play button closes drawer before calling onPlay, and does not call onSelect
+      fireEvent.click(playButton)
+      expect(callOrder).toEqual(['close', 'play'])
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+
+    it('shows NOW on viewed row and no Play button when viewed song is active track', () => {
+      renderDrawer({
+        currentVersionId: 'v-dr-b',
+        activeVersionId: 'v-dr-b',
+        onPlay: vi.fn(),
+      })
+
+      const viewedRow = screen.getByText('Bohemian Rhapsody').closest('button')
+      expect(viewedRow?.textContent).toContain('NOW')
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+      expect(screen.getAllByText(/NOW/)).toHaveLength(1)
+    })
+
+    it('shows NOW on viewed row and no Play button when player is idle/stopped (activeVersionId is null)', () => {
+      renderDrawer({
+        currentVersionId: 'v-dr-b',
+        activeVersionId: null,
+        onPlay: vi.fn(),
+      })
+
+      const viewedRow = screen.getByText('Bohemian Rhapsody').closest('button')
+      expect(viewedRow?.textContent).toContain('NOW')
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+      expect(screen.getAllByText(/NOW/)).toHaveLength(1)
+    })
+  })
 })

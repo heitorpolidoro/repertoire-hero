@@ -7,6 +7,7 @@ import {
   keyboardTarget,
   slideOutClassName,
   backTarget,
+  setlistRowMarker,
   SWIPE_THRESHOLD_PX,
   type NavKeyPress,
   type PlaylistEntry,
@@ -289,5 +290,38 @@ describe('computePlaylistNav with entries the owner holds no row for (RH-132 ER3
 
   it('never matches the empty string against an entry', () => {
     expect(computePlaylistNav(GAPPED, '', 'Gig')).toBeNull()
+  })
+})
+
+describe('setlistRowMarker (RH-199)', () => {
+  it('returns now for the viewed song and null for other rows when active track is null', () => {
+    expect(setlistRowMarker('v-1', 'v-1', null)).toBe('now')
+    expect(setlistRowMarker('v-2', 'v-1', null)).toBeNull()
+  })
+
+  it('keeps now on the active track when active track is set, regardless of whether it is viewed', () => {
+    // Active track is also viewed
+    expect(setlistRowMarker('v-1', 'v-1', 'v-1')).toBe('now')
+    // Active track is not viewed
+    expect(setlistRowMarker('v-2', 'v-1', 'v-2')).toBe('now')
+  })
+
+  it('shows play on the viewed song when viewed song differs from the active track', () => {
+    expect(setlistRowMarker('v-1', 'v-1', 'v-2')).toBe('play')
+  })
+
+  it('returns null on a row that is neither the active track nor the viewed song', () => {
+    expect(setlistRowMarker('v-3', 'v-1', 'v-2')).toBeNull()
+  })
+
+  it('shows play on viewed row and no now anywhere when active track is absent from the queue', () => {
+    const queueIds = ['v-1', 'v-2', 'v-3']
+    const viewedId = 'v-2'
+    const activeForeignId = 'v-foreign'
+
+    const markers = queueIds.map((id) => setlistRowMarker(id, viewedId, activeForeignId))
+    expect(markers).toEqual([null, 'play', null])
+    expect(markers.filter((m) => m === 'now')).toHaveLength(0)
+    expect(markers.filter((m) => m === 'play')).toHaveLength(1)
   })
 })

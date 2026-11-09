@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { SetlistRow, type SetlistRowVariant } from './SetlistRow'
-import type { SetlistEntry } from '@/lib/playlistNav'
+import { setlistRowMarker, type SetlistEntry } from '@/lib/playlistNav'
 
 export interface SetlistPanelProps {
   /** What the queue calls itself: a playlist's name, a practice session's. */
@@ -14,6 +14,8 @@ export interface SetlistPanelProps {
   entries: SetlistEntry[]
   /** The route's `song_versions.id`, matched against each entry's own (RH-132). */
   currentVersionId: string
+  /** The setlist player's active track version id when playing or paused; null otherwise (RH-199). */
+  activeVersionId?: string | null
   variant: SetlistRowVariant
   onSelect: (versionId: string) => void
   /** RH-167: the "Play setlist" tap; the control is absent without it. */
@@ -31,6 +33,7 @@ export function SetlistPanel({
   headerClassName,
   entries,
   currentVersionId,
+  activeVersionId,
   variant,
   onSelect,
   onPlay,
@@ -58,21 +61,26 @@ export function SetlistPanel({
       )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5">
-        {entries.map((entry, index) => (
-          <SetlistRow
-            // Keyed by the entry's own identity (RH-125): `repertoireId` may be
-            // null for more than one entry, and two nulls are not two keys.
-            key={entry.versionId}
-            index={index}
-            entry={entry}
-            // By `versionId` since RH-132: the prop carries a version id, so
-            // comparing it to an owner row id would never match and no row
-            // would ever be marked current.
-            isCurrent={entry.versionId === currentVersionId}
-            variant={variant}
-            onSelect={onSelect}
-          />
-        ))}
+        {entries.map((entry, index) => {
+          const marker = setlistRowMarker(entry.versionId, currentVersionId, activeVersionId ?? null)
+          return (
+            <SetlistRow
+              // Keyed by the entry's own identity (RH-125): `repertoireId` may be
+              // null for more than one entry, and two nulls are not two keys.
+              key={entry.versionId}
+              index={index}
+              entry={entry}
+              // By `versionId` since RH-132: the prop carries a version id, so
+              // comparing it to an owner row id would never match and no row
+              // would ever be marked current.
+              isCurrent={entry.versionId === currentVersionId}
+              marker={marker}
+              variant={variant}
+              onSelect={onSelect}
+              onPlay={marker === 'play' ? onPlay : undefined}
+            />
+          )
+        })}
       </div>
     </>
   )

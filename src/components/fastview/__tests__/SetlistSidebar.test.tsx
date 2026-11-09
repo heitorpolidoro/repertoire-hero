@@ -98,4 +98,63 @@ describe('SetlistSidebar', () => {
     fireEvent.click(screen.getByText('Dazed and Confused'))
     expect(onSelect).toHaveBeenCalledWith('v-sb-1')
   })
+
+  describe('active track and viewed song markers (RH-199)', () => {
+    it('keeps NOW on active track and shows Play on viewed row when they differ', () => {
+      const onPlay = vi.fn()
+      const onSelect = vi.fn()
+
+      renderSidebar({
+        currentVersionId: 'v-sb-2',
+        activeVersionId: 'v-sb-1',
+        onPlay,
+        onSelect,
+      })
+
+      // Active track (Dazed and Confused) has NOW
+      const activeRow = screen.getByText('Dazed and Confused').closest('button')
+      expect(activeRow?.textContent).toContain('NOW')
+
+      // Viewed row (Europa) has Play button and no NOW
+      const viewedRow = screen.getByText('Europa').closest('button')
+      expect(viewedRow?.textContent).not.toContain('NOW')
+
+      const playButton = screen.getByRole('button', { name: 'Play from Europa' })
+      expect(playButton).toBeDefined()
+
+      // Exactly one NOW in the panel
+      expect(screen.getAllByText(/NOW/)).toHaveLength(1)
+
+      // Clicking Play button calls onPlay, and does not call onSelect
+      fireEvent.click(playButton)
+      expect(onPlay).toHaveBeenCalledTimes(1)
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+
+    it('shows NOW on viewed row and no Play button when viewed song is active track', () => {
+      renderSidebar({
+        currentVersionId: 'v-sb-2',
+        activeVersionId: 'v-sb-2',
+        onPlay: vi.fn(),
+      })
+
+      const viewedRow = screen.getByText('Europa').closest('button')
+      expect(viewedRow?.textContent).toContain('NOW')
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+      expect(screen.getAllByText(/NOW/)).toHaveLength(1)
+    })
+
+    it('shows NOW on viewed row and no Play button when player is idle/stopped (activeVersionId is null)', () => {
+      renderSidebar({
+        currentVersionId: 'v-sb-2',
+        activeVersionId: null,
+        onPlay: vi.fn(),
+      })
+
+      const viewedRow = screen.getByText('Europa').closest('button')
+      expect(viewedRow?.textContent).toContain('NOW')
+      expect(screen.queryByRole('button', { name: /Play from/ })).toBeNull()
+      expect(screen.getAllByText(/NOW/)).toHaveLength(1)
+    })
+  })
 })

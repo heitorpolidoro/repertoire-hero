@@ -99,3 +99,20 @@ export function tapToPlayText(title: string): string {
 export function counterText(index: number, total: number): string {
   return `${index + 1} / ${total}`
 }
+
+export interface ActiveTrackInputs {
+  status: string
+  entries: SongQueueEntry[]
+  index: number
+}
+
+/**
+ * Derives the active track's version id from the store's state (RH-199).
+ * Returns `entries[index].versionId` when `status` is `playing` or `paused`,
+ * and `null` otherwise (idle, stopped, or out-of-range index).
+ */
+export function activeTrackVersionId({ status, entries, index }: ActiveTrackInputs): string | null {
+  if (status !== 'playing' && status !== 'paused') return null
+  if (index < 0 || index >= entries.length) return null
+  return entries[index]?.versionId ?? null
+}
