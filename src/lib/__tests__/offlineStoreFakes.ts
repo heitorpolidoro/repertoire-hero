@@ -157,22 +157,35 @@ export function seedSongInput(versionId: string, tabId: string, title = 'Song'):
   }
 }
 
-/** Downloads a one-song personal setlist the way the hook does: the song, then the list. */
-export async function seedSetlist(
-  store: OfflineStore,
-  playlistId: string,
-  playlistName: string,
-  tabId: string,
-): Promise<void> {
-  const versionId = `v-${playlistId}`
-  const savedAt = '2026-09-20T18:04:00.000Z'
-  await store.saveOfflineSong({ song: seedSongInput(versionId, tabId), bandId: null, savedAt })
+/** A personal setlist of several songs, for `seedSetlistOf`. */
+export interface SeedSetlistOfInput {
+  playlistId: string
+  playlistName: string
+  /** Each entry's version id and title, in order; the chart id is `tab-<versionId>`. */
+  entries: Array<{ versionId: string; title: string }>
+  /** Version ids the list holds but this device never stored, for an `N of M` count. */
+  notStored?: string[]
+  savedAt?: string
+}
+
+/**
+ * Downloads a personal setlist of several songs the way the hook does: each
+ * song, then the list. A song another seeded setlist already stored is saved
+ * again, which leaves one record — the shared-song case (RH-194).
+ */
+export async function seedSetlistOf(store: OfflineStore, input: SeedSetlistOfInput): Promise<void> {
+  const savedAt = input.savedAt ?? '2026-09-20T18:04:00.000Z'
+  const skipped = new Set(input.notStored ?? [])
+  for (const { versionId, title } of input.entries) {
+    if (skipped.has(versionId)) continue
+    await store.saveOfflineSong({ song: seedSongInput(versionId, `tab-${versionId}`, title), bandId: null, savedAt })
+  }
   await store.saveOfflineSetlist({
-    playlistId,
-    playlistName,
+    playlistId: input.playlistId,
+    playlistName: input.playlistName,
     bandId: null,
     savedAt,
-    entries: [{ versionId, title: 'Song', artist: null }],
+    entries: input.entries.map(({ versionId, title }) => ({ versionId, title, artist: null })),
   })
 }
 

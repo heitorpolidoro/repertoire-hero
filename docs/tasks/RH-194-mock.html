@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RH-194 — Settings Offline Storage Redesign</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen p-6 antialiased">
+  <div class="max-w-2xl mx-auto space-y-6">
+    <!-- Header -->
+    <header class="border-b border-slate-200 pb-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-xs font-semibold uppercase tracking-wider text-emerald-600">RH-194 Mockup</span>
+          <h1 class="text-2xl font-bold text-slate-900">Settings: Offline Storage</h1>
+        </div>
+        <button
+          type="button"
+          id="btnReset"
+          class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-sm"
+        >
+          Reset Mock Data
+        </button>
+      </div>
+      <p class="text-sm text-slate-500 mt-1">
+        Displays two separate lists: <strong>Playlists</strong> (with N of M song counts and summed sizes) and <strong>Songs</strong> (with individual size, age, and holding playlists or individual download provenance). Deduplicates total storage so shared songs are counted once. Removes the Song badge.
+      </p>
+    </header>
+
+    <!-- Settings Card -->
+    <main class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+      <!-- Section Title & Storage Total -->
+      <div class="flex items-baseline justify-between border-b border-slate-100 pb-4">
+        <div>
+          <h2 class="text-base font-semibold text-slate-900">Offline storage</h2>
+          <p class="text-xs text-slate-500">Stored audio charts and metadata on this device</p>
+        </div>
+        <div class="text-right">
+          <p id="totalStorageDisplay" class="text-2xl font-bold text-slate-900" data-testid="offline-total">0 B</p>
+          <p id="quotaDisplay" class="text-xs text-slate-400" data-testid="offline-quota">1.1 GB of 12.0 GB used</p>
+        </div>
+      </div>
+
+      <!-- Container for dynamic content -->
+      <div id="storageContentContainer"></div>
+    </main>
+
+    <!-- Interactive Event Explanation / Log -->
+    <section class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-2">
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Interaction Log & Verification</h3>
+      <div id="interactionLog" class="text-xs text-slate-600 bg-slate-50 rounded p-2.5 font-mono space-y-1">
+        <div>• Initialized with 2 playlists and 5 songs. "Tempo Perdido" is shared between "Friday Gig" and "Ensaio quarta".</div>
+        <div>• Total storage (39.5 MB) counts "Tempo Perdido" once, which is less than the sum of the playlist sizes (36.3 MB + 3.2 MB = 39.5 MB without duplicate, plus 3.2 MB individual song Gita).</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const INITIAL_SONGS = [
+      { id: 'song-tempo', title: 'Tempo Perdido', bytes: 3200000, downloadedAgo: 'today', individualDownload: false },
+      { id: 'song-pais', title: 'Pais e Filhos', bytes: 14100000, downloadedAgo: 'today', individualDownload: false },
+      { id: 'song-faroeste', title: 'Faroeste Caboclo', bytes: 12000000, downloadedAgo: 'today', individualDownload: false },
+      { id: 'song-eduardo', title: 'Eduardo e Mônica', bytes: 7000000, downloadedAgo: 'today', individualDownload: false },
+      { id: 'song-gita', title: 'Gita', bytes: 3200000, downloadedAgo: '2 weeks ago', individualDownload: true },
+    ];
+
+    const INITIAL_PLAYLISTS = [
+      {
+        id: 'pl-friday',
+        name: 'Friday Gig',
+        savedCount: 5,
+        downloadedAgo: 'today',
+        songIds: ['song-tempo', 'song-pais', 'song-faroeste', 'song-eduardo'], // 4 of 5 stored
+      },
+      {
+        id: 'pl-ensaio',
+        name: 'Ensaio quarta',
+        savedCount: 1,
+        downloadedAgo: '3 days ago',
+        songIds: ['song-tempo'], // 1 of 1 stored
+      },
+    ];
+
+    let state = {
+      songs: JSON.parse(JSON.stringify(INITIAL_SONGS)),
+      playlists: JSON.parse(JSON.stringify(INITIAL_PLAYLISTS)),
+    };
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1000;
+      const units = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + units[i];
+    }
+
+    function logAction(msg) {
+      const logEl = document.getElementById('interactionLog');
+      if (!logEl) return;
+      const line = document.createElement('div');
+      line.textContent = '• ' + msg;
+      logEl.prepend(line);
+    }
+
+    function render() {
+      const container = document.getElementById('storageContentContainer');
+      const totalDisplay = document.getElementById('totalStorageDisplay');
+      if (!container || !totalDisplay) return;
+
+      // Deduplicated total storage: sum of each stored song record's bytes once
+      const totalBytes = state.songs.reduce((sum, s) => sum + s.bytes, 0);
+      totalDisplay.textContent = formatBytes(totalBytes);
+
+      if (state.playlists.length === 0 && state.songs.length === 0) {
+        container.innerHTML = `
+          <p class="text-sm text-slate-400 py-8 text-center" data-testid="offline-empty">
+            Nothing is stored on this device.
+          </p>
+        `;
+        return;
+      }
+
+      let html = '';
+
+      // 1. Playlists section
+      if (state.playlists.length > 0) {
+        html += `
+          <div class="space-y-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Playlists</h3>
+            <ul class="divide-y divide-slate-100 border-t border-b border-slate-100" role="list">
+        `;
+
+        for (const pl of state.playlists) {
+          // Stored songs in this playlist
+          const storedSongs = state.songs.filter(s => pl.songIds.includes(s.id));
+          const storedCount = storedSongs.length;
+          const plBytes = storedSongs.reduce((sum, s) => sum + s.bytes, 0);
+
+          html += `
+            <li class="flex items-center justify-between py-3 gap-3">
+              <div>
+                <p class="text-sm font-medium text-slate-900">${pl.name}</p>
+                <p class="text-xs text-slate-500">
+                  ${storedCount} of ${pl.savedCount} songs &middot; ${formatBytes(plBytes)} &middot; downloaded ${pl.downloadedAgo}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Remove ${pl.name} from this device"
+                onclick="handleRemovePlaylist('${pl.id}')"
+                class="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
+              >
+                Remove
+              </button>
+            </li>
+          `;
+        }
+
+        html += `
+            </ul>
+          </div>
+        `;
+      }
+
+      // 2. Songs section
+      if (state.songs.length > 0) {
+        html += `
+          <div class="space-y-2 pt-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Songs</h3>
+            <ul class="divide-y divide-slate-100 border-t border-b border-slate-100" role="list">
+        `;
+
+        for (const song of state.songs) {
+          // Find holding playlists
+          const holding = state.playlists.filter(pl => pl.songIds.includes(song.id)).map(pl => 'In ' + pl.name);
+          if (song.individualDownload) {
+            holding.push('Downloaded individually');
+          }
+          const provenance = holding.length > 0 ? holding.join(', ') : 'Stored on device';
+
+          html += `
+            <li class="flex items-center justify-between py-3 gap-3">
+              <div>
+                <p class="text-sm font-medium text-slate-900">${song.title}</p>
+                <p class="text-xs text-slate-500">
+                  ${formatBytes(song.bytes)} &middot; downloaded ${song.downloadedAgo} &middot; ${provenance}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Remove ${song.title} from this device"
+                onclick="handleRemoveSong('${song.id}')"
+                class="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
+              >
+                Remove
+              </button>
+            </li>
+          `;
+        }
+
+        html += `
+            </ul>
+          </div>
+        `;
+      }
+
+      container.innerHTML = html;
+    }
+
+    // Protection rule removal: removing a playlist removes only songs not held by another playlist and not marked individualDownload
+    function handleRemovePlaylist(playlistId) {
+      const pl = state.playlists.find(p => p.id === playlistId);
+      if (!pl) return;
+
+      const remainingPlaylists = state.playlists.filter(p => p.id !== playlistId);
+
+      // Determine which songs should be kept
+      const songsToKeep = state.songs.filter(song => {
+        const heldByOther = remainingPlaylists.some(other => other.songIds.includes(song.id));
+        const isIndividual = song.individualDownload;
+        return heldByOther || isIndividual;
+      });
+
+      const deletedSongs = state.songs.filter(s => !songsToKeep.includes(s));
+
+      state.playlists = remainingPlaylists;
+      state.songs = songsToKeep;
+
+      logAction(`Removed playlist "${pl.name}". Protection rule kept songs held by other playlists or downloaded individually; deleted ${deletedSongs.map(s => '"' + s.title + '"').join(', ') || 'no songs'}.`);
+      render();
+    }
+
+    // Removing a song removes that song and updates the counts of playlists holding it
+    function handleRemoveSong(songId) {
+      const song = state.songs.find(s => s.id === songId);
+      if (!song) return;
+
+      state.songs = state.songs.filter(s => s.id !== songId);
+      // Remove from playlist songIds mapping so storedCount reflects removal
+      for (const pl of state.playlists) {
+        pl.songIds = pl.songIds.filter(id => id !== songId);
+      }
+
+      logAction(`Removed song "${song.title}". Lowered the stored count and summed size of all playlists that held it.`);
+      render();
+    }
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+      state = {
+        songs: JSON.parse(JSON.stringify(INITIAL_SONGS)),
+        playlists: JSON.parse(JSON.stringify(INITIAL_PLAYLISTS)),
+      };
+      logAction('Reset mock data to initial seeded state.');
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
