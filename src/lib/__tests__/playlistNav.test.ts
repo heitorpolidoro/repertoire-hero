@@ -8,6 +8,8 @@ import {
   slideOutClassName,
   backTarget,
   setlistRowMarker,
+  isEntryUnavailable,
+  nearestAvailableEntries,
   SWIPE_THRESHOLD_PX,
   type NavKeyPress,
   type PlaylistEntry,
@@ -84,6 +86,85 @@ describe('computePlaylistNav', () => {
     expect(computePlaylistNav(ENTRIES, 'v-2', 'Practice session')?.queueLabel).toBe(
       'Practice session',
     )
+  })
+})
+
+/** RH-196 — offline, moving skips the songs not on this device. */
+describe('computePlaylistNav with offline availability', () => {
+  const FIVE = ['v-1', 'v-2', 'v-3', 'v-4', 'v-5'].map((versionId) => ({
+    versionId,
+    title: `Title ${versionId}`,
+    artist: null,
+  }))
+
+  it('skips one unavailable entry in both directions, keeping position and total', () => {
+    const available = new Set(['v-1', 'v-3', 'v-5'])
+    expect(computePlaylistNav(FIVE, 'v-3', 'Gig', available)).toEqual({
+      prevId: 'v-1',
+      nextId: 'v-5',
+      position: 3,
+      total: 5,
+      queueLabel: 'Gig',
+    })
+  })
+
+  it('skips several consecutive unavailable entries', () => {
+    const available = new Set(['v-1', 'v-4'])
+    expect(computePlaylistNav(FIVE, 'v-1', 'Gig', available)).toMatchObject({ prevId: null, nextId: 'v-4', position: 1 })
+    expect(computePlaylistNav(FIVE, 'v-4', 'Gig', available)).toMatchObject({ prevId: 'v-1', nextId: null, position: 4 })
+  })
+
+  it('stops at the ends without wrapping when nothing is available in that direction', () => {
+    const available = new Set(['v-3'])
+    const nav = computePlaylistNav(FIVE, 'v-3', 'Gig', available)
+    expect(nav).toMatchObject({ prevId: null, nextId: null, position: 3, total: 5 })
+  })
+
+  it('resolves the nearest available neighbours even when the current entry is unavailable', () => {
+    const available = new Set(['v-1', 'v-5'])
+    expect(computePlaylistNav(FIVE, 'v-3', 'Gig', available)).toMatchObject({ prevId: 'v-1', nextId: 'v-5' })
+  })
+
+  it('uses the immediate neighbours when availability is null or omitted', () => {
+    expect(computePlaylistNav(FIVE, 'v-3', 'Gig', null)).toMatchObject({ prevId: 'v-2', nextId: 'v-4' })
+    expect(computePlaylistNav(FIVE, 'v-3', 'Gig', undefined)).toMatchObject({ prevId: 'v-2', nextId: 'v-4' })
+  })
+})
+
+describe('nearestAvailableEntries', () => {
+  const FIVE = ['v-1', 'v-2', 'v-3', 'v-4', 'v-5'].map((versionId) => ({
+    versionId,
+    title: `Title ${versionId}`,
+    artist: null,
+  }))
+
+  it('returns the whole nearest available entries, titles included', () => {
+    expect(nearestAvailableEntries(FIVE, 'v-3', new Set(['v-1', 'v-5']))).toEqual({
+      prev: FIVE[0],
+      next: FIVE[4],
+    })
+  })
+
+  it('returns null on a side with no available entry', () => {
+    expect(nearestAvailableEntries(FIVE, 'v-1', new Set(['v-1']))).toEqual({ prev: null, next: null })
+  })
+
+  it('returns the immediate neighbours without availability', () => {
+    expect(nearestAvailableEntries(FIVE, 'v-3', null)).toEqual({ prev: FIVE[1], next: FIVE[3] })
+  })
+
+  it('returns no neighbours when the current entry is not in the queue', () => {
+    expect(nearestAvailableEntries(FIVE, 'v-99', new Set(['v-1']))).toEqual({ prev: null, next: null })
+    expect(nearestAvailableEntries(FIVE, 'v-99', null)).toEqual({ prev: null, next: null })
+  })
+})
+
+describe('isEntryUnavailable', () => {
+  it('is false without availability and for an available entry, true otherwise', () => {
+    expect(isEntryUnavailable('v-1', null)).toBe(false)
+    expect(isEntryUnavailable('v-1', undefined)).toBe(false)
+    expect(isEntryUnavailable('v-1', new Set(['v-1']))).toBe(false)
+    expect(isEntryUnavailable('v-2', new Set(['v-1']))).toBe(true)
   })
 })
 

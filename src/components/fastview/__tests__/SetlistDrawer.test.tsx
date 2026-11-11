@@ -179,4 +179,26 @@ describe('SetlistDrawer', () => {
       expect(screen.getAllByText(/NOW/)).toHaveLength(1)
     })
   })
+
+  /** RH-196 — offline, the songs not on this device are disabled and marked. */
+  it('disables and marks the entries not on this device, and selects none of them', () => {
+    const { onSelect, onClose } = renderDrawer({ availableVersionIds: new Set(['v-dr-a', 'v-dr-b']) })
+
+    const coda = screen.getByText('Coda').closest('button') as HTMLButtonElement
+    expect(coda.disabled).toBe(true)
+    expect(coda.textContent).toContain('Not on this device')
+    expect(screen.getAllByText('Not on this device')).toHaveLength(1)
+    fireEvent.click(coda)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+
+    const africa = screen.getByText('Africa').closest('button') as HTMLButtonElement
+    expect(africa.disabled).toBe(false)
+  })
+
+  it('marks nothing without an availability set (online)', () => {
+    renderDrawer({ availableVersionIds: null })
+
+    expect(screen.queryByText('Not on this device')).toBeNull()
+  })
 })

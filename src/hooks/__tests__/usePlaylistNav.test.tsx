@@ -13,6 +13,8 @@ import { usePlaylistNav, type UsePlaylistNavOptions } from '../usePlaylistNav'
 import { SLIDE_OUT_MS } from '@/lib/playlistNav'
 import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
 import { writeSongQueue, SONG_QUEUE_KEY, type SongQueue } from '@/lib/songQueue'
+import type { QueueAvailabilityStore } from '../useQueueAvailability'
+import type { OfflineSongRecord } from '@/lib/offlineRecords'
 
 afterEach(cleanup)
 
@@ -376,6 +378,7 @@ describe('usePlaylistNav', () => {
       // could pass to a write.
       expect(Object.keys(result.current).sort()).toEqual([
         'activeVersionId',
+        'availableVersionIds',
         'closeDrawer',
         'entries',
         'goBack',
@@ -383,10 +386,12 @@ describe('usePlaylistNav', () => {
         'goPrev',
         'isDrawerOpen',
         'nav',
+        'nextEntry',
         'onTouchEnd',
         'onTouchStart',
         'openDrawer',
         'playSetlist',
+        'prevEntry',
         'selectEntry',
         'slideOut',
       ])
@@ -531,6 +536,146 @@ describe('usePlaylistNav', () => {
       press('ArrowUp')
       expect(replace).not.toHaveBeenCalled()
       expect(navigate).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * RH-196 — offline, moving skips the queue entries not on this device and
+   * stops at the ends; online nothing changes and the store is never read.
+   */
+  describe('offline skip navigation', () => {
+    const FIVE = ['v-1', 'v-2', 'v-3', 'v-4', 'v-5'].map((versionId) => ({
+      versionId,
+      title: `Song ${versionId}`,
+      artist: null,
+    }))
+    const FIVE_QUEUE: SongQueue = { entries: FIVE, owner: { type: 'personal' }, originHref: '/offline', label: 'Gig' }
+
+    /** v-2 and v-4 are not on this device. */
+    function storeWith(versionIds: string[] = ['v-1', 'v-3', 'v-5']): QueueAvailabilityStore {
+      return {
+        listOfflineSongs: vi.fn(() =>
+          Promise.resolve(versionIds.map((versionId) => ({ versionId, bandId: null })) as unknown as OfflineSongRecord[]),
+        ),
+      }
+    }
+
+    function press(key: string) {
+      act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+    }
+
+    function offlineAt(currentVersionId: string, store = storeWith()) {
+      seed(FIVE_QUEUE)
+      return setup({ currentVersionId, bandId: null, offline: true, store })
+    }
+
+    it('ArrowRight and ArrowLeft skip the unavailable neighbours', async () => {
+      const { navigate } = offlineAt('v-3')
+      await flush()
+
+      press('ArrowRight')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-5/fast-view?')
+      press('ArrowLeft')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-1/fast-view?')
+    })
+
+    it('goNext and goPrev skip the unavailable neighbours and keep position and total', async () => {
+      const { result, navigate } = offlineAt('v-3')
+      await flush()
+
+      expect(result.current.nav).toMatchObject({ prevId: 'v-1', nextId: 'v-5', position: 3, total: 5 })
+      act(() => result.current.goNext())
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-5/fast-view?')
+      act(() => result.current.goPrev())
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-1/fast-view?')
+    })
+
+    it('swipes skip the unavailable neighbours in both directions', async () => {
+      const { result, navigate } = offlineAt('v-3')
+      await flush()
+
+      act(() => result.current.onTouchStart(300))
+      act(() => result.current.onTouchEnd(200))
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-5/fast-view?')
+
+      act(() => result.current.onTouchStart(200))
+      act(() => result.current.onTouchEnd(300))
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-1/fast-view?')
+    })
+
+    it('stops at the queue ends without wrapping when nothing is available that way', async () => {
+      const first = offlineAt('v-1', storeWith(['v-1', 'v-2']))
+      await flush()
+      press('ArrowLeft')
+      expect(first.navigate).not.toHaveBeenCalled()
+      cleanup()
+
+      const last = offlineAt('v-5', storeWith(['v-1', 'v-5']))
+      await flush()
+      press('ArrowRight')
+      expect(last.navigate).toHaveBeenCalledTimes(0)
+      press('ArrowLeft')
+      expect(last.navigate).toHaveBeenLastCalledWith('/songs/v-1/fast-view?')
+
+      // Nothing available after the current entry: no next at all, not v-1.
+      const stuck = offlineAt('v-4', storeWith(['v-1']))
+      await flush()
+      expect(stuck.result.current.nav).toMatchObject({ prevId: 'v-1', nextId: null })
+    })
+
+    it('ignores selecting an unavailable entry and selects an available one', async () => {
+      const { result, navigate } = offlineAt('v-3')
+      await flush()
+
+      act(() => result.current.selectEntry('v-4'))
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(result.current.slideOut).toBeNull()
+      expect(navigate).not.toHaveBeenCalled()
+
+      act(() => result.current.selectEntry('v-5'))
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(navigate).toHaveBeenCalledWith('/songs/v-5/fast-view?')
+    })
+
+    it('exposes the availability and the nearest available entries with their titles', async () => {
+      const { result } = offlineAt('v-2')
+      await flush()
+
+      expect(result.current.availableVersionIds).toEqual(new Set(['v-1', 'v-3', 'v-5']))
+      expect(result.current.prevEntry).toEqual(FIVE[0])
+      expect(result.current.nextEntry).toEqual(FIVE[2])
+    })
+
+    it('uses the plain neighbours until the availability read settles', async () => {
+      const { result } = offlineAt('v-3')
+
+      expect(result.current.availableVersionIds).toBeNull()
+      expect(result.current.nav).toMatchObject({ prevId: 'v-2', nextId: 'v-4' })
+
+      await flush()
+      expect(result.current.nav).toMatchObject({ prevId: 'v-1', nextId: 'v-5' })
+    })
+
+    it('online, walks sequentially and never reads the store', async () => {
+      const store = storeWith()
+      seed(FIVE_QUEUE)
+      const { result, navigate } = setup({ currentVersionId: 'v-3', bandId: null, offline: false, store })
+      await flush()
+
+      expect(store.listOfflineSongs).not.toHaveBeenCalled()
+      expect(result.current.availableVersionIds).toBeNull()
+      press('ArrowRight')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-4/fast-view?')
+      press('ArrowLeft')
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-2/fast-view?')
+      act(() => result.current.selectEntry('v-4'))
+      act(() => { vi.advanceTimersByTime(SLIDE_OUT_MS) })
+      expect(navigate).toHaveBeenLastCalledWith('/songs/v-4/fast-view?')
     })
   })
 })

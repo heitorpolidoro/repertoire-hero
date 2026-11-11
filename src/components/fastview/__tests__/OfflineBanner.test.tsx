@@ -47,4 +47,35 @@ describe('OfflineUnavailable (RH-80)', () => {
 
     expect(onBack).toHaveBeenCalledTimes(1)
   })
+
+  /** RH-196 — the per-song offline model, in the body copy. */
+  it('says the song is not stored on this device and names both ways to store it', () => {
+    render(<OfflineUnavailable onBack={vi.fn()} />)
+
+    expect(screen.getByTestId('offline-unavailable').textContent).toContain(
+      'It is not stored on this device. While you have a connection, open its playlist and choose Make available offline, or open the song and choose Available offline.',
+    )
+  })
+
+  it('offers Previous and Next to the nearest available queue songs', () => {
+    const prev = { title: 'Índios', onSelect: vi.fn() }
+    const next = { title: 'Eduardo e Mônica', onSelect: vi.fn() }
+    const onBack = vi.fn()
+    render(<OfflineUnavailable onBack={onBack} prev={prev} next={next} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Previous: Índios/ }))
+    expect(prev.onSelect).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /Next: Eduardo e Mônica/ }))
+    expect(next.onSelect).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits a direction with no available song', () => {
+    render(<OfflineUnavailable onBack={vi.fn()} prev={null} next={{ title: 'Tempo Perdido', onSelect: vi.fn() }} />)
+
+    expect(screen.queryByRole('button', { name: /Previous:/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Next: Tempo Perdido/ })).toBeDefined()
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+  })
 })

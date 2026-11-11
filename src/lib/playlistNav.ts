@@ -100,18 +100,23 @@ const MAIN_CLASSES =
  * skip-the-neighbour-with-no-owner-row step this function used to apply:
  * `prevId` and `nextId` are the plain neighbours now, including the ones whose
  * owner holds no row. `position` and `total` count every entry, as before.
+ *
+ * **Offline (RH-196)**, `availableVersionIds` is the set of queue versions
+ * stored on this device, and `prevId` / `nextId` become the nearest entries in
+ * that set — the songs not on the device are skipped, the ends still never
+ * wrap. `null` or omitted (online, or before the store read settles) keeps the
+ * plain neighbours. `position` and `total` count every entry either way.
  */
 export function computePlaylistNav(
   entries: SongQueueEntry[],
   currentVersionId: string,
   queueLabel: string,
+  availableVersionIds?: ReadonlySet<string> | null,
 ): PlaylistNav | null {
   const index = entries.findIndex((entry) => entry.versionId === currentVersionId)
   if (index === -1) return null
 
-  // The ends are absent, never wrapped — one definition of that, in
-  // `queueNeighbours`, shared with the window RH-134 will fetch.
-  const { prev, next } = queueNeighbours(entries, currentVersionId)
+  const { prev, next } = nearestAvailableEntries(entries, currentVersionId, availableVersionIds)
 
   return {
     prevId: prev?.versionId ?? null,
@@ -119,6 +124,44 @@ export function computePlaylistNav(
     position: index + 1,
     total: entries.length,
     queueLabel,
+  }
+}
+
+/**
+ * True only when an availability set is known and does not hold this version:
+ * offline, the song is not on this device. Without a set every entry counts as
+ * available, which is what keeps the online chrome unchanged (RH-196).
+ */
+export function isEntryUnavailable(
+  versionId: string,
+  availableVersionIds: ReadonlySet<string> | null | undefined,
+): boolean {
+  return availableVersionIds != null && !availableVersionIds.has(versionId)
+}
+
+/**
+ * The whole entries `computePlaylistNav` points at, so a screen can name them
+ * (`Previous: <title>`, RH-196): the nearest available entry on each side of
+ * the current one, or the plain neighbours without an availability set. `null`
+ * on a side with nothing to reach, and on both when the current version is not
+ * in the queue. The current entry itself may be unavailable — that is exactly
+ * the not-on-this-device screen asking where to go.
+ */
+export function nearestAvailableEntries(
+  entries: SongQueueEntry[],
+  currentVersionId: string,
+  availableVersionIds?: ReadonlySet<string> | null,
+): { prev: SongQueueEntry | null; next: SongQueueEntry | null } {
+  // The ends are absent, never wrapped — one definition of that, in
+  // `queueNeighbours`, shared with the window RH-134 fetches.
+  if (!availableVersionIds) return queueNeighbours(entries, currentVersionId)
+
+  const index = entries.findIndex((entry) => entry.versionId === currentVersionId)
+  if (index === -1) return { prev: null, next: null }
+  const isAvailable = (entry: SongQueueEntry) => availableVersionIds.has(entry.versionId)
+  return {
+    prev: entries.slice(0, index).findLast(isAvailable) ?? null,
+    next: entries.slice(index + 1).find(isAvailable) ?? null,
   }
 }
 

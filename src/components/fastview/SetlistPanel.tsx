@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { SetlistRow, type SetlistRowVariant } from './SetlistRow'
-import { setlistRowMarker, type SetlistEntry } from '@/lib/playlistNav'
+import { isEntryUnavailable, setlistRowMarker, type SetlistEntry } from '@/lib/playlistNav'
 
 export interface SetlistPanelProps {
   /** What the queue calls itself: a playlist's name, a practice session's. */
@@ -20,6 +20,8 @@ export interface SetlistPanelProps {
   onSelect: (versionId: string) => void
   /** RH-167: the "Play setlist" tap; the control is absent without it. */
   onPlay?: () => void
+  /** Offline, the queue versions on this device; `null` marks nothing (RH-196). */
+  availableVersionIds?: ReadonlySet<string> | null
 }
 
 /**
@@ -37,6 +39,7 @@ export function SetlistPanel({
   variant,
   onSelect,
   onPlay,
+  availableVersionIds = null,
 }: SetlistPanelProps) {
   return (
     <>
@@ -78,6 +81,7 @@ export function SetlistPanel({
               variant={variant}
               onSelect={onSelect}
               onPlay={marker === 'play' ? onPlay : undefined}
+              unavailable={isEntryUnavailable(entry.versionId, availableVersionIds)}
             />
           )
         })}

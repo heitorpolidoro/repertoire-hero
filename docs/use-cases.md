@@ -1099,6 +1099,17 @@ arrival you open the app and everything you marked is there to read.
 - Navigation survives offline on its own: the queue is in `sessionStorage` and the window
   of songs around the current one comes from the download, so the setlist chrome and the
   swipe keep working (see *Walk a queue of songs*).
+- Offline is a per-song fact (RH-192): a song is on this device or it is not, whichever
+  setlist or single-song download stored it, and one song can be removed while its
+  setlists stay. **Built (RH-196):** walking a queue offline, Fast View reads which
+  entries are stored (`useQueueAvailability`; any owner context counts, the same fallback
+  the offline reader answers with) and marks the others *Not on this device* — a disabled
+  row in the drawer and the sidebar, a disabled `(not on this device)` option in the
+  select. Swipe, arrow keys, pedals and the previous arrow skip them to the nearest stored
+  song and stop at the ends without wrapping; `position / total` still counts every entry.
+  A song not on the device opened inside a queue offers `Previous: <title>` and
+  `Next: <title>` to the nearest stored songs, and Back returns to the queue's origin.
+  Online, nothing is marked or skipped.
 
 **Open**
 - Nothing. The one defect here — adding a link was not disabled offline — is **closed**

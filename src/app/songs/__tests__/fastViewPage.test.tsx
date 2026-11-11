@@ -140,6 +140,21 @@ vi.mock('next/navigation', () => ({
 // unless it flips `offlineSignal`, so `readOnly` is driven only by `ownerRowId`
 // — which is the point.
 vi.mock('@/hooks/useOfflineStatus', () => ({ useOfflineStatus: () => offlineSignal.offline }))
+
+/**
+ * RH-196: the versions stored on this device, switchable per test. The real
+ * store reaches for IndexedDB, which jsdom does not implement; only the
+ * `listOfflineSongs` read matters to the page's queue availability.
+ */
+const storedOnDevice = vi.hoisted(() => ({ versionIds: [] as string[] }))
+vi.mock('@/lib/offlineStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/offlineStore')>()),
+  OFFLINE_STORE: {
+    listOfflineSongs: () =>
+      Promise.resolve(storedOnDevice.versionIds.map((versionId) => ({ versionId, bandId: null, playlistId: `song:${versionId}` }))),
+    listOfflinePlaylists: () => Promise.resolve([]),
+  },
+}))
 vi.mock('@/hooks/useWakeLock', () => ({ useWakeLock: () => undefined }))
 
 import FastViewPage from '../[versionId]/fast-view/page'
@@ -214,6 +229,7 @@ beforeEach(() => {
   // No definitions by default, so every other suite here sees no section.
   actions.getCustomFieldValues.mockResolvedValue([])
   offlineSignal.offline = false
+  storedOnDevice.versionIds = []
   push.mockReset()
   back.mockReset()
 })
@@ -626,6 +642,88 @@ describe('Fast View and the tab song queue (RH-133 ER4)', { timeout: 30_000 }, (
 
     expect(screen.getByText(/Setlist \(1\/2\)/)).toBeDefined()
     expect(screen.getAllByText('Saturday gig').length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * RH-196 — offline, the queue marks and skips the songs not on this device,
+ * and the not-on-this-device screen offers the nearest ones that are.
+ */
+describe('Fast View offline over a queue with a song not on this device (RH-196)', { timeout: 30_000 }, () => {
+  const GAP = 'gap-version'
+  const LAST = 'last-version'
+
+  function seedQueue(firstVersionId = ROUTE_VERSION_ID) {
+    writeSongQueue({
+      entries: [
+        { versionId: firstVersionId, title: 'Spoonman', artist: 'Soundgarden' },
+        { versionId: GAP, title: 'Outshined', artist: 'Soundgarden' },
+        { versionId: LAST, title: 'Black Hole Sun', artist: 'Soundgarden' },
+      ],
+      owner: { type: 'personal' },
+      originHref: '/offline',
+      label: 'Saturday gig',
+    })
+  }
+
+  it('marks the missing song in the sidebar and the select, keeps 1 / 3, and ArrowRight skips it', async () => {
+    offlineSignal.offline = true
+    storedOnDevice.versionIds = [ROUTE_VERSION_ID, LAST]
+    seedQueue()
+    await renderPage()
+
+    const sidebar = document.querySelector('aside') as HTMLElement
+    const gapRow = await within(sidebar).findByRole('button', { name: /Outshined.*Not on this device/ })
+    expect((gapRow as HTMLButtonElement).disabled).toBe(true)
+    expect(within(sidebar).getByText('1 / 3')).toBeDefined()
+    const gapOption = screen.getByRole('option', { name: '2. Outshined (not on this device)' }) as HTMLOptionElement
+    expect(gapOption.disabled).toBe(true)
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' })
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/songs/${LAST}/fast-view?`))
+    expect(push).not.toHaveBeenCalledWith(`/songs/${GAP}/fast-view?`)
+  })
+
+  it('online, marks nothing and ArrowRight moves to the very next song', async () => {
+    storedOnDevice.versionIds = [ROUTE_VERSION_ID, LAST]
+    seedQueue()
+    await renderPage()
+
+    expect(screen.queryByText('Not on this device')).toBeNull()
+    fireEvent.keyDown(document, { key: 'ArrowRight' })
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/songs/${GAP}/fast-view?`))
+  })
+
+  it('on the missing song, offers Previous and Next to the nearest stored songs and Back to the origin', async () => {
+    offlineSignal.offline = true
+    storedOnDevice.versionIds = ['first-version', LAST]
+    actions.getResolvedEntryForVersion.mockResolvedValue(null)
+    route.versionId = GAP
+    seedQueue('first-version')
+    render(<FastViewPage />)
+
+    await screen.findByTestId('offline-unavailable', {}, { timeout: 20_000 })
+    const next = await screen.findByRole('button', { name: /Next: Black Hole Sun/ })
+    expect(screen.getByRole('button', { name: /Previous: Spoonman/ })).toBeDefined()
+
+    fireEvent.click(next)
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/songs/${LAST}/fast-view?`))
+
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(push).toHaveBeenCalledWith('/offline')
+    expect(back).not.toHaveBeenCalled()
+  })
+
+  it('on a missing song opened alone, offers no Previous or Next and Back walks history', async () => {
+    offlineSignal.offline = true
+    actions.getResolvedEntryForVersion.mockResolvedValue(null)
+    render(<FastViewPage />)
+
+    await screen.findByTestId('offline-unavailable', {}, { timeout: 20_000 })
+    expect(screen.queryByRole('button', { name: /Previous:|Next:/ })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(back).toHaveBeenCalledTimes(1)
   })
 })
 

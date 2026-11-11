@@ -3,7 +3,9 @@ import {
   backTarget,
   computePlaylistNav,
   fastViewHref,
+  isEntryUnavailable,
   keyboardTarget,
+  nearestAvailableEntries,
   slideDirection,
   swipeTarget,
   SLIDE_OUT_MS,
@@ -13,6 +15,7 @@ import {
 import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
 import { activeTrackVersionId } from '@/lib/setlistPlayer'
 import { readSongQueue, resolveQueueOwner, type SongQueueEntry } from '@/lib/songQueue'
+import { useQueueAvailability, type QueueAvailabilityStore } from '@/hooks/useQueueAvailability'
 
 export interface UsePlaylistNavOptions {
   /** The route's `song_versions.id` — the Fast View address (RH-132). */
@@ -33,6 +36,10 @@ export interface UsePlaylistNavOptions {
   keyboardEnabled?: boolean
   /** Active stage overlay if Stage Mode is open (RH-197). */
   activeStage?: 'lyrics' | 'pdf' | null
+  /** The page's offline signal: offline, moving skips songs not on this device (RH-196). */
+  offline?: boolean
+  /** Defaults to the real `OFFLINE_STORE`; a test injects its own. */
+  store?: QueueAvailabilityStore
 }
 
 export interface PlaylistNavController {
@@ -40,6 +47,15 @@ export interface PlaylistNavController {
   entries: SongQueueEntry[]
   /** Active track version id when setlist player is playing/paused; null otherwise (RH-199). */
   activeVersionId: string | null
+  /**
+   * The queue versions stored on this device, offline only; `null` means every
+   * entry counts as available (online, or before the store read settles).
+   */
+  availableVersionIds: ReadonlySet<string> | null
+  /** The entry `goPrev` goes to, so a screen can name it (RH-196). */
+  prevEntry: SongQueueEntry | null
+  /** The entry `goNext` goes to. */
+  nextEntry: SongQueueEntry | null
   isDrawerOpen: boolean
   slideOut: SlideDirection | null
   openDrawer: () => void
@@ -109,6 +125,8 @@ export function usePlaylistNav({
   replace,
   keyboardEnabled = true,
   activeStage = null,
+  offline = false,
+  store,
 }: UsePlaylistNavOptions): PlaylistNavController {
   const storedQueue = useSyncExternalStore(subscribeToSongQueue, readSongQueue, noQueueOnTheServer)
 
@@ -137,11 +155,19 @@ export function usePlaylistNav({
 
   const entries = queue?.entries ?? NO_ENTRIES
 
+  // Offline, which entries are on this device; `null` online (RH-196).
+  const availableVersionIds = useQueueAvailability(entries, offline, store)
+
   // Derived, never stored: the current place is the route's version id matched
-  // against the stored entries.
+  // against the stored entries, and offline the neighbours skip what is not on
+  // this device.
   const nav = useMemo(
-    () => (queue ? computePlaylistNav(queue.entries, currentVersionId, queue.label) : null),
-    [currentVersionId, queue],
+    () => (queue ? computePlaylistNav(queue.entries, currentVersionId, queue.label, availableVersionIds) : null),
+    [availableVersionIds, currentVersionId, queue],
+  )
+  const { prev: prevEntry, next: nextEntry } = useMemo(
+    () => nearestAvailableEntries(entries, currentVersionId, availableVersionIds),
+    [availableVersionIds, currentVersionId, entries],
   )
 
   // The `?bandId=` of the hrefs this controller pushes, and nothing else: the
@@ -177,9 +203,11 @@ export function usePlaylistNav({
   const selectEntry = useCallback(
     (versionId: string) => {
       if (versionId === currentVersionId) return
+      // A song not on this device is a disabled row offline; refuse it here too.
+      if (isEntryUnavailable(versionId, availableVersionIds)) return
       slideAwayTo(versionId, slideDirection(entries, currentVersionId, versionId))
     },
-    [currentVersionId, entries, slideAwayTo],
+    [availableVersionIds, currentVersionId, entries, slideAwayTo],
   )
 
   const goPrev = useCallback(() => {
@@ -265,6 +293,9 @@ export function usePlaylistNav({
     nav,
     entries,
     activeVersionId,
+    availableVersionIds,
+    prevEntry,
+    nextEntry,
     isDrawerOpen,
     slideOut,
     openDrawer,

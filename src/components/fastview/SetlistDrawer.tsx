@@ -14,6 +14,8 @@ export interface SetlistDrawerProps {
   onClose: () => void
   onSelect: (versionId: string) => void
   onPlay?: () => void
+  /** Offline, the queue versions on this device; `null` marks nothing (RH-196). */
+  availableVersionIds?: ReadonlySet<string> | null
 }
 
 /**
@@ -31,6 +33,7 @@ export function SetlistDrawer({
   onClose,
   onSelect,
   onPlay,
+  availableVersionIds = null,
 }: SetlistDrawerProps) {
   if (!open || !nav) return null
 
@@ -54,6 +57,7 @@ export function SetlistDrawer({
           currentVersionId={currentVersionId}
           activeVersionId={activeVersionId}
           variant="drawer"
+          availableVersionIds={availableVersionIds}
           onPlay={
             onPlay &&
             (() => {

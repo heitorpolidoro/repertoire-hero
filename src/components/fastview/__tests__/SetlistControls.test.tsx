@@ -116,6 +116,37 @@ describe('SetlistSelect', () => {
     fireEvent.change(select, { target: { value: 'v-ct-1' } })
     expect(onSelect).toHaveBeenCalledWith('v-ct-1')
   })
+
+  /** RH-196 — offline, an entry not on this device is a disabled, marked option. */
+  it('disables the options not on this device and drops their artist', () => {
+    render(
+      <SetlistSelect
+        nav={navAt(1)}
+        entries={TRACKS}
+        currentVersionId="v-ct-2"
+        onSelect={vi.fn()}
+        availableVersionIds={new Set(['v-ct-2'])}
+      />,
+    )
+
+    const options = screen.getAllByRole('option') as HTMLOptionElement[]
+    expect(options.map((option) => option.textContent)).toEqual([
+      '1. Gimme Shelter (not on this device)',
+      '2. Hey Joe - Jimi Hendrix',
+      '3. Immigrant Song (not on this device)',
+    ])
+    expect(options.map((option) => option.disabled)).toEqual([true, false, true])
+  })
+
+  it('keeps every option enabled online', () => {
+    render(
+      <SetlistSelect nav={navAt(1)} entries={TRACKS} currentVersionId="v-ct-2" onSelect={vi.fn()} availableVersionIds={null} />,
+    )
+
+    const options = screen.getAllByRole('option') as HTMLOptionElement[]
+    expect(options.every((option) => !option.disabled)).toBe(true)
+    expect(options[0].textContent).toBe('1. Gimme Shelter - The Rolling Stones')
+  })
 })
 
 describe('PlaylistPrevArrow', () => {

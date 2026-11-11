@@ -168,3 +168,36 @@ describe('an entry with no repertoire row (RH-132 ER4)', () => {
     expect(className).not.toContain('text-gray-400 border-gray-100 cursor-not-allowed')
   })
 })
+
+/** RH-196 — offline, a song not on this device is a disabled, marked row. */
+describe('an entry not on this device (RH-196)', () => {
+  it('renders a disabled, muted row with the Not on this device chip and never selects', () => {
+    const { onSelect } = renderRow({ unavailable: true })
+    const button = screen.getByRole('button') as HTMLButtonElement
+
+    expect(button.disabled).toBe(true)
+    expect(button.className).toContain('bg-gray-50 text-gray-400 border-gray-100')
+    const chip = screen.getByText('Not on this device')
+    expect(chip.className).toContain('border-dashed')
+    expect(button.textContent).toContain('Rosanna')
+    expect(button.textContent).toContain('Toto')
+
+    fireEvent.click(button)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('shows only the device chip, not the repertoire one', () => {
+    renderRow({ unavailable: true, entry: { ...ENTRY, repertoireId: null } })
+
+    expect(screen.getByText('Not on this device')).toBeDefined()
+    expect(screen.queryByText('Not in repertoire')).toBeNull()
+  })
+
+  it('renders an available row exactly as before', () => {
+    renderRow({ unavailable: false })
+    const button = screen.getByRole('button') as HTMLButtonElement
+
+    expect(button.disabled).toBe(false)
+    expect(screen.queryByText('Not on this device')).toBeNull()
+  })
+})

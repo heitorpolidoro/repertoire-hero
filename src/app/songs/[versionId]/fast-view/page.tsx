@@ -62,6 +62,17 @@ import { usePracticeFinish } from '@/hooks/usePracticeFinish'
 import { PracticeFinishButton } from '@/components/fastview/PracticeFinishButton'
 import { PracticeReviewList } from '@/components/ui/PracticeReviewList'
 import { useSetlistPlayerStore } from '@/store/setlistPlayerStore'
+import type { PlaylistNavController } from '@/hooks/usePlaylistNav'
+import type { OfflineUnavailableProps } from '@/components/fastview/OfflineUnavailable'
+
+/** The not-on-this-device screen's queue buttons: the nearest stored songs (RH-196). */
+function offlineQueueTargets(playlist: PlaylistNavController): Pick<OfflineUnavailableProps, 'prev' | 'next'> {
+  const { prevEntry, nextEntry } = playlist
+  return {
+    prev: prevEntry && { title: prevEntry.title, onSelect: playlist.goPrev },
+    next: nextEntry && { title: nextEntry.title, onSelect: playlist.goNext },
+  }
+}
 
 /**
  * Fast View — the stripped-down reading page a musician props on a music stand.
@@ -157,7 +168,7 @@ export default function FastViewPage() {
   const playlist = usePlaylistNav({
     currentVersionId: versionId, bandId: queryBandId, navigate: (href) => router.push(href),
     navigateBack: () => router.back(), replace: (href) => router.replace(href),
-    keyboardEnabled: !isCountingDown, activeStage,
+    keyboardEnabled: !isCountingDown, activeStage, offline: isOffline,
   })
 
   // "Finish practice" on the last queue entry (RH-169).
@@ -169,8 +180,9 @@ export default function FastViewPage() {
   if (song.loading) return <SongLoading />
   // Offline, "not found" is almost always "not downloaded" (snapshot reader answers null).
   if (song.notFound || !entry) {
-    const goBack = () => router.back()
-    return isOffline ? <OfflineUnavailable onBack={goBack} /> : <SongNotFound onBack={goBack} />
+    if (!isOffline) return <SongNotFound onBack={() => router.back()} />
+    // Inside a queue: the nearest songs on this device, and Back to its origin (RH-196).
+    return <OfflineUnavailable onBack={playlist.goBack} {...offlineQueueTargets(playlist)} />
   }
 
   return (
@@ -184,6 +196,7 @@ export default function FastViewPage() {
         activeVersionId={playlist.activeVersionId}
         onClose={playlist.closeDrawer}
         onSelect={playlist.selectEntry} onPlay={playlist.playSetlist}
+        availableVersionIds={playlist.availableVersionIds}
       />
 
       {/* Desktop: Side Arrow Navigation Button (previous only, by design) */}
@@ -220,6 +233,7 @@ export default function FastViewPage() {
               entries={playlist.entries}
               currentVersionId={versionId}
               onSelect={playlist.selectEntry}
+              availableVersionIds={playlist.availableVersionIds}
             />
 
             {/* Song identity */}
@@ -273,6 +287,7 @@ export default function FastViewPage() {
           currentVersionId={versionId}
           activeVersionId={playlist.activeVersionId}
           onSelect={playlist.selectEntry} onPlay={playlist.playSetlist}
+          availableVersionIds={playlist.availableVersionIds}
         />
       </div>
 

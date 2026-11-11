@@ -12,6 +12,8 @@ export interface SetlistSidebarProps {
   activeVersionId?: string | null
   onSelect: (versionId: string) => void
   onPlay?: () => void
+  /** Offline, the queue versions on this device; `null` marks nothing (RH-196). */
+  availableVersionIds?: ReadonlySet<string> | null
 }
 
 /**
@@ -28,6 +30,7 @@ export function SetlistSidebar({
   activeVersionId,
   onSelect,
   onPlay,
+  availableVersionIds = null,
 }: SetlistSidebarProps) {
   if (!nav || entries.length === 0) return null
 
@@ -45,6 +48,7 @@ export function SetlistSidebar({
         currentVersionId={currentVersionId}
         activeVersionId={activeVersionId}
         variant="sidebar"
+        availableVersionIds={availableVersionIds}
         onSelect={onSelect}
         onPlay={onPlay}
       />

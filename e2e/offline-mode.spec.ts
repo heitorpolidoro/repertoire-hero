@@ -747,6 +747,76 @@ test('lists a downloaded playlist on /offline and opens a song never opened onli
 })
 
 /**
+ * RH-196 — a downloaded setlist walked offline from a brand-new tab, with its
+ * middle song removed from this device. No Fast View is opened online: the
+ * download stored every song's document (RH-195). The `/offline` screen lists
+ * the setlist in order with the removed song marked, Fast View marks it in the
+ * setlist too and keeps the full `1 / 3` count, and ArrowRight from the song
+ * before it skips it to the song after it.
+ */
+test('skips a song not on this device when walking a downloaded setlist from a new offline tab (RH-196)', async ({
+  page,
+  context,
+}) => {
+  const titles = [
+    uniqueFixtureName('RH196 First'),
+    uniqueFixtureName('RH196 Removed'),
+    uniqueFixtureName('RH196 Last'),
+  ]
+  const playlistName = uniqueFixtureName('RH196 Playlist')
+
+  await goHome(page)
+  for (const title of titles) await addSong(page, { title, artist: 'RH196 Artist' })
+  await createPlaylist(page, playlistName)
+  await openPlaylist(page, playlistName)
+  for (const title of titles) await addSongToOpenPlaylist(page, title)
+
+  await waitForServiceWorker(page)
+  await downloadPlaylist(page)
+
+  const removedRow = page
+    .getByRole('region', { name: 'Songs in this playlist' })
+    .getByRole('listitem')
+    .filter({ hasText: titles[1] })
+  await removedRow.getByRole('button', { name: `Remove ${titles[1]} from this device` }).click()
+  await expect(removedRow.getByRole('img', { name: 'Not on this device' })).toBeVisible()
+
+  // A new tab with no network: nothing it holds came from this session's pages.
+  await context.setOffline(true)
+  const tab = await context.newPage()
+  await tab.goto('/')
+
+  await expect(tab.getByTestId('offline-shell')).toBeVisible({ timeout: 20_000 })
+  const songs = tab.getByRole('list', { name: playlistName }).getByRole('listitem')
+  await expect(songs).toHaveCount(3, { timeout: 20_000 })
+  for (const [index, title] of titles.entries()) await expect(songs.nth(index)).toContainText(title)
+  await expect(songs.nth(1).getByRole('img', { name: 'Not on this device' })).toBeVisible()
+  await expect(songs.nth(1).getByRole('link')).toHaveCount(0)
+
+  await songs.nth(0).getByRole('link').click()
+  await expect(tab.getByRole('heading', { level: 1, name: titles[0] })).toBeVisible({ timeout: 20_000 })
+  const setlist = tab.getByRole('complementary')
+  await expect(setlist).toContainText('1 / 3')
+  const removedEntry = setlist.getByRole('button', { name: new RegExp(`${titles[1]}.*Not on this device`) })
+  await expect(removedEntry).toBeDisabled()
+
+  // ArrowRight skips the song not on this device.
+  await tab.keyboard.press('ArrowRight')
+  await expect(tab.getByRole('heading', { level: 1, name: titles[2] })).toBeVisible({ timeout: 20_000 })
+  await expect(setlist).toContainText('3 / 3')
+
+  // And ArrowLeft skips it back, then Back returns to the offline screen.
+  await tab.keyboard.press('ArrowLeft')
+  await expect(tab.getByRole('heading', { level: 1, name: titles[0] })).toBeVisible({ timeout: 20_000 })
+  await expect(setlist).toContainText('1 / 3')
+  await tab.getByRole('button', { name: 'Back' }).click()
+  await expect(tab.getByTestId('offline-shell')).toBeVisible({ timeout: 20_000 })
+
+  await tab.close()
+  await context.setOffline(false)
+})
+
+/**
  * A minimal, valid one-page PDF. Inline so the suite needs no fixture file and
  * no network: the point is only that `react-pdf` can parse and paint it.
  */

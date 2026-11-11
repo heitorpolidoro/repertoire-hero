@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-196 — Offline queue availability and skip navigation in Fast View</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4 md:p-6 space-y-10">
+
+<header class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold">RH-196 — Offline queue availability and skip navigation in Fast View</h1>
+  <p class="text-sm text-gray-600 mt-1">
+    Interactive preview of Fast View's queue availability, skip navigation, disabled setlist rows/options, and the not-downloaded screen when walking a queue offline.
+  </p>
+</header>
+
+<!-- ============ Controls ============ -->
+<section class="max-w-5xl mx-auto bg-white rounded-2xl shadow border p-4">
+  <div class="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h2 class="text-sm font-bold text-gray-800">Device &amp; Network Simulation</h2>
+      <p class="text-xs text-gray-500">Toggle which songs are stored on this device and whether the browser is offline.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 text-sm">
+      <label class="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-1.5 font-medium cursor-pointer">
+        <input type="checkbox" id="toggleOffline" checked> Browser offline
+      </label>
+      <button type="button" id="openDrawerBtn" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold hover:bg-gray-100">
+        Preview Mobile Drawer
+      </button>
+      <button type="button" id="resetBtn" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-gray-50">
+        Reset
+      </button>
+    </div>
+  </div>
+
+  <div class="mt-4 pt-3 border-t border-gray-100">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Songs in Queue ("Friday Gig") — click to toggle stored on this device:</p>
+    <div id="storageToggles" class="flex flex-wrap gap-2"></div>
+    <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+      <span>Direct URL jump (simulates opening an un-downloaded song via a direct row link or reload):</span>
+      <div id="directJumpBtns" class="flex flex-wrap gap-1.5"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 1. Fast View + Desktop Sidebar + Mobile Select ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">1. Fast View: Queue Navigation, Setlist Select &amp; Desktop Sidebar</h2>
+  <p class="text-sm text-gray-600 mb-3">
+    Offline, Previous and Next skip songs not on this device, while position and total still count every entry (e.g. <code>1 / 5</code> &rarr; <code>4 / 5</code> when songs 2 &amp; 3 are not stored). Use the buttons or press <code>ArrowLeft</code> / <code>ArrowRight</code>.
+  </p>
+
+  <div class="bg-gray-50 rounded-2xl shadow border overflow-hidden flex flex-col lg:flex-row min-h-[520px]">
+    <!-- Main Fast View Column -->
+    <div class="flex-1 min-w-0 p-6 flex flex-col gap-5 max-w-xl mx-auto w-full" id="fastViewMain"></div>
+
+    <!-- Desktop Right Setlist Sidebar -->
+    <aside class="w-80 shrink-0 border-t lg:border-t-0 lg:border-l border-gray-200 bg-white flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white">
+        <div class="flex items-center gap-2 min-w-0 pr-2">
+          <span class="text-base shrink-0">🎵</span>
+          <h3 class="font-bold text-gray-900 text-sm truncate">Friday Gig</h3>
+        </div>
+        <span id="sidebarCounter" class="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200"></span>
+      </div>
+      <div id="sidebarRows" class="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ 2. Static Comparison: Select Dropdown & OfflineUnavailable ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">2. Side-by-Side Reference States</h2>
+  <p class="text-sm text-gray-600 mb-3">
+    Exact states required by RH-196 (rules 32 &ndash; 34 of RH-191).
+  </p>
+
+  <div class="grid gap-6 md:grid-cols-2">
+    <!-- Mobile Select Comparison -->
+    <div class="bg-white rounded-2xl shadow border p-5 space-y-3">
+      <h3 class="text-sm font-bold text-gray-800">SetlistSelect (below <code>lg</code>)</h3>
+      <p class="text-xs text-gray-500">
+        Unavailable entries are <code>disabled</code> and format as <code>&lt;n&gt;. &lt;title&gt; (not on this device)</code>, dropping the <code> - &lt;artist&gt;</code> suffix. Available entries keep <code>&lt;n&gt;. &lt;title&gt; - &lt;artist&gt;</code>.
+      </p>
+      <select size="5" class="w-full text-xs font-semibold bg-white text-gray-700 border border-gray-200 rounded-xl px-2 py-1.5">
+        <option value="v1" selected>1. Tempo Perdido - Legião Urbana</option>
+        <option value="v2">2. Índios - Legião Urbana</option>
+        <option value="v3" disabled>3. Pais e Filhos (not on this device)</option>
+        <option value="v4">4. Eduardo e Mônica - Legião Urbana</option>
+        <option value="v5">5. Faroeste Caboclo - Legião Urbana</option>
+      </select>
+    </div>
+
+    <!-- OfflineUnavailable in a Queue -->
+    <div class="bg-white rounded-2xl shadow border p-5 space-y-3">
+      <h3 class="text-sm font-bold text-gray-800">OfflineUnavailable (inside a queue)</h3>
+      <p class="text-xs text-gray-500">
+        When an un-downloaded song is opened directly while in a queue, it shows <code>Previous: &lt;title&gt;</code> and <code>Next: &lt;title&gt;</code> buttons pointing to the nearest available songs, and <code>Back</code> returns to the queue's origin.
+      </p>
+      <div class="rounded-xl border border-gray-100 bg-gray-50 px-5 py-6 text-center flex flex-col items-center gap-3">
+        <span class="text-3xl" aria-hidden="true">📴</span>
+        <p class="text-base font-semibold text-gray-700">This song is not available offline</p>
+        <p class="max-w-xs text-xs text-gray-500">
+          It is not stored on this device. While you have a connection, open its playlist and choose <span class="font-medium">Make available offline</span>, or open the song and choose <span class="font-medium">Available offline</span>.
+        </p>
+        <div class="w-full max-w-xs flex flex-col gap-2 mt-1">
+          <button type="button" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+            &larr; Previous: Índios
+          </button>
+          <button type="button" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+            Next: Eduardo e Mônica &rarr;
+          </button>
+        </div>
+        <button type="button" class="text-xs font-medium text-emerald-600 hover:text-emerald-800">
+          &larr; Back
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Mobile Drawer Modal -->
+<div id="drawerModal" class="fixed inset-0 z-50 hidden flex-col justify-end">
+  <div id="drawerBackdrop" class="fixed inset-0 bg-black/40 backdrop-blur-xs"></div>
+  <div class="relative z-10 bg-white rounded-t-2xl max-h-[80vh] max-w-md w-full mx-auto flex flex-col shadow-2xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <div class="flex items-center gap-2 min-w-0 pr-2">
+        <span class="text-base shrink-0">🎵</span>
+        <h3 class="font-bold text-gray-900 text-sm truncate">Friday Gig</h3>
+      </div>
+      <button type="button" id="closeDrawerBtn" class="text-gray-400 hover:text-gray-600 text-sm font-bold p-1">✕</button>
+    </div>
+    <div id="drawerRows" class="flex-1 overflow-y-auto p-4 flex flex-col gap-1.5"></div>
+  </div>
+</div>
+
+<script>
+  var ENTRIES = [
+    { versionId: 'v-1', title: 'Tempo Perdido', artist: 'Legião Urbana', key: 'Em', lyrics: 'Todos os dias quando acordo\nNão tenho mais o tempo que passou...' },
+    { versionId: 'v-2', title: 'Índios', artist: 'Legião Urbana', key: 'D', lyrics: 'Quem me dera ao menos uma vez\nTer de volta todo o ouro que entreguei...' },
+    { versionId: 'v-3', title: 'Pais e Filhos', artist: 'Legião Urbana', key: 'G', lyrics: 'Estátuas e cofres e paredes pintadas\nNinguém sabe o que aconteceu...' },
+    { versionId: 'v-4', title: 'Eduardo e Mônica', artist: 'Legião Urbana', key: 'E', lyrics: 'Quem um dia irá dizer\nQue existe razão nas coisas feitas pelo coração?' },
+    { versionId: 'v-5', title: 'Faroeste Caboclo', artist: 'Legião Urbana', key: 'G', lyrics: 'Não tinha medo o tal João de Santo Cristo\nEra o que todos diziam quando ele se perdeu...' }
+  ];
+
+  var state = {
+    currentVersionId: 'v-2',
+    stored: { 'v-1': true, 'v-2': true, 'v-3': false, 'v-4': true, 'v-5': true },
+    drawerOpen: false
+  };
+
+  function el(id) { return document.getElementById(id); }
+  function isOffline() { return el('toggleOffline').checked; }
+  function escapeHtml(text) {
+    var node = document.createElement('div');
+    node.textContent = text;
+    return node.innerHTML;
+  }
+
+  function isEntryAvailable(versionId) {
+    if (!isOffline()) return true;
+    return Boolean(state.stored[versionId]);
+  }
+
+  function findNearestAvailable(fromIndex, step) {
+    for (var i = fromIndex + step; i >= 0 && i < ENTRIES.length; i += step) {
+      if (isEntryAvailable(ENTRIES[i].versionId)) return ENTRIES[i];
+    }
+    return null;
+  }
+
+  function computeNav() {
+    var idx = ENTRIES.findIndex(function (e) { return e.versionId === state.currentVersionId; });
+    var prev = findNearestAvailable(idx, -1);
+    var next = findNearestAvailable(idx, 1);
+    return {
+      index: idx,
+      position: idx + 1,
+      total: ENTRIES.length,
+      prev: prev,
+      next: next
+    };
+  }
+
+  function renderStorageToggles() {
+    el('storageToggles').innerHTML = ENTRIES.map(function (entry, i) {
+      var onDevice = state.stored[entry.versionId];
+      return '<button type="button" data-toggle-store="' + entry.versionId + '" class="px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 transition-colors ' +
+        (onDevice ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-gray-50 border-dashed border-gray-300 text-gray-500') + '">' +
+        '<span>' + (i + 1) + '. ' + escapeHtml(entry.title) + '</span>' +
+        '<span class="text-[10px] px-1.5 py-0.5 rounded-full ' + (onDevice ? 'bg-emerald-200/70 text-emerald-900' : 'bg-gray-200 text-gray-600') + '">' +
+        (onDevice ? '✓ Stored' : 'Not on device') + '</span></button>';
+    }).join('');
+
+    el('directJumpBtns').innerHTML = ENTRIES.map(function (entry, i) {
+      var active = entry.versionId === state.currentVersionId;
+      return '<button type="button" data-direct-jump="' + entry.versionId + '" class="px-2 py-1 rounded border text-xs ' +
+        (active ? 'bg-gray-800 text-white border-gray-800 font-semibold' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50') + '">' +
+        'Open #' + (i + 1) + '</button>';
+    }).join('');
+  }
+
+  function buildSetlistRowsHtml(variant) {
+    var isSidebar = variant === 'sidebar';
+    return ENTRIES.map(function (entry, index) {
+      var isCurrent = entry.versionId === state.currentVersionId;
+      var available = isEntryAvailable(entry.versionId);
+
+      if (!available) {
+        return '<button type="button" disabled class="w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed">' +
+          '<div class="flex items-center gap-3 min-w-0">' +
+          '<span class="w-5 shrink-0 text-right font-mono text-xs text-gray-400">' + (index + 1) + '.</span>' +
+          '<div class="min-w-0 truncate">' +
+          '<p class="truncate font-medium">' + escapeHtml(entry.title) + '</p>' +
+          (entry.artist ? '<p class="text-[11px] text-gray-400 truncate">' + escapeHtml(entry.artist) + '</p>' : '') +
+          '</div></div>' +
+          '<span class="text-[10px] font-medium text-gray-400 bg-white border border-dashed border-gray-300 px-2 py-0.5 rounded-full shrink-0">Not on this device</span>' +
+          '</button>';
+      }
+
+      var stateClasses = isCurrent
+        ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-xs' + (isSidebar ? ' ring-1 ring-emerald-400/20' : '')
+        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100' + (isSidebar ? ' hover:border-gray-200' : '');
+
+      return '<button type="button" data-select-song="' + entry.versionId + '" class="w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border ' + stateClasses + '">' +
+        '<div class="flex items-center gap-3 min-w-0">' +
+        '<span class="w-5 shrink-0 text-right font-mono text-xs ' + (isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400') + '">' + (index + 1) + '.</span>' +
+        '<div class="min-w-0 truncate">' +
+        '<p class="truncate font-medium">' + escapeHtml(entry.title) + '</p>' +
+        (entry.artist ? '<p class="text-[11px] text-gray-400 truncate">' + escapeHtml(entry.artist) + '</p>' : '') +
+        '</div></div>' +
+        (isCurrent ? '<span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">▶ NOW</span>' : '') +
+        '</button>';
+    }).join('');
+  }
+
+  function renderMain() {
+    var nav = computeNav();
+    var current = ENTRIES[nav.index];
+    var available = isEntryAvailable(current.versionId);
+
+    el('sidebarCounter').textContent = nav.position + ' / ' + nav.total;
+    el('sidebarRows').innerHTML = buildSetlistRowsHtml('sidebar');
+    el('drawerRows').innerHTML = buildSetlistRowsHtml('drawer');
+
+    if (state.drawerOpen) {
+      el('drawerModal').classList.remove('hidden');
+      el('drawerModal').classList.add('flex');
+    } else {
+      el('drawerModal').classList.add('hidden');
+      el('drawerModal').classList.remove('flex');
+    }
+
+    // If current song is not available offline, show OfflineUnavailable screen!
+    if (!available) {
+      el('fastViewMain').innerHTML =
+        '<div data-testid="offline-unavailable" class="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-10 text-center bg-white rounded-2xl border border-gray-200">' +
+        '<span aria-hidden="true" class="text-4xl">📴</span>' +
+        '<p class="text-lg font-semibold text-gray-700">This song is not available offline</p>' +
+        '<p class="max-w-sm text-sm text-gray-500">' +
+        'It is not stored on this device. While you have a connection, open its playlist and choose <span class="font-medium">Make available offline</span>, or open the song and choose <span class="font-medium">Available offline</span>.' +
+        '</p>' +
+        '<div class="w-full max-w-xs flex flex-col gap-2">' +
+        (nav.prev ? '<button type="button" data-select-song="' + nav.prev.versionId + '" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">&larr; Previous: ' + escapeHtml(nav.prev.title) + '</button>' : '') +
+        (nav.next ? '<button type="button" data-select-song="' + nav.next.versionId + '" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Next: ' + escapeHtml(nav.next.title) + ' &rarr;</button>' : '') +
+        '</div>' +
+        '<button type="button" class="text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors">&larr; Back</button>' +
+        '</div>';
+      return;
+    }
+
+    var optionsHtml = ENTRIES.map(function (entry, index) {
+      var entryAvail = isEntryAvailable(entry.versionId);
+      var label = entryAvail
+        ? (index + 1) + '. ' + escapeHtml(entry.title) + (entry.artist ? ' - ' + escapeHtml(entry.artist) : '')
+        : (index + 1) + '. ' + escapeHtml(entry.title) + ' (not on this device)';
+      return '<option value="' + entry.versionId + '"' +
+        (entryAvail ? '' : ' disabled') +
+        (entry.versionId === current.versionId ? ' selected' : '') + '>' + label + '</option>';
+    }).join('');
+
+    el('fastViewMain').innerHTML =
+      (isOffline()
+        ? '<div role="status" data-testid="offline-read-only-banner" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900"><span class="font-semibold">You are offline.</span> This song is read-only until you reconnect.</div>'
+        : '') +
+      '<div class="flex items-center justify-between gap-3">' +
+        '<button type="button" class="text-sm font-medium text-emerald-600 hover:text-emerald-800">&larr; Back</button>' +
+        '<button type="button" id="pillOpenDrawer" class="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full hover:bg-emerald-100">🎵 Setlist (' + nav.position + '/' + nav.total + ')</button>' +
+      '</div>' +
+      '<div>' +
+        '<label class="block text-[11px] font-medium text-gray-400 mb-1">SetlistSelect (shown below lg):</label>' +
+        '<select id="liveSetlistSelect" class="w-full text-xs font-semibold bg-white text-gray-700 border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-xs truncate">' +
+          optionsHtml +
+        '</select>' +
+      '</div>' +
+      '<section aria-label="Song details" class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">' +
+        '<div class="flex items-start justify-between gap-3">' +
+          '<div>' +
+            '<h1 class="text-xl font-bold text-gray-900">' + escapeHtml(current.title) + '</h1>' +
+            '<p class="text-sm text-gray-500">' + escapeHtml(current.artist) + ' &middot; Key: <span class="font-semibold text-gray-700">' + escapeHtml(current.key) + '</span></p>' +
+          '</div>' +
+          '<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">' + nav.position + ' / ' + nav.total + '</span>' +
+        '</div>' +
+        '<div class="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between gap-2">' +
+          '<button type="button" id="prevBtn" ' + (nav.prev ? '' : 'disabled') + ' class="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">' +
+            (nav.prev ? '&larr; Prev: ' + escapeHtml(nav.prev.title) : '&larr; No previous') +
+          '</button>' +
+          '<button type="button" id="nextBtn" ' + (nav.next ? '' : 'disabled') + ' class="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">' +
+            (nav.next ? 'Next: ' + escapeHtml(nav.next.title) + ' &rarr;' : 'No next &rarr;') +
+          '</button>' +
+        '</div>' +
+      '</section>' +
+      '<section aria-label="Lyrics" class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">' +
+        '<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Lyrics</h2>' +
+        '<pre class="font-sans text-sm text-gray-700 whitespace-pre-wrap">' + escapeHtml(current.lyrics) + '</pre>' +
+      '</section>' +
+      '<div class="flex items-center justify-between text-xs text-gray-400 px-2">' +
+        '<span>' + (nav.prev ? '&larr; prev' : '') + '</span>' +
+        '<span class="font-mono">' + nav.position + ' / ' + nav.total + '</span>' +
+        '<span>' + (nav.next ? 'next &rarr;' : '') + '</span>' +
+      '</div>';
+
+    var selectNode = el('liveSetlistSelect');
+    if (selectNode) {
+      selectNode.addEventListener('change', function (e) {
+        if (isEntryAvailable(e.target.value)) {
+          state.currentVersionId = e.target.value;
+          render();
+        }
+      });
+    }
+  }
+
+  function render() {
+    renderStorageToggles();
+    renderMain();
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  document.addEventListener('click', function (event) {
+    var btn = event.target.closest('button');
+    if (!btn) {
+      if (event.target.id === 'drawerBackdrop') {
+        state.drawerOpen = false;
+        render();
+      }
+      return;
+    }
+    if (btn.disabled) return;
+
+    var toggleStoreId = btn.getAttribute('data-toggle-store');
+    if (toggleStoreId) {
+      state.stored[toggleStoreId] = !state.stored[toggleStoreId];
+      render();
+      return;
+    }
+
+    var directJumpId = btn.getAttribute('data-direct-jump');
+    if (directJumpId) {
+      state.currentVersionId = directJumpId;
+      render();
+      return;
+    }
+
+    var selectSongId = btn.getAttribute('data-select-song');
+    if (selectSongId) {
+      if (isEntryAvailable(selectSongId)) {
+        state.currentVersionId = selectSongId;
+        state.drawerOpen = false;
+        render();
+      }
+      return;
+    }
+
+    if (btn.id === 'prevBtn') {
+      var prev = computeNav().prev;
+      if (prev) { state.currentVersionId = prev.versionId; render(); }
+      return;
+    }
+    if (btn.id === 'nextBtn') {
+      var next = computeNav().next;
+      if (next) { state.currentVersionId = next.versionId; render(); }
+      return;
+    }
+    if (btn.id === 'openDrawerBtn' || btn.id === 'pillOpenDrawer') {
+      state.drawerOpen = true;
+      render();
+      return;
+    }
+    if (btn.id === 'closeDrawerBtn') {
+      state.drawerOpen = false;
+      render();
+      return;
+    }
+    if (btn.id === 'resetBtn') {
+      state.currentVersionId = 'v-2';
+      state.stored = { 'v-1': true, 'v-2': true, 'v-3': false, 'v-4': true, 'v-5': true };
+      state.drawerOpen = false;
+      el('toggleOffline').checked = true;
+      render();
+    }
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      var next = computeNav().next;
+      if (next) {
+        event.preventDefault();
+        state.currentVersionId = next.versionId;
+        render();
+      }
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      var prev = computeNav().prev;
+      if (prev) {
+        event.preventDefault();
+        state.currentVersionId = prev.versionId;
+        render();
+      }
+    }
+  });
+
+  el('toggleOffline').addEventListener('change', render);
+
+  render();
+</script>
+</body>
+</html>

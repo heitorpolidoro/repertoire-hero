@@ -26,10 +26,29 @@ export interface SetlistRowProps {
   onSelect: (versionId: string) => void
   /** Called when the row's Play control is clicked (RH-199). */
   onPlay?: () => void
+  /** Offline, the song is not stored on this device (RH-196). */
+  unavailable?: boolean
 }
 
 const CURRENT_CLASSES = 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300 shadow-xs'
 const IDLE_CLASSES = 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100'
+const UNAVAILABLE_CLASSES = 'bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed'
+const ROW_CLASSES = 'w-full text-left px-3.5 py-3 rounded-xl transition-all flex items-center justify-between text-xs border'
+
+/** Position, title and artist: the same in every row state. */
+function RowIdentity({ index, entry, isCurrent }: { index: number; entry: SetlistEntry; isCurrent: boolean }) {
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <span className={`w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}`}>
+        {index + 1}.
+      </span>
+      <div className="min-w-0 truncate">
+        <p className="truncate font-medium">{entry.title}</p>
+        {entry.artist && <p className="text-[11px] text-gray-400 truncate">{entry.artist}</p>}
+      </div>
+    </div>
+  )
+}
 
 /**
  * One song of the setlist, in the mobile drawer or the desktop sidebar.
@@ -54,6 +73,10 @@ const IDLE_CLASSES = 'bg-white text-gray-700 hover:bg-gray-50 border-gray-100'
  * absent one: a queue-sourced entry (RH-133) carries no repertoire field at
  * all, because the queue stores only what navigating needs, and "I was not
  * told" is not the same statement as "there is no row".
+ *
+ * **Offline, a song not on this device (RH-196)** is the one disabled state: a
+ * muted row that selects nothing, with a dashed *Not on this device* chip in
+ * place of any other. Online `unavailable` is never set, so nothing changes.
  */
 export function SetlistRow({
   index,
@@ -63,7 +86,19 @@ export function SetlistRow({
   marker = isCurrent ? 'now' : null,
   onSelect,
   onPlay,
+  unavailable = false,
 }: SetlistRowProps) {
+  if (unavailable) {
+    return (
+      <button type="button" disabled className={`${ROW_CLASSES} ${UNAVAILABLE_CLASSES}`}>
+        <RowIdentity index={index} entry={entry} isCurrent={false} />
+        <span className="text-[10px] font-medium text-gray-400 bg-white border border-dashed border-gray-300 px-2 py-0.5 rounded-full shrink-0">
+          Not on this device
+        </span>
+      </button>
+    )
+  }
+
   const isSidebar = variant === 'sidebar'
   const stateClasses = isCurrent
     ? `${CURRENT_CLASSES}${isSidebar ? ' ring-1 ring-emerald-400/20' : ''}`
@@ -78,17 +113,9 @@ export function SetlistRow({
         onClick={() => {
           if (!isCurrent) onSelect(entry.versionId)
         }}
-        className={`w-full text-left px-3.5 py-3 ${showPlay ? 'pr-20' : ''} rounded-xl transition-all flex items-center justify-between text-xs border ${stateClasses}`}
+        className={`${ROW_CLASSES}${showPlay ? ' pr-20' : ''} ${stateClasses}`}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className={`w-5 shrink-0 text-right font-mono text-xs ${isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-400'}`}>
-            {index + 1}.
-          </span>
-          <div className="min-w-0 truncate">
-            <p className="truncate font-medium">{entry.title}</p>
-            {entry.artist && <p className="text-[11px] text-gray-400 truncate">{entry.artist}</p>}
-          </div>
-        </div>
+        <RowIdentity index={index} entry={entry} isCurrent={isCurrent} />
         {/* The mockup's option B (`docs/tasks/RH-125-mock.html`): a muted chip
             saying *why* there is no progress, rather than an `Unknown` chip that
             looks exactly like a song the musician owns and has not started. */}

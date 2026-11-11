@@ -157,4 +157,30 @@ describe('SetlistSidebar', () => {
       expect(screen.getAllByText(/NOW/)).toHaveLength(1)
     })
   })
+
+  /** RH-196 — offline marks, with the counter still over the whole queue. */
+  it('disables and marks the entries not on this device and keeps the full position counter', () => {
+    const available = new Set(['v-sb-2', 'v-sb-3'])
+    const { onSelect } = renderSidebar({
+      nav: computePlaylistNav(COLUMN_SONGS, 'v-sb-2', 'Sunday matinee', available),
+      availableVersionIds: available,
+    })
+
+    expect(screen.getByText('2 / 3')).toBeDefined()
+    const dazed = screen.getByText('Dazed and Confused').closest('button') as HTMLButtonElement
+    expect(dazed.disabled).toBe(true)
+    expect(dazed.textContent).toContain('Not on this device')
+    fireEvent.click(dazed)
+    expect(onSelect).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Freebird'))
+    expect(onSelect).toHaveBeenCalledWith('v-sb-3')
+  })
+
+  it('marks nothing online', () => {
+    renderSidebar({ availableVersionIds: null })
+
+    expect(screen.queryByText('Not on this device')).toBeNull()
+    expect(screen.getAllByRole('button').every((button) => !(button as HTMLButtonElement).disabled)).toBe(true)
+  })
 })
