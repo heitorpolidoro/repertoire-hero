@@ -372,6 +372,37 @@ export async function runPlaylistMenuAction(page: Page, item: string) {
 }
 
 /**
+ * RH-201 — opens the playlist header's "More actions" menu (when closed) and
+ * returns the named item, for asserting its state rather than running it.
+ * Close it again with `closePlaylistMenu`.
+ */
+export async function playlistMenuItem(page: Page, item: string | RegExp) {
+  const menu = page.getByRole('menu', { name: 'Playlist actions' })
+  if (!(await menu.isVisible())) await page.getByRole('button', { name: 'More actions' }).click()
+  return menu.getByRole('menuitem', { name: item, exact: typeof item === 'string' })
+}
+
+/** Closes the "More actions" menu with Escape, if it is open. */
+export async function closePlaylistMenu(page: Page) {
+  const menu = page.getByRole('menu', { name: 'Playlist actions' })
+  if (await menu.isVisible()) await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+}
+
+/**
+ * RH-201 — the playlist page's sticky header. It sits inside `<main>`, so it
+ * has no `banner` role: locate the element itself, keyed on the page's h1.
+ */
+export function playlistDetailHeader(page: Page) {
+  return page.locator('header').filter({ has: page.getByRole('heading', { level: 1 }) })
+}
+
+/** RH-201 — the header icon a downloaded playlist shows after its name. */
+export function playlistOfflineIcon(page: Page) {
+  return playlistDetailHeader(page).getByRole('img', { name: 'Available offline' })
+}
+
+/**
  * Opens the named playlist from `/playlists` and returns its detail URL.
  *
  * Unlike `createPlaylist` this needs no hydration-retry wrapper of its own on

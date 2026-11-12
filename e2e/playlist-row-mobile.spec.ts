@@ -28,11 +28,15 @@ import { Client } from 'pg'
 import { AUTH_STATE_PATH } from './global-setup'
 import {
   addSong,
+  closePlaylistMenu,
   createPlaylist,
   deletePlaylistFromDetail,
   deleteSong,
   goHome,
   openPlaylist,
+  playlistDetailHeader,
+  playlistMenuItem,
+  playlistOfflineIcon,
   runPlaylistMenuAction,
   uniqueFixtureName,
   waitForPlaylistDetailHydrated,
@@ -313,8 +317,20 @@ test('personal, downloaded: a stored row with a 100-character title fits 375px b
   await page.goto(personalPlaylistUrl)
   await waitForPlaylistDetailHydrated(page)
   await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
-  await page.getByRole('button', { name: 'Make available offline' }).click()
-  await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeVisible({ timeout: 60_000 })
+  await runPlaylistMenuAction(page, 'Make available offline')
+  await expect(playlistOfflineIcon(page)).toBeVisible({ timeout: 60_000 })
+
+  // RH-201: the header's title keeps its width beside the offline icon, and
+  // the action group does not overflow the 375px row.
+  const heading = playlistDetailHeader(page).getByRole('heading', { level: 1 })
+  const headingBox = await boxOf(heading, 'playlist title')
+  const iconBox = await boxOf(playlistOfflineIcon(page), 'offline icon')
+  const dotsBox = await boxOf(page.getByRole('button', { name: 'More actions' }), 'More actions')
+  expect(headingBox.width, 'the playlist title keeps a usable width').toBeGreaterThanOrEqual(60)
+  expect(intersects(headingBox, iconBox), 'title overlaps the offline icon').toBe(false)
+  expect(headingBox.x + headingBox.width).toBeLessThanOrEqual(iconBox.x)
+  expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(dotsBox.x)
+  expect(dotsBox.x + dotsBox.width, 'the action group stays inside the viewport').toBeLessThanOrEqual(375)
 
   const row = songRow(page, longTitle)
   const titleText = rowTitle(page, longTitle)
@@ -355,8 +371,10 @@ test('personal, downloaded: a stored row with a 100-character title fits 375px b
   await remove.click({ trial: true })
 
   // Leave nothing stored behind for the next test's page.
-  await page.getByRole('button', { name: 'Remove offline copy' }).click()
-  await expect(page.getByRole('button', { name: 'Make available offline' })).toBeVisible()
+  await runPlaylistMenuAction(page, 'Remove offline copy')
+  await expect(playlistOfflineIcon(page)).toHaveCount(0)
+  await expect(await playlistMenuItem(page, 'Make available offline')).toBeVisible()
+  await closePlaylistMenu(page)
 })
 
 test('band: every title of a band playlist keeps a visible box at 375px', async ({

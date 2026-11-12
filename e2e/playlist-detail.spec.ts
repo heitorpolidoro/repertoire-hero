@@ -29,11 +29,14 @@ import { test, expect, type Page } from '@playwright/test'
 import { AUTH_STATE_PATH } from './global-setup'
 import {
   addSong,
+  closePlaylistMenu,
   createPlaylist,
   deletePlaylistFromDetail,
   deleteSong,
   goHome,
   openPlaylist,
+  playlistMenuItem,
+  playlistOfflineIcon,
   runPlaylistMenuAction,
   uniqueFixtureName,
   waitForPlaylistDetailHydrated,
@@ -192,20 +195,28 @@ test('adds two catalog songs to the playlist through the picker', async ({ page 
 })
 
 /**
- * RH-188 — the whole-playlist offline control is one obvious click: visible
- * and enabled online, it reaches the downloaded state with no dialog, and with
- * the network gone it is disabled with a one-line explanation under it. The
- * copy is removed again before going offline, so the idle control is what the
- * offline half sees. Reopening the copy offline is `offline-mode.spec.ts`
- * (production build only, where the service worker exists).
+ * RH-188 / RH-201 — the whole-playlist offline download is a "More actions"
+ * item, after "Add songs" and before "Rename playlist": enabled online, it
+ * reaches the downloaded state with no dialog, and with the network gone it is
+ * `aria-disabled` with a one-line explanation under it. A compact icon after
+ * the name says the state; no offline control remains on the page outside the
+ * menu. The copy is removed again before going offline, so the idle item is
+ * what the offline half sees. Reopening the copy offline is
+ * `offline-mode.spec.ts` (production build only, where the service worker
+ * exists).
  */
-test('makes the playlist available offline in one click', async ({ page, context }) => {
+test('makes the playlist available offline from the More actions menu', async ({ page, context }) => {
   await reopenPlaylist(page)
   await expect(songList(page).getByRole('listitem')).toHaveCount(2, { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Make available offline' })).toHaveCount(0)
 
-  const makeAvailable = page.getByRole('button', { name: 'Make available offline' })
+  const makeAvailable = await playlistMenuItem(page, 'Make available offline')
   await expect(makeAvailable).toBeVisible()
-  await expect(makeAvailable).toBeEnabled()
+  await expect(makeAvailable).not.toHaveAttribute('aria-disabled', 'true')
+  const labels = await page.getByRole('menu', { name: 'Playlist actions' }).getByRole('menuitem').allInnerTexts()
+  const order = labels.map((label) => label.split('\n')[0])
+  expect(order.indexOf('Make available offline')).toBe(order.indexOf('Add songs') + 1)
+  expect(order.indexOf('Rename playlist')).toBe(order.indexOf('Make available offline') + 1)
 
   // One click, no prompt: any dialog the click opens is recorded and fails below.
   const dialogs: string[] = []
@@ -215,33 +226,41 @@ test('makes the playlist available offline in one click', async ({ page, context
   })
   await makeAvailable.click()
 
-  await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeVisible({
-    timeout: 60_000,
-  })
+  await expect(playlistOfflineIcon(page)).toBeVisible({ timeout: 60_000 })
   expect(dialogs).toEqual([])
-  await expect(page.getByRole('button', { name: 'Remove offline copy' })).toBeVisible()
-  await expect(page.getByText('Available offline', { exact: true })).toBeVisible()
-  // RH-193: the summary counts the playlist's live songs on this device, every
-  // row says it is stored, and nothing is missing.
-  await expect(page.getByText(/^2 of 2 songs · .* · downloaded today$/)).toBeVisible()
+  // RH-193: the count is over the playlist's live songs, every row says it is
+  // stored, and nothing is missing.
+  await expect(playlistOfflineIcon(page)).toHaveAttribute('title', '2 of 2 songs on this device')
   await expect(songList(page).getByRole('img', { name: 'On this device' })).toHaveCount(2)
-  await expect(page.getByRole('button', { name: /missing song/ })).toHaveCount(0)
+  for (const name of ['Refresh offline copy', 'Remove offline copy', /missing song/]) {
+    await expect(page.getByRole('button', { name })).toHaveCount(0)
+  }
 
-  await page.getByRole('button', { name: 'Remove offline copy' }).click()
-  await expect(makeAvailable).toBeVisible()
+  await expect(await playlistMenuItem(page, 'Refresh offline copy')).toBeVisible()
+  await expect(page.getByText(/^Available offline · 2 of 2 songs · .* · downloaded today$/)).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /missing song/ })).toHaveCount(0)
+  const items = await page.getByRole('menu', { name: 'Playlist actions' }).getByRole('menuitem').allInnerTexts()
+  expect(items.at(-1)).toBe('Delete playlist')
+
+  await (await playlistMenuItem(page, 'Remove offline copy')).click()
+  await expect(playlistOfflineIcon(page)).toHaveCount(0)
   // Nothing of the playlist is stored any more, so no row draws a mark.
   await expect(songList(page).getByRole('img', { name: /on this device/i })).toHaveCount(0)
 
   const hint = page.getByText('Connect to the internet to download this playlist.')
   await context.setOffline(true)
   try {
-    await expect(makeAvailable).toBeDisabled()
+    const disabled = await playlistMenuItem(page, 'Make available offline')
+    await expect(disabled).toHaveAttribute('aria-disabled', 'true')
     await expect(hint).toBeVisible()
+    await closePlaylistMenu(page)
   } finally {
     await context.setOffline(false)
   }
-  await expect(makeAvailable).toBeEnabled()
+  const enabled = await playlistMenuItem(page, 'Make available offline')
+  await expect(enabled).not.toHaveAttribute('aria-disabled', 'true')
   await expect(hint).toHaveCount(0)
+  await closePlaylistMenu(page)
 })
 
 test('sets and drops the mastery status of a playlist song', async ({ page }) => {

@@ -33,9 +33,12 @@ import { test, expect, type Page } from '@playwright/test'
 import { AUTH_STATE_PATH, E2E_USER_EMAIL, E2E_USER_PASSWORD } from './global-setup'
 import {
   addSong,
+  closePlaylistMenu,
   createPlaylist,
   goHome,
   openPlaylist,
+  playlistMenuItem,
+  playlistOfflineIcon,
   runPlaylistMenuAction,
   songCard,
   uniqueFixtureName,
@@ -113,9 +116,21 @@ async function addSongToOpenPlaylist(page: Page, title: string) {
   await expect(pickerInput).toHaveCount(0)
 }
 
-/** Clicks the real `Make available offline` control and waits for the stored state. */
+/**
+ * Runs the playlist page's real `Make available offline` item from "More
+ * actions" (RH-201) and waits for the stored state's header icon.
+ */
 async function downloadPlaylist(page: Page) {
-  await page.getByRole('button', { name: 'Make available offline' }).click()
+  await runPlaylistMenuAction(page, 'Make available offline')
+  await expect(playlistOfflineIcon(page)).toBeVisible({ timeout: 60_000 })
+}
+
+/**
+ * Clicks Fast View's own per-song control (RH-116, `OfflineSongButton`, whose
+ * idle name is "Available offline") and waits for its stored state.
+ */
+async function downloadSong(page: Page) {
+  await page.getByRole('button', { name: 'Available offline', exact: true }).click()
   // The downloaded state is the only one carrying these two affordances.
   await expect(page.getByRole('button', { name: 'Refresh offline copy' })).toBeVisible({
     timeout: 60_000,
@@ -228,7 +243,7 @@ test('reads a single downloaded song after a cold reload with no network (RH-116
   await expect(page.getByRole('heading', { level: 1, name: songTitle })).toBeVisible({
     timeout: 20_000,
   })
-  await downloadPlaylist(page)
+  await downloadSong(page)
 
   await context.setOffline(true)
   await page.reload()
@@ -633,7 +648,7 @@ test('keeps a song and drops one removed from its row, after a cold reload with 
 
   await waitForServiceWorker(page)
   await downloadPlaylist(page)
-  await expect(page.getByText(/^2 of 2 songs/)).toBeVisible()
+  await expect(playlistOfflineIcon(page)).toHaveAttribute('title', '2 of 2 songs on this device')
 
   const keptUrl = await fastViewUrlFromPlaylist(page, keptTitle)
   const removedUrl = await fastViewUrlFromPlaylist(page, removedTitle)
@@ -645,8 +660,9 @@ test('keeps a song and drops one removed from its row, after a cold reload with 
     .filter({ hasText: removedTitle })
   await removedRow.getByRole('button', { name: `Remove ${removedTitle} from this device` }).click()
   await expect(removedRow.getByRole('img', { name: 'Not on this device' })).toBeVisible()
-  await expect(page.getByText(/^1 of 2 songs/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Download 1 missing song' })).toBeVisible()
+  await expect(playlistOfflineIcon(page)).toHaveAttribute('title', '1 of 2 songs on this device')
+  await expect(await playlistMenuItem(page, 'Download 1 missing song')).toBeVisible()
+  await closePlaylistMenu(page)
 
   // Both documents online, ending on the kept song entered through its row.
   await page.goto(removedUrl)

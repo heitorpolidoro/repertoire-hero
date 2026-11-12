@@ -5,7 +5,7 @@ import { PlaylistDetailHeader } from "@/components/playlists/PlaylistDetailHeade
 import { PlaylistSongList } from "@/components/playlists/PlaylistSongList";
 import { PlaylistSummary } from "@/components/playlists/PlaylistSummary";
 import { PlaylistTagBar } from "@/components/playlists/PlaylistTagBar";
-import { OfflineDownloadButton } from "@/components/playlists/OfflineDownloadButton";
+import { PlaylistOfflineAlert } from "@/components/playlists/PlaylistOfflineAlert";
 import { PracticeStart } from "@/components/songs/PracticeStart";
 import type { PracticeActions } from "@/hooks/usePracticeStart";
 import type { PracticePresence } from "@/hooks/usePracticeReview";
@@ -66,15 +66,16 @@ export interface PlaylistDetailViewProps {
  *
  * It is also this route's offline composition root (RH-99): `/playlists/[id]`
  * is a Server Component and cannot call a hook, so the single
- * `useOfflineStatus()` call lives here and the signal reaches
- * `OfflineDownloadButton` as a prop — the same one-reader-per-route shape Fast
- * View uses. No component under `src/components` reads `navigator.onLine`.
+ * `useOfflineStatus()` call lives here and the signal reaches the header's
+ * offline menu items and `PlaylistOfflineAlert` as a prop — the same
+ * one-reader-per-route shape Fast View uses. No component under
+ * `src/components` reads `navigator.onLine`.
  *
  * RH-193 — and it owns the page's one offline controller: `useOfflinePlaylist`
- * is called here, over the live song list, and the same instance reaches both
- * `OfflineDownloadButton` and every resting row of `PlaylistSongList`, so a
- * row's "Remove <title> from this device" and the header's `N of M songs`
- * change in the same render.
+ * is called here, over the live song list, and the same instance reaches the
+ * header (RH-201: its offline icon and "More actions" group), the alert and
+ * every resting row of `PlaylistSongList`, so a row's "Remove <title> from
+ * this device" and the menu's `N of M songs` change in the same render.
  */
 export function PlaylistDetailView({
   playlist,
@@ -138,6 +139,8 @@ export function PlaylistDetailView({
             <PracticeStart bandId={playlist.band_id} actions={practiceActions} fixedChoice={{ kind: "playlist", id: playlist.id, name: detail.playlist.name }} originHref={`/playlists/${playlist.id}`} />
           ) : undefined
         }
+        offline={offline}
+        isOffline={isOffline}
       />
 
       {/* Playlist tags — the bar owns the ownership gate */}
@@ -147,8 +150,8 @@ export function PlaylistDetailView({
         editor={detail.playlistTagEditor}
       />
 
-      {/* Offline: download this playlist's songs, tabs and lyrics to the device */}
-      <OfflineDownloadButton controller={offline} offline={isOffline} />
+      {/* Offline: the download/removal error; the actions live in "More actions" */}
+      <PlaylistOfflineAlert controller={offline} offline={isOffline} />
 
       {/* Playlist level summary */}
       <PlaylistSummary songs={detail.songs} repertoireMap={detail.repertoireMap} />

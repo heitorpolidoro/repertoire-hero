@@ -19,6 +19,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }))
 const { replace, refresh } = router
 
 import { PlaylistDetailView } from '../PlaylistDetailView'
+import { findOfflineMenuItem, offlineMenuItem } from './offlineControlHarness'
 import { clearSongQueue, readSongQueue } from '@/lib/songQueue'
 import { createOfflineStore } from '@/lib/offlineStore'
 import { createFakePorts } from '@/lib/__tests__/offlineStoreFakes'
@@ -307,24 +308,26 @@ describe('PlaylistDetailView (RH-71)', () => {
    * RH-99 ER5 — this island is the route's offline composition root: it makes
    * the single `useOfflineStatus()` call and hands the result down as a prop.
    * `navigator.onLine` is faked here (and only here) because what is under test
-   * is precisely that this component reads it; `OfflineDownloadButton`'s own
-   * suite drives the prop directly.
+   * is precisely that this component reads it; `playlistOfflineControls`'
+   * suite drives the prop directly. RH-201: the control is a "More actions"
+   * menu item, so "disabled" is `aria-disabled`.
    */
-  it('supplies the offline signal to the offline download control', async () => {
+  it('supplies the offline signal to the offline menu item', async () => {
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     setup()
 
-    const control = await screen.findByRole('button', { name: 'Make available offline' })
-    expect(control.hasAttribute('disabled')).toBe(true)
+    const control = await findOfflineMenuItem('Make available offline')
+    expect(control.getAttribute('aria-disabled')).toBe('true')
     onLine.mockRestore()
   })
 
-  it('leaves the offline download control enabled while online', async () => {
+  it('leaves the offline menu item enabled while online, and renders no offline control outside the menu', async () => {
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
     setup()
 
-    const control = await screen.findByRole('button', { name: 'Make available offline' })
-    expect(control.hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByRole('button', { name: 'Make available offline' })).toBeNull()
+    const control = await findOfflineMenuItem('Make available offline')
+    expect(control.getAttribute('aria-disabled')).toBeNull()
     onLine.mockRestore()
   })
 
@@ -402,9 +405,12 @@ describe('PlaylistDetailView, one offline controller (RH-193)', () => {
     return Array.from(items).find((item) => item.textContent?.includes(title)) as HTMLElement
   }
 
+  /** The header icon's tooltip carries the `N of M` count (RH-201). */
+  const offlineIcon = () => screen.getByRole('img', { name: 'Available offline' })
+
   async function downloadAll() {
-    fireEvent.click(await screen.findByRole('button', { name: 'Make available offline' }))
-    await screen.findByText(/^5 of 5 songs/)
+    fireEvent.click(await findOfflineMenuItem('Make available offline'))
+    await waitFor(() => expect(offlineIcon().getAttribute('title')).toBe('5 of 5 songs on this device'))
   }
 
   it('removing a row from this device marks it, counts 4 of 5, and Refresh offline copy brings it back to 5 of 5', async () => {
@@ -415,13 +421,18 @@ describe('PlaylistDetailView, one offline controller (RH-193)', () => {
     fireEvent.click(within(row('Track 3')).getByRole('button', { name: 'Remove Track 3 from this device' }))
 
     await waitFor(() => expect(within(row('Track 3')).getByRole('img', { name: 'Not on this device' })).toBeDefined())
-    expect(screen.getByText(/^4 of 5 songs/)).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Download 1 missing song' })).toBeDefined()
+    expect(offlineIcon().getAttribute('title')).toBe('4 of 5 songs on this device')
+    expect(offlineMenuItem('Download 1 missing song')).toBeDefined()
+    expect(screen.getByText(/^Available offline · 4 of 5 songs/)).toBeDefined()
     expect(within(row('Track 2')).getByRole('img', { name: 'On this device' })).toBeDefined()
+    // RH-201: none of the offline actions is a control outside "More actions".
+    for (const name of ['Download 1 missing song', 'Refresh offline copy', 'Remove offline copy']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh offline copy' }))
+    fireEvent.click(offlineMenuItem('Refresh offline copy'))
 
-    expect(await screen.findByText(/^5 of 5 songs/)).toBeDefined()
+    await waitFor(() => expect(offlineIcon().getAttribute('title')).toBe('5 of 5 songs on this device'))
     expect(within(row('Track 3')).getByRole('img', { name: 'On this device' })).toBeDefined()
   })
 
@@ -441,7 +452,7 @@ describe('PlaylistDetailView, one offline controller (RH-193)', () => {
   it('draws no row mark before anything of the playlist is stored', async () => {
     fiveSongOffline()
 
-    await screen.findByRole('button', { name: 'Make available offline' })
+    await findOfflineMenuItem('Make available offline')
 
     expect(screen.queryByRole('img', { name: /on this device/i })).toBeNull()
   })

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RH-201 — Offline download in the actions menu</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-6 space-y-10">
+
+<section>
+  <h1 class="text-xl font-bold">RH-201 — Playlist offline download moves into "More actions"</h1>
+  <p class="text-sm text-gray-600 max-w-3xl mt-1">
+    The full-width offline block under the tag bar is gone. Its actions live in the header's three-dots menu,
+    and a small icon next to the playlist name says whether the playlist is on this device.
+    Pick a state, then open the three-dots menu.
+  </p>
+  <div class="mt-3 flex flex-wrap gap-2" id="stateButtons"></div>
+  <label class="mt-2 inline-flex items-center gap-2 text-sm"><input type="checkbox" id="netToggle" /> Device is offline</label>
+  <label class="mt-2 ml-4 inline-flex items-center gap-2 text-sm"><input type="checkbox" id="errToggle" /> Last download failed</label>
+</section>
+
+<section class="grid gap-8 lg:grid-cols-2">
+  <div>
+    <h2 class="font-semibold mb-2">Before (today)</h2>
+    <div class="w-[375px] bg-white rounded-xl shadow overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+        <i data-lucide="arrow-left" class="h-5 w-5 text-gray-400"></i>
+        <h1 class="flex-1 text-lg font-bold truncate">Sunday gig</h1>
+        <button class="px-2 py-1 rounded text-xs font-medium bg-emerald-600 text-white">Start practice</button>
+        <i data-lucide="more-vertical" class="h-5 w-5 text-gray-500"></i>
+      </div>
+      <div class="px-4 py-2 text-xs text-gray-500 border-b border-gray-100">#acoustic #covers</div>
+      <div class="px-4 py-3 border-b border-gray-100">
+        <button class="w-full rounded-xl bg-emerald-600 px-4 py-3 flex items-center justify-center gap-2 font-semibold text-white">
+          <i data-lucide="download" class="h-5 w-5"></i> Make available offline
+        </button>
+      </div>
+      <div class="px-4 py-3 text-xs text-gray-500">Summary bar · song list…</div>
+    </div>
+  </div>
+
+  <div>
+    <h2 class="font-semibold mb-2">After (phone, 375px)</h2>
+    <div class="w-[375px] bg-white rounded-xl shadow">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center gap-3 relative">
+        <i data-lucide="arrow-left" class="h-5 w-5 text-gray-400 shrink-0"></i>
+        <div class="flex-1 min-w-0 flex items-center gap-1.5">
+          <h1 class="text-lg font-bold truncate">Sunday gig</h1>
+          <span id="indicator" class="shrink-0"></span>
+        </div>
+        <button class="px-2 py-1 rounded text-xs font-medium bg-emerald-600 text-white shrink-0">Start practice</button>
+        <div class="relative shrink-0">
+          <button id="dots" aria-label="More actions" class="p-1.5 rounded text-gray-500 hover:text-gray-800"><i data-lucide="more-vertical" class="h-5 w-5"></i></button>
+          <ul id="menu" role="menu" class="hidden absolute right-0 z-20 mt-1 w-64 rounded-lg border border-gray-200 bg-white py-1 text-sm shadow-lg"></ul>
+        </div>
+      </div>
+      <div class="px-4 py-2 text-xs text-gray-500 border-b border-gray-100">#acoustic #covers</div>
+      <div id="alert"></div>
+      <div class="px-4 py-3 text-xs text-gray-500 h-40">Summary bar · song list (rows keep their per-song offline marks)…</div>
+    </div>
+  </div>
+</section>
+
+<section class="bg-white rounded-xl shadow p-5 max-w-4xl">
+  <h2 class="font-semibold">Question — Where the offline icon sits <span class="ml-2 text-xs font-medium text-emerald-700 bg-emerald-50 rounded px-2 py-0.5">Decided: A</span></h2>
+  <p class="text-sm text-gray-600 mt-1">
+    A: right after the playlist name (chosen by the operator — it describes the playlist, so it reads with its name).
+    B: in the button group, just before the three dots (not chosen).
+  </p>
+  <div class="mt-4 grid gap-6 md:grid-cols-2">
+    <div>
+      <p class="text-sm font-semibold mb-1">A — next to the name</p>
+      <div class="w-[340px] bg-white border rounded-lg px-4 py-3 flex items-center gap-3">
+        <i data-lucide="arrow-left" class="h-5 w-5 text-gray-400"></i>
+        <div class="flex-1 min-w-0 flex items-center gap-1.5"><h1 class="text-lg font-bold truncate">Sunday gig</h1><i data-lucide="cloud-check" class="h-4 w-4 text-emerald-600 shrink-0"></i></div>
+        <button class="px-2 py-1 rounded text-xs font-medium bg-emerald-600 text-white">Start practice</button>
+        <i data-lucide="more-vertical" class="h-5 w-5 text-gray-500"></i>
+      </div>
+    </div>
+    <div>
+      <p class="text-sm font-semibold mb-1">B — before the three dots</p>
+      <div class="w-[340px] bg-white border rounded-lg px-4 py-3 flex items-center gap-3">
+        <i data-lucide="arrow-left" class="h-5 w-5 text-gray-400"></i>
+        <h1 class="flex-1 text-lg font-bold truncate">Sunday gig</h1>
+        <button class="px-2 py-1 rounded text-xs font-medium bg-emerald-600 text-white">Start practice</button>
+        <i data-lucide="cloud-check" class="h-4 w-4 text-emerald-600"></i>
+        <i data-lucide="more-vertical" class="h-5 w-5 text-gray-500"></i>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const STATES = {
+    idle: { label: 'Not downloaded', status: 'idle', stored: 0, total: 12 },
+    idlePartial: { label: 'Not downloaded, 3 songs stored', status: 'idle', stored: 3, total: 12 },
+    downloading: { label: 'Downloading', status: 'downloading', done: 5, total: 12 },
+    complete: { label: 'Downloaded, complete', status: 'downloaded', stored: 12, total: 12, size: '18.4 MB', ago: '2 days ago' },
+    partial: { label: 'Downloaded, 2 missing', status: 'downloaded', stored: 10, total: 12, size: '15.1 MB', ago: '2 days ago' },
+  };
+  let current = 'idle';
+
+  function indicatorHtml(s) {
+    if (s.status === 'downloading')
+      return `<span role="img" aria-label="Downloading ${s.done} / ${s.total} songs" title="Downloading ${s.done} / ${s.total} songs" class="inline-flex text-emerald-700"><i data-lucide="loader-circle" class="h-4 w-4 animate-spin"></i></span>`;
+    if (s.status === 'downloaded')
+      return `<span role="img" aria-label="Available offline" title="${s.stored} of ${s.total} songs on this device" class="inline-flex text-emerald-600"><i data-lucide="cloud-check" class="h-4 w-4"></i></span>`;
+    return '';
+  }
+
+  function item(label, opts = {}) {
+    const dis = opts.disabled ? 'aria-disabled="true"' : '';
+    const cls = opts.disabled ? 'text-gray-400 cursor-not-allowed' : (opts.danger ? 'text-red-600 hover:bg-gray-100' : 'text-gray-900 hover:bg-gray-100');
+    const sub = opts.sub ? `<span class="block text-xs ${opts.disabled ? 'text-gray-400' : 'text-gray-500'}">${opts.sub}</span>` : '';
+    return `<li role="none"><button role="menuitem" ${dis} class="w-full px-3 py-2 text-left ${cls}">${label}${sub}</button></li>`;
+  }
+
+  function menuHtml(s, isOffline) {
+    const head = [item('Review practice'), item('Add songs')];
+    const tail = [item('Rename playlist'), item('Delete playlist', { danger: true })];
+    const sep = '<li role="separator" class="my-1 border-t border-gray-100"></li>';
+    const off = [];
+    if (s.status === 'idle') {
+      const sub = isOffline ? 'Connect to the internet to download this playlist.'
+        : (s.stored > 0 ? `${s.stored} of ${s.total} songs are already on this device.` : null);
+      off.push(item('Make available offline', { disabled: isOffline, sub }));
+    } else if (s.status === 'downloading') {
+      // No offline entries while downloading: progress lives in the header icon.
+    } else {
+      off.push(`<li role="none" class="px-3 pt-2 pb-1 text-xs text-gray-500">Available offline · ${s.stored} of ${s.total} songs · ${s.size} · downloaded ${s.ago}</li>`);
+      const missing = s.total - s.stored;
+      if (missing > 0) off.push(item(`Download ${missing} missing song${missing === 1 ? '' : 's'}`, { disabled: isOffline }));
+      off.push(item('Refresh offline copy', { disabled: isOffline }));
+      off.push(item('Remove offline copy', { danger: true }));
+    }
+    const group = off.length ? [sep, ...off, sep] : [];
+    return [...head, ...group, ...tail].join('');
+  }
+
+  function render() {
+    const s = STATES[current];
+    const isOffline = document.getElementById('netToggle').checked;
+    document.getElementById('indicator').innerHTML = indicatorHtml(s);
+    document.getElementById('menu').innerHTML = menuHtml(s, isOffline);
+    document.getElementById('alert').innerHTML = document.getElementById('errToggle').checked
+      ? `<div class="px-4 py-2 border-b border-gray-100"><div role="alert" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">2 songs could not be downloaded.</p><button class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700" ${isOffline ? 'disabled style="opacity:.4"' : ''}>Try again</button><button aria-label="Dismiss offline download error" class="text-red-400 text-xs">✕</button></div></div>`
+      : '';
+    document.querySelectorAll('#stateButtons button').forEach((b) => {
+      b.className = 'px-3 py-1 rounded-full text-sm border ' + (b.dataset.key === current ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300');
+    });
+    lucide.createIcons();
+  }
+
+  const bar = document.getElementById('stateButtons');
+  Object.entries(STATES).forEach(([key, s]) => {
+    const b = document.createElement('button');
+    b.textContent = s.label; b.dataset.key = key;
+    b.addEventListener('click', () => { current = key; render(); });
+    bar.appendChild(b);
+  });
+  document.getElementById('netToggle').addEventListener('change', render);
+  document.getElementById('errToggle').addEventListener('change', render);
+  document.getElementById('dots').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('menu').classList.toggle('hidden');
+  });
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('menu');
+    if (!menu.contains(e.target)) menu.classList.add('hidden');
+  });
+  render();
+</script>
+</body>
+</html>

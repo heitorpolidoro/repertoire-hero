@@ -19,7 +19,7 @@ import {
   type OfflineDownloadActions,
   type UseOfflinePlaylistOptions,
 } from '@/hooks/useOfflinePlaylist'
-import { HookedOfflineControl } from '@/components/playlists/__tests__/offlineControlHarness'
+import { HookedOfflineControl, findOfflineMenuItem } from '@/components/playlists/__tests__/offlineControlHarness'
 import { OFFLINE_STORE, createOfflineStore } from '@/lib/offlineStore'
 import { isSetlistRecord, isSongRecord } from '@/lib/offlineRecords'
 import { songRecordId } from '@/lib/offlineSongRecord'
@@ -302,11 +302,11 @@ describe('useOfflinePlaylist — per-song failure isolation (RH-192)', () => {
         store={createOfflineStore(fresh)}
       />,
     )
-    fireEvent.click(await screen.findByRole('button', { name: 'Make available offline' }))
+    fireEvent.click(await findOfflineMenuItem('Make available offline'))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('1 of 3 songs could not be downloaded.')
     expect(screen.getByRole('button', { name: 'Try again' })).toBeDefined()
-    expect(screen.getByText('Available offline')).toBeDefined()
+    expect(screen.getByRole('img', { name: 'Available offline' })).toBeDefined()
     expect(storedVersionIds(fresh)).toEqual(['v-rep-1', 'v-rep-3'])
   })
 

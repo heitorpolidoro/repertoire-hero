@@ -4,15 +4,37 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { PlaylistDeleteModal } from "@/components/playlists/PlaylistDeleteModal";
-import { PlaylistHeaderMenu } from "@/components/playlists/PlaylistHeaderMenu";
+import {
+  PlaylistHeaderMenu,
+  type HeaderMenuEntry,
+} from "@/components/playlists/PlaylistHeaderMenu";
+import { PlaylistOfflineIndicator } from "@/components/playlists/PlaylistOfflineIndicator";
 import { PlaylistSpotifyStrip } from "@/components/playlists/PlaylistSpotifyStrip";
 import { Spinner } from "@/components/ui/Spinner";
+import type { OfflinePlaylistController } from "@/hooks/useOfflinePlaylist";
 import {
   renameDraft,
   type PlaylistPanel,
   type PlaylistPanelAction,
 } from "@/lib/playlistPanels";
+import {
+  playlistOfflineIndicator,
+  playlistOfflineMenu,
+} from "@/lib/playlistOfflineMenu";
 import type { Playlist } from "@/types/database";
+
+/** RH-201 — the offline group of the menu, its commands bound to the controller. */
+function offlineMenuEntries(
+  offline: OfflinePlaylistController | undefined,
+  isOffline: boolean,
+): HeaderMenuEntry[] {
+  if (!offline) return [];
+  return playlistOfflineMenu(offline, isOffline).map((entry) =>
+    entry.kind === "summary"
+      ? entry
+      : { ...entry, run: () => void offline[entry.command]() },
+  );
+}
 
 export interface PlaylistDetailHeaderProps {
   /** The loaded playlist: its name, cover and Spotify link. */
@@ -45,6 +67,14 @@ export interface PlaylistDetailHeaderProps {
   onReviewPractice?: () => void;
   /** RH-172 — the "Start practice" button, mounted by the view; omit for an empty playlist. */
   startPractice?: ReactNode;
+  /**
+   * RH-201 — the page's one offline controller: its state drives the icon
+   * after the name and the offline group of the "More actions" menu. Omit to
+   * show neither.
+   */
+  offline?: OfflinePlaylistController;
+  /** RH-201 — the device's network state, from the route's single reader. */
+  isOffline?: boolean;
 }
 
 /**
@@ -54,6 +84,9 @@ export interface PlaylistDetailHeaderProps {
  * RH-172: the action group is "Start practice" (when given), "Done" while
  * reordering and the three-dots menu that holds every secondary action. The
  * delete confirmation is a modal, so the header stays one row.
+ *
+ * RH-201: the playlist's offline actions are a group of that menu, and a
+ * compact icon after the name says whether a copy is downloading or stored.
  *
  * It receives the panel state and its `dispatch` rather than a boolean and a
  * callback per panel, for the reason RH-69 handed a whole `TagEditorController`
@@ -75,6 +108,8 @@ export function PlaylistDetailHeader({
   onToggleReorder,
   onReviewPractice,
   startPractice,
+  offline,
+  isOffline = false,
 }: PlaylistDetailHeaderProps) {
   const renaming = panel.kind === "rename";
   // The rename in flight: Save says so and cannot fire twice.
@@ -178,9 +213,14 @@ export function PlaylistDetailHeader({
             </button>
           </div>
         ) : (
-          <h1 className="flex-1 text-lg font-bold text-gray-900 truncate">
-            {playlist.name}
-          </h1>
+          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+            <h1 className="min-w-0 text-lg font-bold text-gray-900 truncate">
+              {playlist.name}
+            </h1>
+            {offline && (
+              <PlaylistOfflineIndicator state={playlistOfflineIndicator(offline)} />
+            )}
+          </div>
         )}
 
         {/* Actions */}
@@ -195,6 +235,7 @@ export function PlaylistDetailHeader({
               onReorder={onToggleReorder}
               onReviewPractice={onReviewPractice}
               onAddSongs={() => dispatch({ type: "toggle-picker" })}
+              offlineEntries={offlineMenuEntries(offline, isOffline)}
               onRename={() => dispatch({ type: "open-rename", name: playlist.name })}
               onDelete={() => dispatch({ type: "open-delete-confirm" })}
             />
