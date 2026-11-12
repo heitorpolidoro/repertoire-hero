@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RH-191 — A setlist download is a shortcut for its songs</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4 md:p-6 space-y-10">
+
+<header class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold">RH-191 — A setlist download is a shortcut for its songs</h1>
+  <p class="text-sm text-gray-600 mt-1">Sections 1, 4, 5 and 6 share one simulated device, so a removal in one shows in the others. Section 2 records your two decisions. Section 3 shows the failure and busy states. Section 4 shows a setlist with no network.</p>
+</header>
+
+<!-- ============ 1. Interactive playlist page ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">1. Playlist page: try the control</h2>
+  <p class="text-sm text-gray-600 mb-3">"Tempo Perdido" is also in the downloaded playlist "Ensaio quarta", and "Índios" was downloaded on its own. Remove the playlist to see them stay.</p>
+  <div class="flex flex-wrap gap-2 mb-3 text-sm">
+    <label class="flex items-center gap-2 bg-white border rounded px-3 py-1">
+      <input type="checkbox" id="toggleOffline"> Browser offline
+    </label>
+    <label class="flex items-center gap-2 bg-white border rounded px-3 py-1">
+      <input type="checkbox" id="toggleFail"> Next download misses one song
+    </label>
+    <button type="button" id="addEntryBtn" class="bg-white border rounded px-3 py-1">Add a song to the playlist online</button>
+    <button type="button" id="resetBtn" class="bg-white border rounded px-3 py-1">Reset</button>
+  </div>
+
+  <p class="text-xs text-gray-500 mb-3">Shown at phone width (375px). The trash removes the song from this device. The grey X is today's "remove from playlist", unchanged and inactive here.</p>
+  <div class="max-w-[375px] bg-white rounded-2xl shadow overflow-hidden border">
+    <div class="px-4 py-3 border-b flex items-center gap-3">
+      <i data-lucide="chevron-left" class="w-5 h-5 text-gray-500"></i>
+      <div class="w-10 h-10 rounded bg-emerald-200"></div>
+      <div class="flex-1"><p class="font-bold">Friday Gig</p><p class="text-xs text-gray-500" id="songTotal"></p></div>
+      <i data-lucide="more-vertical" class="w-5 h-5 text-gray-500"></i>
+    </div>
+    <div id="offlineSlot" class="px-4 py-3 border-b border-gray-100"></div>
+    <ul id="songRows" class="divide-y text-sm"></ul>
+  </div>
+</section>
+
+<!-- ============ 2. Decisions ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">2. Your decisions</h2>
+  <ul class="text-sm text-gray-600 list-disc pl-5 space-y-1">
+    <li><strong>Removing one song: B.</strong> Every song row carries a mark and, when the song is stored, a trash button, as in section 1. A song not on the device has only the dashed mark.</li>
+    <li><strong>Removing a setlist: delete.</strong> Its songs are deleted, except those in another downloaded setlist or downloaded on their own. Section 1 behaves this way.</li>
+  </ul>
+</section>
+
+<!-- ============ 3. Failure and busy states ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">3. Playlist page: failure and busy states</h2>
+  <p class="text-sm text-gray-600 mb-3">Static examples, so you can read each one without triggering it.</p>
+  <div class="grid gap-4 md:grid-cols-2">
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Not enough storage, one song missed</p>
+      <div class="bg-white rounded-2xl shadow border px-4 py-3">
+        <div class="rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">4 of 5 songs · 38.2 MB · downloaded today</p></div></div>
+        <div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">Not enough storage. 1 of 5 songs could not be downloaded.</p><span class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700">Try again</span><span class="text-red-400 text-xs">✕</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Nothing stored: not enough storage</p>
+      <div class="bg-white rounded-2xl shadow border px-4 py-3">
+        <div class="w-full rounded-xl bg-emerald-600 px-4 py-3 text-center font-semibold text-white">Make available offline</div>
+        <div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">Not enough storage. Nothing from this playlist was kept.</p><span class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700">Try again</span><span class="text-red-400 text-xs">✕</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Nothing stored: any other failure</p>
+      <div class="bg-white rounded-2xl shadow border px-4 py-3">
+        <div class="w-full rounded-xl bg-emerald-600 px-4 py-3 text-center font-semibold text-white">Make available offline</div>
+        <div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">Could not download this playlist. Nothing from this playlist was kept.</p><span class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700">Try again</span><span class="text-red-400 text-xs">✕</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">A row's removal failed: the row stays marked, and the alert has no "Try again"</p>
+      <div class="max-w-[375px] bg-white rounded-2xl shadow border overflow-hidden">
+        <div class="px-4 py-3 border-b">
+          <div class="rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">5 of 5 songs · 46.5 MB · downloaded today</p></div></div>
+          <div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">Could not remove Pais e Filhos from this device.</p><span class="text-red-400 text-xs">✕</span></div>
+        </div>
+        <div class="px-4 py-2 flex items-center gap-3 text-sm"><span class="w-10 h-10 shrink-0 rounded bg-gray-200"></span><span class="flex-1 min-w-0"><span class="block truncate font-medium">Pais e Filhos</span><span class="block truncate text-xs text-gray-500">Legião Urbana</span></span><span class="shrink-0 flex items-center gap-1"><span class="text-emerald-600"><i data-lucide="circle-check" class="w-4 h-4"></i></span><span class="p-1 text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></span></span><span class="shrink-0 text-xs text-gray-400 tabular-nums">5:08</span><span class="shrink-0 p-1 text-gray-300">✕</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">While downloading: every trash button is disabled</p>
+      <div class="max-w-[375px] bg-white rounded-2xl shadow border overflow-hidden">
+        <div class="px-4 py-3 border-b"><div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3 text-emerald-800"><span class="font-semibold">Downloading...</span><span class="ml-auto text-sm tabular-nums">3 / 5 songs</span></div></div>
+        <div class="px-4 py-2 flex items-center gap-3 text-sm"><span class="w-10 h-10 shrink-0 rounded bg-gray-200"></span><span class="flex-1 min-w-0"><span class="block truncate font-medium">Tempo Perdido</span><span class="block truncate text-xs text-gray-500">Legião Urbana</span></span><span class="shrink-0 flex items-center gap-1"><span class="text-emerald-600"><i data-lucide="circle-check" class="w-4 h-4"></i></span><button type="button" disabled aria-label="Remove Tempo Perdido from this device" class="p-1 text-gray-300"><i data-lucide="trash-2" class="w-4 h-4"></i></button></span><span class="shrink-0 text-xs text-gray-400 tabular-nums">3:20</span><span class="shrink-0 p-1 text-gray-300">✕</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">"Download 2 missing songs" fetched 2, and 1 failed: M counts this run's songs</p>
+      <div class="bg-white rounded-2xl shadow border px-4 py-3">
+        <div class="rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">4 of 5 songs · 38.2 MB · downloaded today</p></div></div>
+        <div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">1 of 2 songs could not be downloaded.</p><span class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700">Try again</span><span class="text-red-400 text-xs">✕</span></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Already downloaded, and the playlist itself could not be read: nothing on the device changes</p>
+      <div class="bg-white rounded-2xl shadow border px-4 py-3">
+        <div class="rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">5 of 5 songs · 46.5 MB · downloaded 3 days ago</p></div></div>
+        <div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">Could not reach this playlist. Your offline copy was not changed.</p><span class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700">Try again</span><span class="text-red-400 text-xs">✕</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ 4. Using a setlist offline ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">4. Offline: the list, the order, and moving between songs</h2>
+  <p class="text-sm text-gray-600 mb-3">These follow the simulated device above: remove a song in section 1 and it shows here as not on this device. Press the buttons to walk. A song not stored is skipped, and you can only reach its screen through a direct link.</p>
+  <div class="grid gap-6 lg:grid-cols-2">
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Opening the app with no network: the offline screen</p>
+      <div class="bg-gray-50 rounded-2xl shadow border p-4 max-w-[375px]">
+        <div data-testid="offline-shell" class="rounded-xl border border-gray-200 bg-white p-5 text-center">
+          <p class="text-xl font-semibold">You are offline</p>
+          <p class="mt-2 text-sm text-gray-600">Repertoire Hero could not reach the network. Reconnect and this page will load again — anything you already downloaded stays available.</p>
+        </div>
+        <div id="offlineScreenList" class="mt-4"></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Fast View offline: the setlist and moving</p>
+      <div class="bg-white rounded-2xl shadow border max-w-[375px] overflow-hidden">
+        <div class="px-4 py-3 bg-amber-50 border-b text-xs text-amber-900"><strong>You are offline.</strong> This song is read-only until you reconnect.</div>
+        <div class="px-4 py-3 border-b">
+          <p id="walkTitle" class="text-lg font-bold"></p>
+          <p class="text-xs text-gray-500">Legião Urbana · <span id="walkPosition"></span></p>
+          <div class="mt-3 flex gap-2">
+            <button type="button" id="walkPrev" class="flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold disabled:text-gray-300">← Previous</button>
+            <button type="button" id="walkNext" class="flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold disabled:text-gray-300">Next →</button>
+          </div>
+        </div>
+        <div id="walkRows" class="p-3 flex flex-col gap-1.5"></div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">Fast View offline on a phone (below <code>lg</code>): the setlist select</p>
+      <div class="bg-white rounded-2xl shadow border max-w-[375px] p-4">
+        <p class="text-[11px] text-gray-500 mb-1">Closed, as it sits above the song (follows the simulated device):</p>
+        <select id="walkSelect" class="w-full text-xs font-semibold bg-white text-gray-700 border border-gray-200 rounded-xl px-3 py-2 shadow-xs truncate"></select>
+        <p class="text-[11px] text-gray-500 mt-3 mb-1">Opened, fixed example with "Pais e Filhos" not on this device (greyed options cannot be picked):</p>
+        <select id="walkSelectOpen" size="5" class="w-full text-xs font-semibold bg-white text-gray-700 border border-gray-200 rounded-xl px-1 py-1">
+          <option value="tempo" selected>1. Tempo Perdido - Legião Urbana</option>
+          <option value="indios">2. Índios - Legião Urbana</option>
+          <option value="pais" disabled>3. Pais e Filhos (not on this device)</option>
+          <option value="eduardo">4. Eduardo e Mônica - Legião Urbana</option>
+          <option value="faroeste">5. Faroeste Caboclo - Legião Urbana</option>
+        </select>
+        <p class="text-[11px] text-gray-500 mt-3">A song on the device keeps today's <code>&lt;n&gt;. &lt;title&gt; - &lt;artist&gt;</code>. A song not on the device is disabled and reads <code>&lt;n&gt;. &lt;title&gt; (not on this device)</code>, with the artist dropped. Online, every option looks as today.</p>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 mb-1">A song not stored, opened directly while in a setlist</p>
+      <div class="bg-white rounded-2xl shadow border max-w-[375px] px-6 py-8 text-center flex flex-col items-center gap-3">
+        <span class="text-4xl">📴</span>
+        <p class="text-lg font-semibold text-gray-700">This song is not available offline</p>
+        <p class="text-sm text-gray-500">It is not stored on this device. While you have a connection, open its playlist and choose <span class="font-medium">Make available offline</span>, or open the song and choose <span class="font-medium">Available offline</span>.</p>
+        <div class="w-full flex flex-col gap-2">
+          <span class="rounded-lg border px-3 py-2 text-sm font-semibold">← Previous: Tempo Perdido</span>
+          <span class="rounded-lg border px-3 py-2 text-sm font-semibold">Next: Pais e Filhos →</span>
+        </div>
+        <span class="text-sm font-medium text-emerald-600">← Back</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ 5. Settings ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">5. Settings: Offline storage</h2>
+  <p class="text-sm text-gray-600 mb-3">The total counts each song once, so it can be less than the playlist rows added up.</p>
+  <div class="max-w-xl bg-white rounded-2xl shadow border p-5">
+    <div class="flex items-baseline justify-between">
+      <h3 class="text-sm font-semibold text-gray-700">Offline storage</h3>
+      <div class="text-right"><p class="text-2xl font-bold" id="settingsTotal"></p><p class="text-xs text-gray-400">1.1 GB of 12.0 GB used</p></div>
+    </div>
+    <div id="settingsLists"></div>
+  </div>
+</section>
+
+<!-- ============ 6. Fast View ============ -->
+<section class="max-w-5xl mx-auto">
+  <h2 class="text-lg font-semibold mb-1">6. Fast View: the song's own control</h2>
+  <p class="text-sm text-gray-600 mb-3">It looks the same as today, but a song stored through a setlist now reads as available too. Removing it here lowers the setlist's count.</p>
+  <div class="max-w-md bg-white rounded-2xl shadow border p-4" id="fastViewSlot"></div>
+</section>
+
+<script>
+  var SONGS = [
+    { id: 'tempo', title: 'Tempo Perdido', artist: 'Legião Urbana', size: 9.4, time: '3:20', notes: '♪♪♪ Practicing' },
+    { id: 'indios', title: 'Índios', artist: 'Legião Urbana', size: 7.1, time: '4:01', notes: '♪♪ Learning' },
+    { id: 'pais', title: 'Pais e Filhos', artist: 'Legião Urbana', size: 8.2, time: '5:08', notes: '♪ Unknown' },
+    { id: 'eduardo', title: 'Eduardo e Mônica', artist: 'Legião Urbana', size: 11.3, time: '4:31', notes: '♪♪♪♪ Mastered' },
+    { id: 'faroeste', title: 'Faroeste Caboclo', artist: 'Legião Urbana', size: 10.5, time: '9:03', notes: '♪ Unknown' }
+  ];
+  var EXTRA = { id: 'sera', title: 'Será', artist: 'Legião Urbana', size: 6.6, time: '2:28', notes: '♪ Unknown' };
+  var state;
+  var walkId = 'tempo';
+
+  function initialState() {
+    return {
+      entries: SONGS.slice(),
+      listSaved: true,
+      savedCount: 5,
+      stored: { tempo: true, indios: true, pais: true, eduardo: true, faroeste: true },
+      individual: { indios: true },
+      otherPlaylist: { tempo: true },
+      otherPlaylistSaved: true,
+      error: null,
+      busy: false
+    };
+  }
+
+  function el(id) { return document.getElementById(id); }
+  function isOffline() { return el('toggleOffline').checked; }
+  function escapeHtml(text) {
+    var node = document.createElement('div');
+    node.textContent = text;
+    return node.innerHTML;
+  }
+  function sizeOf(id) {
+    var all = SONGS.concat([EXTRA]);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i].size;
+    return 0;
+  }
+  function storedCount() {
+    return state.entries.filter(function (s) { return state.stored[s.id]; }).length;
+  }
+  function storedSize(entries) {
+    return entries.reduce(function (sum, s) { return sum + (state.stored[s.id] ? s.size : 0); }, 0);
+  }
+
+  function offlineMark(s) {
+    if (!state.listSaved && storedCount() === 0) return '';
+    if (state.stored[s.id]) {
+      return '<span class="shrink-0 flex items-center gap-1"><span role="img" aria-label="On this device" title="On this device" class="text-emerald-600"><i data-lucide="circle-check" class="w-4 h-4"></i></span>' +
+        '<button type="button" data-remove-song="' + s.id + '" aria-label="Remove ' + escapeHtml(s.title) + ' from this device" ' + (state.busy ? 'disabled' : '') + ' class="p-1 rounded text-red-500 hover:bg-red-50 disabled:text-gray-300 disabled:hover:bg-transparent"><i data-lucide="trash-2" class="w-4 h-4"></i></button></span>';
+    }
+    return '<span role="img" aria-label="Not on this device" title="Not on this device" class="shrink-0 text-gray-400"><i data-lucide="circle-dashed" class="w-4 h-4"></i></span>';
+  }
+
+  function renderControl() {
+    var total = state.entries.length;
+    var count = storedCount();
+    var missing = total - count;
+    var html = '';
+    if (state.busy) {
+      html = '<button type="button" disabled aria-busy="true" class="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3 text-emerald-800"><span class="font-semibold">Downloading...</span><span class="ml-auto text-sm tabular-nums">' + count + ' / ' + total + ' songs</span></button>';
+    } else if (state.listSaved) {
+      html = '<div class="rounded-xl border border-emerald-200 bg-white px-4 py-3">' +
+        '<div class="flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p>' +
+        '<p class="text-xs text-gray-500">' + count + ' of ' + total + ' songs · ' + storedSize(state.entries).toFixed(1) + ' MB · downloaded today</p></div>' +
+        '<div class="ml-auto flex items-center gap-1">' +
+        '<button type="button" id="refreshBtn" aria-label="Refresh offline copy" ' + (isOffline() ? 'disabled' : '') + ' class="rounded-md p-2 text-gray-500 hover:bg-gray-100 disabled:text-gray-300">⟳</button>' +
+        '<span class="h-4 w-px bg-gray-200"></span>' +
+        '<button type="button" id="removeListBtn" aria-label="Remove offline copy" class="rounded-md p-2 text-red-500 hover:bg-red-50">🗑</button></div></div>' +
+        (missing > 0 ? '<button type="button" id="missingBtn" ' + (isOffline() ? 'disabled' : '') + ' class="mt-2 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">Download ' + missing + ' missing song' + (missing === 1 ? '' : 's') + '</button>' : '') +
+        '</div>';
+    } else {
+      html = '<button type="button" id="downloadBtn" ' + (isOffline() ? 'disabled' : '') + ' class="w-full rounded-xl bg-emerald-600 px-4 py-3 flex items-center justify-center gap-2 font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400"><i data-lucide="download" class="w-5 h-5"></i>Make available offline</button>';
+      if (isOffline()) html += '<p class="mt-2 text-xs text-gray-500">Connect to the internet to download this playlist.</p>';
+      if (count > 0) html += '<p class="mt-2 text-xs text-gray-500">' + count + ' of ' + total + ' songs are already on this device.</p>';
+    }
+    if (state.error) {
+      html += '<div role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center gap-3"><p class="flex-1 text-sm text-red-700">' + escapeHtml(state.error) + '</p>' +
+        '<button type="button" id="tryAgainBtn" ' + (isOffline() ? 'disabled' : '') + ' class="rounded-md border border-red-300 px-2.5 py-1 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-40">Try again</button></div>';
+    }
+    el('offlineSlot').innerHTML = html;
+  }
+
+  function renderRows() {
+    el('songTotal').textContent = state.entries.length + ' songs';
+    el('songRows').innerHTML = state.entries.map(function (s) {
+      return '<li class="px-4 py-2"><div class="flex items-center gap-3">' +
+        '<div class="flex-1 min-w-0 flex items-center gap-3"><span class="w-10 h-10 shrink-0 rounded bg-gray-200"></span><span class="min-w-0"><span class="block truncate font-medium">' + escapeHtml(s.title) + '</span><span class="block truncate text-xs text-gray-500">' + escapeHtml(s.artist) + '</span></span></div>' +
+        offlineMark(s) +
+        '<span class="shrink-0 text-xs text-gray-400 tabular-nums">' + s.time + '</span>' +
+        '<button type="button" disabled aria-label="Remove ' + escapeHtml(s.title) + ' from playlist" class="shrink-0 p-1 text-gray-300">✕</button></div>' +
+        '<p class="pl-[52px] mt-1 text-xs text-gray-500">' + s.notes + ' · Practised</p></li>';
+    }).join('');
+  }
+
+  function holders(id) {
+    var names = [];
+    if (state.listSaved && state.entries.some(function (s) { return s.id === id; })) names.push('Friday Gig');
+    if (state.otherPlaylistSaved && state.otherPlaylist[id]) names.push('Ensaio quarta');
+    return names;
+  }
+
+  function renderSettings() {
+    var ids = Object.keys(state.stored).filter(function (id) { return state.stored[id]; });
+    var total = ids.reduce(function (sum, id) { return sum + sizeOf(id); }, 0);
+    el('settingsTotal').textContent = total.toFixed(1) + ' MB';
+    if (ids.length === 0 && !state.listSaved) {
+      el('settingsLists').innerHTML = '<p class="text-sm text-gray-400 py-6 text-center">Nothing is stored on this device.</p>';
+      return;
+    }
+    var playlists = '';
+    if (state.listSaved) {
+      playlists += '<li class="py-3 flex items-center gap-3"><div><p class="text-sm font-medium">Friday Gig</p><p class="text-xs text-gray-400">' + storedCount() + ' of ' + state.savedCount + ' songs · ' + storedSize(state.entries).toFixed(1) + ' MB · downloaded today</p></div>' +
+        '<button type="button" data-settings-list="friday" class="ml-auto rounded-md px-3 py-1.5 text-xs text-red-600 border border-red-200 hover:bg-red-50">Remove</button></li>';
+    }
+    if (state.otherPlaylistSaved) {
+      var otherStored = state.stored.tempo ? 1 : 0;
+      playlists += '<li class="py-3 flex items-center gap-3"><div><p class="text-sm font-medium">Ensaio quarta</p><p class="text-xs text-gray-400">' + otherStored + ' of 1 songs · ' + (otherStored ? sizeOf('tempo') : 0).toFixed(1) + ' MB · downloaded 3 days ago</p></div>' +
+        '<button type="button" data-settings-list="other" class="ml-auto rounded-md px-3 py-1.5 text-xs text-red-600 border border-red-200 hover:bg-red-50">Remove</button></li>';
+    }
+    var songs = ids.map(function (id) {
+      var all = SONGS.concat([EXTRA]).filter(function (s) { return s.id === id; })[0];
+      var parts = holders(id).map(function (n) { return 'In ' + n; });
+      if (state.individual[id]) parts.push('Downloaded individually');
+      return '<li class="py-3 flex items-center gap-3"><div><p class="text-sm font-medium">' + escapeHtml(all.title) + '</p><p class="text-xs text-gray-400">' + all.size.toFixed(1) + ' MB · downloaded today · ' + escapeHtml(parts.join(', ')) + '</p></div>' +
+        '<button type="button" data-remove-song="' + id + '" aria-label="Remove ' + escapeHtml(all.title) + ' from this device" class="ml-auto rounded-md px-3 py-1.5 text-xs text-red-600 border border-red-200 hover:bg-red-50">Remove</button></li>';
+    }).join('');
+    el('settingsLists').innerHTML =
+      (playlists ? '<h4 class="mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500">Playlists</h4><ul class="divide-y divide-gray-100">' + playlists + '</ul>' : '') +
+      (songs ? '<h4 class="mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500">Songs</h4><ul class="divide-y divide-gray-100">' + songs + '</ul>' : '');
+  }
+
+  function renderFastView() {
+    var song = SONGS[0];
+    var head = '<p class="font-bold">' + escapeHtml(song.title) + '</p><p class="text-xs text-gray-500 mb-3">' + escapeHtml(song.artist) + '</p>';
+    if (state.stored[song.id]) {
+      el('fastViewSlot').innerHTML = head + '<div class="rounded-xl border border-emerald-200 bg-white px-4 py-3 flex items-center gap-3"><span class="text-emerald-600">✓</span><div><p class="font-semibold">Available offline</p><p class="text-xs text-gray-500">' + song.size.toFixed(1) + ' MB · downloaded today</p></div>' +
+        '<div class="ml-auto flex items-center gap-1"><button type="button" aria-label="Refresh offline copy" class="rounded-md p-2 text-gray-500 hover:bg-gray-100">⟳</button><span class="h-4 w-px bg-gray-200"></span><button type="button" data-remove-song="' + song.id + '" aria-label="Remove offline copy" class="rounded-md p-2 text-red-500 hover:bg-red-50">🗑</button></div></div>';
+    } else {
+      el('fastViewSlot').innerHTML = head + '<button type="button" id="fastDownloadBtn" class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center gap-3 hover:border-emerald-300"><span class="text-gray-400">⤓</span><span class="font-semibold">Available offline</span></button>';
+    }
+  }
+
+  function renderOfflineScreen() {
+    if (!state.listSaved) {
+      el('offlineScreenList').innerHTML = '<p class="text-xs text-gray-400 text-center">No downloaded playlist: the screen is the card alone, as today.</p>';
+      return;
+    }
+    var rows = state.entries.map(function (s, index) {
+      var number = '<span class="w-5 shrink-0 text-right font-mono text-xs text-gray-400">' + (index + 1) + '.</span>';
+      var name = '<span class="min-w-0 flex-1 truncate">' + escapeHtml(s.title) + '</span>';
+      if (state.stored[s.id]) {
+        return '<li><button type="button" data-open-song="' + s.id + '" class="w-full text-left rounded-lg border border-gray-100 bg-white px-3 py-2 flex items-center gap-2 text-sm font-medium hover:bg-gray-50">' + number + name + '<span class="text-emerald-600"><i data-lucide="chevron-right" class="w-4 h-4"></i></span></button></li>';
+      }
+      return '<li class="rounded-lg border border-dashed border-gray-200 px-3 py-2 flex items-center gap-2 text-sm text-gray-400">' + number + name + '<span role="img" aria-label="Not on this device" class="shrink-0 flex items-center gap-1 text-[10px]"><i data-lucide="circle-dashed" class="w-4 h-4"></i>Not on this device</span></li>';
+    }).join('');
+    el('offlineScreenList').innerHTML = '<h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Downloaded playlists</h3>' +
+      '<div class="mt-2 flex items-baseline justify-between"><p class="font-semibold">Friday Gig</p><p class="text-xs text-gray-500">' + storedCount() + ' of ' + state.entries.length + ' songs</p></div>' +
+      '<ul class="mt-2 flex flex-col gap-1.5">' + rows + '</ul>';
+  }
+
+  function walkIndex() {
+    var index = state.entries.findIndex(function (s) { return s.id === walkId && state.stored[s.id]; });
+    if (index !== -1) return index;
+    return state.entries.findIndex(function (s) { return state.stored[s.id]; });
+  }
+
+  function nearestStored(from, step) {
+    for (var i = from + step; i >= 0 && i < state.entries.length; i += step) {
+      if (state.stored[state.entries[i].id]) return i;
+    }
+    return -1;
+  }
+
+  function renderWalk() {
+    var index = walkIndex();
+    var current = index === -1 ? null : state.entries[index];
+    walkId = current ? current.id : null;
+    el('walkTitle').textContent = current ? current.title : 'No song of this playlist is stored';
+    el('walkPosition').textContent = current ? (index + 1) + ' / ' + state.entries.length : '';
+    el('walkPrev').disabled = !current || nearestStored(index, -1) === -1;
+    el('walkNext').disabled = !current || nearestStored(index, 1) === -1;
+    el('walkRows').innerHTML = state.entries.map(function (s, i) {
+      var number = '<span class="w-5 shrink-0 text-right font-mono">' + (i + 1) + '.</span>';
+      if (!state.stored[s.id]) {
+        return '<button type="button" disabled class="w-full text-left px-3 py-2 rounded-xl flex items-center gap-2 text-xs border border-gray-100 bg-gray-50 text-gray-400">' + number + '<span class="min-w-0 flex-1 truncate">' + escapeHtml(s.title) + '</span><span class="shrink-0 text-[10px] font-medium bg-white border border-dashed border-gray-300 px-2 py-0.5 rounded-full">Not on this device</span></button>';
+      }
+      var isCurrent = current && s.id === current.id;
+      return '<button type="button" data-open-song="' + s.id + '" class="w-full text-left px-3 py-2 rounded-xl flex items-center gap-2 text-xs border ' + (isCurrent ? 'bg-emerald-50 text-emerald-900 font-bold border-emerald-300' : 'bg-white text-gray-700 border-gray-100') + '">' + number + '<span class="min-w-0 flex-1 truncate">' + escapeHtml(s.title) + '</span>' + (isCurrent ? '<span class="shrink-0 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">▶ NOW</span>' : '') + '</button>';
+    }).join('');
+    el('walkSelect').innerHTML = state.entries.map(function (s, i) {
+      var label = state.stored[s.id]
+        ? (i + 1) + '. ' + escapeHtml(s.title) + ' - ' + escapeHtml(s.artist)
+        : (i + 1) + '. ' + escapeHtml(s.title) + ' (not on this device)';
+      return '<option value="' + s.id + '"' + (state.stored[s.id] ? '' : ' disabled') + (current && s.id === current.id ? ' selected' : '') + '>' + label + '</option>';
+    }).join('');
+  }
+
+  function render() {
+    renderControl();
+    renderRows();
+    renderSettings();
+    renderFastView();
+    renderOfflineScreen();
+    renderWalk();
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function removeSong(id) {
+    state.stored[id] = false;
+    state.individual[id] = false;
+    render();
+  }
+
+  function removeFriday() {
+    state.entries.forEach(function (s) {
+      var heldElsewhere = (state.otherPlaylistSaved && state.otherPlaylist[s.id]) || state.individual[s.id];
+      if (!heldElsewhere) state.stored[s.id] = false;
+    });
+    state.listSaved = false;
+    state.error = null;
+    render();
+  }
+
+  function removeOther() {
+    state.otherPlaylistSaved = false;
+    var inFriday = state.listSaved && state.entries.some(function (s) { return s.id === 'tempo'; });
+    if (!inFriday && !state.individual.tempo) state.stored.tempo = false;
+    render();
+  }
+
+  function download(refresh) {
+    state.error = null;
+    state.busy = true;
+    render();
+    var failOne = el('toggleFail').checked;
+    window.setTimeout(function () {
+      // Rule 7: a refresh re-fetches every song; the other runs fetch only the missing ones.
+      var attempted = refresh ? state.entries.slice() : state.entries.filter(function (s) { return !state.stored[s.id]; });
+      var skip = failOne && attempted.length > 0 ? attempted[attempted.length - 1] : null;
+      attempted.forEach(function (s) { if (s !== skip) state.stored[s.id] = true; });
+      state.listSaved = true;
+      state.savedCount = state.entries.length;
+      state.busy = false;
+      if (skip) {
+        // Rule 9: M is the number of songs this run tried to fetch.
+        state.error = '1 of ' + attempted.length + ' songs could not be downloaded.';
+        el('toggleFail').checked = false;
+      }
+      render();
+    }, 700);
+  }
+
+  document.addEventListener('click', function (event) {
+    var target = event.target.closest('button');
+    if (!target || target.disabled) return;
+    var removeId = target.getAttribute('data-remove-song');
+    if (removeId) { removeSong(removeId); return; }
+    var openId = target.getAttribute('data-open-song');
+    if (openId) { walkId = openId; render(); return; }
+    if (target.id === 'walkPrev' || target.id === 'walkNext') {
+      var moved = nearestStored(walkIndex(), target.id === 'walkNext' ? 1 : -1);
+      if (moved !== -1) walkId = state.entries[moved].id;
+      render();
+      return;
+    }
+    var settingsList = target.getAttribute('data-settings-list');
+    if (settingsList === 'friday') { removeFriday(); return; }
+    if (settingsList === 'other') { removeOther(); return; }
+    if (target.id === 'removeListBtn') { removeFriday(); return; }
+    if (target.id === 'fastDownloadBtn') { state.stored.tempo = true; state.individual.tempo = true; render(); return; }
+    if (target.id === 'refreshBtn') { download(true); return; }
+    if (target.id === 'downloadBtn' || target.id === 'missingBtn' || target.id === 'tryAgainBtn') { download(false); }
+  });
+
+  el('walkSelect').addEventListener('change', function (event) { walkId = event.target.value; render(); });
+  el('toggleOffline').addEventListener('change', render);
+  el('addEntryBtn').addEventListener('click', function () {
+    if (!state.entries.some(function (s) { return s.id === EXTRA.id; })) state.entries = state.entries.concat([EXTRA]);
+    render();
+  });
+  el('resetBtn').addEventListener('click', function () {
+    state = initialState();
+    walkId = 'tempo';
+    el('toggleFail').checked = false;
+    el('toggleOffline').checked = false;
+    render();
+  });
+
+  state = initialState();
+  render();
+</script>
+</body>
+</html>
