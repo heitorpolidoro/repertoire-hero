@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import { OfflineStorageSection } from '@/components/settings/OfflineStorageSection';
 import { CustomFieldsSettingsSection } from '@/components/settings/CustomFieldsSettingsSection';
 import { AiAccessSettingsSection } from '@/components/settings/AiAccessSettingsSection';
+import { SubscriptionSettingsSection } from '@/components/settings/SubscriptionSettingsSection';
 import { Spinner } from '@/components/ui/Spinner';
 import { CUSTOM_FIELD_SETTINGS_ACTIONS } from '@/app/customFieldActions';
 import { API_TOKEN_SETTINGS_ACTIONS } from '@/app/apiTokenActions';
+import { BILLING_SETTINGS_ACTIONS } from '@/app/billingActions';
 import { useOfflineStatus } from '@/hooks/useOfflineStatus';
 import type { SpotifyPlaylist } from '@/types/database';
 
@@ -81,6 +83,9 @@ const SettingsPage = () => {
             </button>
           </div>
         )}
+
+        {/* The user's plan and its upgrade / manage action (RH-202) */}
+        <SubscriptionSettingsSection actions={BILLING_SETTINGS_ACTIONS} offline={offline} />
 
         {/* Spotify section */}
         <section className="flex flex-col gap-3">

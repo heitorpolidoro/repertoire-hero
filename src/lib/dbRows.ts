@@ -169,3 +169,19 @@ export interface PracticePlaylistRow {
   id: string
   name: string
 }
+
+/** `SUBSCRIPTION_COLUMNS` (RH-202): one `subscriptions` row; `pg` hands timestamps back as `Date`. */
+export interface SubscriptionRow {
+  id: string
+  user_id: string
+  plan: 'free' | 'pro'
+  status: 'trialing' | 'active' | 'past_due' | 'canceled'
+  trial_ends_at: Date | string | null
+  current_period_ends_at: Date | string | null
+  cancel_at_period_end: boolean
+  provider: string
+  provider_customer_id: string | null
+  provider_subscription_id: string | null
+  created_at: Date | string
+  updated_at: Date | string
+}

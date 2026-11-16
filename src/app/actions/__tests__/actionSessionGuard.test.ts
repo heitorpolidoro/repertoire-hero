@@ -146,6 +146,13 @@ import {
   createApiTokenAction,
   revokeApiTokenAction,
 } from '../apiTokens'
+import {
+  getSubscriptionStatusAction,
+  startCheckoutAction,
+  openCustomerPortalAction,
+  completeMockCheckoutAction,
+  cancelSubscriptionAction,
+} from '../billing'
 import type { Repertoire } from '@/types/database'
 
 const BAND_ID = 'band-1'
@@ -288,6 +295,16 @@ const FAIL_CLOSED: Record<string, { run: () => Promise<unknown>; mode: FailMode 
   listApiTokensAction: { run: () => listApiTokensAction(), mode: 'envelope' },
   createApiTokenAction: { run: () => createApiTokenAction({ name: 'Agent', scopes: ['read'] }), mode: 'envelope' },
   revokeApiTokenAction: { run: () => revokeApiTokenAction('token-1'), mode: 'envelope' },
+
+  // --- billing.ts (RH-202) ---
+  getSubscriptionStatusAction: { run: () => getSubscriptionStatusAction(), mode: 'envelope' },
+  startCheckoutAction: { run: () => startCheckoutAction('monthly'), mode: 'envelope' },
+  openCustomerPortalAction: { run: () => openCustomerPortalAction(), mode: 'envelope' },
+  completeMockCheckoutAction: {
+    run: () => completeMockCheckoutAction('mock_cs_monthly_user-1'),
+    mode: 'envelope',
+  },
+  cancelSubscriptionAction: { run: () => cancelSubscriptionAction(), mode: 'envelope' },
 }
 
 beforeEach(() => {

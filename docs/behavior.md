@@ -134,6 +134,9 @@ Registry of what the system does today, one `##` section per functional area and
 - Changing the email mails a verification link and the login email moves only when it is opened. (src/lib/emailChange.ts, src/components/profile/EmailChangeSection.tsx, src/lib/__tests__/emailChange.test.ts)
 - Spotify can be connected and disconnected from the account, and a Spotify route requires a connected, signed-in user. (src/lib/spotifyConnection.ts, src/lib/spotifyRouteAuth.ts, src/app/api/auth/spotify/callback/route.ts)
 - The dev profiles endpoint answers 404 outside development. (src/app/api/dev/profiles/route.ts, src/lib/devProfiles.ts)
+- A user resolves to Pro plan entitlements by default until billing is enforced; when billing is enabled, plan entitlements govern limits for charts, custom fields, audio uploads, API tokens, setlist player, and offline downloads. (src/lib/subscriptions.ts, src/lib/entitlements.ts) (RH-202)
+- The payment layer abstracts billing providers behind a common interface with an initial mock adapter supporting checkout sessions, customer portal URLs, and webhook handling. (src/lib/billing/types.ts, src/lib/billing/mockAdapter.ts) (RH-202)
+- Settings displays the user's subscription tier, trial status, and renewal period with actions to upgrade or manage billing. (src/components/settings/SubscriptionSettingsSection.tsx, src/app/settings/page.tsx) (RH-202)
 
 ## Bands and admin
 - Creating a band makes its creator an admin; members have the admin or member role. (src/lib/bands.ts, src/lib/__tests__/bands.test.ts)
